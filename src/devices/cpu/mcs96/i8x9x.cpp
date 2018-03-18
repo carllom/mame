@@ -194,7 +194,7 @@ uint8_t i8x9x_device::io_r8(uint8_t adr)
 		return 0x00;
 	case 0x06:
 		logerror("%s: read hsi status (%04x)\n", tag(), PPC);
-		return 0x00;
+		return 0x02; // TODO: fix proper HSI port implementation
 	case 0x07:
 		logerror("%s: read sbuf %02x (%04x)\n", tag(), sbuf, PPC);
 		return sbuf;
@@ -331,12 +331,12 @@ void i8x9x_device::internal_update(uint64_t current_time)
 			}
 		}
 
-	if(current_time == ad_done) {
+	if(current_time >= ad_done && ad_done) {
 		ad_done = 0;
 		ad_result &= ~8;
 	}
 
-	if(current_time == serial_send_timer)
+	if(current_time >= serial_send_timer && serial_send_timer)
 		serial_send_done();
 
 	uint64_t event_time = 0;
