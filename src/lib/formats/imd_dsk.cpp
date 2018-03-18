@@ -501,6 +501,7 @@ bool imd_format::load(io_generic *io, uint32_t form_factor, floppy_image *image)
 		}
 
 		for(int i=0; i<sector_count; i++)
+			//if(sects[i].data && (sects[i].data < &img[0] || sects[i].data >= &img[size-1])) // My old patch
 			if(sects[i].data && (sects[i].data < &img[0] || sects[i].data >= (&img[0] + size)))
 				global_free_array(sects[i].data);
 	}
