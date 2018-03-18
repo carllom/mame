@@ -501,7 +501,7 @@ void i8x9x_device::internal_update(u64 current_time)
 		check_irq();
 	}
 
-	if(current_time == serial_send_timer)
+	if(current_time >= serial_send_timer && serial_send_timer)
 		serial_send_done();
 
 	u64 event_time = 0;
