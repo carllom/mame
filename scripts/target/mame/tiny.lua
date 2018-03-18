@@ -17,6 +17,7 @@
 --------------------------------------------------
 
 CPUS["NS32016"] = true
+CPUS["M680X0"] = true
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
@@ -36,6 +37,8 @@ SOUNDS["DAC"] = true
 MACHINES["WD17XX"] = true
 MACHINES["NCR5380"] = true
 MACHINES["HARDDRIV"] = true
+MACHINES["T6963"] = true
+MACHINES["UPD765"] = true
 
 --------------------------------------------------
 -- specify available bus cores
@@ -69,7 +72,9 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
-	MAME_DIR .. "src/mame/drivers/emuiii.cpp",
+	MAME_DIR .. "src/mame/drivers/e6400.c",
+	MAME_DIR .. "src/mame/drivers/emuiii.c",
+	MAME_DIR .. "src/mame/video/t6963.c",
 }
 end
 
