@@ -1,0 +1,39 @@
+<!-- s330.lay -->
+
+<mamelayout version="2">
+	
+	<element name="lcd">
+		<text string="LCD:">
+			<color red="0.5" green="1.0" blue="0.5" />
+		</text>
+	</element>
+	<element name="crt">
+		<text string="CRT:">
+			<color red="0.5" green="0.5" blue="1.0" />
+		</text>
+	</element>
+	
+	<view name="Default">
+		<!-- Black background -->
+		<bounds left="0" right="640" top="0" bottom="480" />
+
+		<!-- LCD screen -->
+		<screen index="1">
+			<bounds x="50" y="0" width="192" height="36" />
+		</screen>
+
+		<!-- CRT screen -->
+		<screen index="0">
+			<bounds x="50" y="100" width="336" height="252" />
+		</screen>
+
+		<bezel element="lcd">
+			<bounds x="0" y="0" width="50" height="18" />
+		</bezel>
+		
+		<bezel element="crt">
+			<bounds x="0" y="100" width="50" height="18" />
+		</bezel>
+
+	</view>
+</mamelayout>

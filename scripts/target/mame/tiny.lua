@@ -16,35 +16,14 @@
 -- drivers referenced in tiny.lst.
 --------------------------------------------------
 
-CPUS["Z80"] = true
-CPUS["M6502"] = true
-CPUS["MCS48"] = true
-CPUS["MCS51"] = true
-CPUS["M6800"] = true
-CPUS["M6805"] = true
-CPUS["M6809"] = true
-CPUS["M680X0"] = true
-CPUS["TMS9900"] = true
-CPUS["COP400"] = true
+CPUS["MCS96"] = true
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
 -- drivers referenced in tiny.lst.
 --------------------------------------------------
 
-SOUNDS["SAMPLES"] = true
 SOUNDS["DAC"] = true
-SOUNDS["DISCRETE"] = true
-SOUNDS["AY8910"] = true
-SOUNDS["YM2151"] = true
-SOUNDS["ASTROCADE"] = true
-SOUNDS["TMS5220"] = true
-SOUNDS["OKIM6295"] = true
-SOUNDS["HC55516"] = true
-SOUNDS["YM3812"] = true
-SOUNDS["CEM3394"] = true
-SOUNDS["VOTRAX"] = true
-SOUNDS["VOLT_REG"] = true
 
 --------------------------------------------------
 -- specify available video cores
@@ -54,28 +33,16 @@ SOUNDS["VOLT_REG"] = true
 -- specify available machine cores
 --------------------------------------------------
 
-MACHINES["6821PIA"] = true
-MACHINES["TTL74148"] = true
-MACHINES["TTL74153"] = true
-MACHINES["TTL74157"] = true
-MACHINES["TTL7474"] = true
-MACHINES["TTL74259"] = true
-MACHINES["RIOT6532"] = true
-MACHINES["PIT8253"] = true
-MACHINES["Z80CTC"] = true
-MACHINES["Z80PIO"] = true
-MACHINES["68681"] = true
-MACHINES["BANKDEV"] = true
-MACHINES["GEN_LATCH"] = true
-MACHINES["TICKET"] = true
-MACHINES["WATCHDOG"] = true
-
+MACHINES["SA16"] = true
+MACHINES["HD44780"] = true
+MACHINES["TMS3556"] = true
+MACHINES["WD_FDC"] = true
 
 --------------------------------------------------
 -- specify available bus cores
 --------------------------------------------------
 
-BUSES["CENTRONICS"] = true
+--BUSES["CENTRONICS"] = true
 
 --------------------------------------------------
 -- This is the list of files that are necessary
@@ -103,7 +70,7 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
-	MAME_DIR .. "src/mame/drivers/carpolo.cpp",
+	MAME_DIR .. "src/mame/drivers/s330.c",
 	MAME_DIR .. "src/mame/includes/carpolo.h",
 	MAME_DIR .. "src/mame/machine/carpolo.cpp",
 	MAME_DIR .. "src/mame/video/carpolo.cpp",
