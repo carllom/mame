@@ -248,6 +248,8 @@ void tms3556_device::vram_w(uint8_t data)
 		if (m_vdp_acmp==VDP_BAMTF) m_vdp_acmp=VDP_BAMP;
 	}
 
+	m_control_regs[0] = 0; // Reset register pointer on VRAM access
+
 	if (!machine().side_effects_disabled())
 		m_reg = 0;
 }
