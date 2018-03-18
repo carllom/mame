@@ -208,6 +208,9 @@ READ8_MEMBER( tms3556_device::vram_r )
 		m_vdp_acmp++;
 		if (m_vdp_acmp==VDP_BAMTF) m_vdp_acmp=VDP_BAMP;
 	}
+	
+	m_control_regs[0] = 0; // Reset register pointer on VRAM access
+
 	return ret;
 }
 
@@ -239,6 +242,7 @@ WRITE8_MEMBER( tms3556_device::vram_w )
 		if (m_vdp_acmp==VDP_BAMTF) m_vdp_acmp=VDP_BAMP;
 	}
 
+	m_control_regs[0] = 0; // Reset register pointer on VRAM access
 }
 
 
@@ -263,6 +267,41 @@ WRITE8_MEMBER( tms3556_device::reg_w )
 {
 	LOG("TMS3556 Reg Write: %06x = %02x\n", offset, data);
 
+	int reg = m_control_regs[0] & 0x0F;
+	if (reg<8) {
+		m_control_regs[reg]=data;
+		// leve un flag si le dernier registre ecrit est row ou col
+		if ((reg==2) || (reg==1)) {
+			m_colrow=(m_control_regs[2]<<8)|m_control_regs[1];
+			m_row_col_written=true;
+		}
+	} else {
+		m_address_regs[reg-8]=(m_control_regs[2]<<8)|m_control_regs[1];
+		// cas speciaux de decalage pour les generateurs
+		if ((reg>=0xB) && (reg<=0xE)) {
+			m_address_regs[reg-8]+=2;
+			m_address_regs[reg-8]&=0xFFFF;
+		} else {
+			m_address_regs[reg-8]+=1;
+			m_address_regs[reg-8]&=0xFFFF;
+		}
+		if (reg==9) {
+			m_row_col_written=false;
+			m_bamp_written=true;
+		} else {
+			m_row_col_written=0;
+			m_bamp_written=false;
+		}
+		if (LOG) logerror("VDP16[%d] = x%x",reg,m_address_regs[reg-8]);
+	}
+	
+	// Copy return address to lower nybble
+	if (reg != 0) {
+		m_control_regs[0] &= 0xF0;
+		m_control_regs[0] |= (m_control_regs[0] >> 4) & 0x0F;
+	}
+
+/*
 	switch (m_reg_access_phase) {
 	case 0:
 		m_reg=data&0x0F;
@@ -325,6 +364,7 @@ WRITE8_MEMBER( tms3556_device::reg_w )
 		m_reg_access_phase=0;
 		return;
 	}
+	*/
 }
 
 //--------------------------------------------------------------------------
