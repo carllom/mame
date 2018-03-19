@@ -16,8 +16,8 @@
 -- drivers referenced in tiny.lst.
 --------------------------------------------------
 
-CPUS["NS32016"] = true
-CPUS["M680X0"] = true
+CPUS["M680X0"] = true -- e6400
+CPUS["NS32016"] = true -- eiii
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
@@ -30,21 +30,19 @@ SOUNDS["DAC"] = true
 -- specify available video cores
 --------------------------------------------------
 
+VIDEOS["T6963"] = true -- e6400
+
 --------------------------------------------------
 -- specify available machine cores
 --------------------------------------------------
 
-MACHINES["WD17XX"] = true
-MACHINES["NCR5380"] = true
-MACHINES["HARDDRIV"] = true
-MACHINES["T6963"] = true
-MACHINES["UPD765"] = true
+MACHINES["WD_FDC"] = true -- emuiii
+MACHINES["UPD765"] = true -- e6400
+MACHINES["NCR5380"] = true -- emuiii
 
 --------------------------------------------------
 -- specify available bus cores
 --------------------------------------------------
-
---BUSES["CENTRONICS"] = true
 
 --------------------------------------------------
 -- This is the list of files that are necessary
@@ -72,9 +70,13 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
-	MAME_DIR .. "src/mame/drivers/e6400.c",
-	MAME_DIR .. "src/mame/drivers/emuiii.c",
-	MAME_DIR .. "src/mame/video/t6963.c",
+	-- e6400
+	MAME_DIR .. "src/mame/drivers/e6400.cpp",
+	MAME_DIR .. "src/mame/video/t6963.cpp",
+	MAME_DIR .. "src/mame/video/t6963.h",
+
+	-- eiii
+	MAME_DIR .. "src/mame/drivers/emuiii.cpp",	
 }
 end
 

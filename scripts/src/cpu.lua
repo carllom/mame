@@ -2674,3 +2674,19 @@ if (_OPTIONS["with-tools"]) then
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nuon/nuondasm.cpp")
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nuon/nuondasm.h")
 end
+
+--------------------------------------------------
+-- National Semiconductor NS32016
+--@src/devices/cpu/ns32016/ns32016.h,CPUS["NS32016"] = true
+--------------------------------------------------
+
+if (CPUS["NS32016"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/cpu/ns32016/ns32016.cpp",
+		MAME_DIR .. "src/devices/cpu/ns32016/ns32016.h",
+	}
+end
+
+if (CPUS["NS32016"]~=null or _OPTIONS["with-tools"]) then
+	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/ns32016/ns32016dasm.cpp")
+end
