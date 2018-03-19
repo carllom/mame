@@ -71,7 +71,8 @@ public:
 	      m_q133_pic_p2(*this, TAG_Q133_PIC_P2), // P2 interrupt controller
 
 	      m_qfc9_fdc(*this, TAG_QFC9_FDC),
-	      m_floppy0(*this, FLOPPY_0),
+	      m_floppy0(*this, TAG_QFC9_FD0),
+		  m_floppy1(*this, TAG_QFC9_FD1),
 
 	      m_ikb1_cpu(*this, TAG_IKB1_CPU),
     	  m_ikb1_pia(*this, TAG_IKB1_PIA),
@@ -82,6 +83,8 @@ public:
     	  m_cmi10_disp2(*this, TAG_CMI10_DISP2),
     	  m_cmi10_pia0(*this, TAG_CMI10_PIA0),
     	  m_cmi10_pia1(*this, TAG_CMI10_PIA1),
+
+		  m_palette(*this, "palette"),
 
 		  m_mapsel(*this, "mapsel")
     {
@@ -98,6 +101,9 @@ public:
 	void pop_map_p1() { logerror("CPU P1 pop map\n"); set_map_p1(prevmapP1); }
 	void push_map_p2(UINT8 map) { if (map == curmapP2) return; prevmapP2 = curmapP2; set_map_p2(map); }
 	void pop_map_p2() { logerror("CPU P2 pop map\n"); set_map_p2(prevmapP2); }
+
+	void updateLed(cmi2x_state* state, UINT8 ctrl, UINT8 data);
+	void fdc_rdy_w(floppy_image_device * device, int state);
 
     bool m_penbout;
     bool m_venb;
@@ -134,6 +140,7 @@ public:
 	UINT8 m_fdc_wreg;
 	int m_fdc_dmaaddr;
 	int m_fdc_dmacount; // inverted
+	floppy_image_device *active_floppy;
 
 
 //	serial_connection kbd_data;
@@ -149,9 +156,9 @@ public:
 	DECLARE_WRITE_LINE_MEMBER( fdc_drq_w );
 	DECLARE_WRITE_LINE_MEMBER( fdc_rdy_w );
 
-	DECLARE_READ_LINE_MEMBER( pia_rtc_ad_r );
-	DECLARE_WRITE_LINE_MEMBER( pia_rtc_ad_w );
-	DECLARE_WRITE_LINE_MEMBER( pia_rtc_ctrl_w );
+	DECLARE_READ8_MEMBER( pia_rtc_ad_r );
+	DECLARE_WRITE8_MEMBER( pia_rtc_ad_w );
+	DECLARE_WRITE8_MEMBER( pia_rtc_ctrl_w );
 
 	//
 	// Interrupt controllers P1+P2
@@ -179,22 +186,25 @@ public:
 	required_device<pia6821_device> m_q133_pia1;
 	required_device<msm5832_device> m_q133_rtc;
 	required_device<ptm6840_device> m_q133_timer;
-	required_device<acia6551_device> m_q133_acia0;
-	required_device<acia6551_device> m_q133_acia1;
-	required_device<acia6551_device> m_q133_acia2;
-	required_device<acia6551_device> m_q133_acia3;
+	required_device<mos6551_device> m_q133_acia0;
+	required_device<mos6551_device> m_q133_acia1;
+	required_device<mos6551_device> m_q133_acia2;
+	required_device<mos6551_device> m_q133_acia3;
 	required_device<i8214_device> m_q133_pic_p1;
 	required_device<i8214_device> m_q133_pic_p2;
-	required_device<fd1791_device> m_qfc9_fdc;
-	required_device<device_t> m_floppy0;
-	required_device<m6802_device> m_ikb1_cpu;
+	required_device<fd1791_t> m_qfc9_fdc;
+	required_device<floppy_connector> m_floppy0;
+	required_device<floppy_connector> m_floppy1;
+	required_device<m6802_cpu_device> m_ikb1_cpu;
 	required_device<pia6821_device> m_ikb1_pia;
-	required_device<m6802_device> m_cmi10_cpu;
+	required_device<m6802_cpu_device> m_cmi10_cpu;
 	required_device<dl1416_device> m_cmi10_disp0;
 	required_device<dl1416_device> m_cmi10_disp1;
 	required_device<dl1416_device> m_cmi10_disp2;
 	required_device<pia6821_device> m_cmi10_pia0;
 	required_device<pia6821_device> m_cmi10_pia1;
+
+	required_device<palette_device> m_palette;
 
 	DECLARE_READ8_MEMBER( cmi10_dil_r );
 	DECLARE_WRITE_LINE_MEMBER( cmi10_pia0_ca2_w );
@@ -208,10 +218,17 @@ public:
 	DECLARE_READ8_MEMBER( cmi10_kd_r );
 	UINT8 adValue;
 
-	DECLARE_READ8_MEMBER( ikb1_dil_r );
-	DECLARE_WRITE8_MEMBER( ikb1_keyrow_w );
-	DECLARE_WRITE_LINE_MEMBER( ikb1_flagout_w );
-	DECLARE_WRITE_LINE_MEMBER( ikb1_dataout_w);
+	DECLARE_READ8_MEMBER(ikb1_dil_r);
+	DECLARE_WRITE8_MEMBER(ikb1_keyrow_w);
+	DECLARE_WRITE_LINE_MEMBER(ikb1_flagout_w);
+	DECLARE_WRITE_LINE_MEMBER(ikb1_dataout_w);
+	TIMER_DEVICE_CALLBACK_MEMBER(pulse_ikb1_pia);
+
+	DECLARE_WRITE16_MEMBER(cmi2x_update_ds1);
+	DECLARE_WRITE16_MEMBER(cmi2x_update_ds2);
+	DECLARE_WRITE16_MEMBER(cmi2x_update_ds3);
+
+	TIMER_DEVICE_CALLBACK_MEMBER(pulse_cmi10_scnd);
 };
 
 void cmi2x_state::machine_start()
@@ -222,6 +239,10 @@ void cmi2x_state::machine_start()
 	// FDC init
 	m_region_fdc = memregion("fdc")->base();
 	m_fdc_stat = 0x98;
+	active_floppy = NULL; //m_floppy0->get_device();
+	m_floppy0->get_device()->setup_ready_cb(floppy_image_device::ready_cb(FUNC(cmi2x_state::fdc_rdy_w), this));
+	m_floppy1->get_device()->setup_ready_cb(floppy_image_device::ready_cb(FUNC(cmi2x_state::fdc_rdy_w), this));
+
 
 	// Gfx init
 	m_vram_curpos = 0;
@@ -271,10 +292,10 @@ static ADDRESS_MAP_START(cmi2x_p1_mem, AS_PROGRAM, 8, cmi2x_state)
 	AM_RANGE( 0xfc5e, 0xfc5f ) AM_READWRITE(cmi2x_psc_r, cmi2x_psc_w)
 	AM_RANGE( 0xfc40, 0xfc4f ) AM_SHARE("mapsel") AM_RAM //AM_BASE_LEGACY(m_mapsel)
 //	AM_RANGE( 0xfc5a, 0xfc5b ) Hard disk subsystem Q077)
-	AM_RANGE( 0xfc80, 0xfc83 ) AM_DEVREADWRITE(TAG_Q133_ACIA0, acia6551_device, read, write)
-	AM_RANGE( 0xfc84, 0xfc87 ) AM_DEVREADWRITE(TAG_Q133_ACIA1, acia6551_device, read, write)
-	AM_RANGE( 0xfc88, 0xfc8b ) AM_DEVREADWRITE(TAG_Q133_ACIA2, acia6551_device, read, write)
-	AM_RANGE( 0xfc8c, 0xfc8f ) AM_DEVREADWRITE(TAG_Q133_ACIA3, acia6551_device, read, write)
+	AM_RANGE( 0xfc80, 0xfc83 ) AM_DEVREADWRITE(TAG_Q133_ACIA0, mos6551_device, read, write)
+	AM_RANGE( 0xfc84, 0xfc87 ) AM_DEVREADWRITE(TAG_Q133_ACIA1, mos6551_device, read, write)
+	AM_RANGE( 0xfc88, 0xfc8b ) AM_DEVREADWRITE(TAG_Q133_ACIA2, mos6551_device, read, write)
+	AM_RANGE( 0xfc8c, 0xfc8f ) AM_DEVREADWRITE(TAG_Q133_ACIA3, mos6551_device, read, write)
 	AM_RANGE( 0xfc90, 0xfc97 ) AM_DEVREADWRITE(TAG_Q133_TIMER, ptm6840_device, read, write)
 //	AM_RANGE( 0xfcc*, ) PIA?
 	AM_RANGE( 0xfcc4, 0xfcc4) AM_WRITE(cmi2x_gfxlatch_w) /* Graphics scroll latch */
@@ -302,10 +323,10 @@ static ADDRESS_MAP_START(cmi2x_p2_mem, AS_PROGRAM, 8, cmi2x_state)
 	AM_RANGE( 0xfc5e, 0xfc5f ) AM_READWRITE(cmi2x_psc_r, cmi2x_psc_w)
 	AM_RANGE( 0xfc40, 0xfc4f ) AM_SHARE("mapsel") AM_RAM
 	AM_RANGE( 0xfc5a, 0xfc5b ) AM_READ(cmi2x_q077_r) /* hard drive */
-	AM_RANGE( 0xfc80, 0xfc83 ) AM_DEVREADWRITE(TAG_Q133_ACIA0, acia6551_device, read, write)
-	AM_RANGE( 0xfc84, 0xfc87 ) AM_DEVREADWRITE(TAG_Q133_ACIA1, acia6551_device, read, write)
-	AM_RANGE( 0xfc88, 0xfc8b ) AM_DEVREADWRITE(TAG_Q133_ACIA2, acia6551_device, read, write)
-	AM_RANGE( 0xfc8c, 0xfc8f ) AM_DEVREADWRITE(TAG_Q133_ACIA3, acia6551_device, read, write)
+	AM_RANGE( 0xfc80, 0xfc83 ) AM_DEVREADWRITE(TAG_Q133_ACIA0, mos6551_device, read, write)
+	AM_RANGE( 0xfc84, 0xfc87 ) AM_DEVREADWRITE(TAG_Q133_ACIA1, mos6551_device, read, write)
+	AM_RANGE( 0xfc88, 0xfc8b ) AM_DEVREADWRITE(TAG_Q133_ACIA2, mos6551_device, read, write)
+	AM_RANGE( 0xfc8c, 0xfc8f ) AM_DEVREADWRITE(TAG_Q133_ACIA3, mos6551_device, read, write)
 	AM_RANGE( 0xfc90, 0xfc97 ) AM_DEVREADWRITE(TAG_Q133_TIMER, ptm6840_device, read, write)
 	AM_RANGE( 0xfca0, 0xfca2 ) AM_READ(cmi2x_q077_r) // MIDI
 //	AM_RANGE( 0xfcc*, ) PIA?
@@ -381,10 +402,10 @@ WRITE8_MEMBER( cmi2x_state::cmi2x_psc_w )
 		switch (data & 0x7)
 		{
 		case 0: // Interproc interrupt P1
-			device_set_input_line(machine().device(TAG_Q209_P1), M6809_IRQ_LINE, bitset ? ASSERT_LINE : CLEAR_LINE);
+			m_q209_p1->irq_line(bitset ? ASSERT_LINE : CLEAR_LINE);
 			break;
 		case 1: // Interproc interrupt P2
-			device_set_input_line(machine().device(TAG_Q209_P2), M6809_IRQ_LINE, bitset ? ASSERT_LINE : CLEAR_LINE);
+			m_q209_p2->irq_line(bitset ? ASSERT_LINE : CLEAR_LINE);
 			break;
 		case 2: // HW trace P1
 			break;
@@ -397,10 +418,10 @@ WRITE8_MEMBER( cmi2x_state::cmi2x_psc_w )
 			nextmapP2 = bitset ? 3 : 0;
 			break;
 		case 6: // FIRQ P1
-			device_set_input_line(machine().device(TAG_Q209_P1), M6809_FIRQ_LINE, bitset ? ASSERT_LINE : CLEAR_LINE);
+			m_q209_p1->firq_line(bitset ? ASSERT_LINE : CLEAR_LINE);
 			break;
 		case 7: // FIRQ P2
-			device_set_input_line(machine().device(TAG_Q209_P2), M6809_FIRQ_LINE, bitset ? ASSERT_LINE : CLEAR_LINE);
+			m_q209_p2->firq_line(bitset ? ASSERT_LINE : CLEAR_LINE);
 			break;
 		}
 //		logerror("%s: Write to Processor System Control register @%x: %02x\n", space.machine().describe_context(), offset, data);
@@ -583,70 +604,73 @@ WRITE8_MEMBER( cmi2x_state::cmi2x_mapram_w )
  * READ  -- PB1
  * WRITE -- PB2
  */
-static const pia6821_interface pia0_intf =
-{
-		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pia_rtc_ad_r ),
-		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
-		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pia_rtc_ad_w ),
-		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pia_rtc_ctrl_w),
-	    DEVCB_NULL, //	    devcb_write_line m_out_ca2_cb;
-	    DEVCB_NULL, //	    devcb_write_line m_out_cb2_cb; // Powerdown inhibit
-	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
-	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
-};
+// !!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!!!!!!!
+//static const pia6821_interface pia0_intf =
+//{
+//		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pia_rtc_ad_r ),
+//		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
+//		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pia_rtc_ad_w ),
+//		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pia_rtc_ctrl_w),
+//	    DEVCB_NULL, //	    devcb_write_line m_out_ca2_cb;
+//	    DEVCB_NULL, //	    devcb_write_line m_out_cb2_cb; // Powerdown inhibit
+//	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
+//	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
+//};
 
 //
 // 2x parallel port
 //
-static const pia6821_interface pia1_intf =
-{
-		DEVCB_NULL, //	    devcb_read8 m_in_a_cb;
-		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
-		DEVCB_NULL, //	    devcb_write8 m_out_a_cb;
-		DEVCB_NULL, //	    devcb_write8 m_out_b_cb;
-	    DEVCB_NULL, //	    devcb_write_line m_out_ca2_cb;
-	    DEVCB_NULL, //	    devcb_write_line m_out_cb2_cb;
-	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
-	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
-};
+// !!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!!!!!!!
+//static const pia6821_interface pia1_intf =
+//{
+//		DEVCB_NULL, //	    devcb_read8 m_in_a_cb;
+//		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
+//		DEVCB_NULL, //	    devcb_write8 m_out_a_cb;
+//		DEVCB_NULL, //	    devcb_write8 m_out_b_cb;
+//	    DEVCB_NULL, //	    devcb_write_line m_out_ca2_cb;
+//	    DEVCB_NULL, //	    devcb_write_line m_out_cb2_cb;
+//	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
+//	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
+//};
 
-READ_LINE_MEMBER( cmi2x_state::pia_rtc_ad_r )
+READ8_MEMBER( cmi2x_state::pia_rtc_ad_r )
 {
 	address_space *dummy = machine().memory().first_space();//memory_nonspecific_space(machine());
 	return 0xf & m_q133_rtc->data_r( *dummy, 0, 0 );
 }
 
-WRITE_LINE_MEMBER( cmi2x_state::pia_rtc_ad_w )
+WRITE8_MEMBER( cmi2x_state::pia_rtc_ad_w )
 {
-	m_q133_rtc->address_w( state & 0x0f ); // bit 0-3
+	m_q133_rtc->address_w( data & 0x0f ); // bit 0-3
 	address_space *dummy = machine().memory().first_space(); //memory_nonspecific_space(machine());
-	m_q133_rtc->data_w( *dummy, 0, (state>>4) & 0xf0, 0 ); // bit 4-7
+	m_q133_rtc->data_w( *dummy, 0, (data>>4) & 0xf0, 0 ); // bit 4-7
 }
 
-WRITE_LINE_MEMBER( cmi2x_state::pia_rtc_ctrl_w )
+WRITE8_MEMBER( cmi2x_state::pia_rtc_ctrl_w )
 {
-	m_q133_rtc->hold_w( BIT(state,0) );
-	m_q133_rtc->read_w( BIT(state,1) );
-	m_q133_rtc->write_w( BIT(state,2) );
+	m_q133_rtc->hold_w( BIT(data,0) );
+	m_q133_rtc->read_w( BIT(data,1) );
+	m_q133_rtc->write_w( BIT(data,2) );
 }
 
-static const ptm6840_interface timr_intf =
-{
-	XTAL_1MHz, //		double m_internal_clock;
-	{ 0, 0, 0 }, //		double m_external_clock[3];
-	{ DEVCB_LINE_MEMBER(ptm6840_device, set_c3 ),
-	  DEVCB_NULL,
-	  DEVCB_NULL }, //		devcb_write8 m_out_cb[3];		// function to call when output[idx] changes
-	DEVCB_NULL //		devcb_write_line m_irq_cb;	// function called if IRQ line changes
-};
+// !!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!!!!!!!
+//static const ptm6840_interface timr_intf =
+//{
+//	XTAL_1MHz, //		double m_internal_clock;
+//	{ 0, 0, 0 }, //		double m_external_clock[3];
+//	{ DEVCB_LINE_MEMBER(ptm6840_device, set_c3 ),
+//	  DEVCB_NULL,
+//	  DEVCB_NULL }, //		devcb_write8 m_out_cb[3];		// function to call when output[idx] changes
+//	DEVCB_NULL //		devcb_write_line m_irq_cb;	// function called if IRQ line changes
+//};
 
 /*
  * PIC (Q133)
@@ -680,11 +704,12 @@ static const ptm6840_interface timr_intf =
 //
 // Interface for P1 interrupt controller (mapped to FCFD)
 //
-static I8214_INTERFACE( pic_p1_intf )
-{
-	DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pic_p1_irq_w), //devcb_write_line m_out_int_cb;
-	DEVCB_NULL	//devcb_write_line m_out_enlg_cb;
-};
+// !!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!!!!!!!
+//static I8214_INTERFACE( pic_p1_intf )
+//{
+//	DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, pic_p1_irq_w), //devcb_write_line m_out_int_cb;
+//	DEVCB_NULL	//devcb_write_line m_out_enlg_cb;
+//};
 
 // INT output from P1 PIC
 WRITE_LINE_MEMBER( cmi2x_state::pic_p1_irq_w )
@@ -712,11 +737,12 @@ WRITE8_MEMBER( cmi2x_state::pic_p1_w )
 	// Check for interrupt?
 }
 
-static I8214_INTERFACE( pic_p2_intf )
-{
-	DEVCB_CPU_INPUT_LINE(TAG_Q209_P2, M6809_IRQ_LINE), //	devcb_write_line	m_out_int_cb;
-	DEVCB_NULL //	devcb_write_line	m_out_enlg_cb;
-};
+// !!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!!!!!!!
+//static I8214_INTERFACE( pic_p2_intf )
+//{
+//	DEVCB_CPU_INPUT_LINE(TAG_Q209_P2, M6809_IRQ_LINE), //	devcb_write_line	m_out_int_cb;
+//	DEVCB_NULL //	devcb_write_line	m_out_enlg_cb;
+//};
 
 READ8_MEMBER( cmi2x_state::pic_p2_r )
 {
@@ -780,7 +806,7 @@ READ8_MEMBER( cmi2x_state::cmi2x_fdc_r )
 		case 0xd: // 1791 track
 		case 0xe: // 1791 sector
 		case 0xf: // 1791 data
-			regData = wd17xx_r(m_qfc9_fdc, m_fdc_wreg & 0x03 );
+			regData = m_qfc9_fdc->gen_r(m_fdc_wreg & 0x03 );
 			break;
 		}
 		logerror("%s: FDC read reg (%02x) => %02x\n", space.machine().describe_context(), m_fdc_wreg, regData);
@@ -796,13 +822,15 @@ READ8_MEMBER( cmi2x_state::cmi2x_fdc_r )
 
 		regData = m_fdc_stat;
 
-		regData &= ~(DSKSTATUS_2SID | DSKSTATUS_DCHG);
+		regData &= ~(DSKSTATUS_2SID | DSKSTATUS_DCHG); // Clear bits
 
-		/* 2-sided diskette */
-		regData |= floppy_twosid_r(m_floppy0) << 4;
+		if (active_floppy) {
+			/* 2-sided diskette */
+			regData |= active_floppy->twosid_r() << 4;
 
-		/* disk change */
-		regData |= floppy_dskchg_r(m_floppy0) << 5;
+			/* disk change */
+			regData |= active_floppy->dskchg_r() << 5;
+		}
 
 //		regData |= wd17xx_intrq_r(m_qfc9_fdc) << 6;
 		logerror("%s: FDC read status register %02x\n", space.machine().describe_context(), regData);
@@ -822,13 +850,28 @@ WRITE8_MEMBER( cmi2x_state::cmi2x_fdc_w )
 		{
 		case 0: // Control register
 			m_fdc_ctrl = data;
-			wd17xx_set_drive(m_qfc9_fdc, m_fdc_ctrl & 3); // Bit 0,1
+			//wd17xx_set_drive(m_qfc9_fdc, m_fdc_ctrl & 3); 
+			switch (m_fdc_ctrl & 3) // bit 0,1 - Set floppy
+			{
+			case 0: 
+				active_floppy = m_floppy0->get_device();
+				break;
+			case 1:
+				active_floppy = m_floppy1->get_device();
+				break;
+			case 2:
+			case 3:
+				active_floppy = NULL;
+				break; // floppy 3 & 4 not available
+			}
+			m_qfc9_fdc->set_floppy(active_floppy);
 			// bit 2 - Enable int
 			// bit 3 - /DMA ctr
 			// bit 4 - Direction (1=to disk)
-			wd17xx_set_side(m_qfc9_fdc, BIT(m_fdc_ctrl, 5));
+			if (active_floppy)
+				active_floppy->ss_w(BIT(m_fdc_ctrl, 5)); // bit 5 - side select
 			// bit 6 - retrig head
-			wd17xx_dden_w(m_qfc9_fdc, BIT(m_fdc_ctrl, 7));
+			m_qfc9_fdc->dden_w(BIT(m_fdc_ctrl, 7));
 			break; // TODO: Implement
 		case 2: // DMA addr lobyte
 			m_fdc_dmaaddr &= 0x0ff00;
@@ -860,7 +903,7 @@ WRITE8_MEMBER( cmi2x_state::cmi2x_fdc_w )
 		case 0xd: // 1791 track
 		case 0xe: // 1791 sector
 		case 0xf: // 1791 data
-			wd17xx_w(m_qfc9_fdc, m_fdc_wreg & 0x03, data);
+			m_qfc9_fdc->gen_w(m_fdc_wreg & 0x03, data);
 			break;
 		}
 	}
@@ -893,11 +936,11 @@ WRITE_LINE_MEMBER( cmi2x_state::fdc_drq_w )
 			if (!BIT(m_fdc_ctrl,4)) // Disk read
 			{
 				logerror("FDC DMA read\n");
-				UINT8 data = wd17xx_data_r(m_qfc9_fdc, m_fdc_ctrl & 3);
+				UINT8 data = m_qfc9_fdc->data_r();
 				if (m_fdc_dmacount < 0xffff)//if (m_fdc_dmacount < 0x10000)
 				{
 					push_map_p2(4); // State A,DMA1
-					cmi2x_pagedmem_w(*m_q209_p2->space(0), m_fdc_dmaaddr, data, 0xFF);
+					cmi2x_pagedmem_w(m_q209_p2->space(0), m_fdc_dmaaddr, data, 0xFF);
 					logerror("FDC DMA read byte %02x to offset %x, count %x\n", data, m_fdc_dmaaddr, m_fdc_dmacount);
 					m_fdc_dmaaddr++;
 					m_fdc_dmacount++;
@@ -912,11 +955,12 @@ WRITE_LINE_MEMBER( cmi2x_state::fdc_drq_w )
 			else // Disk write
 			{
 				logerror("FDC DMA write\n");
-				UINT8 data = cmi2x_pagedmem_r(*m_q209_p2->space(0), m_fdc_dmaaddr, 0xFF);
+				UINT8 data = cmi2x_pagedmem_r(m_q209_p2->space(0), m_fdc_dmaaddr, 0xFF);
 				if (m_fdc_dmacount < 0xffff)//if (m_fdc_dmacount < 0x10000)
 				{
 					push_map_p2(4); // State A,DMA1
-					wd17xx_data_w(m_qfc9_fdc, m_fdc_ctrl & 3, data);
+					m_qfc9_fdc->write(generic_space(), m_fdc_ctrl & 3, data);
+					//wd17xx_data_w(m_qfc9_fdc, m_fdc_ctrl & 3, data);
 					logerror("FDC DMA write byte %02x from offset %x, count %x\n", data, m_fdc_dmaaddr, m_fdc_dmacount);
 					m_fdc_dmaaddr++;
 					m_fdc_dmacount++;
@@ -942,43 +986,34 @@ WRITE_LINE_MEMBER( cmi2x_state::fdc_drq_w )
 	}
 }
 
-WRITE_LINE_MEMBER( cmi2x_state::fdc_rdy_w )
+void cmi2x_state::fdc_rdy_w(floppy_image_device * device, int state)
 {
 	m_fdc_stat = (m_fdc_stat & 0xF7) | (state << 3);
 	logerror("%s: FDC RDY %02x\n", machine().describe_context(), state);
 }
 
-static LEGACY_FLOPPY_OPTIONS_START(cmi2x)
-//	FLOPPY_OPTION( imd, "imd", "IMD floppy disk image",	imd_dsk_identify, imd_dsk_construct, NULL, NULL)
-//	FLOPPY_OPTION(mirage, "imd", "CMI disk image", basicdsk_identify_default, basicdsk_construct_default, NULL,
-//		HEADS([1])
-//		TRACKS([77])
-//		SECTORS([26])
-//		SECTOR_LENGTH([128])
-//		FIRST_SECTOR_ID([0]))
-LEGACY_FLOPPY_OPTIONS_END
+//static LEGACY_FLOPPY_OPTIONS_START(cmi2x)
+////	FLOPPY_OPTION( imd, "imd", "IMD floppy disk image",	imd_dsk_identify, imd_dsk_construct, NULL, NULL)
+////	FLOPPY_OPTION(mirage, "imd", "CMI disk image", basicdsk_identify_default, basicdsk_construct_default, NULL,
+////		HEADS([1])
+////		TRACKS([77])
+////		SECTORS([26])
+////		SECTOR_LENGTH([128])
+////		FIRST_SECTOR_ID([0]))
+//LEGACY_FLOPPY_OPTIONS_END
 
+//static const floppy_interface cmi2x_floppy_interface =
+//{
+//	FLOPPY_STANDARD_8_DSDD,
+//	LEGACY_FLOPPY_OPTIONS_NAME(cmi2x),
+//	"floppy_8"
+//};
 
-static const wd17xx_interface fdc_intf =
-{
-	DEVCB_NULL, //	devcb_read_line in_dden_func;
-	DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, fdc_intrq_w), //	devcb_write_line out_intrq_func;
-	DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, fdc_drq_w), //	devcb_write_line out_drq_func;
-	{ FLOPPY_0, FLOPPY_1, NULL, NULL }
-};
+static SLOT_INTERFACE_START(cmi_floppies)
+	SLOT_INTERFACE("floppy0", FLOPPY_8_DSDD)
+	SLOT_INTERFACE("floppy1", FLOPPY_8_DSDD)
+SLOT_INTERFACE_END
 
-static const floppy_interface cmi2x_floppy_interface =
-{
-	DEVCB_NULL,
-	DEVCB_NULL,
-	DEVCB_NULL,
-	DEVCB_NULL,
-	DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, fdc_rdy_w ),
-	FLOPPY_STANDARD_8_DSDD,
-	LEGACY_FLOPPY_OPTIONS_NAME(cmi2x),
-	NULL,
-	NULL
-};
 
 READ8_MEMBER( cmi2x_state::cmi2x_q077_r )
 {
@@ -1094,21 +1129,22 @@ ADDRESS_MAP_START(cmi2x_mc003_mem, AS_PROGRAM, 8, cmi2x_state)
 	AM_RANGE( 0xc000, 0xffff ) AM_MIRROR( 0x3c00 ) AM_ROM
 ADDRESS_MAP_END
 
-static const pia6821_interface ikb1_pia_intf =
-{
-		DEVCB_NULL, //	    devcb_read8 m_in_a_cb;
-		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
-		/* FLAG I */DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
-		 DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
-		DEVCB_NULL, //	    devcb_write8 m_out_a_cb;
-		DEVCB_DRIVER_MEMBER(cmi2x_state, ikb1_keyrow_w), //DEVCB_NULL, //	    devcb_write8 m_out_b_cb;
-		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, ikb1_flagout_w),// FLAG O devcb_write_line m_out_ca2_cb;
-	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, ikb1_dataout_w),// DATA O devcb_write_line m_out_cb2_cb;
-	    DEVCB_CPU_INPUT_LINE(TAG_IKB1_CPU, M6800_IRQ_LINE),	//	    devcb_write_line m_irq_a_cb;
-	    DEVCB_CPU_INPUT_LINE(TAG_IKB1_CPU, M6800_IRQ_LINE) //	    devcb_write_line m_irq_b_cb;
-};
+// !!!!!!!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!
+//static const pia6821_interface ikb1_pia_intf =
+//{
+//		DEVCB_NULL, //	    devcb_read8 m_in_a_cb;
+//		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
+//		/* FLAG I */DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
+//		 DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
+//		DEVCB_NULL, //	    devcb_write8 m_out_a_cb;
+//		DEVCB_DRIVER_MEMBER(cmi2x_state, ikb1_keyrow_w), //DEVCB_NULL, //	    devcb_write8 m_out_b_cb;
+//		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, ikb1_flagout_w),// FLAG O devcb_write_line m_out_ca2_cb;
+//	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, ikb1_dataout_w),// DATA O devcb_write_line m_out_cb2_cb;
+//	    DEVCB_CPU_INPUT_LINE(TAG_IKB1_CPU, M6800_IRQ_LINE),	//	    devcb_write_line m_irq_a_cb;
+//	    DEVCB_CPU_INPUT_LINE(TAG_IKB1_CPU, M6800_IRQ_LINE) //	    devcb_write_line m_irq_b_cb;
+//};
 
 READ8_MEMBER( cmi2x_state::ikb1_dil_r )
 {
@@ -1159,14 +1195,15 @@ WRITE8_MEMBER( cmi2x_state::ikb1_keyrow_w )
 //	logerror("%s: Keyboard matrix read. Row @%02x -> col %02x\n", space.machine().describe_context(), data, keys);
 }
 
-static TIMER_DEVICE_CALLBACK( pulse_ikb1_pia )
+TIMER_DEVICE_CALLBACK_MEMBER( cmi2x_state::pulse_ikb1_pia )
 {
 	// There MUST be a better way to do this...
 	pia6821_device *mach = (pia6821_device *)timer.machine().device(TAG_IKB1_PIA);
-	if (mach->cb1_r() == 0)
+	// PULSE THE LINE FOR EACH READ - REALLY BAD SOLUTION
+	/*if (mach->cb1_r() == 0)
 		mach->cb1_w(ASSERT_LINE);
 	else
-		mach->cb1_w(CLEAR_LINE);
+		mach->cb1_w(CLEAR_LINE);*/
 }
 
 WRITE_LINE_MEMBER( cmi2x_state::ikb1_flagout_w )
@@ -1185,10 +1222,10 @@ ADDRESS_MAP_START(cmi2x_mc004_mem, AS_PROGRAM, 8, cmi2x_state)
 	AM_RANGE( 0x0000, 0x007f ) AM_RAM // Internal(m6802) RAM
 	AM_RANGE( 0x0080, 0x0083 ) AM_DEVREADWRITE(TAG_CMI10_PIA1, pia6821_device, read, write)
 	AM_RANGE( 0x0090, 0x0093 ) AM_DEVREADWRITE(TAG_CMI10_PIA0, pia6821_device, read, write)
-	AM_RANGE( 0x00a0, 0x00a0 ) AM_DEVREADWRITE(TAG_CMI10_ACIA0, acia6850_device, status_read, control_write)
-	AM_RANGE( 0x00a1, 0x00a1 ) AM_DEVREADWRITE(TAG_CMI10_ACIA0, acia6850_device, data_read, data_write)
-	AM_RANGE( 0x00b0, 0x00b0 ) AM_DEVREADWRITE(TAG_CMI10_ACIA1, acia6850_device, status_read, control_write)
-	AM_RANGE( 0x00b1, 0x00b1 ) AM_DEVREADWRITE(TAG_CMI10_ACIA1, acia6850_device, data_read, data_write)
+	AM_RANGE( 0x00a0, 0x00a0 ) AM_DEVREADWRITE(TAG_CMI10_ACIA0, acia6850_device, status_r, control_w)
+	AM_RANGE( 0x00a1, 0x00a1 ) AM_DEVREADWRITE(TAG_CMI10_ACIA0, acia6850_device, data_r, data_w)
+	AM_RANGE( 0x00b0, 0x00b0 ) AM_DEVREADWRITE(TAG_CMI10_ACIA1, acia6850_device, status_r, control_w)
+	AM_RANGE( 0x00b1, 0x00b1 ) AM_DEVREADWRITE(TAG_CMI10_ACIA1, acia6850_device, data_r, data_w)
 	AM_RANGE( 0x00c0, 0x00c0 ) AM_READ(cmi10_dil_r)
 	AM_RANGE( 0x4000, 0x43ff ) AM_RAM
 	AM_RANGE( 0x5000, 0x53ff ) AM_UNMAP // RAM, but normally not installed
@@ -1206,21 +1243,22 @@ ADDRESS_MAP_END
 // CB2 -> B,/C
 // CA1 -> SC0
 // CA2 -> THLD
-static const pia6821_interface cmi10_piain_intf =
-{
-		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_kd_r), // devcb_read8 m_in_a_cb;
-		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_ad_r), // devcb_read8 m_in_b_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
-		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_kd_w), // devcb_write8 m_out_a_cb;
-		DEVCB_NULL, //	    devcb_write8 m_out_b_cb;
-	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_thold_w), //	    devcb_write_line m_out_ca2_cb;
-	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_bc_w), //	    devcb_write_line m_out_cb2_cb;
-	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
-	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
-};
+// !!!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!
+//static const pia6821_interface cmi10_piain_intf =
+//{
+//		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_kd_r), // devcb_read8 m_in_a_cb;
+//		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_ad_r), // devcb_read8 m_in_b_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
+//		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_kd_w), // devcb_write8 m_out_a_cb;
+//		DEVCB_NULL, //	    devcb_write8 m_out_b_cb;
+//	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_thold_w), //	    devcb_write_line m_out_ca2_cb;
+//	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_bc_w), //	    devcb_write_line m_out_cb2_cb;
+//	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
+//	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
+//};
 
 WRITE_LINE_MEMBER( cmi2x_state::cmi10_thold_w )
 {
@@ -1281,11 +1319,12 @@ WRITE_LINE_MEMBER( cmi2x_state::cmi10_bc_w )
 READ8_MEMBER( cmi2x_state::cmi10_ad_r )
 {
 //	logerror("%s: PIA1 - Reading AD port\n", machine().describe_context());
-	if (!m_cmi10_pia1->cb1_r())
-	{
-//		logerror("%s: PIA1 - Valid AD value %02x on bus\n", machine().describe_context(), adValue);
-		return adValue;
-	}
+	// TODO: FIX THIS - SHOULD BE HOOKED UP IN REVERSE - AS PUSH, NOT PULL
+//	if (!m_cmi10_pia1->cb1_r())
+//	{
+////		logerror("%s: PIA1 - Valid AD value %02x on bus\n", machine().describe_context(), adValue);
+//		return adValue;
+//	}
 	return 0;
 }
 
@@ -1387,43 +1426,45 @@ READ8_MEMBER( cmi2x_state::cmi10_kd_r )
 // CA1 -> SCND
 // CA2 -> flank triggers BKA6->LP1, BKA7->LP2
 //
-static const pia6821_interface cmi10_piaout_intf =
-{
-		DEVCB_NULL, //	    devcb_read8 m_in_a_cb;
-		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
-		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
-		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_bka_w), //	    devcb_write8 m_out_a_cb;
-		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_ledctr_w), //	    devcb_write8 m_out_b_cb;
-		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_pia0_ca2_w), //	    devcb_write_line m_out_ca2_cb;
-	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_pia0_cb2_w), //	    devcb_write_line m_out_cb2_cb;
-	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
-	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
-};
+// !!!!!!!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!
+//static const pia6821_interface cmi10_piaout_intf =
+//{
+//		DEVCB_NULL, //	    devcb_read8 m_in_a_cb;
+//		DEVCB_NULL, //	    devcb_read8 m_in_b_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb1_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_ca2_cb;
+//		DEVCB_LINE_GND, //	    devcb_read_line m_in_cb2_cb;
+//		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_bka_w), //	    devcb_write8 m_out_a_cb;
+//		DEVCB_DRIVER_MEMBER(cmi2x_state, cmi10_ledctr_w), //	    devcb_write8 m_out_b_cb;
+//		DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_pia0_ca2_w), //	    devcb_write_line m_out_ca2_cb;
+//	    DEVCB_DRIVER_LINE_MEMBER(cmi2x_state, cmi10_pia0_cb2_w), //	    devcb_write_line m_out_cb2_cb;
+//	    DEVCB_NULL, //	    devcb_write_line m_irq_a_cb;
+//	    DEVCB_NULL //	    devcb_write_line m_irq_b_cb;
+//};
 
-static void updateLed(cmi2x_state* state, UINT8 ctrl, UINT8 data)
+void cmi2x_state::updateLed(cmi2x_state* state, UINT8 ctrl, UINT8 data)
 {
-	dl1416_ce_w(state->m_cmi10_disp0, ctrl & 0x40);
-	dl1416_ce_w(state->m_cmi10_disp1, ctrl & 0x10);
-	dl1416_ce_w(state->m_cmi10_disp2, ctrl & 0x04);
+	state->m_cmi10_disp0->ce_w(ctrl & 0x40);
+	state->m_cmi10_disp1->ce_w(ctrl & 0x10);
+	state->m_cmi10_disp2->ce_w(ctrl & 0x04);
+
 	int adr = ((ctrl & 2)>>1) | ((ctrl & 1)<<1);
 
 	if ( !(ctrl & 0x40) ) // CS0 low
 	{
-		dl1416_data_w(state->m_cmi10_disp0, adr, data);
-		dl1416_cu_w(state->m_cmi10_disp0, ctrl & 0x80);
+		state->m_cmi10_disp0->data_w(generic_space(), adr, data);
+		state->m_cmi10_disp0->cu_w(ctrl & 0x80);
 	}
 	else if (!(ctrl & 0x10)) // CS1 low
 	{
-		dl1416_data_w(state->m_cmi10_disp1, adr, data);
-		dl1416_cu_w(state->m_cmi10_disp1, ctrl & 0x20);
+		state->m_cmi10_disp1->data_w(generic_space(), adr, data);
+		state->m_cmi10_disp1->cu_w(ctrl & 0x20);
 	}
 	else if (!(ctrl & 0x4)) // CS2 low
 	{
-		dl1416_data_w(state->m_cmi10_disp2, adr, data);
-		dl1416_cu_w(state->m_cmi10_disp2, ctrl & 0x8);
+		state->m_cmi10_disp2->data_w(generic_space(), adr, data);
+		state->m_cmi10_disp2->cu_w(ctrl & 0x08);
 	}
 
 	logerror("%s: PIA0 - Wrote to LED - data %02x, %02x\n", state->machine().describe_context(), ctrl, data);
@@ -1446,9 +1487,9 @@ WRITE_LINE_MEMBER( cmi2x_state::cmi10_pia0_ca2_w )
 WRITE_LINE_MEMBER( cmi2x_state::cmi10_pia0_cb2_w )
 {
 //	logerror("%s: PIA0 - CB2 LED strobe %02x\n", machine().describe_context(), state);
-	dl1416_wr_w(m_cmi10_disp0, state);
-	dl1416_wr_w(m_cmi10_disp1, state);
-	dl1416_wr_w(m_cmi10_disp2, state);
+	m_cmi10_disp0->wr_w(state);
+	m_cmi10_disp1->wr_w(state);
+	m_cmi10_disp2->wr_w(state);
 	if (state == 0)
 		updateLed(this, m_cmi10_pia0->b_output(), m_cmi10_pia0->a_output());
 }
@@ -1476,29 +1517,31 @@ WRITE8_MEMBER( cmi2x_state::cmi10_ledctr_w )
 
 
 // Alphanumeric keyboard comm
-static ACIA6850_INTERFACE( cmi10_acia0_intf )
-{
-	9600, //	int	m_tx_clock;
-	9600, //	int	m_rx_clock;
-	DEVCB_DEVICE_LINE_MEMBER(TAG_IKB1_PIA, pia6821_device, cb2_r), //	devcb_read_line		m_in_rx_cb;
-	DEVCB_NULL, //	devcb_write_line	m_out_tx_cb;
-	DEVCB_DEVICE_LINE_MEMBER(TAG_IKB1_PIA, pia6821_device, ca2_r), //	devcb_read_line		m_in_cts_cb;
-	DEVCB_DEVICE_LINE_MEMBER(TAG_IKB1_PIA, pia6821_device, ca1_w), //	devcb_write_line	m_out_rts_cb;
-	DEVCB_NULL, //	devcb_read_line		m_in_dcd_cb;
-	DEVCB_NULL //	devcb_write_line	m_out_irq_cb;
-};
+//!!!!!!!!!!!!!!!!! MOVED TO MACHINE CONFIG !!!!!!!!!!!!!!!!!!!!!
+//static ACIA6850_INTERFACE( cmi10_acia0_intf )
+//{
+//	9600, //	int	m_tx_clock;
+//	9600, //	int	m_rx_clock;
+//	DEVCB_DEVICE_LINE_MEMBER(TAG_IKB1_PIA, pia6821_device, cb2_r), //	devcb_read_line		m_in_rx_cb;
+//	DEVCB_NULL, //	devcb_write_line	m_out_tx_cb;
+//	DEVCB_DEVICE_LINE_MEMBER(TAG_IKB1_PIA, pia6821_device, ca2_r), //	devcb_read_line		m_in_cts_cb;
+//	DEVCB_DEVICE_LINE_MEMBER(TAG_IKB1_PIA, pia6821_device, ca1_w), //	devcb_write_line	m_out_rts_cb;
+//	DEVCB_NULL, //	devcb_read_line		m_in_dcd_cb;
+//	DEVCB_NULL //	devcb_write_line	m_out_irq_cb;
+//};
 
-static ACIA6850_INTERFACE( cmi10_acia1_intf )
-{
-	9600, //	int	m_tx_clock;
-	9600, //	int	m_rx_clock;
-	DEVCB_NULL, //	devcb_read_line		m_in_rx_cb;
-	DEVCB_NULL, //	devcb_write_line	m_out_tx_cb;
-	DEVCB_NULL, //	devcb_read_line		m_in_cts_cb;
-	DEVCB_NULL, //	devcb_write_line	m_out_rts_cb;
-	DEVCB_NULL, //	devcb_read_line		m_in_dcd_cb;
-	DEVCB_NULL //	devcb_write_line	m_out_irq_cb;
-};
+// !!!!!!!!!!!!!!!!!!!!!!! MOVED TO MACHINE CONFIGURATION !!!!!!!!!!!!!!!!!!!!!!!!!!
+//static ACIA6850_INTERFACE( cmi10_acia1_intf )
+//{
+//	9600, //	int	m_tx_clock;
+//	9600, //	int	m_rx_clock;
+//	DEVCB_NULL, //	devcb_read_line		m_in_rx_cb;
+//	DEVCB_NULL, //	devcb_write_line	m_out_tx_cb;
+//	DEVCB_NULL, //	devcb_read_line		m_in_cts_cb;
+//	DEVCB_NULL, //	devcb_write_line	m_out_rts_cb;
+//	DEVCB_NULL, //	devcb_read_line		m_in_dcd_cb;
+//	DEVCB_NULL //	devcb_write_line	m_out_irq_cb;
+//};
 
 READ8_MEMBER( cmi2x_state::cmi10_dil_r )
 {
@@ -1507,27 +1550,28 @@ READ8_MEMBER( cmi2x_state::cmi10_dil_r )
 }
 
 // These functions update output whenever a digit is changed in the device
-void cmi2x_update_ds1(device_t *device, int digit, int data)
+WRITE16_MEMBER( cmi2x_state::cmi2x_update_ds1 )
 {
-	output_set_digit_value(0 + (digit ^ 3), data);
+	output_set_digit_value(0 + (offset ^ 3), data);
 }
-void cmi2x_update_ds2(device_t *device, int digit, int data)
+WRITE16_MEMBER(cmi2x_state::cmi2x_update_ds2)
 {
-	output_set_digit_value(4 + (digit ^ 3), data);
+	output_set_digit_value(4 + (offset ^ 3), data);
 }
-void cmi2x_update_ds3(device_t *device, int digit, int data)
+WRITE16_MEMBER(cmi2x_state::cmi2x_update_ds3)
 {
-	output_set_digit_value(8 + (digit ^ 3), data);
+	output_set_digit_value(8 + (offset ^ 3), data);
 }
 
-static TIMER_DEVICE_CALLBACK( pulse_cmi10_scnd )
+TIMER_DEVICE_CALLBACK_MEMBER( cmi2x_state::pulse_cmi10_scnd )
 {
 	// There MUST be a better way to do this...
 	pia6821_device *mach = (pia6821_device *)timer.machine().device(TAG_CMI10_PIA0);
-	if (mach->ca1_r() == 0)
-		mach->ca1_w(ASSERT_LINE);
-	else
-		mach->ca1_w(CLEAR_LINE);
+	// TODO: FIX SIGNALLING SO THAT WE PUSH INSTEAD OF PULL
+	//if (mach->ca1_r() == 0)
+	//	mach->ca1_w(ASSERT_LINE);
+	//else
+	//	mach->ca1_w(CLEAR_LINE);
 }
 
 
@@ -1549,112 +1593,145 @@ static INPUT_PORTS_START( cmi2x )
 
 	PORT_START(TAG_CMI10_SLIDER1)
 	PORT_BIT( 0xff, 0x00, IPT_AD_STICK_X ) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
-	PORT_START(TAG_CMI10_SLIDER2)
-	PORT_BIT( 0xff, 0x00, IPT_AD_STICK_Y ) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
-	PORT_START(TAG_CMI10_SLIDER3)
-	PORT_BIT( 0xff, 0x00, IPT_AD_STICK_Z ) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
-	PORT_START(TAG_CMI10_PEDAL1)
-	PORT_BIT( 0xff, 0x00, IPT_PEDAL ) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
-	PORT_START(TAG_CMI10_PEDAL2)
-	PORT_BIT( 0xff, 0x00, IPT_PEDAL2 ) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
-	PORT_START(TAG_CMI10_PEDAL3)
-	PORT_BIT( 0xff, 0x00, IPT_PEDAL3 ) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
+PORT_START(TAG_CMI10_SLIDER2)
+PORT_BIT(0xff, 0x00, IPT_AD_STICK_Y) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
+PORT_START(TAG_CMI10_SLIDER3)
+PORT_BIT(0xff, 0x00, IPT_AD_STICK_Z) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
+PORT_START(TAG_CMI10_PEDAL1)
+PORT_BIT(0xff, 0x00, IPT_PEDAL) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
+PORT_START(TAG_CMI10_PEDAL2)
+PORT_BIT(0xff, 0x00, IPT_PEDAL2) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
+PORT_START(TAG_CMI10_PEDAL3)
+PORT_BIT(0xff, 0x00, IPT_PEDAL3) PORT_SENSITIVITY(100) PORT_KEYDELTA(64)
 
-	//
-	// CMI-10: Master keyboard - 73 keys C0-C6
-	//
-	PORT_INCLUDE( cmi_master_keyboard )
+//
+// CMI-10: Master keyboard - 73 keys C0-C6
+//
+PORT_INCLUDE(cmi_master_keyboard)
 
-	PORT_INCLUDE( cmi_slave_keyboard )
+PORT_INCLUDE(cmi_slave_keyboard)
 
-	// 1 2 3 A
-	// 4 5 6 B
-	// 7 8 9 C
-	// * 0 # D
-	// 1 4 * 7 2 5 0 8 3 6 # 9 A B D C
-	//
-	// CMI-10: Numeric keypad
-	//
-	PORT_INCLUDE( cmi_numeric_keyboard )
+// 1 2 3 A
+// 4 5 6 B
+// 7 8 9 C
+// * 0 # D
+// 1 4 * 7 2 5 0 8 3 6 # 9 A B D C
+//
+// CMI-10: Numeric keypad
+//
+PORT_INCLUDE(cmi_numeric_keyboard)
 
-	PORT_START(TAG_IKB1_SWOPT)
-	PORT_DIPNAME(0x07, 0x00, "Baud rate")
-	PORT_DIPSETTING(0x00,"9600")
-	PORT_DIPSETTING(0x01,"600")
-	PORT_DIPSETTING(0x02,"2400")
-	PORT_DIPSETTING(0x03,"150")
-	PORT_DIPSETTING(0x04,"4800")
-	PORT_DIPSETTING(0x05,"300")
-	PORT_DIPSETTING(0x06,"1200")
-	PORT_DIPSETTING(0x07,"110")
-	PORT_DIPUNUSED(0x08, 0x00)
-	PORT_DIPNAME(0x30, 0x10, "Parity")
-	PORT_DIPSETTING(0x00,"Even")
-	PORT_DIPSETTING(0x10,"Odd")
-	PORT_DIPSETTING(0x20,"None, bit7=0")
-	PORT_DIPSETTING(0x30,"None, bit7=1")
+PORT_START(TAG_IKB1_SWOPT)
+PORT_DIPNAME(0x07, 0x00, "Baud rate")
+PORT_DIPSETTING(0x00, "9600")
+PORT_DIPSETTING(0x01, "600")
+PORT_DIPSETTING(0x02, "2400")
+PORT_DIPSETTING(0x03, "150")
+PORT_DIPSETTING(0x04, "4800")
+PORT_DIPSETTING(0x05, "300")
+PORT_DIPSETTING(0x06, "1200")
+PORT_DIPSETTING(0x07, "110")
+PORT_DIPUNUSED(0x08, 0x00)
+PORT_DIPNAME(0x30, 0x10, "Parity")
+PORT_DIPSETTING(0x00, "Even")
+PORT_DIPSETTING(0x10, "Odd")
+PORT_DIPSETTING(0x20, "None, bit7=0")
+PORT_DIPSETTING(0x30, "None, bit7=1")
 
-	//
-	// IKB1: Alphanumeric keyboard
-	//
-	PORT_INCLUDE( cmi_alphanum_keyboard )
+//
+// IKB1: Alphanumeric keyboard
+//
+PORT_INCLUDE(cmi_alphanum_keyboard)
 
 INPUT_PORTS_END
 
-static MACHINE_CONFIG_START( cmi2x, cmi2x_state )
+
+
+static MACHINE_CONFIG_START(cmi2x, cmi2x_state)
 	// Q209 - Dual CPU card
 	MCFG_CPU_ADD(TAG_Q209_P1, M6809, CPU_CLOCK)  // P1 -
-    MCFG_CPU_PROGRAM_MAP(cmi2x_p1_mem)
-    MCFG_CPU_ADD(TAG_Q209_P2, M6809, CPU_CLOCK)  // P1 -
-    MCFG_CPU_PROGRAM_MAP(cmi2x_p2_mem)
+	MCFG_CPU_PROGRAM_MAP(cmi2x_p1_mem)
+	MCFG_CPU_ADD(TAG_Q209_P2, M6809, CPU_CLOCK)  // P1 -
+	MCFG_CPU_PROGRAM_MAP(cmi2x_p2_mem)
 
-    // QFC9 - Floppy controller
-    MCFG_FD1791_ADD(TAG_QFC9_FDC, fdc_intf)//default_wd17xx_interface_2_drives)  // WD1791 disk controller 2MHz clock derived from 16mhz master on card
-	MCFG_LEGACY_FLOPPY_2_DRIVES_ADD(cmi2x_floppy_interface)
+	// QFC9 - Floppy controller
+	MCFG_FD1791_ADD(TAG_QFC9_FDC, XTAL_2MHz)//default_wd17xx_interface_2_drives)  // WD1791 disk controller 2MHz clock derived from 16mhz master on card
+	MCFG_WD_FDC_INTRQ_CALLBACK(WRITELINE(cmi2x_state, fdc_intrq_w))
+	MCFG_WD_FDC_DRQ_CALLBACK(WRITELINE(cmi2x_state, fdc_drq_w))
+	
+	MCFG_FLOPPY_DRIVE_ADD(TAG_QFC9_FD0, cmi_floppies, "floppy0", floppy_image_device::default_floppy_formats)
+	MCFG_FLOPPY_DRIVE_SOUND(true)
+	MCFG_FLOPPY_DRIVE_ADD(TAG_QFC9_FD1, cmi_floppies, "floppy1", floppy_image_device::default_floppy_formats)
+	MCFG_FLOPPY_DRIVE_SOUND(true)
 
-    // Q133 - Processor control
-    MCFG_PIA6821_ADD(TAG_Q133_PIA0, pia0_intf)
-    MCFG_PIA6821_ADD(TAG_Q133_PIA1, pia1_intf)
+	// Q133 - Processor control
+	MCFG_DEVICE_ADD(TAG_Q133_PIA0, PIA6821, 0)
+	MCFG_PIA_READPA_HANDLER(READ8(cmi2x_state, pia_rtc_ad_r))
+	MCFG_PIA_WRITEPA_HANDLER(WRITE8(cmi2x_state, pia_rtc_ad_w))
+	MCFG_PIA_WRITEPB_HANDLER(WRITE8(cmi2x_state, pia_rtc_ctrl_w))
+	MCFG_DEVICE_ADD(TAG_Q133_PIA1, PIA6821, 0)
     MCFG_MSM5832_ADD(TAG_Q133_RTC, XTAL_32_768kHz)
-    MCFG_ACIA6551_ADD(TAG_Q133_ACIA0)
-    MCFG_ACIA6551_ADD(TAG_Q133_ACIA1)
-    MCFG_ACIA6551_ADD(TAG_Q133_ACIA2)
-    MCFG_ACIA6551_ADD(TAG_Q133_ACIA3)
-    MCFG_PTM6840_ADD(TAG_Q133_TIMER, timr_intf)
-    MCFG_I8214_ADD(TAG_Q133_PIC_P1, CPU_CLOCK, pic_p1_intf)
-    MCFG_I8214_ADD(TAG_Q133_PIC_P2, CPU_CLOCK, pic_p2_intf)
+    MCFG_DEVICE_ADD(TAG_Q133_ACIA0, MOS6551, XTAL_1_8432MHz)
+    MCFG_DEVICE_ADD(TAG_Q133_ACIA1, MOS6551, XTAL_1_8432MHz)
+    MCFG_DEVICE_ADD(TAG_Q133_ACIA2, MOS6551, XTAL_1_8432MHz)
+    MCFG_DEVICE_ADD(TAG_Q133_ACIA3, MOS6551, XTAL_1_8432MHz)
+    MCFG_DEVICE_ADD(TAG_Q133_TIMER, PTM6840, 0)
+	MCFG_PTM6840_INTERNAL_CLOCK(XTAL_1MHz) // TODO: Verify - what about external clks?
+	MCFG_PTM6840_OUT0_CB(DEVWRITELINE(TAG_Q133_TIMER, ptm6840_device, set_c3)) // output of timer#1 => clock of timer#3
+	MCFG_DEVICE_ADD(TAG_Q133_PIC_P1, I8214, CPU_CLOCK)
+	MCFG_I8214_IRQ_CALLBACK(WRITELINE(cmi2x_state, pic_p1_irq_w))
+	MCFG_DEVICE_ADD(TAG_Q133_PIC_P2, I8214, CPU_CLOCK)
+	MCFG_I8214_IRQ_CALLBACK(DEVWRITELINE(TAG_Q209_P2, m6809_device, irq_line))
 
     // MC003 - Alphanumeric keyboard
     MCFG_CPU_ADD(TAG_IKB1_CPU, M6802, CLK_MC003_CPU)
     MCFG_CPU_PROGRAM_MAP(cmi2x_mc003_mem)
-    MCFG_PIA6821_ADD(TAG_IKB1_PIA, ikb1_pia_intf) // Active key input + A/D conv input
-    MCFG_TIMER_ADD_PERIODIC(TAG_IKB1_COMMTMR, pulse_ikb1_pia, attotime::from_hz( CLK_MC003_CPU / 200 ))
+	MCFG_DEVICE_ADD(TAG_IKB1_PIA, PIA6821, 0) // Active key input + A/D conv input
+	MCFG_PIA_WRITEPB_HANDLER(WRITE8(cmi2x_state, ikb1_keyrow_w))
+	MCFG_PIA_CA2_HANDLER(DEVWRITELINE(TAG_CMI10_ACIA0, acia6850_device, write_cts))
+	MCFG_PIA_CB2_HANDLER(DEVWRITELINE(TAG_CMI10_ACIA0, acia6850_device, write_rxd))
 
+	MCFG_PIA_IRQA_HANDLER(DEVWRITELINE(TAG_IKB1_CPU, m6800_cpu_device, irq_line))
+	MCFG_PIA_IRQB_HANDLER(DEVWRITELINE(TAG_IKB1_CPU, m6800_cpu_device, irq_line))
+    MCFG_TIMER_DRIVER_ADD_PERIODIC(TAG_IKB1_COMMTMR, cmi2x_state, pulse_ikb1_pia, attotime::from_hz( CLK_MC003_CPU / 200 ))
 
     // MC004 - Musical keyboard
     MCFG_CPU_ADD(TAG_CMI10_CPU, M6802, CLK_MC004_CPU)
     MCFG_CPU_PROGRAM_MAP(cmi2x_mc004_mem)
-    MCFG_DL1416B_ADD(TAG_CMI10_DISP0, cmi2x_update_ds1)
-    MCFG_DL1416B_ADD(TAG_CMI10_DISP1, cmi2x_update_ds2)
-    MCFG_DL1416B_ADD(TAG_CMI10_DISP2, cmi2x_update_ds3)
-    MCFG_PIA6821_ADD(TAG_CMI10_PIA1, cmi10_piain_intf) // Active key input + A/D conv input
-    MCFG_PIA6821_ADD(TAG_CMI10_PIA0, cmi10_piaout_intf) // Key address output
-    MCFG_ACIA6850_ADD(TAG_CMI10_ACIA0, cmi10_acia0_intf) // Alphanumeric keyboard communication
-    MCFG_ACIA6850_ADD(TAG_CMI10_ACIA1, cmi10_acia1_intf) // CMI communication
-    MCFG_TIMER_ADD_PERIODIC(TAG_CMI10_SCND, pulse_cmi10_scnd, attotime::from_hz( CLK_MC004_CPU / 1024 )) // SCND half-cycle toggle
+	MCFG_DEVICE_ADD(TAG_CMI10_DISP0, DL1416B, 0)
+	MCFG_DL1416_UPDATE_HANDLER(WRITE16(cmi2x_state, cmi2x_update_ds1))
+	MCFG_DEVICE_ADD(TAG_CMI10_DISP1, DL1416B, 0)
+	MCFG_DL1416_UPDATE_HANDLER(WRITE16(cmi2x_state, cmi2x_update_ds2))
+	MCFG_DEVICE_ADD(TAG_CMI10_DISP2, DL1416B, 0)
+	MCFG_DL1416_UPDATE_HANDLER(WRITE16(cmi2x_state, cmi2x_update_ds3))
+	MCFG_DEVICE_ADD(TAG_CMI10_PIA1, PIA6821, 0) // Active key input + A/D conv input
+	MCFG_PIA_READPA_HANDLER(READ8(cmi2x_state, cmi10_kd_r))
+	MCFG_PIA_READPB_HANDLER(READ8(cmi2x_state, cmi10_ad_r))
+	MCFG_PIA_WRITEPA_HANDLER(WRITE8(cmi2x_state, cmi10_kd_w))
+	MCFG_PIA_CA2_HANDLER(WRITELINE(cmi2x_state, cmi10_thold_w))
+	MCFG_PIA_CB2_HANDLER(WRITELINE(cmi2x_state, cmi10_bc_w))
+	MCFG_DEVICE_ADD(TAG_CMI10_PIA0, PIA6821, 0) // Key address output
+	MCFG_PIA_WRITEPA_HANDLER(WRITE8(cmi2x_state, cmi10_bka_w))
+	MCFG_PIA_WRITEPB_HANDLER(WRITE8(cmi2x_state, cmi10_ledctr_w))
+	MCFG_PIA_CA2_HANDLER(WRITELINE(cmi2x_state, cmi10_pia0_ca2_w))
+	MCFG_PIA_CB2_HANDLER(WRITELINE(cmi2x_state, cmi10_pia0_cb2_w))
+	MCFG_DEVICE_ADD(TAG_CMI10_ACIA0, ACIA6850, CLK_MC004_CPU / 4) // Alphanumeric keyboard communication
+	MCFG_ACIA6850_RTS_HANDLER(DEVWRITELINE(TAG_IKB1_PIA, pia6821_device, ca1_w))
+	MCFG_DEVICE_ADD(TAG_CMI10_ACIA1, ACIA6850, CLK_MC004_CPU / 4) // CMI communication
+	MCFG_TIMER_DRIVER_ADD_PERIODIC(TAG_CMI10_SCND, cmi2x_state, pulse_cmi10_scnd, attotime::from_hz( CLK_MC004_CPU / 1024 )) // SCND half-cycle toggle
 
     MCFG_DEFAULT_LAYOUT(layout_cmi)
 
     MCFG_SCREEN_ADD( "screen", RASTER )
-	MCFG_SCREEN_UPDATE_DRIVER(cmi2x_state, screen_update)
-//	MCFG_SCREEN_SIZE( 512, 256 )
-//	MCFG_SCREEN_REFRESH_RATE( 30 )
 	MCFG_SCREEN_RAW_PARAMS(10380000, 512, 0, 511, 256, 0, 255)
-	MCFG_PALETTE_LENGTH( 2 )
-	MCFG_PALETTE_INIT( monochrome_green )
+	MCFG_SCREEN_UPDATE_DRIVER(cmi2x_state, screen_update)
+	MCFG_SCREEN_PALETTE("palette")
 
-//	MCFG_VIDEO_START( cmi2x )
-//	MCFG_SCREEN_UPDATE( cmi2x ) // generic_bitmapped
+	MCFG_PALETTE_ADD_MONOCHROME_GREEN("palette")
+	//	MCFG_SCREEN_SIZE( 512, 256 )
+	//	MCFG_SCREEN_REFRESH_RATE( 30 )
+	//	MCFG_VIDEO_START( cmi2x )
+	//	MCFG_SCREEN_UPDATE( cmi2x ) // generic_bitmapped
 MACHINE_CONFIG_END
 
 /* ROM definition */
@@ -1709,8 +1786,7 @@ ROM_END
 
 
 /*    YEAR  NAME    PARENT  COMPAT   MACHINE    INPUT    INIT    COMPANY   FULLNAME       FLAGS */
-COMP( 1983, cmi2x,  0,      0,       cmi2x,     cmi2x,   driver_device, 0,      "Fairlight", "CMI IIx",  GAME_NO_SOUND )
-//COMP(1985,ibm5162,ibm5170, 0,       ibm5162,   atcga,  atcga,      "International Business Machines",  "IBM PC/XT-286 5162", GAME_NOT_WORKING )
+COMP( 1983, cmi2x,  0,      0,       cmi2x,     cmi2x,   driver_device, 0,      "Fairlight", "CMI IIx",  MACHINE_NO_SOUND )
 //
 // Q219: Graphics + lightpen
 //

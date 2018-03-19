@@ -30,13 +30,19 @@ SOUNDS["DAC"] = true
 -- specify available video cores
 --------------------------------------------------
 
+VIDEOS["DL1416"] = true
+
 --------------------------------------------------
 -- specify available machine cores
 --------------------------------------------------
 
-MACHINES["DL1416"] = true
-MACHINES["6551ACIA"] = true
-MACHINES["CMIKBD"] = true
+MACHINES["WD_FDC"] = true
+MACHINES["ACIA6850"] = true
+MACHINES["MOS6551"] = true
+MACHINES["I8214"] = true
+MACHINES["6821PIA"] = true
+MACHINES["6840PTM"] = true
+MACHINES["MSM5832"] = true
 
 --------------------------------------------------
 -- specify available bus cores
@@ -70,9 +76,10 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
-	MAME_DIR .. "src/mame/drivers/cmi.c",
+	MAME_DIR .. "src/mame/drivers/cmi_cl.cpp",
 	MAME_DIR .. "src/mame/includes/cmi.h",
-	MAME_DIR .. "src/mame/machine/cmikbd.c",
+	MAME_DIR .. "src/mame/machine/cmikbd.cpp",
+	MAME_DIR .. "src/mame/machine/cmikbd.h",
 }
 end
 
