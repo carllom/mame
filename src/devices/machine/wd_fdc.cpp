@@ -110,6 +110,8 @@ void wd_fdc_device_base::device_start()
 	t_cmd = timer_alloc(TM_CMD);
 	t_track = timer_alloc(TM_TRACK);
 	t_sector = timer_alloc(TM_SECTOR);
+	t_intcancel = timer_alloc(TM_INTCANCEL);
+	can_cancel_int = false;
 	dden = disable_mfm;
 	enmf = false;
 	floppy = nullptr;
@@ -149,6 +151,7 @@ void wd_fdc_device_base::soft_reset()
 	counter = 0;
 	status_type_1 = true;
 	last_dir = 1;
+  can_cancel_int = false;
 
 	// gnd == enmf enabled, otherwise disabled (default)
 	if (!enmf_cb.isnull() && has_enmf)
@@ -237,6 +240,7 @@ void wd_fdc_device_base::device_timer(emu_timer &timer, device_timer_id id, int 
 	case TM_CMD: do_cmd_w(); break;
 	case TM_TRACK: do_track_w(); break;
 	case TM_SECTOR: do_sector_w(); break;
+	case TM_INTCANCEL: do_int_commit(); break;
 	}
 
 	general_continue();
@@ -942,9 +946,19 @@ void wd_fdc_device_base::interrupt_start()
 			intrq_cb(intrq);
 	}
 
+	if (command == 0xD8) {
+		can_cancel_int = true;
+		delay_cycles(t_intcancel, dden ? delay_command_commit * 2 : delay_command_commit);
+	}
+
 	if(command & 0x03) {
 		logerror("%s: unhandled interrupt generation (%02x)\n", ttsn().c_str(), command);
 	}
+}
+
+void wd_fdc_t::do_int_commit()
+{
+	can_cancel_int = false;
 }
 
 void wd_fdc_device_base::general_continue()
@@ -1083,6 +1097,13 @@ void wd_fdc_device_base::cmd_w(uint8_t val)
 {
 	if (inverted_bus) val ^= 0xff;
 	LOGCOMP("Initiating command %02x\n", val);
+
+	// Immediate interrupt is cancelled by a doubleflight command
+	if (cmd_buffer == 0xD8 || can_cancel_int) {
+		intrq_cond = 0;
+		cmd_buffer = -1;
+		can_cancel_int = false;
+	}
 
 	if(intrq && !(intrq_cond & I_IMM)) {
 		intrq = false;
