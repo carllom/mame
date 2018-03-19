@@ -154,7 +154,13 @@ static const UINT32 field_len_mask[] = {
 const device_type NS32016 = &device_creator<ns32016_device>;
 
 ns32016_device::ns32016_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock)
-	: cpu_device(mconfig, NS32016, "NS32016", tag, owner, clock),
+	: cpu_device(mconfig, NS32016, "NS32016", tag, owner, clock, "ns32016", __FILE__),
+	m_program_config("program", ENDIANNESS_LITTLE, 8, 24, 0)
+{
+}
+
+ns32016_device::ns32016_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock, const char* shortname, const char* source)
+	: cpu_device(mconfig, NS32016, "NS32016", tag, owner, clock, shortname, source),
 	  m_program_config("program", ENDIANNESS_LITTLE, 8, 24, 0)
 {
 }
@@ -174,7 +180,7 @@ UINT32 ns32016_device::disasm_max_opcode_bytes() const
 // device_t
 void ns32016_device::device_start()
 {
-	m_program = space(AS_PROGRAM);
+	m_program = &space(AS_PROGRAM);
 	m_icountptr = &m_icount;
 
 	save_item(NAME(m_regs.pc));
@@ -1350,7 +1356,7 @@ void ns32016_device::areg_w(int areg, UINT32 value, int width)
 
 offs_t ns32016_device::gen_size(int gen, offs_t ic, int width)
 {
-	offs_t size;
+	offs_t size = 0;
 	switch(gen)
 	{
 	case 0:
@@ -1411,7 +1417,7 @@ offs_t ns32016_device::gen_size(int gen, offs_t ic, int width)
 // ic must be base-gen
 UINT32 ns32016_device::gen_addr(int gen, offs_t ic, int width)
 {
-	INT32 disp1 = 0, disp2 = 0, result;
+	INT32 disp1 = 0, disp2 = 0, result = 0;
 
 	switch(gen)
 	{
@@ -1548,7 +1554,7 @@ UINT32 ns32016_device::gen_addr(int gen, offs_t ic, int width)
 // ic must be base-gen and is increased with gen-size
 UINT32 ns32016_device::gen_read(int gen, offs_t ic, int width)
 {
-	INT32 disp1 = 0, disp2 = 0, result;
+	INT32 disp1 = 0, disp2 = 0, result = 0;
 
 	switch(gen)
 	{
