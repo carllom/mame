@@ -64,6 +64,7 @@ class ns32016_device : public cpu_device, public ns32016_interface
 {
 public:
 	ns32016_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock);
+	ns32016_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock, const char* shortname, const char* source);
 	virtual ~ns32016_device();
 
 	virtual void device_config_complete();
