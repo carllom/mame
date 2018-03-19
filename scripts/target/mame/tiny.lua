@@ -44,6 +44,8 @@ MACHINES["NCR5380"] = true -- emuiii
 -- specify available bus cores
 --------------------------------------------------
 
+BUSES["SCSI"] = true
+
 --------------------------------------------------
 -- This is the list of files that are necessary
 -- for building all of the drivers referenced
