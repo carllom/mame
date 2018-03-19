@@ -224,7 +224,7 @@ protected:
 	virtual void pll_retrieve_checkpoint() = 0;
 
 private:
-	enum { TM_GEN, TM_CMD, TM_TRACK, TM_SECTOR };
+	enum { TM_GEN, TM_CMD, TM_TRACK, TM_SECTOR, TM_INTCANCEL };
 
 	//  State machine general behaviour:
 	//
@@ -372,9 +372,9 @@ private:
 
 	floppy_image_device *floppy;
 
-	emu_timer *t_gen, *t_cmd, *t_track, *t_sector;
+	emu_timer *t_gen, *t_cmd, *t_track, *t_sector, *t_intcancel;
 
-	bool dden, status_type_1, intrq, drq, hld, hlt, enp, force_ready, disable_motor_control;
+	bool dden, status_type_1, intrq, drq, hld, hlt, enp, force_ready, can_cancel_int, disable_motor_control;
 	int main_state, sub_state;
 	uint8_t command, track, sector, data, status, intrq_cond;
 	int last_dir;
@@ -424,6 +424,7 @@ private:
 	void write_sector_continue();
 
 	void interrupt_start();
+	void do_int_commit();
 
 	void general_continue();
 	void command_end();
