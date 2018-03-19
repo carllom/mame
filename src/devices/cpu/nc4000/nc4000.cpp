@@ -18,10 +18,29 @@
 const device_type NC4000 = &device_creator<nc4000_device>;
 
 nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock)
-	: cpu_device(mconfig, NC4000, "NC4000", tag, owner, clock),
+	: cpu_device(mconfig, NC4000, "NC4000", tag, owner, clock, "nc4000", __FILE__),
+	m_program_config("program", ENDIANNESS_BIG, 16, 16, -1),
+	m_datastack_config("datastack", ENDIANNESS_BIG, 16, 8, -1),
+	m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1),
+	m_in_portb_cb(*this),
+	m_out_portb_cb(*this),
+	m_in_portx_cb(*this),
+	m_out_portx_cb(*this),
+	m_in_irq_cb(*this)
+{
+
+}
+
+nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock, const char* shortname, const char* source)
+	: cpu_device(mconfig, NC4000, "NC4000", tag, owner, clock, shortname, source),
 	  m_program_config("program", ENDIANNESS_BIG, 16, 16, -1),
 	  m_datastack_config("datastack", ENDIANNESS_BIG, 16, 8, -1),
-	  m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1)
+	  m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1),
+	  m_in_portb_cb(*this),
+	  m_out_portb_cb(*this),
+	  m_in_portx_cb(*this),
+	  m_out_portx_cb(*this),
+	  m_in_irq_cb(*this)
 {
 
 }
@@ -42,9 +61,9 @@ UINT32 nc4000_device::disasm_max_opcode_bytes() const
 // device_t
 void nc4000_device::device_start()
 {
-	m_program = space(AS_PROGRAM);
-	m_datastack = space(AS_1);
-	m_retstack = space(AS_2);
+	m_program = &space(AS_PROGRAM);
+	m_datastack = &space(AS_1);
+	m_retstack = &space(AS_2);
 
 	m_icountptr = &m_icount;
 
@@ -90,11 +109,11 @@ void nc4000_device::device_start()
 	state_add(NC4000_Xtri,  "Xtri",  m_regs.xtri).mask(0x1f);
 
 	// Resolve device callbacks
-	m_in_portb_func.resolve(m_in_portb_cb, *this);
-	m_out_portb_func.resolve(m_out_portb_cb, *this);
-	m_in_portx_func.resolve(m_in_portx_cb, *this);
-	m_out_portx_func.resolve(m_out_portx_cb, *this);
-	m_in_irq_func.resolve(m_in_irq_cb, *this);
+	//m_in_portb_func.resolve(m_in_portb_cb, *this);
+	//m_out_portb_func.resolve(m_out_portb_cb, *this);
+	//m_in_portx_func.resolve(m_in_portx_cb, *this);
+	//m_out_portx_func.resolve(m_out_portx_cb, *this);
+	//m_in_irq_func.resolve(m_in_irq_cb, *this);
 }
 
 void nc4000_device::device_reset()
@@ -123,20 +142,20 @@ void nc4000_device::device_reset()
 void nc4000_device::device_config_complete()
 {
 	// inherit a copy of the static data
-	const nc4000_interface *intf = reinterpret_cast<const nc4000_interface *>(static_config());
-	if (intf != NULL)
-	{
-		*static_cast<nc4000_interface *>(this) = *intf;
-	}
-	// or initialize to defaults if none provided
-	else
-	{
-		memset(&m_in_portb_func, 0, sizeof(m_in_portb_func));
-		memset(&m_out_portb_func, 0, sizeof(m_out_portb_func));
-		memset(&m_in_portx_func, 0, sizeof(m_in_portx_func));
-		memset(&m_out_portx_func, 0, sizeof(m_out_portx_func));
-		memset(&m_in_irq_func, 0, sizeof(m_in_irq_func));
-	}
+	//const nc4000_interface *intf = reinterpret_cast<const nc4000_interface *>(static_config());
+	//if (intf != NULL)
+	//{
+	//	*static_cast<nc4000_interface *>(this) = *intf;
+	//}
+	//// or initialize to defaults if none provided
+	//else
+	//{
+	//	memset(&m_in_portb_func, 0, sizeof(m_in_portb_func));
+	//	memset(&m_out_portb_func, 0, sizeof(m_out_portb_func));
+	//	memset(&m_in_portx_func, 0, sizeof(m_in_portx_func));
+	//	memset(&m_out_portx_func, 0, sizeof(m_out_portx_func));
+	//	memset(&m_in_irq_func, 0, sizeof(m_in_irq_func));
+	//}
 }
 
 #define PUSH_R { m_retstack->write_word(m_regs.j << 1, m_regs.i); m_regs.j--; }
@@ -269,7 +288,7 @@ offs_t nc4000_device::disasm_disassemble(char *buffer, offs_t pc, const UINT8 *o
 }
 
 void nc4000_device::ALU_Op(UINT16 op) {
-	UINT16 op2, result, carry_in;
+	UINT16 op2=0, result, carry_in;
 
 	//
 	// 1. Get operand 2
@@ -285,8 +304,6 @@ void nc4000_device::ALU_Op(UINT16 op) {
 		break;
 	case YSRC_SR:
 		op2 = m_regs.sr;
-		break;
-	default:
 		break;
 	}
 
@@ -643,8 +660,8 @@ UINT16 nc4000_device::int_read_reg(UINT16 reg)
 	case 7:
 		return m_regs.sr;
 	case 8:
-		if (!m_in_portb_func.isnull())
-			binput = m_in_portb_func(0, 0xffff);
+		if (!m_in_portb_cb.isnull())
+			binput = m_in_portb_cb(0, 0xffff);
 		else
 			logerror("No b reader handler defined\n");
 		return ((binput ^ m_regs.bdata) & ~m_regs.bdir) | (m_regs.bdata & m_regs.bdir); // (XOR'ed) Xdata
@@ -655,8 +672,8 @@ UINT16 nc4000_device::int_read_reg(UINT16 reg)
 	case 11:
 		return m_regs.btri;
 	case 12:
-		if (!m_in_portx_func.isnull())
-			xinput = m_in_portx_func(0);
+		if (!m_in_portx_cb.isnull())
+			xinput = m_in_portx_cb(0);
 		else
 			logerror("No x reader handler defined\n");
 		return (((xinput ^ m_regs.xdata) & ~m_regs.xdir) | (m_regs.xdata & m_regs.xdir)) & 0x1F; // (XOR'ed) Xdata
@@ -696,8 +713,8 @@ void nc4000_device::int_write_reg(UINT16 reg, UINT16 data)
 		break;
 	case 8:
 		m_regs.bdata = data & ~m_regs.bmask;
-		if (!m_out_portb_func.isnull())
-			m_out_portb_func(0, m_regs.bdata, 0xffff);
+		if (!m_out_portb_cb.isnull())
+			m_out_portb_cb(0, m_regs.bdata, 0xffff);
 		else
 			logerror("No b writer handler defined\n");
 		break;
@@ -713,8 +730,8 @@ void nc4000_device::int_write_reg(UINT16 reg, UINT16 data)
 	case 12:
 //		logerror("write x %02x, %i\n", data, m_out_portx_func.isnull());
 		m_regs.xdata = data & ~ m_regs.xmask & 0x1F;
-		if (!m_out_portx_func.isnull())
-			m_out_portx_func(0, m_regs.xdata);
+		if (!m_out_portx_cb.isnull())
+			m_out_portx_cb(0, m_regs.xdata, 0xff);
 		else
 			logerror("No x writer handler defined\n");
 		break;

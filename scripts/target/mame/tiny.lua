@@ -33,8 +33,8 @@ CPUS["NC4000"] = true
 -- specify available machine cores
 --------------------------------------------------
 
-MACHINES["TERMINAL"] = true
-MACHINES["KEYBOARD"] = true
+--MACHINES["TERMINAL"] = true
+--MACHINES["KEYBOARD"] = true
 
 --------------------------------------------------
 -- specify available bus cores
@@ -68,7 +68,7 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
-	MAME_DIR .. "src/mame/drivers/nb4200.c",
+	MAME_DIR .. "src/mame/drivers/nb4200.cpp",
 }
 end
 

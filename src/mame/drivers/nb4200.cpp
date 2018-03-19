@@ -106,6 +106,8 @@
  */
 #define ADDRESS_MAP_MODERN
 
+#define TERMINAL_TAG "terminal"
+
 #include "emu.h" // Core emulation goodies
 #include "cpu/nc4000/nc4000.h"
 #include "ioport.h"
@@ -139,7 +141,7 @@ public:
     {
     }
 	required_device<nc4000_device> m_cpu;
-	required_device<serial_terminal_device> m_terminal;
+	required_device<generic_terminal_device> m_terminal;
 
 	emu_timer *m_terminaltimer;
 	static const device_timer_id TIMER_TERMINAL = 0;
@@ -152,10 +154,11 @@ public:
     virtual void machine_reset();
 	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr);
 
-    DECLARE_WRITE8_MEMBER(term_kbd_out);
+    //DECLARE_WRITE8_MEMBER(term_kbd_out);
     DECLARE_READ8_MEMBER(cpu_readx);
     DECLARE_WRITE8_MEMBER(cpu_writex);
     DECLARE_READ_LINE_MEMBER(cpu_irq);
+	DECLARE_WRITE8_MEMBER(kbd_put);
 };
 
 void nb4200_state::machine_start()
@@ -169,12 +172,16 @@ void nb4200_state::machine_reset()
 	machine().firstcpu->reset();
 }
 
+//
+// Keyboard + VDU
+//
+
 void nb4200_state::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
 {
 	switch(id)
 	{
 		case TIMER_TERMINAL:
-			m_terminal_r_bit = m_terminal->tx_r(); // terminal_serial_r(m_terminal);
+			//m_terminal_r_bit = m_terminal->kbd_put(); // terminal_serial_r(m_terminal);
 //			logerror("terminal->timer: %i\n", m_terminal_r_bit);
 			break;
 	}
@@ -182,7 +189,8 @@ void nb4200_state::device_timer(emu_timer &timer, device_timer_id id, int param,
 
 WRITE_LINE_MEMBER( nb4200_state::terminal_serial_w )
 {
-	m_terminal->rx_w(state);
+	logerror("terminal_serial_w: %02x\n", state);
+	//m_terminal->rx_w(state);
 
 //	switch (m_terminal_state)
 //	{
@@ -217,87 +225,101 @@ WRITE8_MEMBER(nb4200_state::cpu_writex)
 	terminal_serial_w(data & 1);
 }
 
+WRITE8_MEMBER(nb4200_state::kbd_put)
+{
+	logerror("key typed: %c, %02x\n", data, data);
+	//m_maincpu->set_input_line(MCS51_RX_LINE, ASSERT_LINE);
+	//m_maincpu->set_input_line(MCS51_RX_LINE, CLEAR_LINE);
+	//m_term_data = data;
+}
+
+
 READ_LINE_MEMBER(nb4200_state::cpu_irq)
 {
 	return CLEAR_LINE;
 }
 
 static ADDRESS_MAP_START(cpu_prg_mem, AS_PROGRAM, 16, nb4200_state)
-	AM_RANGE( 0x0000, 0x0fff ) AM_RAM
-    AM_RANGE( 0x1000, 0x1fff ) AM_ROM
-	AM_RANGE( 0x2000, 0x2fff ) AM_RAM
+AM_RANGE(0x0000, 0x0fff) AM_RAM
+AM_RANGE(0x1000, 0x1fff) AM_ROM
+AM_RANGE(0x2000, 0x2fff) AM_RAM
 ADDRESS_MAP_END
 
 static ADDRESS_MAP_START(datastack_ram, AS_1, 16, nb4200_state)
-	AM_RANGE( 0x00, 0xff ) AM_RAM AM_REGION(TAG_DAT_RAM, 0)
+AM_RANGE(0x00, 0xff) AM_RAM AM_REGION(TAG_DAT_RAM, 0)
 ADDRESS_MAP_END
 
 static ADDRESS_MAP_START(retstack_ram, AS_2, 16, nb4200_state)
-	AM_RANGE( 0x00, 0xff ) AM_RAM AM_REGION(TAG_RET_RAM, 0)
+AM_RANGE(0x00, 0xff) AM_RAM AM_REGION(TAG_RET_RAM, 0)
 ADDRESS_MAP_END
 
 INPUT_PORTS_START(nb4200)
-	PORT_START("jumpers")
+PORT_START("jumpers")
 
-	PORT_DIPNAME(0x03, 0x00, "RAM size")
-	PORT_DIPLOCATION("JP:1,JP:7")
-	PORT_DIPSETTING( 0x00, "2x8K")
-	PORT_DIPSETTING( 0x01, "8x8K")
-	PORT_DIPSETTING( 0x02, "32x8K")
+PORT_DIPNAME(0x03, 0x00, "RAM size")
+PORT_DIPLOCATION("JP:1,JP:7")
+PORT_DIPSETTING(0x00, "2x8K")
+PORT_DIPSETTING(0x01, "8x8K")
+PORT_DIPSETTING(0x02, "32x8K")
 
-	PORT_DIPNAME(0x04, 0x00, "Data stack size")
-	PORT_DIPLOCATION("JP:5")
-	PORT_DIPSETTING( 0x00, "2x8K")
-	PORT_DIPSETTING( 0x04, "8x8K")
+PORT_DIPNAME(0x04, 0x00, "Data stack size")
+PORT_DIPLOCATION("JP:5")
+PORT_DIPSETTING(0x00, "2x8K")
+PORT_DIPSETTING(0x04, "8x8K")
 
-	PORT_DIPNAME(0x08, 0x00, "Return stack size")
-	PORT_DIPLOCATION("JP:18")
-	PORT_DIPSETTING( 0x00, "2x8K")
-	PORT_DIPSETTING( 0x08, "8x8K")
+PORT_DIPNAME(0x08, 0x00, "Return stack size")
+PORT_DIPLOCATION("JP:18")
+PORT_DIPSETTING(0x00, "2x8K")
+PORT_DIPSETTING(0x08, "8x8K")
 
-	PORT_DIPNAME(0x30, 0x00, "EPROM size")
-	PORT_DIPLOCATION("JP:2,JP:8")
-	PORT_DIPSETTING( 0x00, "8x8K")
-	PORT_DIPSETTING( 0x30, "32x8K")
+PORT_DIPNAME(0x30, 0x00, "EPROM size")
+PORT_DIPLOCATION("JP:2,JP:8")
+PORT_DIPSETTING(0x00, "8x8K")
+PORT_DIPSETTING(0x30, "32x8K")
 INPUT_PORTS_END
 
 //-------------------------------------------------
 //  GENERIC_TERMINAL_INTERFACE( terminal_intf )
 //-------------------------------------------------
 
-WRITE8_MEMBER( nb4200_state::term_kbd_out )
-{
-	logerror("key typed: %c, %02x\n", data, data);
-//	if (data == 0x0D)
-//		terminal_write(m_terminal, 0, 0x0A); // Append line feed on carriage return
-//
-//	terminal_write(m_terminal, 0, data); // Echo input
-	// this is here only so that terminal.c will initialize the keyboard scan timer
-}
+//WRITE8_MEMBER( nb4200_state::term_kbd_out )
+//{
+//	logerror("key typed: %c, %02x\n", data, data);
+////	if (data == 0x0D)
+////		terminal_write(m_terminal, 0, 0x0A); // Append line feed on carriage return
+////
+////	terminal_write(m_terminal, 0, data); // Echo input
+//	// this is here only so that terminal.c will initialize the keyboard scan timer
+//}
 
-static GENERIC_TERMINAL_INTERFACE( terminal_intf )
-{
-	DEVCB_DRIVER_MEMBER(nb4200_state, term_kbd_out)
-};
+//static GENERIC_TERMINAL_INTERFACE( terminal_intf )
+//{
+//	DEVCB_DRIVER_MEMBER(nb4200_state, term_kbd_out)
+//};
 
-NC4000_INTERFACE(nb4200_cpu_config)
-{
-	DEVCB_NULL,  // PortB read16 cb
-	DEVCB_NULL, // PortB write16 cb
-	DEVCB_DRIVER_MEMBER(nb4200_state, cpu_readx),
-	DEVCB_DRIVER_MEMBER(nb4200_state, cpu_writex),
-	DEVCB_NULL // IRQ
-};
+//NC4000_INTERFACE(nb4200_cpu_config)
+//{
+//	DEVCB_NULL,  // PortB read16 cb
+//	DEVCB_NULL, // PortB write16 cb
+//	DEVCB_READ8(nb4200_state, cpu_readx),
+//	DEVCB_WRITE8(nb4200_state, cpu_writex),
+//	DEVCB_NULL // IRQ
+//};
 
-MACHINE_CONFIG_START(nb4200, nb4200_state)
+	MACHINE_CONFIG_START(nb4200, nb4200_state)
 	MCFG_CPU_ADD(TAG_CPU, NC4000, 4000000)
 	MCFG_CPU_PROGRAM_MAP(cpu_prg_mem)
 	MCFG_DEVICE_ADDRESS_MAP(AS_1, datastack_ram)
 	MCFG_DEVICE_ADDRESS_MAP(AS_2, retstack_ram)
-	MCFG_CPU_CONFIG( nb4200_cpu_config )
+	//MCFG_CPU_CONFIG( nb4200_cpu_config )
+	MCFG_NC4000_SET_PORTX_READ_CALLBACK(READ8(nb4200_state, cpu_readx))
+	MCFG_NC4000_SET_PORTX_WRITE_CALLBACK(WRITE8(nb4200_state, cpu_writex))
 
-//	MCFG_FRAGMENT_ADD( generic_terminal )
-	MCFG_GENERIC_TERMINAL_ADD(TERMINAL_TAG, terminal_intf)
+	//MCFG_FRAGMENT_ADD( generic_terminal )
+	MCFG_DEVICE_ADD(TERMINAL_TAG, GENERIC_TERMINAL, 0)
+	MCFG_GENERIC_TERMINAL_KEYBOARD_CB(WRITE8(nb4200_state, kbd_put))
+
+	//MCFG_GENERIC_TERMINAL_ADD(TERMINAL_TAG, terminal_intf)
 MACHINE_CONFIG_END
 
 ROM_START(nb4200)
@@ -312,4 +334,4 @@ ROM_START(nb4200)
 ROM_END
 
 /*    YEAR  NAME    PARENT  COMPAT   MACHINE    INPUT  CLASS   INIT    COMPANY   FULLNAME       FLAGS */
-COMP( 1987, nb4200, 0, 0, nb4200, nb4200, driver_device, 0, "Novix, Inc.", "NB4200 Turbo Frame", GAME_NO_SOUND )
+COMP( 1987, nb4200, 0, 0, nb4200, nb4200, driver_device, 0, "Novix, Inc.", "NB4200 Turbo Frame", MACHINE_NO_SOUND )
