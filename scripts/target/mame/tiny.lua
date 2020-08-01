@@ -24,6 +24,7 @@ CPUS["NC4000"] = true
 --------------------------------------------------
 
 --SOUNDS["SAMPLES"] = true
+SOUNDS["BEEP"] = true
 
 --------------------------------------------------
 -- specify available video cores

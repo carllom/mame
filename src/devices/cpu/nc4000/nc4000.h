@@ -64,20 +64,6 @@
 #define OP_CFLAG (op & OPMASK_CIN)
 #define CIN (OP_CFLAG ? carry : 0)
 
-
-//union PAIR16
-//{
-//#ifdef LSB_FIRST
-//	struct { UINT16 l,h; } b;
-//	struct { INT8 l,h; } sb;
-//#else
-//	struct { UINT8 h,l; } b;
-//	struct { INT8 h,l; } sb;
-//#endif
-//	UINT16 w;
-//	INT16 sw;
-//};
-
 enum {
 	NC4000_PC,
 	NC4000_T,
@@ -108,74 +94,40 @@ struct nc4000_interface
 	devcb_read_line	m_in_irq_cb;
 };
 
-//void (*m_output_pins_changed)(nc4000_device &device, UINT32 pins);	// a change has occurred on an output pin
-
-//#define NC4000_INTERFACE(name) \
-//	const nc4000_interface (name) =
-
-#define MCFG_NC4000_SET_PORTB_READ_CALLBACK(_devcb) \
-	devcb = &nc4000_device::set_portb_r_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_NC4000_SET_PORTB_WRITE_CALLBACK(_devcb) \
-	devcb = &nc4000_device::set_portb_w_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_NC4000_SET_PORTX_READ_CALLBACK(_devcb) \
-	devcb = &nc4000_device::set_portb_r_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_NC4000_SET_PORTX_WRITE_CALLBACK(_devcb) \
-	devcb = &nc4000_device::set_portb_w_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_NC4000_SET_IRQ_CALLBACK(_devcb) \
-	devcb = &nc4000_device::set_irq_callback(*device, DEVCB_##_devcb);
-
-class nc4000_device;
-
-class nc4000_device : public cpu_device//, public nc4000_interface
+class nc4000_device : public cpu_device
 {
 public:
-	nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock);
-	nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock, const char* shortname, const char* source);
+	nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 	virtual ~nc4000_device();
 
-	template<class _Object> static devcb_base &set_portb_r_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_in_portb_cb.set_callback(object); }
-	template<class _Object> static devcb_base &set_portb_w_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_out_portb_cb.set_callback(object); }
-	template<class _Object> static devcb_base &set_portx_r_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_in_portx_cb.set_callback(object); }
-	template<class _Object> static devcb_base &set_portx_w_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_out_portx_cb.set_callback(object); }
-	template<class _Object> static devcb_base &set_irq_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_in_irq_cb.set_callback(object); }
-
-
+	auto in_portx_callback() { return m_in_portx_cb.bind(); }
+	auto in_portb_callback() { return m_in_portx_cb.bind(); }
+	auto out_portx_callback() { return m_out_portx_cb.bind(); }
+	auto out_portb_callback() { return m_out_portb_cb.bind(); }
+	auto in_irq_callback() { return m_in_irq_cb.bind(); }
 
 	virtual void device_config_complete();
 
+	uint8_t portx_r();
+	void portx_w(uint8_t data);
 
-	DECLARE_READ8_MEMBER( portx_r );
-    DECLARE_WRITE8_MEMBER( portx_w );
-//    UINT8 portx_r() { return portx_r(*memory_nonspecific_space(machine()), 0); }
-//    void portx_w(UINT8 data) { portx_w(*memory_nonspecific_space(machine()), 0, data); }
-    UINT8 portx_r() { return portx_r(*machine().memory().first_space(), 0); }
-    void portx_w(UINT8 data) { portx_w(*machine().memory().first_space(), 0, data); }
+	uint16_t portb_r();
+	void portb_w(uint16_t data);
 
-	DECLARE_READ16_MEMBER( portb_r );
-    DECLARE_WRITE16_MEMBER( portb_w );
-//    UINT16 portb_r() { return portb_r(*memory_nonspecific_space(machine()), 0); }
-//    void portb_w(UINT16 data) { portb_w(*memory_nonspecific_space(machine()), 0, data); }
-    UINT16 portb_r() { return portb_r(*machine().memory().first_space(), 0); }
-    void portb_w(UINT16 data) { portb_w(*machine().memory().first_space(), 0, data); }
-
-    DECLARE_WRITE_LINE_MEMBER( int_w );
-
+    //DECLARE_WRITE_LINE_MEMBER( int_w );
 
 protected:
 	// device_t
 	virtual void device_start();
 	virtual void device_reset();
+	virtual void device_resolve_objects() override;
 
 	// device_execute_interface
 	virtual void execute_run();
 	int m_icount;
 
 	// device_memory_interface
-	virtual const address_space_config *memory_space_config(address_spacenum spacenum = AS_0) const;
+	virtual space_config_vector memory_space_config() const override;
 	const address_space_config		m_program_config;
 	const address_space_config		m_datastack_config;
 	const address_space_config		m_retstack_config;
@@ -184,9 +136,7 @@ protected:
 	address_space *m_retstack;
 
 	// device_disasm_interface
-	virtual offs_t disasm_disassemble(char *buffer, offs_t pc, const UINT8 *oprom, const UINT8 *opram, UINT32 options);
-	virtual UINT32 disasm_min_opcode_bytes() const;
-	virtual UINT32 disasm_max_opcode_bytes() const;
+	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
 
 	// NC4000 device callbacks
 	devcb_read16 m_in_portb_cb;
@@ -196,54 +146,54 @@ protected:
 	devcb_read_line	m_in_irq_cb;
 
 
-	int DoAlu(UINT16 op);
+	int DoAlu(uint16_t op);
 
 	struct regs {
-		UINT16 pc; // Program counter (next instruction)
-		UINT16 t; // Top element of data stack
-		UINT16 n; // 'Next' element in data stack
-		UINT16 i; // Top element of return stack
+		uint16_t pc; // Program counter (next instruction)
+		uint16_t t; // Top element of data stack
+		uint16_t n; // 'Next' element in data stack
+		uint16_t i; // Top element of return stack
 		PAIR16 jk; // Stack index
-		UINT8 j;
-		UINT8 k;
+		uint8_t j;
+		uint8_t k;
 
-		UINT16 md; // Multiplication/division register
-		UINT16 sr; // Square root register
+		uint16_t md; // Multiplication/division register
+		uint16_t sr; // Square root register
 
-		UINT16 bdata;
-		UINT16 bdir; // 0=in 1=out
-		UINT16 bmask; // 1=write prohibited
-		UINT16 btri;
+		uint16_t bdata;
+		uint16_t bdir; // 0=in 1=out
+		uint16_t bmask; // 1=write prohibited
+		uint16_t btri;
 
-		UINT8 xdata;
-		UINT8 xdir; // 0=in 1=out
-		UINT8 xmask; // 1=write prohibited
-		UINT8 xtri;
+		uint8_t xdata;
+		uint8_t xdir; // 0=in 1=out
+		uint8_t xmask; // 1=write prohibited
+		uint8_t xtri;
 	};
 
 	regs m_regs;
-	UINT16 m_ppc;
+	uint16_t m_ppc;
 
-	UINT8 m_irq_state;
-	UINT8 m_irq_latch;
+	uint8_t m_irq_state;
+	uint8_t m_irq_latch;
 
 	//
 	// To stay compatible with old impl
 	//
 	bool intreq; // Interrupt request flag
 	void interrupt(); // Performs interrupt if enabled
-	UINT16 carry; // Carry bit. Should really be a flag register...
+	uint16_t carry; // Carry bit. Should really be a flag register...
 	bool timesmode; // CPU is executing a TIMES construct
-	void ALU_Op(UINT16 op); // Execute ALU instruction
-	int IO_LLI(UINT16 op, int store); // Execute LLI instruction
-	void IO_Mem(UINT16 op, int store); // Execute memory instruction
-	UINT16 DoALU(UINT16 Op_Y, UINT16 carry_in, UINT16 ALU_func); // Perform ALU work
-	UINT16 int_read_reg(UINT16 reg);
-	void int_write_reg(UINT16 reg, UINT16 data);
-	UINT16 binput, xinput;
+	void ALU_Op(uint16_t op); // Execute ALU instruction
+	int IO_LLI(uint16_t op, int store); // Execute LLI instruction
+	void IO_Mem(uint16_t op, int store); // Execute memory instruction
+	uint16_t DoALU(uint16_t Op_Y, uint16_t carry_in, uint16_t ALU_func); // Perform ALU work
+	uint16_t int_read_reg(uint16_t reg);
+	void int_write_reg(uint16_t reg, uint16_t data);
+	uint16_t binput, xinput;
 
 };
 
-extern const device_type NC4000;
+DECLARE_DEVICE_TYPE(NC4000, nc4000_device)
 
 #endif /* NC4000_H_ */

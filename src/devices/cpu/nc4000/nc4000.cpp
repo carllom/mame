@@ -14,11 +14,13 @@
 #include "emu.h"
 #include "debugger.h"
 #include "nc4000.h"
+#include "nc4000d.h"
 
-const device_type NC4000 = &device_creator<nc4000_device>;
+DEFINE_DEVICE_TYPE(NC4000, nc4000_device, "nc4000", "Novix NC4000")
 
-nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock)
-	: cpu_device(mconfig, NC4000, "NC4000", tag, owner, clock, "nc4000", __FILE__),
+nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: cpu_device(mconfig, NC4000, tag, owner, clock),
+	m_icount(0),
 	m_program_config("program", ENDIANNESS_BIG, 16, 16, -1),
 	m_datastack_config("datastack", ENDIANNESS_BIG, 16, 8, -1),
 	m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1),
@@ -31,41 +33,15 @@ nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, dev
 
 }
 
-nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock, const char* shortname, const char* source)
-	: cpu_device(mconfig, NC4000, "NC4000", tag, owner, clock, shortname, source),
-	  m_program_config("program", ENDIANNESS_BIG, 16, 16, -1),
-	  m_datastack_config("datastack", ENDIANNESS_BIG, 16, 8, -1),
-	  m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1),
-	  m_in_portb_cb(*this),
-	  m_out_portb_cb(*this),
-	  m_in_portx_cb(*this),
-	  m_out_portx_cb(*this),
-	  m_in_irq_cb(*this)
-{
-
-}
-
 nc4000_device::~nc4000_device() {}
 
-UINT32 nc4000_device::disasm_min_opcode_bytes() const
-{
-	return 2;
-}
-
-UINT32 nc4000_device::disasm_max_opcode_bytes() const
-{
-	return 4;
-}
-
-
-// device_t
 void nc4000_device::device_start()
 {
 	m_program = &space(AS_PROGRAM);
-	m_datastack = &space(AS_1);
-	m_retstack = &space(AS_2);
+	m_datastack = &space(AS_DATA);
+	m_retstack = &space(AS_IO);
 
-	m_icountptr = &m_icount;
+	set_icountptr(m_icount);
 
 	save_item(NAME(m_regs.pc));
 	save_item(NAME(m_regs.t));
@@ -107,13 +83,6 @@ void nc4000_device::device_start()
 	state_add(NC4000_Xdir,  "Xdir",  m_regs.xdir).mask(0x1f);
 	state_add(NC4000_Xmask, "Xmask", m_regs.xmask).mask(0x1f);
 	state_add(NC4000_Xtri,  "Xtri",  m_regs.xtri).mask(0x1f);
-
-	// Resolve device callbacks
-	//m_in_portb_func.resolve(m_in_portb_cb, *this);
-	//m_out_portb_func.resolve(m_out_portb_cb, *this);
-	//m_in_portx_func.resolve(m_in_portx_cb, *this);
-	//m_out_portx_func.resolve(m_out_portx_cb, *this);
-	//m_in_irq_func.resolve(m_in_irq_cb, *this);
 }
 
 void nc4000_device::device_reset()
@@ -137,6 +106,16 @@ void nc4000_device::device_reset()
 	timesmode = 0;
 	binput = 0;
 	xinput = 0;
+}
+
+void nc4000_device::device_resolve_objects()
+{
+	// Resolve device callbacks
+	m_in_portb_cb.resolve_safe(0xffff);
+	m_out_portb_cb.resolve_safe();
+	m_in_portx_cb.resolve_safe(0xff);
+	m_out_portx_cb.resolve_safe();
+	m_in_irq_cb.resolve_safe(0);
 }
 
 void nc4000_device::device_config_complete()
@@ -179,9 +158,9 @@ void nc4000_device::execute_run()
 	do {
 		m_ppc = m_regs.pc;
 		if (check_debugger)
-			debugger_instruction_hook(this, m_regs.pc);
+			debugger_instruction_hook(m_regs.pc);
 
-		UINT16 op;
+		uint16_t op;
 
 		op = READ_M(m_regs.pc);
 
@@ -271,24 +250,23 @@ void nc4000_device::execute_run()
 }
 
 // device_memory_interface
-const address_space_config *nc4000_device::memory_space_config(address_spacenum spacenum) const
+device_memory_interface::space_config_vector nc4000_device::memory_space_config() const
 {
-	return	(spacenum == AS_PROGRAM) ? &m_program_config :
-			(spacenum == AS_1) ? &m_datastack_config :
-			(spacenum == AS_2) ? &m_retstack_config :
-			NULL;
+	return space_config_vector{
+		std::make_pair(AS_PROGRAM, &m_program_config),
+		std::make_pair(AS_DATA, &m_datastack_config),
+		std::make_pair(AS_IO, &m_retstack_config)
+	};
 }
 
 // device_disasm_interface
-offs_t nc4000_device::disasm_disassemble(char *buffer, offs_t pc, const UINT8 *oprom, const UINT8 *opram, UINT32 options)
+std::unique_ptr<util::disasm_interface> nc4000_device::create_disassembler()
 {
-	//logerror("options=%i rom=%p ram=%p\n", options, oprom, opram);
-	extern CPU_DISASSEMBLE( nc4000 );
-	return CPU_DISASSEMBLE_NAME( nc4000 )(NULL, buffer, pc, oprom, opram, 0);
+	return std::make_unique<nc4000_disassembler>();
 }
 
-void nc4000_device::ALU_Op(UINT16 op) {
-	UINT16 op2=0, result, carry_in;
+void nc4000_device::ALU_Op(uint16_t op) {
+	uint16_t op2=0, result, carry_in;
 
 	//
 	// 1. Get operand 2
@@ -432,9 +410,9 @@ void nc4000_device::ALU_Op(UINT16 op) {
 	}
 }
 
-UINT16 nc4000_device::DoALU(UINT16 Op_Y, UINT16 carry_in, UINT16 ALU_func) {
-	UINT16 result;
-	UINT32 c_check;
+uint16_t nc4000_device::DoALU(uint16_t Op_Y, uint16_t carry_in, uint16_t ALU_func) {
+	uint16_t result;
+	uint32_t c_check;
 
 	result=carry_in;	// Get carry in (if any)
 	carry=0;	//Reset carry now and correct it in ALU operation
@@ -448,7 +426,7 @@ UINT16 nc4000_device::DoALU(UINT16 Op_Y, UINT16 carry_in, UINT16 ALU_func) {
 		result = m_regs.t & Op_Y;
 		break;
 	case ALUOP_SUB:		//T-Op_Y
-		c_check = (UINT32)m_regs.t + (~Op_Y) + 1 + result;
+		c_check = (uint32_t)m_regs.t + (~Op_Y) + 1 + result;
 //		c_check = m_regs.t + ((-Op_Y)&0xFFFF)  + result;
 		result = c_check & 0xFFFF;	//mask out unit size
 		logerror("alu sub(%x): cin=%x, c_check=%x, t=%x, y=%x(%x), result = %x\n", m_regs.pc, carry_in, c_check, m_regs.t, Op_Y, ~Op_Y, result);
@@ -466,7 +444,7 @@ UINT16 nc4000_device::DoALU(UINT16 Op_Y, UINT16 carry_in, UINT16 ALU_func) {
 		result = m_regs.t | Op_Y;
 		break;
 	case ALUOP_ADD:		//T+Op_Y
-		c_check = (UINT32)m_regs.t + Op_Y + result;
+		c_check = (uint32_t)m_regs.t + Op_Y + result;
 		result = c_check & 0xFFFF;	//mask out unit size
 		if (c_check & 0x10000)
 			carry=1;	//overflow/carry?
@@ -477,8 +455,8 @@ UINT16 nc4000_device::DoALU(UINT16 Op_Y, UINT16 carry_in, UINT16 ALU_func) {
 		result = m_regs.t ^ Op_Y;
 		break;
 	case ALUOP_SUBY:		//Op_Y-T	(Real stack subtraction)
-		c_check = (UINT32)Op_Y + (~m_regs.t) + 1 + result;
-//		c_check = (UINT32)Op_Y + ((-m_regs.t)&0xFFFF) + result;
+		c_check = (uint32_t)Op_Y + (~m_regs.t) + 1 + result;
+//		c_check = (uint32_t)Op_Y + ((-m_regs.t)&0xFFFF) + result;
 		result=c_check & 0xFFFF;	//mask out unit size
 		if (c_check & 0x10000)
 			carry=1;	//overflow/carry?
@@ -520,10 +498,10 @@ UINT16 nc4000_device::DoALU(UINT16 Op_Y, UINT16 carry_in, UINT16 ALU_func) {
 
 // 1100 111 111 001100
 
-int nc4000_device::IO_LLI(UINT16 op, int store)
+int nc4000_device::IO_LLI(uint16_t op, int store)
 {
 	int cycles =1;
-	UINT16 swap, M;
+	uint16_t swap, M;
 
 	if (store==0) {				// Fetch type
 		switch (OP_IOS>>6) { // Y,C,SA
@@ -603,7 +581,7 @@ int nc4000_device::IO_LLI(UINT16 op, int store)
 	}
 	return cycles;
 }
-void nc4000_device::IO_Mem(UINT16 op, int store)
+void nc4000_device::IO_Mem(uint16_t op, int store)
 {
 	if (store==0) {
     	if (OP_IOS == OPMASK_IOS) { // All bits set
@@ -641,7 +619,7 @@ void nc4000_device::interrupt() {
 #define XINPUT (m_in_portx_func.isnull() ? xinput : m_in_portx_func(0))
 #define BINPUT (m_in_portb_func.isnull() ? binput : m_in_portb_func(0))
 
-UINT16 nc4000_device::int_read_reg(UINT16 reg)
+uint16_t nc4000_device::int_read_reg(uint16_t reg)
 { //Kind of self-explanatory really...
 	switch (reg)
 	{
@@ -661,7 +639,7 @@ UINT16 nc4000_device::int_read_reg(UINT16 reg)
 		return m_regs.sr;
 	case 8:
 		if (!m_in_portb_cb.isnull())
-			binput = m_in_portb_cb(0, 0xffff);
+			binput = m_in_portb_cb();
 		else
 			logerror("No b reader handler defined\n");
 		return ((binput ^ m_regs.bdata) & ~m_regs.bdir) | (m_regs.bdata & m_regs.bdir); // (XOR'ed) Xdata
@@ -673,7 +651,7 @@ UINT16 nc4000_device::int_read_reg(UINT16 reg)
 		return m_regs.btri;
 	case 12:
 		if (!m_in_portx_cb.isnull())
-			xinput = m_in_portx_cb(0);
+			xinput = m_in_portx_cb();
 		else
 			logerror("No x reader handler defined\n");
 		return (((xinput ^ m_regs.xdata) & ~m_regs.xdir) | (m_regs.xdata & m_regs.xdir)) & 0x1F; // (XOR'ed) Xdata
@@ -689,7 +667,7 @@ UINT16 nc4000_device::int_read_reg(UINT16 reg)
 }
 
 
-void nc4000_device::int_write_reg(UINT16 reg, UINT16 data)
+void nc4000_device::int_write_reg(uint16_t reg, uint16_t data)
 {
 	switch (reg)
 	{
@@ -777,22 +755,23 @@ void nc4000_device::int_write_reg(UINT16 reg, UINT16 data)
  *
  */
 
-READ8_MEMBER( nc4000_device::portx_r )
+uint8_t nc4000_device::portx_r()
 {
 	//logerror("read port x = %02x (data=%02x, dir=%02x, tri=%02x)", m_regs.xdata & m_regs.xdir & ~m_regs.xtri & 0x1F, m_regs.xdata, m_regs.xdir, m_regs.xtri);
 	return m_regs.xdata & m_regs.xdir & ~m_regs.xtri & 0x1F;
 }
-WRITE8_MEMBER( nc4000_device::portx_w )
+
+void nc4000_device::portx_w(uint8_t data)
 {
 	xinput = data & 0x1F;
 }
 
-READ16_MEMBER( nc4000_device::portb_r )
+uint16_t nc4000_device::portb_r()
 {
 	//logerror("read port b = %02x (data=%02x, dir=%02x, tri=%02x)", m_regs.bdata & m_regs.bdir & ~m_regs.btri, m_regs.bdata, m_regs.bdir, m_regs.btri);
 	return m_regs.bdata & m_regs.bdir & ~m_regs.btri;
 }
-WRITE16_MEMBER( nc4000_device::portb_w )
+void nc4000_device::portb_w(uint16_t data)
 {
 	binput = data;
 }

@@ -9,18 +9,20 @@
  *
  *****************************************************************************/
 #include "emu.h"
-#include "debugger.h"
+//#include "debugger.h"
 #include "nc4000.h"
+#include "nc4000d.h"
 
-#define FETCHW(x) (oprom[x*2]<<8 | oprom[(x*2)+1])
+//#define FETCHW(buf,off) (buf.r8(off*2)<<8 | buf.r8(off*2+1))
 
-#define APPEND_RET if (IS_RET) { flags |= DASMFLAG_STEP_OUT; buffer += sprintf(buffer, " ;"); }
+// (Call)return bit was set - append call return character
+#define APPEND_RET if (IS_RET) { flags |= STEP_OUT; stream << " ;"; }
 
 typedef struct
 {
-   UINT16	opcode;		// Opcode value
-   UINT16	mask;		// Opcode mask. Applied before comparison to opcode
-   UINT8	length;		// Opcode length
+   uint16_t	opcode;		// Opcode value
+   uint16_t	mask;		// Opcode mask. Applied before comparison to opcode
+   uint8_t	length;		// Opcode length
    const char name[25];	// Opcode name
    unsigned flags;		// Disassembly flags
 } opcodeinfo;
@@ -159,22 +161,26 @@ static const char * const reg_trf[] = { "JK", "I", "PC", "true", "MD", "MD",
 		"Xtri","illegal","illegal","illegal","illegal","illegal","illegal","illegal","illegal"
 		,"illegal","illegal","illegal","illegal","illegal","illegal","illegal","illegal"};
 
-CPU_DISASSEMBLE( nc4000 ) {
-	UINT16 op = FETCHW(0), op2 = FETCHW(1);
-	offs_t p = 1, flags = DASMFLAG_SUPPORTED;
+u32 nc4000_disassembler::opcode_alignment() const { return 2; }
+
+//CPU_DISASSEMBLE( nc4000 ) {
+offs_t nc4000_disassembler::disassemble(std::ostream& stream, offs_t pc, const data_buffer& opcodes, const data_buffer& params) {
+	//uint16_t op = FETCHW(opcodes, 0), op2 =  FETCHW(opcodes, 1);
+	uint16_t op = opcodes.r16(0), op2 = opcodes.r16(2);
+	offs_t p = 1, flags = SUPPORTED;
 	int opidx;
 	const opcodeinfo *opinfo;
 
 	if (op & 0x8000) {
 		switch (op & 0xF000) {
 		case 0x9000: // Branch on T != 0
-			buffer += sprintf(buffer, "0BRANCH %04x", BADDR(pc));
+			util::stream_format(stream, "0BRANCH %04x", BADDR(pc));
 			break;
 		case 0xA000: // Loop on I > 0
-			buffer += sprintf(buffer, "LOOP %04x", BADDR(pc));
+			util::stream_format(stream, "LOOP %04x", BADDR(pc));
 			break;
 		case 0xB000: // Unconditional branch
-			buffer += sprintf(buffer, "BRANCH %04x", BADDR(pc));
+			util::stream_format(stream, "BRANCH %04x", BADDR(pc));
 			break;
 		default:
 			opidx = 0;
@@ -185,19 +191,19 @@ CPU_DISASSEMBLE( nc4000 ) {
 				{
 					if (opinfo->flags == DOP_L5)
 					{
-						buffer += sprintf(buffer, opinfo->name, OP_5BIT);
+						util::stream_format(stream, opinfo->name, OP_5BIT);
 					}
 					else if (opinfo->flags == DOP_R)
 					{
-						buffer += sprintf(buffer, opinfo->name, OP_4BIT, reg_trf[OP_4BIT]);
+						util::stream_format(stream, opinfo->name, OP_4BIT, reg_trf[OP_4BIT]);
 					}
 					else if (opinfo->flags == DOP_L16)
 					{
-						buffer += sprintf(buffer, opinfo->name, op2);
+						util::stream_format(stream, opinfo->name, op2);
 					}
 					else
 					{
-						buffer += sprintf(buffer, "%s", opinfo->name);
+						stream << opinfo->name;
 					}
 					p = opinfo->length;
 					APPEND_RET;
@@ -207,14 +213,14 @@ CPU_DISASSEMBLE( nc4000 ) {
 			};
 			if (nc4000_opcodes[opidx].opcode == 0)
 			{
-				buffer += sprintf(buffer, "*** RAW: %04x ***", op);
+				util::stream_format(stream, "*** RAW: %04x ***", op);
 			}
 			break;
 		}
 	} else // Subroutine call
 	{
-		sprintf(buffer, "CALL %04x", op);
-		flags |= DASMFLAG_STEP_OVER;
+		util::stream_format(stream, "CALL %04x", op);
+		flags |= STEP_OVER;
 	}
 	return p | flags;
 }

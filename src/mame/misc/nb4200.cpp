@@ -140,6 +140,9 @@ public:
     	m_terminal(*this, TERMINAL_TAG)
     {
     }
+
+	void nb4200(machine_config& config);
+
 	required_device<nc4000_device> m_cpu;
 	required_device<generic_terminal_device> m_terminal;
 
@@ -147,7 +150,7 @@ public:
 	static const device_timer_id TIMER_TERMINAL = 0;
 	int m_terminal_r_bit;
 	int m_terminal_state;
-	UINT8 m_terminal_shift;
+	uint8_t m_terminal_shift;
 	DECLARE_WRITE_LINE_MEMBER(terminal_serial_w);
 
     virtual void machine_start();
@@ -155,10 +158,16 @@ public:
 	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr);
 
     //DECLARE_WRITE8_MEMBER(term_kbd_out);
-    DECLARE_READ8_MEMBER(cpu_readx);
-    DECLARE_WRITE8_MEMBER(cpu_writex);
+   
+	uint8_t cpu_readx();
+	void cpu_writex(uint8_t data);
     DECLARE_READ_LINE_MEMBER(cpu_irq);
-	DECLARE_WRITE8_MEMBER(kbd_put);
+	void kbd_put(uint8_t data);
+
+
+	void prg_mem_map(address_map& map);
+	void datastack_map(address_map& map);
+	void retstack_map(address_map& map);
 };
 
 void nb4200_state::machine_start()
@@ -169,7 +178,7 @@ void nb4200_state::machine_start()
 
 void nb4200_state::machine_reset()
 {
-	machine().firstcpu->reset();
+	m_cpu->reset();
 }
 
 //
@@ -212,20 +221,20 @@ WRITE_LINE_MEMBER( nb4200_state::terminal_serial_w )
 }
 
 
-READ8_MEMBER(nb4200_state::cpu_readx)
+uint8_t nb4200_state::cpu_readx()
 {
-	UINT8 data = (m_cpu->portx_r() & 0xEF) | ((m_terminal_r_bit<< 4) & 0x10 );
+	uint8_t data = (m_cpu->portx_r() & 0xEF) | ((m_terminal_r_bit<< 4) & 0x10 );
 //	logerror("terminal->cpu: %i %02x\n", m_terminal_r_bit, data);
 	return data;
 }
 
-WRITE8_MEMBER(nb4200_state::cpu_writex)
+void nb4200_state::cpu_writex(uint8_t data)
 {
 //	logerror("cpu->terminal: %02x\n", data);
 	terminal_serial_w(data & 1);
 }
 
-WRITE8_MEMBER(nb4200_state::kbd_put)
+void nb4200_state::kbd_put(uint8_t data)
 {
 	logerror("key typed: %c, %02x\n", data, data);
 	//m_maincpu->set_input_line(MCS51_RX_LINE, ASSERT_LINE);
@@ -239,19 +248,23 @@ READ_LINE_MEMBER(nb4200_state::cpu_irq)
 	return CLEAR_LINE;
 }
 
-static ADDRESS_MAP_START(cpu_prg_mem, AS_PROGRAM, 16, nb4200_state)
-AM_RANGE(0x0000, 0x0fff) AM_RAM
-AM_RANGE(0x1000, 0x1fff) AM_ROM
-AM_RANGE(0x2000, 0x2fff) AM_RAM
-ADDRESS_MAP_END
 
-static ADDRESS_MAP_START(datastack_ram, AS_1, 16, nb4200_state)
-AM_RANGE(0x00, 0xff) AM_RAM AM_REGION(TAG_DAT_RAM, 0)
-ADDRESS_MAP_END
+void nb4200_state::prg_mem_map(address_map& map)
+{
+	map(0x0000, 0x0fff).ram();
+	map(0x1000, 0x1fff).rom();
+	map(0x2000, 0x2fff).ram();
+}
 
-static ADDRESS_MAP_START(retstack_ram, AS_2, 16, nb4200_state)
-AM_RANGE(0x00, 0xff) AM_RAM AM_REGION(TAG_RET_RAM, 0)
-ADDRESS_MAP_END
+void nb4200_state::datastack_map(address_map& map)
+{
+	map(0x00, 0xff).ram();
+}
+
+void nb4200_state::retstack_map(address_map& map)
+{
+	map(0x00, 0xff).ram();
+}
 
 INPUT_PORTS_START(nb4200)
 PORT_START("jumpers")
@@ -306,21 +319,18 @@ INPUT_PORTS_END
 //	DEVCB_NULL // IRQ
 //};
 
-	MACHINE_CONFIG_START(nb4200, nb4200_state)
-	MCFG_CPU_ADD(TAG_CPU, NC4000, 4000000)
-	MCFG_CPU_PROGRAM_MAP(cpu_prg_mem)
-	MCFG_DEVICE_ADDRESS_MAP(AS_1, datastack_ram)
-	MCFG_DEVICE_ADDRESS_MAP(AS_2, retstack_ram)
-	//MCFG_CPU_CONFIG( nb4200_cpu_config )
-	MCFG_NC4000_SET_PORTX_READ_CALLBACK(READ8(nb4200_state, cpu_readx))
-	MCFG_NC4000_SET_PORTX_WRITE_CALLBACK(WRITE8(nb4200_state, cpu_writex))
+void nb4200_state::nb4200(machine_config& config)
+{
+	NC4000(config, m_cpu, 4000000);
+	m_cpu->set_addrmap(AS_PROGRAM, &nb4200_state::prg_mem_map);
+	m_cpu->set_addrmap(AS_DATA, &nb4200_state::datastack_map);
+	m_cpu->set_addrmap(AS_IO, &nb4200_state::retstack_map);
+	m_cpu->in_portx_callback().set(FUNC(nb4200_state::cpu_readx));
+	m_cpu->out_portx_callback().set(FUNC(nb4200_state::cpu_writex));
 
-	//MCFG_FRAGMENT_ADD( generic_terminal )
-	MCFG_DEVICE_ADD(TERMINAL_TAG, GENERIC_TERMINAL, 0)
-	MCFG_GENERIC_TERMINAL_KEYBOARD_CB(WRITE8(nb4200_state, kbd_put))
-
-	//MCFG_GENERIC_TERMINAL_ADD(TERMINAL_TAG, terminal_intf)
-MACHINE_CONFIG_END
+	GENERIC_TERMINAL(config, m_terminal, 0);
+	m_terminal->set_keyboard_callback(FUNC(nb4200_state::kbd_put));
+}
 
 ROM_START(nb4200)
 	ROM_REGION16_BE(0x20000, TAG_CPU, ROMREGION_ERASEFF)
@@ -334,4 +344,4 @@ ROM_START(nb4200)
 ROM_END
 
 /*    YEAR  NAME    PARENT  COMPAT   MACHINE    INPUT  CLASS   INIT    COMPANY   FULLNAME       FLAGS */
-COMP( 1987, nb4200, 0, 0, nb4200, nb4200, driver_device, 0, "Novix, Inc.", "NB4200 Turbo Frame", MACHINE_NO_SOUND )
+COMP( 1987, nb4200, 0, 0, nb4200, nb4200, nb4200_state, empty_init, "Novix, Inc.", "NB4200 Turbo Frame", MACHINE_NO_SOUND )
