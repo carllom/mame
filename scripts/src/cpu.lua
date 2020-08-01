@@ -3319,5 +3319,6 @@ if (CPUS["NC4000"]~=null) then
 end
 
 if (CPUS["NC4000"]~=null or _OPTIONS["with-tools"]) then
-       table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nc4000/nc4000dasm.cpp")
+       table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nc4000/nc4000d.cpp")
+       table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nc4000/nc4000d.h")
 end
