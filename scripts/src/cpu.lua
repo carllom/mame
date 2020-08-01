@@ -3305,3 +3305,19 @@ if (CPUS["UPD177X"]~=null or _OPTIONS["with-tools"]) then
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/upd177x/upd177xd.cpp")
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/upd177x/upd177xd.h")
 end
+
+--------------------------------------------------
+-- Novix NC4000
+--@src/devices/cpu/nc4000/nc4000.h,CPUS["NC4000"] = true
+--------------------------------------------------
+
+if (CPUS["NC4000"]~=null) then
+       files {
+               MAME_DIR .. "src/devices/cpu/nc4000/nc4000.cpp",
+               MAME_DIR .. "src/devices/cpu/nc4000/nc4000.h",
+       }
+end
+
+if (CPUS["NC4000"]~=null or _OPTIONS["with-tools"]) then
+       table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nc4000/nc4000dasm.cpp")
+end
