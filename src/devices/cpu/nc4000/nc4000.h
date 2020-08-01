@@ -65,18 +65,18 @@
 #define CIN (OP_CFLAG ? carry : 0)
 
 
-union PAIR16
-{
-#ifdef LSB_FIRST
-	struct { UINT16 l,h; } b;
-	struct { INT8 l,h; } sb;
-#else
-	struct { UINT8 h,l; } b;
-	struct { INT8 h,l; } sb;
-#endif
-	UINT16 w;
-	INT16 sw;
-};
+//union PAIR16
+//{
+//#ifdef LSB_FIRST
+//	struct { UINT16 l,h; } b;
+//	struct { INT8 l,h; } sb;
+//#else
+//	struct { UINT8 h,l; } b;
+//	struct { INT8 h,l; } sb;
+//#endif
+//	UINT16 w;
+//	INT16 sw;
+//};
 
 enum {
 	NC4000_PC,
@@ -110,17 +110,40 @@ struct nc4000_interface
 
 //void (*m_output_pins_changed)(nc4000_device &device, UINT32 pins);	// a change has occurred on an output pin
 
-#define NC4000_INTERFACE(name) \
-	const nc4000_interface (name) =
+//#define NC4000_INTERFACE(name) \
+//	const nc4000_interface (name) =
 
+#define MCFG_NC4000_SET_PORTB_READ_CALLBACK(_devcb) \
+	devcb = &nc4000_device::set_portb_r_callback(*device, DEVCB_##_devcb);
+
+#define MCFG_NC4000_SET_PORTB_WRITE_CALLBACK(_devcb) \
+	devcb = &nc4000_device::set_portb_w_callback(*device, DEVCB_##_devcb);
+
+#define MCFG_NC4000_SET_PORTX_READ_CALLBACK(_devcb) \
+	devcb = &nc4000_device::set_portb_r_callback(*device, DEVCB_##_devcb);
+
+#define MCFG_NC4000_SET_PORTX_WRITE_CALLBACK(_devcb) \
+	devcb = &nc4000_device::set_portb_w_callback(*device, DEVCB_##_devcb);
+
+#define MCFG_NC4000_SET_IRQ_CALLBACK(_devcb) \
+	devcb = &nc4000_device::set_irq_callback(*device, DEVCB_##_devcb);
 
 class nc4000_device;
 
-class nc4000_device : public cpu_device, public nc4000_interface
+class nc4000_device : public cpu_device//, public nc4000_interface
 {
 public:
 	nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock);
+	nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock, const char* shortname, const char* source);
 	virtual ~nc4000_device();
+
+	template<class _Object> static devcb_base &set_portb_r_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_in_portb_cb.set_callback(object); }
+	template<class _Object> static devcb_base &set_portb_w_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_out_portb_cb.set_callback(object); }
+	template<class _Object> static devcb_base &set_portx_r_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_in_portx_cb.set_callback(object); }
+	template<class _Object> static devcb_base &set_portx_w_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_out_portx_cb.set_callback(object); }
+	template<class _Object> static devcb_base &set_irq_callback(device_t &device, _Object object) { return downcast<nc4000_device &>(device).m_in_irq_cb.set_callback(object); }
+
+
 
 	virtual void device_config_complete();
 
@@ -166,11 +189,11 @@ protected:
 	virtual UINT32 disasm_max_opcode_bytes() const;
 
 	// NC4000 device callbacks
-	devcb_resolved_read16	m_in_portb_func;
-	devcb_resolved_write16	m_out_portb_func;
-	devcb_resolved_read8	m_in_portx_func;
-	devcb_resolved_write8	m_out_portx_func;
-	devcb_resolved_read_line	m_in_irq_func;
+	devcb_read16 m_in_portb_cb;
+	devcb_write16 m_out_portb_cb;
+	devcb_read8	m_in_portx_cb;
+	devcb_write8 m_out_portx_cb;
+	devcb_read_line	m_in_irq_cb;
 
 
 	int DoAlu(UINT16 op);

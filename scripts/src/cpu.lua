@@ -4499,3 +4499,19 @@ if opt_tool(CPUS, "EDSP") then
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/edsp/edspdasm.cpp")
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/edsp/edspdasm.h")
 end
+
+--------------------------------------------------
+-- Novix NC4000
+--@src/devices/cpu/nc4000/nc4000.h,CPUS["NC4000"] = true
+--------------------------------------------------
+
+if (CPUS["NC4000"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/cpu/nc4000/nc4000.cpp",
+		MAME_DIR .. "src/devices/cpu/nc4000/nc4000.h",
+	}
+end
+
+if (CPUS["NC4000"]~=null or _OPTIONS["with-tools"]) then
+	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nc4000/nc4000dasm.cpp")
+end
