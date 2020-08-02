@@ -19,7 +19,7 @@
 //  DEVICE DEFINITIONS
 //**************************************************************************
 
-const device_type HD43160 = &device_creator<hd43160_device>;
+DEFINE_DEVICE_TYPE(HD43160, hd43160_device, "hd43160_char", "Hitachi HD44780 LCD controller");
 
 ROM_START(hd43160_char)
 	ROM_REGION(0x1000, "cgrom", 0)
@@ -31,17 +31,12 @@ ROM_END
 //  hd44780_device - constructor
 //-------------------------------------------------
 
-hd43160_device::hd43160_device(const machine_config &mconfig, const char *tag, device_t *owner, UINT32 clock) :
-	device_t(mconfig, HD43160, "HD43160", tag, owner, clock, "hd43160_char", __FILE__)
+hd43160_device::hd43160_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	device_t(mconfig, HD43160, tag, owner, clock)
 {
 }
 
-hd43160_device::hd43160_device(const machine_config &mconfig, device_type type, const char *name, const char *tag, device_t *owner, UINT32 clock, const char *shortname, const char *source) :
-	device_t(mconfig, type, name, tag, owner, clock, shortname, source)
-{
-}
-
-const rom_entry *hd43160_device::device_rom_region() const
+const tiny_rom_entry *hd43160_device::device_rom_region() const
 {
 	return ROM_NAME(hd43160_char);
 }
@@ -81,7 +76,7 @@ void hd43160_device::device_reset()
 //  HELPERS
 //**************************************************************************
 
-inline void hd43160_device::pixel_update(bitmap_ind16 &bitmap, UINT8 line, UINT8 pos, UINT8 y, UINT8 x, int state)
+inline void hd43160_device::pixel_update(bitmap_ind16 &bitmap, uint8_t line, uint8_t pos, uint8_t y, uint8_t x, int state)
 {
 	//if (m_pixel_update_func != NULL)
 	//{
@@ -89,7 +84,7 @@ inline void hd43160_device::pixel_update(bitmap_ind16 &bitmap, UINT8 line, UINT8
 	//}
 	//else
 	//{
-		UINT8 line_height = (m_char_size == 8) ? m_char_size : m_char_size + 1;
+		uint8_t line_height = (m_char_size == 8) ? m_char_size : m_char_size + 1;
 
 		if (m_lines <= 2)
 		{
@@ -108,7 +103,7 @@ inline void hd43160_device::pixel_update(bitmap_ind16 &bitmap, UINT8 line, UINT8
 //  device interface
 //**************************************************************************
 
-const UINT8 *hd43160_device::render()
+const uint8_t *hd43160_device::render()
 {
 	memset(m_render_buf, 0, sizeof(m_render_buf));
 
@@ -118,7 +113,7 @@ const UINT8 *hd43160_device::render()
 		{
 			for (int pos = 0; pos < m_chars; pos++)
 			{
-				UINT16 char_pos = line * 40 + (pos % m_chars);
+				uint16_t char_pos = line * 40 + (pos % m_chars);
 
 				int char_base = 0;
 				if (m_ram[char_pos] > 0x1F)
@@ -127,7 +122,7 @@ const UINT8 *hd43160_device::render()
 					char_base = m_ram[char_pos] * 0x8;
 				}
 
-				UINT8 *dest = m_render_buf + 16 * (line * m_chars + pos);
+				uint8_t *dest = m_render_buf + 16 * (line * m_chars + pos);
 				memcpy (dest, m_cgrom + char_base, m_char_size);
 
 				if (char_pos == m_ac)
@@ -143,16 +138,16 @@ const UINT8 *hd43160_device::render()
 	return m_render_buf;
 }
 
-UINT32 hd43160_device::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+uint32_t hd43160_device::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	bitmap.fill(0, cliprect);
-	const UINT8 *img = render();
+	const uint8_t *img = render();
 
 	for (int line = 0; line < m_lines; line++)
 	{
 		for (int pos = 0; pos < m_chars; pos++)
 		{
-			const UINT8 *src = img + 16 * (line * m_chars + pos);
+			const uint8_t *src = img + 16 * (line * m_chars + pos);
 			for (int y = 0; y < m_char_size; y++)
 				for (int x = 0; x < 5; x++)
 					pixel_update(bitmap, line, pos, y, x, BIT(src[y], 4 - x));
@@ -163,27 +158,27 @@ UINT32 hd43160_device::screen_update(screen_device &screen, bitmap_ind16 &bitmap
 }
 
 
-READ8_MEMBER(hd43160_device::read)
+uint8_t hd43160_device::read(offs_t offset)
 {
 	switch (offset & 0x01)
 	{
-	case 0: return control_read(space, 0);
-	case 1: return data_read(space, 0);
+	case 0: return control_read();
+	case 1: return data_read();
 	}
 
 	return 0;
 }
 
-WRITE8_MEMBER(hd43160_device::write)
+void hd43160_device::write(offs_t offset, uint8_t data)
 {
 	switch (offset & 0x01)
 	{
-	case 0: control_write(space, 0, data);  break;
-	case 1: data_write(space, 0, data);     break;
+	case 0: control_write(data);  break;
+	case 1: data_write(data);     break;
 	}
 }
 
-WRITE8_MEMBER(hd43160_device::control_write)
+void hd43160_device::control_write(uint8_t data)
 {
 	if (data == 1) {
 		// clear display
@@ -215,12 +210,12 @@ WRITE8_MEMBER(hd43160_device::control_write)
 	}
 }
 
-READ8_MEMBER(hd43160_device::control_read)
+uint8_t hd43160_device::control_read()
 {
 	return 0; // TODO: correct display timing w. busy signal on D7
 }
 
-WRITE8_MEMBER(hd43160_device::data_write)
+void hd43160_device::data_write(uint8_t data)
 {
 	if (LOG) logerror("HD43160 '%s': RAM write %02x %02x '%c'\n", tag(), m_ac, data, isprint(data) ? data : '.');
 
@@ -231,7 +226,7 @@ WRITE8_MEMBER(hd43160_device::data_write)
 	m_ac %= 80;
 }
 
-READ8_MEMBER(hd43160_device::data_read)
+uint8_t hd43160_device::data_read()
 {
 	return 0; // TODO: correct display timing w. busy signal on D7
 }

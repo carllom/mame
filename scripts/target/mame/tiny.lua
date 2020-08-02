@@ -29,7 +29,7 @@ SOUNDS["DAC"] = true
 -- specify available video cores
 --------------------------------------------------
 
-VIDEOS["HD43160"]
+VIDEOS["HD43160"] = true
 
 --------------------------------------------------
 -- specify available machine cores
