@@ -69,7 +69,7 @@ private:
 	uint8_t port_a_r();
 	uint8_t port_b_r();
 	void port_b_w(uint8_t data);
-	DECLARE_FLOPPY_FORMATS(floppy_formats);
+	static void floppy_formats(format_registration &fr);
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 
 	void io_map(address_map &map);
@@ -264,8 +264,7 @@ INPUT_PORTS_END
 uint32_t nanos_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 //  static uint8_t framecnt=0;
-	uint8_t gfx;
-	uint16_t sy=0,ma=0,x;
+	uint16_t sy=0,ma=0;
 
 //  framecnt++;
 
@@ -273,13 +272,14 @@ uint32_t nanos_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap,
 	{
 		for (uint8_t ra = 0; ra < 10; ra++)
 		{
-			uint16_t *p = &bitmap.pix16(sy++);
+			uint16_t *p = &bitmap.pix(sy++);
 
-			for (x = ma; x < ma + 80; x++)
+			for (uint16_t x = ma; x < ma + 80; x++)
 			{
+				uint8_t gfx;
 				if (ra < 8)
 				{
-					uint8_t chr = m_vram[x];
+					uint8_t const chr = m_vram[x];
 
 					/* get pattern of pixels for that character scanline */
 					gfx = m_p_chargen[(chr<<3) | ra ];
@@ -442,9 +442,11 @@ void nanos_state::machine_reset()
 	m_key_pressed = 0xff;
 }
 
-FLOPPY_FORMATS_MEMBER( nanos_state::floppy_formats )
-	FLOPPY_NANOS_FORMAT
-FLOPPY_FORMATS_END
+void nanos_state::floppy_formats(format_registration &fr)
+{
+	fr.add_mfm_containers();
+	fr.add(FLOPPY_NANOS_FORMAT);
+}
 
 static void nanos_floppies(device_slot_interface &device)
 {

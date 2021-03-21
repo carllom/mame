@@ -151,6 +151,10 @@ uint8_t electron_state::electron64_fetch_r(offs_t offset)
 
 uint8_t electron_state::electron_mem_r(offs_t offset)
 {
+	uint8_t data = 0xff;
+
+	data &= m_exp->expbus_r(offset);
+
 	switch (m_mrb.read_safe(0))
 	{
 	case 0x00: /* Normal */
@@ -167,11 +171,15 @@ uint8_t electron_state::electron_mem_r(offs_t offset)
 		if (m_mrb_mapped && (offset < 0x3000 || !m_vdu_drivers)) offset += 0x8000;
 		break;
 	}
-	return m_ram->read(offset);
+	data &= m_ram->read(offset);
+
+	return data;
 }
 
 void electron_state::electron_mem_w(offs_t offset, uint8_t data)
 {
+	m_exp->expbus_w(offset, data);
+
 	switch (m_mrb.read_safe(0))
 	{
 	case 0x00: /* Normal */
@@ -533,7 +541,7 @@ void electron_state::electron_sheila_w(offs_t offset, uint8_t data)
 		m_ula.cassette_motor_mode = ( data >> 6 ) & 0x01;
 		m_cassette->change_state(m_ula.cassette_motor_mode ? CASSETTE_MOTOR_ENABLED : CASSETTE_MOTOR_DISABLED, CASSETTE_MOTOR_DISABLED );
 		m_ula.capslock_mode = ( data >> 7 ) & 0x01;
-		output().set_value("capslock_led", m_ula.capslock_mode);
+		m_capslock_led = m_ula.capslock_mode;
 		break;
 	case 0x08: case 0x0a: case 0x0c: case 0x0e:
 		/* colour palette */
@@ -586,6 +594,8 @@ TIMER_CALLBACK_MEMBER(electron_state::setup_beep)
 
 void electron_state::machine_start()
 {
+	m_capslock_led.resolve();
+
 	m_ula.interrupt_status = 0x82;
 	m_ula.interrupt_control = 0x00;
 	timer_set(attotime::zero, TIMER_SETUP_BEEP);

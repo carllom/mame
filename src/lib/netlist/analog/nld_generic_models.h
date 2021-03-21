@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 #ifndef NLD_GENERIC_MODELS_H_
@@ -8,8 +8,7 @@
 /// \file nld_generic_models.h
 ///
 
-#include "netlist/nl_base.h"
-#include "netlist/nl_setup.h"
+#include "nl_base.h"
 
 //
 // Set to 0 to use a linearized diode model in the range exceeding

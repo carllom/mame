@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 /*
  * nlid_proxy.h
@@ -11,13 +11,10 @@
 #ifndef NLID_PROXY_H_
 #define NLID_PROXY_H_
 
-#include "netlist/analog/nlid_twoterm.h"
-#include "netlist/nl_base.h"
+#include "analog/nlid_twoterm.h"
+#include "nl_base.h"
 
-namespace netlist
-{
-namespace devices
-{
+namespace netlist::devices {
 
 	// -----------------------------------------------------------------------------
 	// nld_base_proxy
@@ -121,7 +118,6 @@ namespace devices
 		state_var<netlist_sig_t> m_last_state;
 	};
 
-} // namespace devices
-} // namespace netlist
+} // namespace netlist::devices
 
-#endif /* NLD_PROXY_H_ */
+#endif // NLD_PROXY_H_

@@ -20,7 +20,8 @@ TODO:
 - LCD status bit handling is guessed. stratos expects it to be high after lcd command 0xf,
   but tking2 won't work if it's done that way, and corona is different too
 - irq timing is derived from the main XTAL, but result should be similar with 5MHz and 5.67MHz,
-  there are a couple of "FREQ. SEL" nodes on the PCB, maybe related (not the ones in input ports)
+  there are a couple of "FREQ. SEL" nodes on the PCB, maybe related (not the ones in input ports).
+  irq source should be from HELIOS pin 2
 - tking(old revisions) and stratos slow responsive buttons, related to irq timing, but if that's changed,
   the led blinking and in-game clock is too fast
 - does nvram.u7 work? it's cleared during boot, but not used after
@@ -55,7 +56,6 @@ very few bytes difference between revisions. The first Corona is engine version 
 #include "machine/nvram.h"
 #include "machine/sensorboard.h"
 #include "sound/dac.h"
-#include "sound/volt_reg.h"
 #include "bus/generic/slot.h"
 #include "bus/generic/carts.h"
 
@@ -490,7 +490,6 @@ void stratos_state::stratos(machine_config &config)
 	/* sound hardware */
 	SPEAKER(config, "speaker").front_center();
 	DAC_1BIT(config, m_dac).add_route(ALL_OUTPUTS, "speaker", 0.25);
-	VOLTAGE_REGULATOR(config, "vref").add_route(0, "dac", 1.0, DAC_VREF_POS_INPUT);
 
 	/* extension rom */
 	GENERIC_CARTSLOT(config, "extrom", generic_plain_slot, "saitek_egr");

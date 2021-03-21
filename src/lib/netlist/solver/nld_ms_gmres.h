@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 #ifndef NLD_MS_GMRES_H_
@@ -12,8 +12,8 @@
 #include "nld_ms_direct.h"
 #include "nld_solver.h"
 #include "plib/gmres.h"
-#include "plib/mat_cr.h"
 #include "plib/parray.h"
+#include "plib/pmatrix_cr.h"
 #include "plib/vector_ops.h"
 
 #include <algorithm>
@@ -83,7 +83,7 @@ namespace solver
 
 	private:
 
-		using mattype = typename plib::pmatrix_cr_t<FT, SIZE>::index_type;
+		using mattype = typename plib::pmatrix_cr<FT, SIZE>::index_type;
 
 		//plib::mat_precondition_none<FT, SIZE> m_ops;
 		plib::mat_precondition_ILU<FT, SIZE> m_ops;

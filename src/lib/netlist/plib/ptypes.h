@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 #ifndef PTYPES_H_
@@ -34,6 +34,34 @@
 #define PMOVEASSIGN(name, def)  \
 	name(name &&) /*noexcept*/ = def; \
 	name &operator=(name &&) /*noexcept*/ = def;
+
+#if defined(EMSCRIPTEN)
+#undef EMSCRIPTEN
+#endif
+
+// -----------------------------------------------------------------------------
+// forward definitions
+// -----------------------------------------------------------------------------
+
+namespace plib
+{
+	template <typename BASEARENA, std::size_t MINALIGN>
+	class mempool_arena;
+
+	struct aligned_arena;
+	class dynlib_base;
+
+	template<bool debug_enabled>
+	class plog_base;
+
+	struct plog_level;
+
+	namespace detail
+	{
+		class token_store;
+	} // namespace detail
+
+} // namespace plib
 
 namespace plib
 {

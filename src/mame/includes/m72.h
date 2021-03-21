@@ -57,12 +57,19 @@ public:
 		m_upd4701(*this, {"upd4701l", "upd4701h"}),
 		m_samples_region(*this, "samples"),
 		m_io_dsw(*this, "DSW"),
+		m_fg_tilemap(nullptr),
+		m_bg_tilemap(nullptr),
+		m_bg_tilemap_large(nullptr),
+		m_video_off(0),
 		m_fg_source(0),
 		m_bg_source(0),
 		m_m81_b_b_j3(*this, "JumperJ3"),
 		m_m82_rowscroll(0),
 		m_m82_tmcontrol(0)
-	{ }
+	{
+		m_scrollx[0] = m_scrollx[1] = 0;
+		m_scrolly[0] = m_scrolly[1] = 0;
+	}
 
 	void m72_base(machine_config &config);
 	void m72_audio_chips(machine_config &config);
@@ -93,6 +100,7 @@ public:
 	void init_gallop();
 	void init_m72_8751();
 	void init_dbreedm72();
+	void init_airduelm72();
 	void init_nspirit();
 
 private:
@@ -173,6 +181,7 @@ private:
 	void nspirit_sample_trigger_w(offs_t offset, u16 data, u16 mem_mask = ~0);
 	void loht_sample_trigger_w(offs_t offset, u16 data, u16 mem_mask = ~0);
 	void dbreedm72_sample_trigger_w(offs_t offset, u16 data, u16 mem_mask = ~0);
+	void airduelm72_sample_trigger_w(offs_t offset, u16 data, u16 mem_mask = ~0);
 	void dkgenm72_sample_trigger_w(offs_t offset, u16 data, u16 mem_mask = ~0);
 	void gallop_sample_trigger_w(offs_t offset, u16 data, u16 mem_mask = ~0);
 	void rtype2_port02_w(u8 data);

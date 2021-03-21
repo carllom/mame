@@ -241,7 +241,7 @@ void m2_bda_device::device_start()
 
 	// Allocate RAM
 	uint32_t ram_size = (m_rambank_size[0] + m_rambank_size[1]) * 1024 * 1024;
-	m_ram = auto_alloc_array(machine(), uint32_t, ram_size / sizeof(uint32_t));
+	m_ram = std::make_unique<uint32_t[]>(ram_size / sizeof(uint32_t));
 	m_ram_mask = ram_size - 1;
 
 	// Install RAM and handlers into the CPU address spaces
@@ -463,7 +463,7 @@ void m2_bda_device::write_bus32(offs_t offset, uint32_t data)
 void m2_bda_device::configure_ppc_address_map(address_space &space)
 {
 	// Install shared RAM
-	space.install_ram(RAM_BASE, RAM_BASE + m_ram_mask, m_ram);
+	space.install_ram(RAM_BASE, RAM_BASE + m_ram_mask, m_ram.get());
 
 	// Install TE texture RAM window
 	space.install_ram(TE_TRAM_BASE, TE_TRAM_BASE + TE_TRAM_MASK, m_te->tram_ptr());
@@ -1336,9 +1336,9 @@ uint32_t m2_vdu_device::screen_update(screen_device &screen, bitmap_rgb32 &bitma
 				for (uint32_t ys = vdouble ? 2 : 1; ys > 0; --ys)
 				{
 					if (hdouble)
-						draw_scanline_double(&bitmap.pix32(v, 0), srclower, srcupper);
+						draw_scanline_double(&bitmap.pix(v, 0), srclower, srcupper);
 					else
-						draw_scanline(&bitmap.pix32(v, 0), srclower, srcupper);
+						draw_scanline(&bitmap.pix(v, 0), srclower, srcupper);
 
 					++v;
 				}
@@ -1352,7 +1352,7 @@ uint32_t m2_vdu_device::screen_update(screen_device &screen, bitmap_rgb32 &bitma
 			// Blank this block of lines if DMA is disabled
 			while (lines--)
 			{
-				uint32_t *dst = &bitmap.pix32(v, cliprect.min_x);
+				uint32_t *dst = &bitmap.pix(v, cliprect.min_x);
 
 				for (uint32_t x = cliprect.min_x; x <= cliprect.max_x; ++x)
 					*dst++ = rgb_t::black();

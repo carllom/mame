@@ -1,17 +1,14 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 /*
  * nld_legacy.c
  *
  */
 
-#include "nld_legacy.h"
-#include "netlist/nl_base.h"
+#include "nl_base.h"
 
-namespace netlist
-{
-	namespace devices
-	{
+namespace netlist::devices {
+
 	NETLIB_OBJECT(nicRSFF)
 	{
 		NETLIB_CONSTRUCTOR(nicRSFF)
@@ -97,5 +94,4 @@ namespace netlist
 	NETLIB_DEVICE_IMPL(nicRSFF,  "NETDEV_RSFF",  "")
 	NETLIB_DEVICE_IMPL(nicDelay, "NETDEV_DELAY", "")
 
-	} //namespace devices
-} // namespace netlist
+} // namespace netlist::devices

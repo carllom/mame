@@ -9,25 +9,200 @@
 
     For this game the Modular System cage contains 8 main boards and 1 sub board.
 
-    Unmarked red board - 2 V30s, unpopulated M68000 socket + 6 ROMs + RAMs.
-    MOD-6/1 - RAMs, 20 MHz XTAL and unpopulated M68000 socket.
+    8086/1 red board - 2 V30s, M68000 socket for connecting to board 6/1 + 6 ROMs + RAMs.
+    MOD-6/1 - RAMs, 20 MHz XTAL and  M68000 socket used for connecting to board 8086/1.
     MOD 21/1 - 24 MHz XTAL.
     MOD 1/5 - Sound board (Z80, 2xYM2203C). 2 8-dips banks + small sub board with OKI M5205.
     MOD 51/3 - Sprite board, has logic + 4 sprite ROMs.
-    MOD 4/3 - Tilemap board, has logic + 4 tilemap ROMs, long thin sub-board (CAR-0484/1 SOLD) with no chips, just routing along one edge.
-    MOD 4/3 - Tilemap board, has logic + 4 tilemap ROMs, long thin sub-board (CAR-0484/1 SOLD) with no chips, just routing along one edge.
-    MOD 4/3 - Tilemap board, has logic + 4 tilemap ROMs, long thin sub-board (CAR-0484/1 SOLD) with no chips, just routing along one edge.
+    MOD 4/3 - Tilemap board, has logic + 4 tilemap ROMs, long thin sub-board (CAR-0484/1) for terminating the connector (it's not used).
+    MOD 4/3 - Tilemap board, has logic + 4 tilemap ROMs, long thin sub-board (CAR-0484/1) for terminating the connector (it's not used).
+    MOD 4/3 - Tilemap board, has logic + 4 tilemap ROMs, long thin sub-board (CAR-0484/1) for terminating the connector (it's not used).
 
     PCBs pictures and dip listing are available at: http://www.recreativas.org/modular-system-raiden-4315-gaelco-sa
-*/
 
+Board 6/1                                           Board 21/1
+ _____________________________________________       ______________________________________________
+ |             _______________              __|_     |                                             |
+ |             |              |             |   |    |                                             |
+ |             | HM62256LP-12 |             |   |    |   ________   _______  ________              |
+ |             |______________|             |   |    |   |_EMPTY_| |_EMPTY_| |_EMPTY_|             |
+ |  _______   ________________    ________  |   |    |                                             |
+ | 74LS367AN  |               |  T74LS138B1 |   |    |                                             |
+ |            | EMPTY         |             |   |    |                                             |
+ |            |_______________|             |   |    |   ________   _______  ________              |
+ |  _______   ________________    _______   |   |    |   |74F74N_| 74LS393PC 74LS393PC             |
+ | 74LS367AN  |               |   74LS245N  |   |    |                                             |
+ |            | EMPTY         |             |   |    |                                             |
+ |            |_______________|             |   |    |                                             |
+ |            ________________              |   |    |   ________   ________  ________             |
+ |  _______   |               |   _______   |   |    |   74LS7273N |82S129_| |82S129_|             |
+ | 74LS138N   | EMPTY         |   74LS374N  |   |    |               P0202      211                |
+ |            |_______________|             |   |    |                                             |
+ |             _______________              |   |    |                                             |
+ |  _______    |              |   _______   |___|    |   ________   _______  ________              |
+ |  GAL16V8    | HM62256LP-12 |   74LS245N    |      |   74LS74AN    XTAL    SN74LS367AN           |
+ |    686      |______________|               |      |             24.000 MHz                      |
+ |            ________________                |      |                                             |
+ |  _______   |               |   _______     |      |   ________   _______  ________              |
+ | 74LS174N   | EMPTY         |   74LS374N    |   __ |_  74LS32PC  74LS368AB UM2148-1              |
+ |            |_______________|               |   |   |                                            |
+ |            ________________                |   |   |                                            |
+ |            |               |               |   |   |  ________   _______  ________              |
+ |  _______   | EMPTY         |   _______     |   |   |  74LS157N  74F112PC  UM2148-1              |
+ |  GAL16V8   |_______________|  T74LS138B1   |   |   |                                            |
+ |   645B*    ________________                |   |   |                                            |
+ |            |               |               |   |   |  ________   _______  ________              |
+ |            | EMPTY         |               |   |   |  74LS148N  74LS368AB UM2148-1              |
+ |            |_______________|   _______     |   |   |                                            |
+ |  __________________________    74LS32B1    |   |   |                                            |
+ |  | 68000 SOCKET BUT        |               |   |   |  ________   _______  ________   ________   |
+ |  | CONNECTED TO CPU PCB    |   _______     |   |   |  74LS298N  74LS298N  74LS298N   74LS174PC  |
+ |  |_________________________|   74LS20N     |   |   |                                            |
+ |                                            |   |   |                                            |
+ |  _______  ______  _______      _______     |   |   |  ________   _______  ________   ________   |
+ |  |74S74N   XTAL  74LS368AB1    74LS132N    |   |   |  74LS245N  74LS245N  |74LS08B   74LS174PC  |
+ |          20.000MHz                         |   |___|                                            |
+ |____________________________________________|      |_____________________________________________|
+
+  Sound Board (1/5)
+    ______________________________________________
+    |                                             |
+    |  ________  ________  ________               |
+    |  74LS107N  |74LS32N| |_EMPTY_|              |
+    |                                             |
+    |  ________  __________________               |
+    | 74LS368AB1 |                 |              |
+    |            | EMPTY           |              |
+    |  ________  |_________________|              |
+    |  74LS74AN  __________________               |
+    |            |  Z8400BB1       |              |
+    |  ________  |  Z80 B CPU      |  ________    |
+    | 74HCT157E  |_________________|  |LM324AN|   |
+    |            ________________                 |
+    |  ________  |               |             __ |
+  110->N82S123N  | RD 01         |             |D||
+    |  ________  |_______________|             |I||
+    | 74HCT157E  ________________              |P||     SOUND SUB
+    | __________ |               | _____ _____ |S|| __________________
+    | |         || LH5164D-10L   |Y3014B Y3014B|-|| | ______          |
+    | | SOUND   ||_______________|             |D|| | LM358N     ___  |
+    | |  SUB    |                              |I|| | .......... |  | |
+    | |         |                              |P|| |            |OKI |
+  __|_|_________|__________________            |S|| | .......... |M5205
+  |   |          | YAMAHA          |           |_|| | ________   |__| |
+  |   |          | YM2203C         |              | | 74LS377P        |
+  |   |          |_________________|              | |_________________|
+  |   |                                           |
+  |   | _______  ________                         |
+  |   | |EMPTY_| 74LS74AN                         |
+  |   |                                           |
+  |   |                                           |
+  |   |          __________________    _____      |
+  |   | _______  | YAMAHA          |  TDA2003     |
+  |   | |EMPTY|  | YM2203C         |              |
+  |   |          |_________________|              |
+  |   |                                           |
+  |   |          _________  _________             |
+  |   |          74LS244B1  74LS244B1             |
+  |   |                                           |
+  |___|        __________________________         |
+    |__________| |_|_|_|_|_|_|_|_|_|_|_| |________|
+                        PRE-JAMMA
+
+  CPU PCB (8086/1)                                       Board 51/3
+  ______________________________________________         _____________________________________________
+ | ____________                    ____________ |       |                                            |
+ ||RD601B      | ________         |NEC D70116C-10       | __________  ________ ________ ________     |
+ ||____________|SN74LS373N        |_V30________||       | |RD504    | 74LS299N 74LS169BN CY7C149|    |
+ | ____________                    ____________ |       | |_________| ________ ________ ________     |
+ ||RD601B      | ________         |NEC D70116C-10       |            74LS169BN 74LS169BN CY7C149|    |
+ ||____________|SN74LS373N        |_V30________||       |                                            |
+ |  ___________                     ___________ |       | __________  ________ ________ ________     |
+ | |RD603      | ________          |RD605B     ||       | |RD503    | 74LS158A 74LS169BN 82S129N <- 502
+ | |___________|SN74LS373N         |___________||       | |_________| ________ ________ ________     |
+ |  ___________  ________           ___________ |       |             74LS299N 74LS169BN 74LS244N    |
+ | |RD604      |SN74LS373N         |RD606B     ||       |                                            |
+ | |___________|                   |___________||       | __________  ________ ________ ________     |
+ |  ___________  ________ ________   __________ |       | |RD502    | 74LS299N 74LS169BN 74LS244N    |
+ | |SRM20256LC |SN74LS373N 74LS00N  |D4464-15L ||       | |_________| ________ ________ ________     |
+ | |___________| ________ ________  |__________||       |             74LS20B1 |CY7C149 74LS298B1    |
+ |  ___________ SN74LS373N 74LS368AN __________ |       |                                            |
+ | |SRM20256LC | ________ ________  |D4464-15L ||       | __________  ________ ________ ________     |
+ | |___________| |74LS32N 74LS139N  |__________||       | |RD501    | 74LS299N |CY7C149 74LS298B1    |
+ |                                              |       | |_________|                                |
+ |   ________   ________  ________   ________   |       |   ________  ________ ________ ________  __ |
+ |   74LS245N   74LS157N  74LS157N   74LS245N   |       |   74LS273B1 |74LS00N 74LS86B1 74LS244N  | ||
+ |   ________   ________  ________   ________   |       |                                         | ||
+ |   74LS245N   74LS157N  74LS157N   74LS245N   |      _|_  ________  ________ ________ ________  |V||
+ |   ______________________          ________   |      |  | |74LS08N  74F158APC 74LS74B1 74LS20B1 |O||
+ |  | 68000 SOCKET BUT     |         GAL16V8 <- 645C   |  |                                       |I||
+ |  | CONNECTED TO PCB 6/1 |         ________   |      |  | ________  ________ ________ ________  |D||
+ |  |______________________|         PALCE16V8 <- 645D 503-> GAL16V8 74LS393B1 74LS368AB1 74LS377N|E||
+ |______________________________________________|      |  |                                       |D||
+                                                       |  | ________  ________ ________ ________  | ||
+                                                       |  | 74LS138N  74LS283N UM2148-2 |_EMPTY_| | ||
+                                                       |  |                                       | ||
+                                                       |  | ________  ________ ________ ________  | ||
+                                                       |  | 74LS175B1 74LS283N UM2148-2 74LS273B1 | ||
+                                                       |  |                                       | ||
+                                                       |  | ________  ________ ________ ________  |_||
+                                                       |  | 74LS298B1 74LS157N 74LS157N 74LS273B1    |
+                                                       |  |                                          |
+                                                       |  | ________  ________ ________ ________     |
+                                                       |  | 74LS158P 74LS169BN 74LS169BN 74LS245B1   |
+                                                       |__|                                          |
+                                                        |____________________________________________|
+
+  Board 4/3 (B)                                     Board 4/3 (A)                                    Board 4/3
+ _____________________________________________    _____________________________________________    _____________________________________________
+ |                                            |   |                                            |   |                                            |
+ |   ________  ________ ________ ________     |   |   ________  ________ ________ ________     |   |   ________  ________ ________ ________     |
+ |   74LS00PC  |74S20N| 74LS244N 74LS163A  __ |   |   74LS00PC  |74S20N| 74LS244N 74LS163A  __ |   |   74LS00PC  |74S20N| 74LS244N 74LS163A  __ |
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||
+ |   PAL16R8A 74LS163A 74LS373PC 74LS163A  | ||   |   PAL16R8A 74LS163A 74LS373PC 74LS163A  | ||   |   PAL16R8A 74LS163A 74LS373PC 74LS163A  | ||
+ |    PC403                                | ||   |     403                                 | ||   |    P0403                                | ||
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||
+ |   74LS138PC 74LS283N 74LS273PC 74LS163A | ||   |   74LS138PC 74LS283N 74LS273PC 74LS163A | ||   |   74LS138B1 74LS283N 74LS273PC 74LS163A | ||
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||
+ |   74LS393N  74LS283N 74LS273N 74LS153PC | ||   |   74LS393N  74LS283N 74LS273N 74LS153   | ||   |   74LS393N  74LS283N 74LS273N 74LS153PC | ||
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||
+ |   74LS86PC  74LS299N |RD4B4  | 74LS153PC| ||   |   74LS86PC  74LS299N |RD4A4  | 74LS153  | ||   |   74LS86PC  74LS299  |RD401  | 74LS153N | ||
+ |                      |_______|          | ||   |                      |_______|          | ||   |                      |_______|          | ||
+ |                                         | ||   |                                         | ||   |                                         | ||
+ |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||   |   ________  ________ ________ ________  | ||
+_|_  74LS86PC  74LS299N |RD4B3  | 74LS153PC|V||  _|_  74LS86PC  74LS299N |RD4A3  | 74LS153  |V||  _|_  74LS86PC  74LS299  |RD402  | 74LS153N |V||
+|  |                    |_______|          |O||  |  |                    |_______|          |O||  |  |                    |_______|          |O||
+|  |                                       |I||  |  |                                       |I||  |  |                                       |I||
+|  | ________  ________ ________ ________  |D||  |  | ________  ________ ________ ________  |D||  |  | ________  ________ ________ ________  |D||
+|  |  74LS04   74LS299N |RD4B2  | 74LS153PC|E||  |  |  74LS04   74LS299N |RD4A2  | 74LS153  |E||  |  |  74LS04   74LS299  |RD403  | 74LS153N |E||
+|  |                    |_______|          |D||  |  |                    |_______|          |D||  |  |                    |_______|          |D||
+|  |                                       | ||  |  |                                       | ||  |  |                                       | ||
+|  | ________  ________ ________ ________  | ||  |  | ________  ________ ________ ________  | ||  |  | ________  ________ ________ ________  | ||
+|  | 74LS245P  74LS299N |RD4B1  | 74LS153PC| ||  |  | 74LS245P  74LS299N |RD4A1  | 74LS153  | ||  |  | 74LS245P  74LS299  |RD4A4  | 74LS153N | ||
+|  |                    |_______|          | ||  |  |                    |_______|          | ||  |  |                    |_______|          | ||
+|  |                                       | ||  |  |                                       | ||  |  |                                       | ||
+|  | ________  ________ ________ ________  | ||  |  | ________  ________ ________ ________  | ||  |  | ________  ________ ________ ________  | ||
+|  | 74LS32PC  74LS158P |D4364C | 74LS153PC| ||  |  | 74LS32PC  74LS158P |HM32064| 74LS153  | ||  |  | 74LS32B1  74LS158N |SRM2064| 74LS153N | ||
+|  |                    |15L____|          | ||  |  |                    |5______|          | ||  |  |                    |C15____|          | ||
+|  |                                       |_||  |  |                                       |_||  |  |                                       |_||
+|__|                                          |  |__|                                          |  |__|                                          |
+ |____________________________________________|   |____________________________________________|   |____________________________________________|
+
+*/
 
 #include "emu.h"
 #include "cpu/nec/nec.h"
 #include "cpu/z80/z80.h"
 #include "machine/gen_latch.h"
-#include "sound/2203intf.h"
 #include "sound/msm5205.h"
+#include "sound/ym2203.h"
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
@@ -54,7 +229,8 @@ public:
 		m_videoram(*this, "videoram"),
 		m_videoram2(*this, "videoram2"),
 		m_videoram3(*this, "videoram3"),
-		m_soundlatch(*this, "soundlatch")
+		m_soundlatch(*this, "soundlatch%u", 1),
+		m_soundbank(*this, "sound_bank")
 	{ }
 
 	void raidenm(machine_config &config);
@@ -80,7 +256,8 @@ private:
 	required_shared_ptr<uint16_t> m_videoram;
 	required_shared_ptr<uint16_t> m_videoram2;
 	required_shared_ptr<uint16_t> m_videoram3;
-	required_device<generic_latch_8_device> m_soundlatch;
+	required_device_array<generic_latch_8_device, 2> m_soundlatch;
+	required_memory_bank m_soundbank;
 
 	uint16_t pal_read16(offs_t offset, u16 mem_mask = ~0) { uint16_t data = m_palette->read16(offset); return ((data & 0xff00) >> 8) | ((data & 0x00ff) << 8); };
 	uint16_t pal_read16_ext(offs_t offset, u16 mem_mask = ~0) { uint16_t data = m_palette->read16_ext(offset); return ((data & 0xff00) >> 8) | ((data & 0x00ff) << 8);  };
@@ -93,13 +270,15 @@ private:
 	void raidenm_sub_map(address_map &map);
 
 	u8 sound_status_r();
-	void sound_command_w(u8 data);
 	void adpcm_w(u8 data);
+	void ym_w(offs_t offset, u8 data);
 	void audio_map(address_map& map);
 	DECLARE_WRITE_LINE_MEMBER(adpcm_int);
+	bool m_audio_select;
 	u8 m_adpcm_data;
 
 	void unk_snd_dffx_w(offs_t offset, u8 data);
+	void soundlatch_w(u8 data);
 
 	DECLARE_WRITE_LINE_MEMBER(vblank_irq);
 
@@ -129,8 +308,8 @@ void raiden_ms_state::raidenm_map(address_map &map)
 	map(0x0b002, 0x0b003).portr("P2");
 	map(0x0b004, 0x0b005).portr("P3");
 	map(0x0b006, 0x0b007).nopw();
-	map(0x0b008, 0x0b009).rw(FUNC(raiden_ms_state::sound_status_r), FUNC(raiden_ms_state::sound_command_w)).umask16(0xff00);
-
+	map(0x0b008, 0x0b008).w(m_soundlatch[0], FUNC(generic_latch_8_device::write)).umask16(0x00ff);
+	map(0x0b009, 0x0b009).r(FUNC(raiden_ms_state::sound_status_r)).w(m_soundlatch[1], FUNC(generic_latch_8_device::write)).umask16(0xff00);
 
 	map(0x0c000, 0x0cfff).ram().w(FUNC(raiden_ms_state::vram_w)).share("videoram");
 	map(0x0d800, 0x0dfff).ram().share("spriteram");
@@ -167,27 +346,40 @@ u8 raiden_ms_state::sound_status_r()
 	return 0;
 }
 
-void raiden_ms_state::sound_command_w(u8 data)
-{
-	m_soundlatch->write(data & 0xff);
-}
-
 
 void raiden_ms_state::adpcm_w(u8 data)
 {
-//  membank("sound_bank")->set_entry(((data & 0x10) >> 4) ^ 1);
+	m_audio_select = BIT(data, 7);
+	m_soundbank->set_entry(m_audio_select ? 1 : 0);
 	m_msm->reset_w(BIT(data, 4));
 
 	m_adpcm_data = data & 0xf;
-	//m_msm->data_w(data & 0xf);
-//  m_msm->vclk_w(BIT(data, 7));
-	//m_msm->vclk_w(1);
-	//m_msm->vclk_w(0);
+}
+
+void raiden_ms_state::ym_w(offs_t offset, u8 data)
+{
+	if (!m_audio_select)
+	{
+		if (!BIT(offset, 1))
+			m_ym1->write(offset & 1, data);
+		else
+			m_ym2->write(offset & 1, data);
+	}
+	else
+	{
+		// ??? (written during ADPCM IRQ)
+	}
 }
 
 void raiden_ms_state::unk_snd_dffx_w(offs_t offset, u8 data)
 {
 
+}
+
+void raiden_ms_state::soundlatch_w(u8 data)
+{
+	m_soundlatch[0]->clear_w(data);
+	m_soundlatch[1]->clear_w(data);
 }
 
 void raiden_ms_state::audio_map(address_map &map)
@@ -199,9 +391,10 @@ void raiden_ms_state::audio_map(address_map &map)
 	map(0xd000, 0xd7ff).ram();
 	// area 0xdff0-5 is never ever readback, applying a RAM mirror causes sound to go significantly worse,
 	// what they are even for?  (offset select bankswitch rather than data select?)
-	map(0xdff0, 0xdfff).r(m_soundlatch, FUNC(generic_latch_8_device::read)).w(FUNC(raiden_ms_state::unk_snd_dffx_w));
-	map(0xe000, 0xe001).w(m_ym1, FUNC(ym2203_device::write));
-	map(0xe002, 0xe003).w(m_ym2, FUNC(ym2203_device::write));
+	map(0xdff0, 0xdff7).w(FUNC(raiden_ms_state::unk_snd_dffx_w));
+	map(0xdff8, 0xdff8).r(m_soundlatch[1], FUNC(generic_latch_8_device::read)).w(FUNC(raiden_ms_state::soundlatch_w));
+	map(0xdff9, 0xdff9).r(m_soundlatch[0], FUNC(generic_latch_8_device::read));
+	map(0xe000, 0xe003).w(FUNC(raiden_ms_state::ym_w));
 	map(0xe008, 0xe009).r(m_ym1, FUNC(ym2203_device::read));
 	map(0xe00a, 0xe00b).r(m_ym2, FUNC(ym2203_device::read));
 }
@@ -215,7 +408,7 @@ WRITE_LINE_MEMBER(raiden_ms_state::adpcm_int)
 
 void raiden_ms_state::machine_start()
 {
-	membank("sound_bank")->configure_entries(0, 2, memregion("audiocpu")->base() + 0x8000, 0x4000);
+	m_soundbank->configure_entries(0, 2, memregion("audiocpu")->base() + 0x8000, 0x4000);
 }
 
 
@@ -483,7 +676,8 @@ void raiden_ms_state::raidenm(machine_config &config)
 
 	GFXDECODE(config, "gfxdecode", "palette", gfx_raiden_ms);
 
-	GENERIC_LATCH_8(config, m_soundlatch);
+	GENERIC_LATCH_8(config, m_soundlatch[0]);
+	GENERIC_LATCH_8(config, m_soundlatch[1]);
 
 	/* sound hardware */
 	SPEAKER(config, "mono").front_center();
@@ -491,18 +685,18 @@ void raiden_ms_state::raidenm(machine_config &config)
 	m_ym1->add_route(0, "mono", 0.15);
 	m_ym1->add_route(1, "mono", 0.15);
 	m_ym1->add_route(2, "mono", 0.15);
-	m_ym1->add_route(3, "mono", 0.10);
+	m_ym1->add_route(3, "mono", 0.40);
 
 	YM2203(config, m_ym2, XTAL(4'000'000)/4); // unknown clock
 	m_ym2->add_route(0, "mono", 0.15);
 	m_ym2->add_route(1, "mono", 0.15);
 	m_ym2->add_route(2, "mono", 0.15);
-	m_ym2->add_route(3, "mono", 0.10);
+	m_ym2->add_route(3, "mono", 0.40);
 
 	MSM5205(config, m_msm, XTAL(384'000)); // unknown clock
 	m_msm->vck_legacy_callback().set(FUNC(raiden_ms_state::adpcm_int));
-	m_msm->set_prescaler_selector(msm5205_device::S48_4B); // unverified
-	m_msm->add_route(ALL_OUTPUTS, "mono", 0.25);
+	m_msm->set_prescaler_selector(msm5205_device::S96_4B); // unverified
+	m_msm->add_route(ALL_OUTPUTS, "mono", 1.00);
 
 }
 
@@ -588,4 +782,4 @@ ROM_START( raidenm )
 	ROM_LOAD( "msraid_6-1-8086-1_645d_gal16v8.u27", 0x000, 0x117, NO_DUMP )
 ROM_END
 
-GAME( 199?, raidenm,  raiden,  raidenm,  raidenm,  raiden_ms_state, init_raidenm, ROT270, "bootleg (Gaelco / Ervisa)", "Raiden (Modular System)", MACHINE_IS_SKELETON )
+GAME( 1990, raidenm,  raiden,  raidenm,  raidenm,  raiden_ms_state, init_raidenm, ROT270, "bootleg (Gaelco / Ervisa)", "Raiden (Modular System)", MACHINE_NOT_WORKING )

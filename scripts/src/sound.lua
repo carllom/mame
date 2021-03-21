@@ -10,6 +10,8 @@
 ----------------------------------------------------------------------------
 
 files {
+	MAME_DIR .. "src/devices/sound/flt_biquad.cpp",
+	MAME_DIR .. "src/devices/sound/flt_biquad.h",
 	MAME_DIR .. "src/devices/sound/flt_vol.cpp",
 	MAME_DIR .. "src/devices/sound/flt_vol.h",
 	MAME_DIR .. "src/devices/sound/flt_rc.cpp",
@@ -657,6 +659,8 @@ if (SOUNDS["NES_APU"]~=null) then
 		MAME_DIR .. "src/devices/sound/nes_apu.cpp",
 		MAME_DIR .. "src/devices/sound/nes_apu.h",
 		MAME_DIR .. "src/devices/sound/nes_defs.h",
+		MAME_DIR .. "src/devices/sound/nes_apu_vt.cpp",
+		MAME_DIR .. "src/devices/sound/nes_apu_vt.h",
 	}
 end
 
@@ -849,7 +853,7 @@ end
 ---------------------------------------------------
 -- Seta custom sound chips
 --@src/devices/sound/st0016.h,SOUNDS["ST0016"] = true
---@src/devices/sound/nile.h,SOUNDS["NILE"] = true
+--@src/devices/sound/setapcm.h,SOUNDS["SETAPCM"] = true
 --@src/devices/sound/x1_010.h,SOUNDS["X1_010"] = true
 ---------------------------------------------------
 
@@ -860,10 +864,10 @@ if (SOUNDS["ST0016"]~=null) then
 	}
 end
 
-if (SOUNDS["NILE"]~=null) then
+if (SOUNDS["SETAPCM"]~=null) then
 	files {
-		MAME_DIR .. "src/devices/sound/nile.cpp",
-		MAME_DIR .. "src/devices/sound/nile.h",
+		MAME_DIR .. "src/devices/sound/setapcm.cpp",
+		MAME_DIR .. "src/devices/sound/setapcm.h",
 	}
 end
 
@@ -1166,11 +1170,11 @@ end
 ---------------------------------------------------
 -- Yamaha FM synthesizers
 --@src/devices/sound/ym2151.h,SOUNDS["YM2151"] = true
---@src/devices/sound/2203intf.h,SOUNDS["YM2203"] = true
+--@src/devices/sound/ym2203.h,SOUNDS["YM2203"] = true
 --@src/devices/sound/ym2413.h,SOUNDS["YM2413"] = true
---@src/devices/sound/2608intf.h,SOUNDS["YM2608"] = true
---@src/devices/sound/2610intf.h,SOUNDS["YM2610"] = true
---@src/devices/sound/2612intf.h,SOUNDS["YM2612"] = true
+--@src/devices/sound/ym2608.h,SOUNDS["YM2608"] = true
+--@src/devices/sound/ym2610.h,SOUNDS["YM2610"] = true
+--@src/devices/sound/ym2612.h,SOUNDS["YM2612"] = true
 --@src/devices/sound/3812intf.h,SOUNDS["YM3812"] = true
 --@src/devices/sound/3526intf.h,SOUNDS["YM3526"] = true
 --@src/devices/sound/8950intf.h,SOUNDS["Y8950"] = true
@@ -1184,6 +1188,8 @@ if (SOUNDS["YM2151"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/sound/ym2151.cpp",
 		MAME_DIR .. "src/devices/sound/ym2151.h",
+		MAME_DIR .. "src/devices/sound/ymfm.cpp",
+		MAME_DIR .. "src/devices/sound/ymfm.h",
 	}
 end
 
@@ -1197,49 +1203,48 @@ end
 if (SOUNDS["YM2203"]~=null or SOUNDS["YM2608"]~=null or SOUNDS["YM2610"]~=null or SOUNDS["YM2610B"]~=null or SOUNDS["YM2612"]~=null or SOUNDS["YM3438"]~=null) then
 --if (SOUNDS["YM2203"]~=null) then
 	files {
-		MAME_DIR .. "src/devices/sound/2203intf.cpp",
-		MAME_DIR .. "src/devices/sound/2203intf.h",
 		MAME_DIR .. "src/devices/sound/ay8910.cpp",
 		MAME_DIR .. "src/devices/sound/ay8910.h",
-		MAME_DIR .. "src/devices/sound/fm.cpp",
-		MAME_DIR .. "src/devices/sound/fm.h",
+		MAME_DIR .. "src/devices/sound/ym2203.cpp",
+		MAME_DIR .. "src/devices/sound/ym2203.h",
+		MAME_DIR .. "src/devices/sound/ymfm.cpp",
+		MAME_DIR .. "src/devices/sound/ymfm.h",
 	}
 --end
 
 
 --if (SOUNDS["YM2608"]~=null) then
 	files {
-		MAME_DIR .. "src/devices/sound/2608intf.cpp",
-		MAME_DIR .. "src/devices/sound/2608intf.h",
 		MAME_DIR .. "src/devices/sound/ay8910.cpp",
 		MAME_DIR .. "src/devices/sound/ay8910.h",
-		MAME_DIR .. "src/devices/sound/fm.cpp",
-		MAME_DIR .. "src/devices/sound/fm.h",
-		MAME_DIR .. "src/devices/sound/ymdeltat.cpp",
-		MAME_DIR .. "src/devices/sound/ymdeltat.h",
+		MAME_DIR .. "src/devices/sound/ym2608.cpp",
+		MAME_DIR .. "src/devices/sound/ym2608.h",
+		MAME_DIR .. "src/devices/sound/ymadpcm.cpp",
+		MAME_DIR .. "src/devices/sound/ymadpcm.h",
+		MAME_DIR .. "src/devices/sound/ymfm.cpp",
+		MAME_DIR .. "src/devices/sound/ymfm.h",
 	}
 --end
 
 --if (SOUNDS["YM2610"]~=null or SOUNDS["YM2610B"]~=null) then
 	files {
-		MAME_DIR .. "src/devices/sound/2610intf.cpp",
-		MAME_DIR .. "src/devices/sound/2610intf.h",
 		MAME_DIR .. "src/devices/sound/ay8910.cpp",
 		MAME_DIR .. "src/devices/sound/ay8910.h",
-		MAME_DIR .. "src/devices/sound/fm.cpp",
-		MAME_DIR .. "src/devices/sound/fm.h",
-		MAME_DIR .. "src/devices/sound/ymdeltat.cpp",
-		MAME_DIR .. "src/devices/sound/ymdeltat.h",
+		MAME_DIR .. "src/devices/sound/ym2610.cpp",
+		MAME_DIR .. "src/devices/sound/ym2610.h",
+		MAME_DIR .. "src/devices/sound/ymadpcm.cpp",
+		MAME_DIR .. "src/devices/sound/ymadpcm.h",
+		MAME_DIR .. "src/devices/sound/ymfm.cpp",
+		MAME_DIR .. "src/devices/sound/ymfm.h",
 	}
 --end
 
 --if (SOUNDS["YM2612"]~=null or SOUNDS["YM3438"]~=null) then
 	files {
-		MAME_DIR .. "src/devices/sound/2612intf.cpp",
-		MAME_DIR .. "src/devices/sound/2612intf.h",
-		MAME_DIR .. "src/devices/sound/ay8910.cpp",
-		MAME_DIR .. "src/devices/sound/ay8910.h",
-		MAME_DIR .. "src/devices/sound/fm2612.cpp",
+		MAME_DIR .. "src/devices/sound/ym2612.cpp",
+		MAME_DIR .. "src/devices/sound/ym2612.h",
+		MAME_DIR .. "src/devices/sound/ymfm.cpp",
+		MAME_DIR .. "src/devices/sound/ymfm.h",
 	}
 --end
 end
@@ -1409,17 +1414,6 @@ if (SOUNDS["PCD3311"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/sound/pcd3311.cpp",
 		MAME_DIR .. "src/devices/sound/pcd3311.h",
-	}
-end
-
----------------------------------------------------
--- Voltage Regulator
---@src/devices/sound/volt_reg.h,SOUNDS["VOLT_REG"] = true
----------------------------------------------------
-if (SOUNDS["VOLT_REG"]~=null) then
-	files {
-		MAME_DIR .. "src/devices/sound/volt_reg.cpp",
-		MAME_DIR .. "src/devices/sound/volt_reg.h",
 	}
 end
 
@@ -1599,5 +1593,29 @@ if (SOUNDS["RP2C33_SOUND"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/sound/rp2c33_snd.cpp",
 		MAME_DIR .. "src/devices/sound/rp2c33_snd.h",
+	}
+end
+
+---------------------------------------------------
+--
+--@src/devices/sound/tt5665.h,SOUNDS["TT5665"] = true
+---------------------------------------------------
+
+if (SOUNDS["TT5665"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/sound/tt5665.cpp",
+		MAME_DIR .. "src/devices/sound/tt5665.h",
+	}
+end
+
+---------------------------------------------------
+--
+--@src/devices/sound/uda1344.h,SOUNDS["UDA1344"] = true
+---------------------------------------------------
+
+if (SOUNDS["UDA1344"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/sound/uda1344.cpp",
+		MAME_DIR .. "src/devices/sound/uda1344.h",
 	}
 end

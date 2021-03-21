@@ -175,7 +175,7 @@ lev 7 : 0x7c : 0000 07e0 - input device clear?
 #include "machine/gen_latch.h"
 #include "sound/8950intf.h"
 #include "emupal.h"
-#include "rendlay.h"
+#include "layout/generic.h"
 #include "screen.h"
 #include "speaker.h"
 #include "tilemap.h"
@@ -379,7 +379,7 @@ void cybertnk_state::draw_sprites(screen_device &screen, bitmap_ind16 &bitmap, c
 
 			if ((yy>=miny) && (yy<=maxy))
 			{
-				dest = &bitmap.pix16(yy, 0);
+				dest = &bitmap.pix(yy, 0);
 
 				int start,end,inc;
 

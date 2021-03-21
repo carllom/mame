@@ -102,7 +102,7 @@ To Do:
   to "coin" (it probably changes the number of reads from port $C0).
   I guess the reset_delay mechanism should be implemented with a timer in eeprom.c.
 - pyenaget intro: when the theater scrolls out to the left, the train should scroll in from the right,
-  with no visible gaps. It currently leaves the screen empty instead, for several seconds.
+  with no visible gaps. It currently leaves a small gap.
 - tdoboon: no smoke from hit planes as shown in the video? Tiles are present (f60-125f) and used in demo mode.
 - dashhero does not acknowledge the button bashing correctly, it's very hard to win (a slower pace works better!)
 - dodghero and sushimar often write zeroes to 81XX1 and 00XX1 for some reason (maybe just sloppy coding?)
@@ -283,6 +283,7 @@ public:
 	sammymdl_state(const machine_config &mconfig, device_type type, const char *tag)
 		: sigmab98_base_state(mconfig, type, tag)
 		, m_maincpu(*this, "maincpu")
+		, m_kp69(*this, "maincpu:kp69")
 		, m_eeprom(*this, "eeprom")
 		, m_hopper(*this, "hopper")
 		, m_hopper_small(*this, "hopper_small")
@@ -301,17 +302,15 @@ public:
 	void init_itazuram();
 	void init_animalc();
 	void init_haekaka();
-	void init_gocowboy();
 
 protected:
 	virtual void machine_start() override { m_leds.resolve(); }
 
 private:
-	TIMER_DEVICE_CALLBACK_MEMBER(sammymdl_irq);
+	TIMER_DEVICE_CALLBACK_MEMBER(gocowboy_int);
+	TIMER_DEVICE_CALLBACK_MEMBER(timer_1khz);
 
-	uint8_t coin_counter_r();
 	void coin_counter_w(uint8_t data);
-	uint8_t leds_r();
 	void leds_w(uint8_t data);
 	void hopper_w(uint8_t data);
 	uint8_t coin_hopper_r();
@@ -329,16 +328,13 @@ private:
 	void animalc_map(address_map &map);
 	void gocowboy_io(address_map &map);
 	void gocowboy_map(address_map &map);
-	void haekaka_io(address_map &map);
 	void haekaka_map(address_map &map);
-	void itazuram_io(address_map &map);
 	void itazuram_map(address_map &map);
-	void pyenaget_io(address_map &map);
-	void tdoboon_io(address_map &map);
 	void tdoboon_map(address_map &map);
 
 	// Required devices
 	required_device<kl5c80a12_device> m_maincpu;
+	required_device<kp69_device> m_kp69;
 	required_device<eeprom_serial_93cxx_device> m_eeprom;
 
 	// Optional devices
@@ -347,10 +343,6 @@ private:
 	optional_device<ticket_dispenser_device> m_hopper_large;
 
 	output_finder<8> m_leds;
-
-	uint8_t m_vblank_vector;
-	uint8_t m_timer0_vector;
-	uint8_t m_timer1_vector;
 
 	uint8_t m_out[3];
 };
@@ -530,8 +522,8 @@ void sigmab98_base_state::draw_sprites(bitmap_ind16 &bitmap, const rectangle &cl
 		dstdyy /= 2;
 
 		// Transform the source image while drawing to the screen
-		uint16_t *src = &m_sprite_bitmap->pix16(0);
-		uint16_t *dst = &bitmap.pix16(0);
+		uint16_t const *const src = &m_sprite_bitmap->pix(0);
+		uint16_t *const dst = &bitmap.pix(0);
 
 		int src_rowpixels = m_sprite_bitmap->rowpixels();
 		int dst_rowpixels = bitmap.rowpixels();
@@ -946,7 +938,7 @@ uint8_t sigmab98_base_state::vblank_r()
 {
 	// mask 0x04 must be set before writing sprite list
 	// mask 0x10 must be set or irq/00 hangs?
-	return  m_vblank | 0x14;
+	return  (m_vblank & ~0x01) | 0x14;
 }
 
 void sigmab98_base_state::vblank_w(uint8_t data)
@@ -970,10 +962,6 @@ void sammymdl_state::show_3_outputs()
 #endif
 }
 // Port 31
-uint8_t sammymdl_state::coin_counter_r()
-{
-	return m_out[0];
-}
 void sammymdl_state::coin_counter_w(uint8_t data)
 {
 	machine().bookkeeping().coin_counter_w(0,   data  & 0x01 );  // coin1 in
@@ -991,10 +979,6 @@ void sammymdl_state::coin_counter_w(uint8_t data)
 }
 
 // Port 32
-uint8_t sammymdl_state::leds_r()
-{
-	return m_out[1];
-}
 void sammymdl_state::leds_w(uint8_t data)
 {
 	m_leds[0] = BIT(data, 0);   // button
@@ -1041,11 +1025,6 @@ void sammymdl_state::animalc_map(address_map &map)
 void sammymdl_state::animalc_io(address_map &map)
 {
 	map.global_mask(0xff);
-	map(0x2c, 0x2c).rw(FUNC(sammymdl_state::eeprom_r), FUNC(sammymdl_state::eeprom_w));
-	map(0x2e, 0x2e).r(FUNC(sammymdl_state::coin_hopper_r));
-	map(0x30, 0x30).portr("BUTTON");
-	map(0x31, 0x31).rw(FUNC(sammymdl_state::coin_counter_r), FUNC(sammymdl_state::coin_counter_w));
-	map(0x32, 0x32).rw(FUNC(sammymdl_state::leds_r), FUNC(sammymdl_state::leds_w));
 	map(0x90, 0x90).w("oki", FUNC(okim9810_device::write));
 	map(0x91, 0x91).w("oki", FUNC(okim9810_device::tmp_register_w));
 	map(0x92, 0x92).r("oki", FUNC(okim9810_device::read));
@@ -1087,11 +1066,6 @@ void sammymdl_state::gocowboy_leds_w(uint8_t data)
 void sammymdl_state::gocowboy_io(address_map &map)
 {
 	map.global_mask(0xff);
-	map(0x2c, 0x2c).rw(FUNC(sammymdl_state::eeprom_r), FUNC(sammymdl_state::eeprom_w));
-	map(0x2e, 0x2e).r(FUNC(sammymdl_state::coin_hopper_r));
-	map(0x30, 0x30).portr("BUTTON");
-	map(0x31, 0x31).rw(FUNC(sammymdl_state::coin_counter_r), FUNC(sammymdl_state::coin_counter_w));
-	map(0x32, 0x32).rw(FUNC(sammymdl_state::leds_r), FUNC(sammymdl_state::gocowboy_leds_w));
 	map(0x90, 0x90).rw("oki", FUNC(okim9810_device::read), FUNC(okim9810_device::write));
 	map(0x91, 0x91).w("oki", FUNC(okim9810_device::tmp_register_w));
 	map(0x92, 0x92).r("oki", FUNC(okim9810_device::read));
@@ -1147,21 +1121,6 @@ void sammymdl_state::haekaka_map(address_map &map)
 	map(0x73013, 0x73013).r(FUNC(sammymdl_state::haekaka_vblank_r));
 }
 
-void sammymdl_state::haekaka_io(address_map &map)
-{
-	map.global_mask(0xff);
-	map(0x2c, 0x2c).rw(FUNC(sammymdl_state::eeprom_r), FUNC(sammymdl_state::eeprom_w));
-	map(0x2e, 0x2e).r(FUNC(sammymdl_state::coin_hopper_r));
-	map(0x30, 0x30).portr("BUTTON");
-	map(0x31, 0x31).rw(FUNC(sammymdl_state::coin_counter_r), FUNC(sammymdl_state::haekaka_coin_counter_w));
-	map(0x32, 0x32).rw(FUNC(sammymdl_state::leds_r), FUNC(sammymdl_state::haekaka_leds_w));
-	map(0x90, 0x90).w("oki", FUNC(okim9810_device::write));
-	map(0x91, 0x91).w("oki", FUNC(okim9810_device::tmp_register_w));
-	map(0x92, 0x92).r("oki", FUNC(okim9810_device::read));
-	map(0xb0, 0xb0).w(FUNC(sammymdl_state::hopper_w));
-	map(0xc0, 0xc0).w("watchdog", FUNC(watchdog_timer_device::reset_w));  // 1
-}
-
 /***************************************************************************
                               Itazura Monkey
 ***************************************************************************/
@@ -1179,31 +1138,6 @@ void sammymdl_state::itazuram_map(address_map &map)
 	map(0x73013, 0x73013).r(FUNC(sammymdl_state::haekaka_vblank_r)).nopw();  // IRQ Ack?
 }
 
-void sammymdl_state::itazuram_io(address_map &map)
-{
-	map.global_mask(0xff);
-	map(0x2c, 0x2c).rw(FUNC(sammymdl_state::eeprom_r), FUNC(sammymdl_state::eeprom_w));
-	map(0x2e, 0x2e).r(FUNC(sammymdl_state::coin_hopper_r));
-	map(0x30, 0x30).portr("BUTTON");
-	map(0x31, 0x31).rw(FUNC(sammymdl_state::coin_counter_r), FUNC(sammymdl_state::coin_counter_w));
-	map(0x32, 0x32).rw(FUNC(sammymdl_state::leds_r), FUNC(sammymdl_state::leds_w));
-	map(0x90, 0x90).w("oki", FUNC(okim9810_device::write));
-	map(0x91, 0x91).w("oki", FUNC(okim9810_device::tmp_register_w));
-	map(0x92, 0x92).r("oki", FUNC(okim9810_device::read));
-	map(0xb0, 0xb0).w(FUNC(sammymdl_state::hopper_w));
-	map(0xc0, 0xc0).w("watchdog", FUNC(watchdog_timer_device::reset_w));  // 1
-}
-
-/***************************************************************************
-                             Pye-nage Taikai
-***************************************************************************/
-
-void sammymdl_state::pyenaget_io(address_map &map)
-{
-	haekaka_io(map);
-	map(0x31, 0x31).rw(FUNC(sammymdl_state::coin_counter_r), FUNC(sammymdl_state::coin_counter_w));
-}
-
 /***************************************************************************
                              Taihou de Doboon
 ***************************************************************************/
@@ -1218,21 +1152,6 @@ void sammymdl_state::tdoboon_map(address_map &map)
 	map(0x72800, 0x7287f).ram().share("vtable");
 	map(0x73000, 0x73021).rw(FUNC(sammymdl_state::vregs_r), FUNC(sammymdl_state::vregs_w)).share("vregs");
 	map(0x73013, 0x73013).r(FUNC(sammymdl_state::haekaka_vblank_r));
-}
-
-void sammymdl_state::tdoboon_io(address_map &map)
-{
-	map.global_mask(0xff);
-	map(0x2c, 0x2c).rw(FUNC(sammymdl_state::eeprom_r), FUNC(sammymdl_state::eeprom_w));
-	map(0x2e, 0x2e).r(FUNC(sammymdl_state::coin_hopper_r));
-	map(0x30, 0x30).portr("BUTTON");
-	map(0x31, 0x31).rw(FUNC(sammymdl_state::coin_counter_r), FUNC(sammymdl_state::coin_counter_w));
-	map(0x32, 0x32).rw(FUNC(sammymdl_state::leds_r), FUNC(sammymdl_state::leds_w));
-	map(0x90, 0x90).w("oki", FUNC(okim9810_device::write));
-	map(0x91, 0x91).w("oki", FUNC(okim9810_device::tmp_register_w));
-	map(0x92, 0x92).r("oki", FUNC(okim9810_device::read));
-	map(0xb0, 0xb0).w(FUNC(sammymdl_state::hopper_w));
-	map(0xc0, 0xc0).w("watchdog", FUNC(watchdog_timer_device::reset_w));  // 1
 }
 
 
@@ -1632,23 +1551,29 @@ void lufykzku_state::lufykzku(machine_config &config)
                              Sammy Medal Games
 ***************************************************************************/
 
-TIMER_DEVICE_CALLBACK_MEMBER(sammymdl_state::sammymdl_irq)
+TIMER_DEVICE_CALLBACK_MEMBER(sammymdl_state::gocowboy_int)
 {
 	int scanline = param;
-	uint16_t irqs = 0;
 
+	// TODO: what really triggers these?
 	if (scanline == 240)
-		irqs |= 1 << ((m_vblank_vector & 0x1e) >> 1);
+	{
+		m_kp69->ir_w<0>(1);
+		m_kp69->ir_w<0>(0);
+	}
 
 	if (scanline == 128)
-		irqs |= 1 << ((m_timer0_vector & 0x1e) >> 1);
+	{
+		m_kp69->ir_w<1>(1);
+		m_kp69->ir_w<1>(0);
+	}
+}
 
-	if (scanline == 32)
-		irqs |= 1 << ((m_timer1_vector & 0x1e) >> 1);
-
-	// FIXME: this is not much less of a hack than HOLD_LINE
-	if (irqs != 0)
-		m_maincpu->set_state_int(kl5c80a12_device::KP69_IRR, m_maincpu->state_int(kl5c80a12_device::KP69_IRR) | irqs);
+TIMER_DEVICE_CALLBACK_MEMBER(sammymdl_state::timer_1khz)
+{
+	// FIXME: this is an internally generated timer interrupt
+	m_kp69->ir_w<11>(1);
+	m_kp69->ir_w<11>(0);
 }
 
 void sammymdl_state::sammymdl(machine_config &config)
@@ -1656,8 +1581,12 @@ void sammymdl_state::sammymdl(machine_config &config)
 	KL5C80A12(config, m_maincpu, XTAL(20'000'000));    // !! KL5C80A12CFP @ 10MHz? (actually 4 times faster than Z80) !!
 	m_maincpu->set_addrmap(AS_PROGRAM, &sammymdl_state::animalc_map);
 	m_maincpu->set_addrmap(AS_IO, &sammymdl_state::animalc_io);
-
-	TIMER(config, "scantimer").configure_scanline(FUNC(sammymdl_state::sammymdl_irq), "screen", 0, 1);
+	m_maincpu->in_p0_callback().set(FUNC(sammymdl_state::eeprom_r));
+	m_maincpu->out_p0_callback().set(FUNC(sammymdl_state::eeprom_w));
+	m_maincpu->in_p1_callback().set(FUNC(sammymdl_state::coin_hopper_r));
+	m_maincpu->in_p2_callback().set_ioport("BUTTON");
+	m_maincpu->out_p3_callback().set(FUNC(sammymdl_state::coin_counter_w));
+	m_maincpu->out_p4_callback().set(FUNC(sammymdl_state::leds_w));
 
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);   // battery backed RAM
 	EEPROM_93C46_8BIT(config, "eeprom");
@@ -1673,7 +1602,7 @@ void sammymdl_state::sammymdl(machine_config &config)
 	m_screen->set_size(0x140, 0x100);
 	m_screen->set_visarea(0, 0x140-1, 0, 0xf0-1);
 	m_screen->set_screen_update(FUNC(sammymdl_state::screen_update));
-	m_screen->screen_vblank().set(FUNC(sammymdl_state::screen_vblank_sammymdl));
+	m_screen->screen_vblank().set(m_kp69, FUNC(kp69_device::ir_w<0>));
 	m_screen->set_palette(m_palette);
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_sigmab98);
@@ -1696,7 +1625,6 @@ void sammymdl_state::animalc(machine_config &config)
 	sammymdl(config);
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &sammymdl_state::animalc_map);
-	m_maincpu->set_addrmap(AS_IO, &sammymdl_state::animalc_io);
 }
 
 void sammymdl_state::gocowboy(machine_config &config)
@@ -1705,10 +1633,16 @@ void sammymdl_state::gocowboy(machine_config &config)
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &sammymdl_state::gocowboy_map);
 	m_maincpu->set_addrmap(AS_IO, &sammymdl_state::gocowboy_io);
+	m_maincpu->out_p4_callback().set(FUNC(sammymdl_state::gocowboy_leds_w));
+
+	TIMER(config, "scantimer").configure_scanline(FUNC(sammymdl_state::gocowboy_int), "screen", 0, 1);
+	TIMER(config, "1khztimer").configure_periodic(FUNC(sammymdl_state::timer_1khz), attotime::from_msec(1));
 
 	config.device_remove("hopper");
-	TICKET_DISPENSER(config, m_hopper_small, attotime::from_msec(1000), TICKET_MOTOR_ACTIVE_LOW, TICKET_STATUS_ACTIVE_LOW );
-	TICKET_DISPENSER(config, m_hopper_large, attotime::from_msec(1000), TICKET_MOTOR_ACTIVE_LOW, TICKET_STATUS_ACTIVE_LOW );
+	TICKET_DISPENSER(config, m_hopper_small, attotime::from_msec(200), TICKET_MOTOR_ACTIVE_LOW, TICKET_STATUS_ACTIVE_LOW );
+	TICKET_DISPENSER(config, m_hopper_large, attotime::from_msec(200), TICKET_MOTOR_ACTIVE_LOW, TICKET_STATUS_ACTIVE_LOW );
+
+	m_screen->screen_vblank().set_nop();
 }
 
 void sammymdl_state::haekaka(machine_config &config)
@@ -1716,15 +1650,22 @@ void sammymdl_state::haekaka(machine_config &config)
 	sammymdl(config);
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &sammymdl_state::haekaka_map);
-	m_maincpu->set_addrmap(AS_IO, &sammymdl_state::haekaka_io);
+	m_maincpu->out_p3_callback().set(FUNC(sammymdl_state::haekaka_coin_counter_w));
+	m_maincpu->out_p4_callback().set(FUNC(sammymdl_state::haekaka_leds_w));
+
+	m_screen->screen_vblank().set(m_kp69, FUNC(kp69_device::ir_w<2>));
 }
 
 void sammymdl_state::itazuram(machine_config &config)
 {
 	sammymdl(config);
 
+	TIMER(config, "scantimer").configure_scanline(FUNC(sammymdl_state::gocowboy_int), "screen", 0, 1);
+	TIMER(config, "1khztimer").configure_periodic(FUNC(sammymdl_state::timer_1khz), attotime::from_msec(1));
+
 	m_maincpu->set_addrmap(AS_PROGRAM, &sammymdl_state::itazuram_map);
-	m_maincpu->set_addrmap(AS_IO, &sammymdl_state::itazuram_io);
+
+	m_screen->screen_vblank().set_nop();
 }
 
 void sammymdl_state::pyenaget(machine_config &config)
@@ -1732,7 +1673,9 @@ void sammymdl_state::pyenaget(machine_config &config)
 	sammymdl(config);
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &sammymdl_state::haekaka_map);
-	m_maincpu->set_addrmap(AS_IO, &sammymdl_state::pyenaget_io);
+	m_maincpu->out_p4_callback().set(FUNC(sammymdl_state::haekaka_leds_w));
+
+	m_screen->screen_vblank().set(m_kp69, FUNC(kp69_device::ir_w<2>));
 }
 
 void sammymdl_state::tdoboon(machine_config &config)
@@ -1740,8 +1683,8 @@ void sammymdl_state::tdoboon(machine_config &config)
 	sammymdl(config);
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &sammymdl_state::tdoboon_map);
-	m_maincpu->set_addrmap(AS_IO, &sammymdl_state::tdoboon_io);
 
+	m_screen->screen_vblank().set(m_kp69, FUNC(kp69_device::ir_w<2>));
 	m_screen->set_visarea(0,0x140-1, 0+4,0xf0+4-1);
 }
 
@@ -2184,10 +2127,6 @@ void sammymdl_state::init_animalc()
 
 	// force jump out of BIOS loop
 	rom[0x005ac] = 0xc3;
-
-	m_vblank_vector = 0x00; // increment counter
-	m_timer0_vector = 0x1c; // read hopper state
-	m_timer1_vector = 0x1e; // drive hopper motor
 }
 
 /***************************************************************************
@@ -2225,13 +2164,6 @@ ROM_START( gocowboy )
 	ROM_LOAD( "vm1212f01.u5.jed", 0x0000, 0x5cde, CRC(b86a1825) SHA1(cc2e633fb8a24cfc93291a778b0964089f6b8ac7) )
 ROM_END
 
-void sammymdl_state::init_gocowboy()
-{
-	m_vblank_vector = 0x00;
-	m_timer0_vector = 0x02;
-	m_timer1_vector = 0x16;
-}
-
 /***************************************************************************
 
   Itazura Monkey ( VX1902L02 ITZRMONKY 200011211639 SAMMY CORP. AM )
@@ -2260,10 +2192,6 @@ void sammymdl_state::init_itazuram()
 
 	// force jump out of BIOS loop
 	rom[0x005ac] = 0xc3;
-
-	m_vblank_vector = 0x00;
-	m_timer0_vector = 0x02;
-	m_timer1_vector = 0x16;
 }
 
 /***************************************************************************
@@ -2366,10 +2294,6 @@ void sammymdl_state::init_haekaka()
 
 	// force jump out of BIOS loop
 	rom[0x005ac] = 0xc3;
-
-	m_vblank_vector = 0x04;
-	m_timer0_vector = 0x1a;
-	m_timer1_vector = 0x1c;
 }
 
 /***************************************************************************
@@ -2396,4 +2320,4 @@ GAME( 2000, itazuram, sammymdl, itazuram, sammymdl, sammymdl_state, init_itazura
 GAME( 2000, pyenaget, sammymdl, pyenaget, sammymdl, sammymdl_state, init_haekaka,  ROT0, "Sammy",             "Pye-nage Taikai",                      0 )
 GAME( 2000, tdoboon,  sammymdl, tdoboon,  haekaka,  sammymdl_state, init_haekaka,  ROT0, "Sammy",             "Taihou de Doboon",                     0 )
 GAME( 2001, haekaka,  sammymdl, haekaka,  haekaka,  sammymdl_state, init_haekaka,  ROT0, "Sammy",             "Hae Hae Ka Ka Ka",                     0 )
-GAME( 2003, gocowboy, 0,        gocowboy, gocowboy, sammymdl_state, init_gocowboy, ROT0, "Sammy",             "Go Go Cowboy (English, prize)",        0 )
+GAME( 2003, gocowboy, 0,        gocowboy, gocowboy, sammymdl_state, empty_init,    ROT0, "Sammy",             "Go Go Cowboy (English, prize)",        0 )

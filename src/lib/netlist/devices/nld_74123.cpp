@@ -1,17 +1,55 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 /*
- * nld_74123.c
+ * nld_74123.cpp
+ *
+ *  74123: Dual Retriggerable One-Shot with Clear and Complementary Outputs
+ *
+ *           +--------------+
+ *        A1 |1     ++    16| VCC
+ *        B1 |2           15| RC1
+ *      CLR1 |3           14| C1
+ *       Q1Q |4   74123   13| Q1
+ *        Q2 |5           12| Q2Q
+ *        C2 |6           11| CLR2
+ *       RC2 |7           10| B2
+ *       GND |8            9| A2
+ *           +--------------+
+ *
+ *  Naming conventions follow Fairchild Semiconductor datasheet
+ *
+ *  DM9602: Dual Retriggerable, Resettable One Shots
+ *
+ *           +--------------+
+ *        C1 |1     ++    16| VCC
+ *       RC1 |2           15| C2
+ *      CLR1 |3           14| RC2
+ *        B1 |4    9602   13| CLR2
+ *        A1 |5           12| B2
+ *        Q1 |6           11| A2
+ *       Q1Q |7           10| Q2
+ *       GND |8            9| Q2Q
+ *           +--------------+
+ *
+ *  CD4538: Dual Retriggerable, Resettable One Shots
+ *
+ *           +--------------+
+ *        C1 |1     ++    16| VCC
+ *       RC1 |2           15| C2
+ *      CLR1 |3           14| RC2
+ *        A1 |4    4538   13| CLR2
+ *        B1 |5           12| A2
+ *        Q1 |6           11| B2
+ *       Q1Q |7           10| Q2
+ *       GND |8            9| Q2Q
+ *           +--------------+
  *
  */
 
-#include "netlist/analog/nlid_twoterm.h"
+#include "analog/nlid_twoterm.h"
 #include "nlid_system.h"
 
-namespace netlist
-{
-	namespace devices
-	{
+namespace netlist::devices {
 
 	/// \brief Base monostable device
 	///
@@ -79,16 +117,16 @@ namespace netlist
 		//, m_power_pins(*this)
 		{
 
-			register_subalias(pstring(D::gnd()), m_RN.N());
-			register_subalias(pstring(D::vcc()), m_RP.P());
-			register_subalias("C",   m_RN.N());
-			register_subalias("RC",  m_RN.P());
+			register_subalias(pstring(D::gnd()), "RN.2");
+			register_subalias(pstring(D::vcc()), "RP.1");
+			register_subalias("C",   "RN.2");
+			register_subalias("RC",  "RN.1");
 
-			connect(m_RP_Q, m_RP.I());
-			connect(m_RN_Q, m_RN.I());
+			connect("_RP_Q", "RP.I");
+			connect("_RN_Q", "RN.I");
 
-			connect(m_RN.P(), m_RP.N());
-			connect(m_CV, m_RN.P());
+			connect("RN.1", "RP.2");
+			connect("_CV", "RN.1");
 
 			m_RP.m_RON.set(D::RI());
 			m_RN.m_RON.set(D::RI());
@@ -249,5 +287,4 @@ namespace netlist
 	NETLIB_DEVICE_IMPL(4538,  "CD4538",    "")
 	NETLIB_DEVICE_IMPL(9602,  "TTL_9602",  "")
 
-	} //namespace devices
-} // namespace netlist
+} // namespace netlist::devices

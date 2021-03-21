@@ -9,11 +9,14 @@
 #include "cpu/m6809/m6809.h"
 #include "sound/ay8910.h"
 #include "sound/okim6376.h"
-#include "sound/ym2413.h"
 #include "sound/upd7759.h"
+#include "sound/ym2413.h"
 #include "machine/steppers.h"
 #include "machine/roc10937.h"
 #include "machine/meters.h"
+
+#include "machine/bacta_datalogger.h"
+
 #include "emupal.h"
 
 
@@ -113,6 +116,7 @@ public:
 		, m_pia6(*this, "pia_ic6")
 		, m_pia7(*this, "pia_ic7")
 		, m_pia8(*this, "pia_ic8")
+		, m_pia_ic4ss(*this, "pia_ic4ss")
 		, m_port_mux(*this, {"ORANGE1", "ORANGE2", "BLACK1", "BLACK2", "ORANGE1", "ORANGE2", "DIL1", "DIL2"})
 		, m_aux1_port(*this, "AUX1")
 		, m_aux2_port(*this, "AUX2")
@@ -123,10 +127,12 @@ public:
 		, m_meters(*this, "meters")
 		, m_ym2413(*this, "ym2413")
 		, m_ay8913(*this, "ay8913")
+		, m_dataport(*this, "dataport")
 		, m_lamps(*this, "lamp%u", 0U)
 		, m_mpu4leds(*this, "mpu4led%u", 0U)
 		, m_digits(*this, "digit%u", 0U)
 		, m_triacs(*this, "triac%u", 0U)
+		, m_current_chr_table(nullptr)
 	 { }
 
 	void init_m4default_alt();
@@ -231,7 +237,6 @@ public:
 protected:
 	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
-	void mpu4_6809_map(address_map &map);
 	void mpu4_memmap(address_map &map);
 	void lamp_extend_small(int data);
 	void lamp_extend_large(int data,int column,int active);
@@ -311,6 +316,8 @@ protected:
 	DECLARE_WRITE_LINE_MEMBER(pia_gb_ca2_w);
 	DECLARE_WRITE_LINE_MEMBER(pia_gb_cb2_w);
 
+	DECLARE_WRITE_LINE_MEMBER(dataport_rxd);
+
 	required_device<cpu_device> m_maincpu;
 	optional_device<rocvfd_device> m_vfd;
 	optional_device<ptm6840_device> m_6840ptm;
@@ -321,6 +328,7 @@ protected:
 	optional_device<pia6821_device> m_pia6;
 	optional_device<pia6821_device> m_pia7;
 	optional_device<pia6821_device> m_pia8;
+	optional_device<pia6821_device> m_pia_ic4ss;
 	required_ioport_array<8> m_port_mux;
 	required_ioport m_aux1_port;
 	required_ioport m_aux2_port;
@@ -331,6 +339,7 @@ protected:
 	required_device<meters_device> m_meters;
 	optional_device<ym2413_device> m_ym2413;
 	optional_device<ay8913_device> m_ay8913;
+	optional_device<bacta_datalogger_device> m_dataport;
 
 	// not all systems have this many lamps/LEDs/digits but the driver is too much of a mess to split up now
 
@@ -381,14 +390,14 @@ protected:
 	int m_ic23_active;
 	int m_led_lamp;
 	int m_link7a_connected;
-	int m_low_volt_detect_disable;
+	int m_low_volt_detect_disable = 0;
 	int m_aux1_invert;
 	int m_aux2_invert;
 	int m_door_invert;
 	emu_timer *m_ic24_timer;
 	int m_expansion_latch;
 	int m_global_volume;
-	int m_input_strobe;
+	int m_input_strobe = 0;
 	uint8_t m_lamp_strobe;
 	uint8_t m_lamp_strobe2;
 	uint8_t m_lamp_strobe_ext;
@@ -398,7 +407,7 @@ protected:
 	int m_optic_pattern;
 
 	int m_active_reel;
-	int m_remote_meter;
+	int m_remote_meter = 0;
 	int m_reel_mux;
 	int m_lamp_extender;
 	int m_last_b7;
@@ -406,7 +415,7 @@ protected:
 	int m_lamp_sense;
 	int m_card_live;
 	int m_led_extender;
-	int m_bwb_bank;
+	int m_bwb_bank = 0;
 	int m_chr_state;
 	int m_chr_counter;
 	int m_chr_value;
@@ -414,12 +423,12 @@ protected:
 	int m_pageval;
 	int m_pageset;
 	int m_hopper;
-	int m_reels;
+	int m_reels = 0;
 	int m_chrdata;
 	int m_t1;
 	int m_t3l;
 	int m_t3h;
-	uint8_t m_numbanks;
+	uint8_t m_numbanks = 0;
 	mpu4_chr_table* m_current_chr_table;
 	const bwb_chr_table* m_bwb_chr_table1;
 };

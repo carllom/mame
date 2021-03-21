@@ -1,12 +1,21 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 /*
- * nld_log.c
+ * nld_log.cpp
+ *
+ *  Devices supporting analysis and logging
+ *
+ *  nld_log:
+ *
+ *          +---------+
+ *          |    ++   |
+ *        I |         | ==> Log to file "netlist_" + name() + ".log"
+ *          |         |
+ *          +---------+
  *
  */
 
-#include "netlist/nl_base.h"
-#include "nld_log.h"
+#include "nl_base.h"
 #include "plib/pfmtlog.h"
 #include "plib/pmulti_threading.h"
 #include "plib/pstream.h"
@@ -19,10 +28,8 @@
 #include <thread>
 #include <vector>
 
-namespace netlist
-{
-	namespace devices
-	{
+namespace netlist::devices {
+
 	NETLIB_OBJECT(log)
 	{
 		NETLIB_CONSTRUCTOR(log)
@@ -107,8 +114,8 @@ namespace netlist
 			netlist_time_ext t;
 			nl_fptype v;
 		};
-		static const std::size_t BUF_SIZE=16384;
-		static const std::size_t BUFFERS=4;
+		static constexpr std::size_t BUF_SIZE=16384;
+		static constexpr std::size_t BUFFERS=4;
 		analog_input_t m_I;
 		plib::ofstream m_strm;
 		plib::putf8_writer m_writer;
@@ -178,5 +185,4 @@ namespace netlist
 	NETLIB_DEVICE_IMPL(log,  "LOG",  "+I")
 	NETLIB_DEVICE_IMPL(logD, "LOGD", "+I,+I2")
 
-	} //namespace devices
-} // namespace netlist
+} // namespace netlist::devices

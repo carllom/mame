@@ -32,8 +32,6 @@
 
 #include "ibmxdf_dsk.h"
 
-#include "emucore.h" // emu_fatalerror
-
 
 ibmxdf_format::ibmxdf_format() : wd177x_format(formats)
 {
@@ -41,7 +39,7 @@ ibmxdf_format::ibmxdf_format() : wd177x_format(formats)
 
 const char *ibmxdf_format::name() const
 {
-	return "xdf";
+	return "ibmxdf";
 }
 
 const char *ibmxdf_format::description() const
@@ -54,7 +52,7 @@ const char *ibmxdf_format::extensions() const
 	return "xdf,img";
 }
 
-int ibmxdf_format::identify(io_generic *io, uint32_t form_factor)
+int ibmxdf_format::identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants)
 {
 	int type = find_size(io, form_factor);
 
@@ -175,7 +173,7 @@ const ibmxdf_format::format ibmxdf_format::formats_head1_track0[] = {
 	{}
 };
 
-bool ibmxdf_format::load(io_generic *io, uint32_t form_factor, floppy_image *image)
+bool ibmxdf_format::load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image)
 {
 	int type = find_size(io, form_factor);
 	if(type == -1)
@@ -196,8 +194,10 @@ bool ibmxdf_format::load(io_generic *io, uint32_t form_factor, floppy_image *ima
 
 			int total_size = 200000000/tf.cell_size;
 			int remaining_size = total_size - current_size;
-			if(remaining_size < 0)
-				throw emu_fatalerror("ibmxdf_format: Incorrect track layout, max_size=%d, current_size=%d", total_size, current_size);
+			if(remaining_size < 0) {
+				osd_printf_error("ibmxdf_format: Incorrect track layout, max_size=%d, current_size=%d\n", total_size, current_size);
+				return false;
+			}
 
 			// Fixup the end gap
 			desc[end_gap_index].p2 = remaining_size / 16;

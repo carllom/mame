@@ -641,7 +641,7 @@ void pcw_state::pcw_printer_fire_pins(uint16_t pins)
 	{
 		line = x % PCW_PRINTER_HEIGHT;
 		if((pins & 0x01) == 0)
-			m_prn_output->pix16(line, m_printer_headpos) = (uint16_t)(pins & 0x01);
+			m_prn_output->pix(line, m_printer_headpos) = (uint16_t)(pins & 0x01);
 		pins >>= 1;
 	}
 //  if(m_printer_headpos < PCW_PRINTER_WIDTH)
@@ -979,6 +979,8 @@ TIMER_CALLBACK_MEMBER(pcw_state::setup_beep)
 void pcw_state::machine_start()
 {
 	m_fdc_interrupt_code = 2;
+	m_vdu_video_control_register = 0;
+	m_nmi_flag = 0;
 }
 
 void pcw_state::machine_reset()
@@ -1049,7 +1051,7 @@ b0:   f4     exit   del>   =      0      8      6      4      1             f6
       &3FF0  &3FF1  &3FF2  &3FF3  &3FF4  &3FF5  &3FF6  &3FF7  &3FF8  &3FF9  &3FFA
 
 2008-05 FP:
-Small note about atural keyboard: currently,
+Small note about Natural keyboard: currently,
 - "Paste" is mapped to 'F9'
 - "Exit" is mapped to 'F10'
 - "Ptr" is mapped to 'Print Screen'
@@ -1077,7 +1079,7 @@ static INPUT_PORTS_START(pcw)
 
 	PORT_START("LINE1")     /* 0x03ff1 */
 	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Exit") PORT_CODE(KEYCODE_PGDN)       PORT_CHAR(UCHAR_MAMEKEY(F10))
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Ptr") PORT_CODE(KEYCODE_END)     PORT_CHAR(UCHAR_MAMEKEY(PRTSCR))
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Ptr") //PORT_CODE(KEYCODE_END)     PORT_CHAR(UCHAR_MAMEKEY(PRTSCR))
 	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Cut") PORT_CODE(KEYCODE_SLASH_PAD)   PORT_CHAR(UCHAR_MAMEKEY(F11))
 	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Copy") PORT_CODE(KEYCODE_ASTERISK)   PORT_CHAR(UCHAR_MAMEKEY(F12))
 	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_CODE(KEYCODE_8_PAD)                        PORT_CHAR(UCHAR_MAMEKEY(8_PAD))
@@ -1092,7 +1094,7 @@ static INPUT_PORTS_START(pcw)
 	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_CODE(KEYCODE_TILDE)                        PORT_CHAR('#') PORT_CHAR('>')
 	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_CODE(KEYCODE_7_PAD)                        PORT_CHAR(UCHAR_MAMEKEY(7_PAD))
 	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_CODE(KEYCODE_LSHIFT) PORT_CODE(KEYCODE_RSHIFT) PORT_CHAR(UCHAR_SHIFT_1)
-	PORT_BIT(0x40, 0xff, IPT_UNUSED)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_CODE(KEYCODE_END)                          PORT_CHAR(189) PORT_CHAR('@')   // (½ @) between slash and rshift
 	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("[+]") PORT_CODE(KEYCODE_F2)          PORT_CHAR(UCHAR_MAMEKEY(PGUP))  // 1st key on the left from 'Spacebar'
 
 	PORT_START("LINE3")     /* 0x03ff3 */
@@ -1300,8 +1302,8 @@ void pcw_state::pcw8256(machine_config &config)
 	pcw(config);
 	m_palette->set_init(FUNC(pcw_state::set_8xxx_palette));
 
-	FLOPPY_CONNECTOR(config, "upd765:0", pcw_ssfloppies, "3ssdd", floppy_image_device::default_floppy_formats);
-	FLOPPY_CONNECTOR(config, "upd765:1", pcw_dsfloppies, nullptr, floppy_image_device::default_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:0", pcw_ssfloppies, "3ssdd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:1", pcw_dsfloppies, nullptr, floppy_image_device::default_mfm_floppy_formats);
 
 	screen_device &printer(SCREEN(config, "printer", SCREEN_TYPE_RASTER));
 	printer.set_refresh_hz(50);
@@ -1318,8 +1320,8 @@ void pcw_state::pcw8512(machine_config &config)
 	pcw(config);
 	m_palette->set_init(FUNC(pcw_state::set_8xxx_palette));
 
-	FLOPPY_CONNECTOR(config, "upd765:0", pcw_ssfloppies, "3ssdd", floppy_image_device::default_floppy_formats);
-	FLOPPY_CONNECTOR(config, "upd765:1", pcw_dsfloppies, "3dsdd", floppy_image_device::default_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:0", pcw_ssfloppies, "3ssdd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:1", pcw_dsfloppies, "3dsdd", floppy_image_device::default_mfm_floppy_formats);
 
 	screen_device &printer(SCREEN(config, "printer", SCREEN_TYPE_RASTER));
 	printer.set_refresh_hz(50);
@@ -1340,8 +1342,8 @@ void pcw_state::pcw9512(machine_config &config)
 	pcw(config);
 	m_palette->set_init(FUNC(pcw_state::set_9xxx_palette));
 
-	FLOPPY_CONNECTOR(config, "upd765:0", pcw_dsfloppies, "3dsdd", floppy_image_device::default_floppy_formats);
-	FLOPPY_CONNECTOR(config, "upd765:1", pcw_dsfloppies, nullptr, floppy_image_device::default_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:0", pcw_dsfloppies, "3dsdd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:1", pcw_dsfloppies, nullptr, floppy_image_device::default_mfm_floppy_formats);
 
 	m_maincpu->set_addrmap(AS_IO, &pcw_state::pcw9512_io);
 
@@ -1355,8 +1357,8 @@ void pcw_state::pcw9256(machine_config &config)
 	pcw(config);
 	m_palette->set_init(FUNC(pcw_state::set_9xxx_palette));
 
-	FLOPPY_CONNECTOR(config, "upd765:0", pcw_35floppies, "35dd", floppy_image_device::default_floppy_formats);
-	FLOPPY_CONNECTOR(config, "upd765:1", pcw_35floppies, nullptr, floppy_image_device::default_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:0", pcw_35floppies, "35dd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:1", pcw_35floppies, nullptr, floppy_image_device::default_mfm_floppy_formats);
 
 	m_maincpu->set_addrmap(AS_IO, &pcw_state::pcw9512_io);
 }
@@ -1367,8 +1369,8 @@ void pcw_state::pcw9512p(machine_config &config)
 	pcw(config);
 	m_palette->set_init(FUNC(pcw_state::set_9xxx_palette));
 
-	FLOPPY_CONNECTOR(config, "upd765:0", pcw_35floppies, "35dd", floppy_image_device::default_floppy_formats);
-	FLOPPY_CONNECTOR(config, "upd765:1", pcw_35floppies, nullptr, floppy_image_device::default_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:0", pcw_35floppies, "35dd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:1", pcw_35floppies, nullptr, floppy_image_device::default_mfm_floppy_formats);
 
 	m_maincpu->set_addrmap(AS_IO, &pcw_state::pcw9512_io);
 
@@ -1382,8 +1384,8 @@ void pcw_state::pcw10(machine_config &config)
 	pcw(config);
 	m_palette->set_init(FUNC(pcw_state::set_9xxx_palette));
 
-	FLOPPY_CONNECTOR(config, "upd765:0", pcw_35floppies, "35dd", floppy_image_device::default_floppy_formats);
-	FLOPPY_CONNECTOR(config, "upd765:1", pcw_35floppies, nullptr, floppy_image_device::default_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:0", pcw_35floppies, "35dd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, "upd765:1", pcw_35floppies, nullptr, floppy_image_device::default_mfm_floppy_formats);
 
 	m_maincpu->set_addrmap(AS_IO, &pcw_state::pcw9512_io);
 

@@ -37,7 +37,7 @@ protected:
 	virtual void device_clock_changed() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 	// device_memory_interface configuration
 	virtual space_config_vector memory_space_config() const override;
@@ -62,7 +62,7 @@ private:
 		bool         play;
 	};
 
-	u8 read_rom_default(offs_t offset) { return m_rom[(m_bank + (offset & 0x1ffff)) & m_rom.mask()]; }
+	u8 read_rom_default(offs_t offset) { return m_rom[(m_bank + (offset & 0x1ffff)) & (m_rom.length() - 1)]; }
 	inline u8 read_sample(int channel, u32 addr) { m_bank = m_channel[channel].bank; return m_cache.read_byte(addr & 0x1ffff); }
 
 	channel_t     m_channel[KDAC_A_PCM_MAX]; // 2 channels

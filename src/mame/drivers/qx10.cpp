@@ -173,9 +173,8 @@ private:
 
 UPD7220_DISPLAY_PIXELS_MEMBER( qx10_state::hgdc_display_pixels )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	int xi,gfx[3];
-	uint8_t pen;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	int gfx[3];
 
 	if(m_color_mode)
 	{
@@ -190,13 +189,14 @@ UPD7220_DISPLAY_PIXELS_MEMBER( qx10_state::hgdc_display_pixels )
 		gfx[2] = 0;
 	}
 
-	for(xi=0;xi<16;xi++)
+	for(int xi=0;xi<16;xi++)
 	{
+		uint8_t pen;
 		pen = ((gfx[0] >> xi) & 1) ? 1 : 0;
 		pen|= ((gfx[1] >> xi) & 1) ? 2 : 0;
 		pen|= ((gfx[2] >> xi) & 1) ? 4 : 0;
 
-		bitmap.pix32(y, x + xi) = palette[pen];
+		bitmap.pix(y, x + xi) = palette[pen];
 	}
 }
 
@@ -239,7 +239,7 @@ UPD7220_DRAW_TEXT_LINE_MEMBER( qx10_state::hgdc_draw_text )
 					pen = ((tile_data >> xi) & 1) ? color : 0;
 
 				if(pen)
-					bitmap.pix32(res_y, res_x) = palette[pen];
+					bitmap.pix(res_y, res_x) = palette[pen];
 			}
 		}
 	}
@@ -329,7 +329,7 @@ QUICKLOAD_LOAD_MEMBER(qx10_state::quickload_cb)
 {
 	address_space& prog_space = m_maincpu->space(AS_PROGRAM);
 
-	if (quickload_size >= 0xfd00)
+	if (image.length() >= 0xfd00)
 		return image_init_result::FAIL;
 
 	/* The right RAM bank must be active */
@@ -344,6 +344,7 @@ QUICKLOAD_LOAD_MEMBER(qx10_state::quickload_cb)
 	}
 
 	/* Load image to the TPA (Transient Program Area) */
+	uint16_t quickload_size = image.length();
 	for (uint16_t i = 0; i < quickload_size; i++)
 	{
 		uint8_t data;
@@ -805,8 +806,8 @@ void qx10_state::qx10(machine_config &config)
 	UPD765A(config, m_fdc, 8'000'000, true, true);
 	m_fdc->intrq_wr_callback().set(FUNC(qx10_state::qx10_upd765_interrupt));
 	m_fdc->drq_wr_callback().set(m_dma_1, FUNC(am9517a_device::dreq0_w)).invert();
-	FLOPPY_CONNECTOR(config, m_floppy[0], qx10_floppies, "525dd", floppy_image_device::default_floppy_formats);
-	FLOPPY_CONNECTOR(config, m_floppy[1], qx10_floppies, "525dd", floppy_image_device::default_floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppy[0], qx10_floppies, "525dd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppy[1], qx10_floppies, "525dd", floppy_image_device::default_mfm_floppy_formats);
 
 	rs232_port_device &rs232(RS232_PORT(config, RS232_TAG, default_rs232_devices, nullptr));
 	rs232.rxd_handler().set(m_scc, FUNC(upd7201_device::rxb_w));

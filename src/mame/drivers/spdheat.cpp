@@ -19,9 +19,8 @@
 #include "cpu/m68000/m68000.h"
 #include "cpu/z80/z80.h"
 #include "machine/watchdog.h"
-#include "sound/2203intf.h"
 #include "sound/flt_vol.h"
-#include "sound/volt_reg.h"
+#include "sound/ym2203.h"
 
 
 static constexpr XTAL MASTER_CLOCK  = 16_MHz_XTAL;
@@ -774,9 +773,6 @@ void spdheat_state::spdheat(machine_config &config)
 	ym4.add_route(ALL_OUTPUTS, "mono", 0.3);
 
 	DAC_8BIT_R2R(config, m_dac, 0).add_route(ALL_OUTPUTS, "mono", 0.3);
-	voltage_regulator_device &vref(VOLTAGE_REGULATOR(config, "vref"));
-	vref.add_route(0, "dac", 1.0, DAC_VREF_POS_INPUT);
-	vref.add_route(0, "dac", -1.0, DAC_VREF_NEG_INPUT);
 }
 
 

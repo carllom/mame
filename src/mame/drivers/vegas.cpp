@@ -17,7 +17,7 @@
         * CART Fury Championship Racing [250MHz RM7000, 32MB RAM, Durango + Denver + Voodoo 3, 16MB]
 
     Known bugs:
-        * not working yet
+        * Tournament Editions not working yet
 
 ***************************************************************************
 
@@ -177,10 +177,10 @@
  4x MT48LC1M16AT RAM
  1x 93clc46b       label A-22911   config eeprom
  1x texas instruments 8CA00YF (don't know what it is)
- 1x motorolla MPC948 clock distribution chip
+ 1x motorola MPC948 clock distribution chip
  100MHz crystal
  1x CMDPCI646U2 IDE controller
- 1x 7segment LED display (cycles IOASIC if you try to load a game that doesnt match the PIC, spins during normal play)
+ 1x 7segment LED display (cycles IOASIC if you try to load a game that doesn't match the PIC, spins during normal play)
  1x 232ACBN serial port controller
  other misc 74xxx parts
  Boot ROM 1.7
@@ -291,6 +291,9 @@
 
 #include "sf2049.lh"
 
+
+namespace {
+
 /*************************************
  *
  *  Debugging constants
@@ -376,6 +379,10 @@ public:
 	DECLARE_CUSTOM_INPUT_MEMBER(keypad_r);
 	DECLARE_CUSTOM_INPUT_MEMBER(gearshift_r);
 
+protected:
+	virtual void machine_start() override;
+	virtual void machine_reset() override;
+
 private:
 	static constexpr unsigned SYSTEM_CLOCK = 100000000;
 
@@ -423,9 +430,6 @@ private:
 
 	DECLARE_WRITE_LINE_MEMBER(duart_irq_cb);
 	DECLARE_WRITE_LINE_MEMBER(vblank_assert);
-
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
 
 	void update_sio_irqs();
 
@@ -510,6 +514,8 @@ void vegas_state::machine_start()
 		if (LOG_SIO)
 			logerror("Did not find dcs2 sound board\n");
 	}
+
+	m_cmos_unlocked = 0;
 }
 
 
@@ -519,7 +525,7 @@ void vegas_state::machine_reset()
 	m_dcs->reset_w(1);
 
 	// Clear CPU IO registers
-	memset(m_cpuio_data, 0, ARRAY_LENGTH(m_cpuio_data));
+	std::fill(std::begin(m_cpuio_data), std::end(m_cpuio_data), 0);
 	// Clear SIO registers
 	reset_sio();
 	m_duart_irq_state = 0;
@@ -1619,9 +1625,9 @@ static INPUT_PORTS_START( nbashowt )
 	PORT_DIPNAME( 0x0040, 0x0040, "Select Game" )
 	PORT_DIPSETTING(      0x0040, DEF_STR(Yes))
 	PORT_DIPSETTING(      0x0000, DEF_STR(No))
-	PORT_DIPNAME( 0x0080, 0x0080, "Game Powerup" )
-	PORT_DIPSETTING(      0x0080, "NBA Showtime" )
-	PORT_DIPSETTING(      0x0000, "NFL Blitz" )
+	PORT_DIPNAME( 0x0080, 0x0000, "Game Powerup" )
+	PORT_DIPSETTING(      0x0080, "NFL Blitz" )
+	PORT_DIPSETTING(      0x0000, "NBA Showtime" )
 	PORT_DIPNAME( 0x0100, 0x0000, "Joysticks" )
 	PORT_DIPSETTING(      0x0100, "8-Way" )
 	PORT_DIPSETTING(      0x0000, "49-Way" )
@@ -2240,6 +2246,9 @@ ROM_START( gauntleg )
 
 	ROM_REGION16_LE( 0x10000, "dcs", 0 ) // Vegas SIO boot ROM
 	ROM_LOAD16_BYTE( "vegassio.bin", 0x000000, 0x8000, CRC(d1470e23) SHA1(f6e8405cfa604528c0224401bc374a6df9caccef) )
+
+	ROM_REGION( 0x2000, "serial_security_pic", 0 ) // security PIC (provides game ID code and serial number)
+	ROM_LOAD( "322_gauntlet.u37", 0x0000, 0x2000, CRC(0fe0bd0a) SHA1(bfd54572e2923d26392e89961d044357f551872a) )
 ROM_END
 
 
@@ -2265,6 +2274,9 @@ ROM_START( gauntleg12 )
 
 	ROM_REGION16_LE( 0x10000, "dcs", 0 ) // Vegas SIO boot ROM
 	ROM_LOAD16_BYTE( "vegassio.bin", 0x000000, 0x8000, CRC(d1470e23) SHA1(f6e8405cfa604528c0224401bc374a6df9caccef) )
+
+	ROM_REGION( 0x2000, "serial_security_pic", 0 ) // security PIC (provides game ID code and serial number)
+	ROM_LOAD( "322_gauntlet.u37", 0x0000, 0x2000, CRC(0fe0bd0a) SHA1(bfd54572e2923d26392e89961d044357f551872a) )
 ROM_END
 
 
@@ -2280,6 +2292,9 @@ ROM_START( gauntdl )
 
 	ROM_REGION16_LE( 0x10000, "dcs", 0 ) // Vegas SIO boot ROM
 	ROM_LOAD16_BYTE( "vegassio.bin", 0x000000, 0x8000, CRC(d1470e23) SHA1(f6e8405cfa604528c0224401bc374a6df9caccef) )
+
+	ROM_REGION( 0x2000, "serial_security_pic", 0 ) // security PIC (provides game ID code and serial number)
+	ROM_LOAD( "346_gauntlet-dl.u37", 0x0000, 0x2000, CRC(09420dd3) SHA1(9ffc62049b3e329b525469849944896163b1582b) )
 ROM_END
 
 
@@ -2295,6 +2310,9 @@ ROM_START( gauntdl24 )
 
 	ROM_REGION16_LE( 0x10000, "dcs", 0 ) // Vegas SIO boot ROM
 	ROM_LOAD16_BYTE( "vegassio.bin", 0x000000, 0x8000, CRC(d1470e23) SHA1(f6e8405cfa604528c0224401bc374a6df9caccef) )
+
+	ROM_REGION( 0x2000, "serial_security_pic", 0 ) // security PIC (provides game ID code and serial number)
+	ROM_LOAD( "346_gauntlet-dl.u37", 0x0000, 0x2000, CRC(09420dd3) SHA1(9ffc62049b3e329b525469849944896163b1582b) )
 ROM_END
 
 
@@ -2580,7 +2598,7 @@ void vegas_state::init_nbanfl()
 	// The first three bytes of the blitz00_nov30_1999.u27 ROM are FF's which breaks the reset vector.
 	// These bytes are from blitz00_sep22_1999.u27 which allows the other ROM to start.
 	// The last byte which is part of the checksum is also FF. By changing it to 0x01 the 4 byte checksum matches with the other 3 changes.
-	uint8_t *romPtr = machine().root_device().memregion(PCI_ID_NILE":rom")->base();
+	uint8_t *romPtr = memregion(PCI_ID_NILE":rom")->base();
 	romPtr[0x0] = 0xe2;
 	romPtr[0x1] = 0x00;
 	romPtr[0x2] = 0xf0;
@@ -2615,6 +2633,7 @@ void vegas_state::init_cartfury()
 {
 }
 
+} // Anonymous namespace
 
 
 /*************************************
@@ -2641,9 +2660,11 @@ GAME( 1999, roadburn,   0,         roadburn, roadburn, vegas_state, init_roadbur
 GAME( 1999, roadburn1,  roadburn,  roadburn, roadburn, vegas_state, init_roadburn, ROT0, "Atari Games",  "Road Burners (ver 1.0)", MACHINE_SUPPORTS_SAVE )
 
 // Vegas/Durango + Vegas SIO + Voodoo banshee
-GAME( 1998, nbashowt,   0,         nbashowt, nbashowt, vegas_state, init_nbashowt, ROT0, "Midway Games", "NBA Showtime: NBA on NBC (ver 2.0)", MACHINE_SUPPORTS_SAVE )
-GAME( 1999, nbanfl,     0,         nbanfl,   nbashowt, vegas_state, init_nbanfl,   ROT0, "Midway Games", "NBA Showtime / NFL Blitz 2000 (ver 2.1)", MACHINE_SUPPORTS_SAVE )
-GAME( 2000, nbagold ,   0,         nbagold,  nbashowt, vegas_state, init_nbagold,  ROT0, "Midway Games", "NBA Showtime Gold / NFL Blitz 2000 (ver 3.0) (SportsStation)", MACHINE_SUPPORTS_SAVE )
+// missing older versions of NBA Showtime?
+GAME( 1999, nbashowt,   0,         nbashowt, nbashowt, vegas_state, init_nbashowt, ROT0, "Midway Games", "NBA Showtime NBA on NBC (ver 2.0, Apr 25 1999)", MACHINE_SUPPORTS_SAVE )
+// the game select menu shows SportStation for both of these, was there ever a standalone NBA Showtime Gold?
+GAME( 1999, nbanfl,     0,         nbanfl,   nbashowt, vegas_state, init_nbanfl,   ROT0, "Midway Games", "SportStation: NBA Showtime NBA on NBC (ver 2.1, Sep 22 1999) / NFL Blitz 2000 Gold Edition (ver 1.5, Sep 22 1999)", MACHINE_SUPPORTS_SAVE ) // NBA Showtime titlescreen still shows Version 2.0
+GAME( 2000, nbagold,    0,         nbagold,  nbashowt, vegas_state, init_nbagold,  ROT0, "Midway Games", "SportStation: NBA Showtime NBA on NBC Gold Edition (ver 3.0, Feb 18 2000) / NFL Blitz 2000 Gold Edition", MACHINE_SUPPORTS_SAVE ) // boot game dipswitch has no effect, so NFL Blitz 2000 version number not shown
 
 // Durango + Denver SIO + Voodoo 3
 GAMEL( 1999, sf2049,     0,        sf2049,   sf2049,   vegas_state, init_sf2049,   ROT0, "Atari Games",  "San Francisco Rush 2049", MACHINE_SUPPORTS_SAVE, layout_sf2049 )

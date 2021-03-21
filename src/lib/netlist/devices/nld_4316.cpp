@@ -1,15 +1,31 @@
 // license:BSD-3-Clause
 // copyright-holders:Vas Crabb
 /*
- * nld_4316.c
+ * nld_4316.cpp
+ *
+ *  CD74HC4316: Quad Analog Switch with Level Translation
+ *
+ *          +--------------+
+ *       1Z |1     ++    16| VCC
+ *       1Y |2           15| 1S
+ *       2Y |3           14| 4S
+ *       2Z |4    4316   13| 4Z
+ *       2S |5           12| 4Y
+ *       3S |6           11| 3Y
+ *       /E |7           10| 3Z
+ *      GND |8            9| VEE
+ *          +--------------+
+ *
+ *  FIXME: These devices are slow (can be over 200 ns in HC types). This is currently not reflected
+ *
+ *  Naming conventions follow Texas Instruments datasheet
  *
  */
 
-#include "nld_4316.h"
-#include "netlist/analog/nlid_twoterm.h"
-#include "netlist/solver/nld_solver.h"
+#include "analog/nlid_twoterm.h"
+#include "solver/nld_solver.h"
 
-namespace netlist { namespace devices {
+namespace netlist::devices {
 
 	// FIXME: tristate outputs?
 
@@ -51,5 +67,4 @@ namespace netlist { namespace devices {
 
 	NETLIB_DEVICE_IMPL(CD4316_GATE, "CD4316_GATE", "")
 
-} // namespace devices
- } // namespace netlist
+} // namespace netlist::devices

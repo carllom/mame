@@ -86,7 +86,7 @@ void xmap9_device::device_reset()
 	m_cursor_cmap = 0;
 	m_popup_cmap = 0;
 	m_mode_table_idx = 0;
-	memset(m_mode_table, 0, sizeof(uint32_t) * ARRAY_LENGTH(m_mode_table));
+	std::fill(std::begin(m_mode_table), std::end(m_mode_table), 0);
 }
 
 void xmap9_device::serialize(FILE *file)
@@ -233,7 +233,7 @@ void cmap_device::device_reset()
 {
 	m_status = 8;
 	m_palette_idx = 0;
-	memset(m_palette, 0, sizeof(uint32_t) * ARRAY_LENGTH(m_palette));
+	std::fill(std::begin(m_palette), std::end(m_palette), 0);
 }
 
 void cmap_device::serialize(FILE *file)
@@ -1302,7 +1302,7 @@ uint32_t newport_base_device::screen_update(screen_device &device, bitmap_rgb32 
 	/* loop over rows and copy to the destination */
 	for (int y = cliprect.min_y, sy = y_start; y <= cliprect.max_y && sy < y_end; y++, sy++)
 	{
-		uint32_t *dest = &bitmap.pix32(y, cliprect.min_x);
+		uint32_t *dest = &bitmap.pix(y, cliprect.min_x);
 		const uint32_t *src_rgbci = m_rb2->rgbci(y);
 		const uint32_t *src_cidaux = m_rb2->cidaux(y);
 

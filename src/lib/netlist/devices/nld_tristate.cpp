@@ -3,18 +3,17 @@
 /*
  * nld_tristate.cpp
  *
+ *  tristate: Hack to merge two tri-stated outputs together
+ *
  */
 
-#include "nld_tristate.h"
-#include "netlist/nl_base.h"
+#include "nl_base.h"
 
 // FIXME: netlist now supports proper tristate outputs. All of this is legacy
 //        now and needs to be removed at some time.
 
-namespace netlist
-{
-	namespace devices
-	{
+namespace netlist::devices {
+
 	NETLIB_OBJECT(tristate)
 	{
 		NETLIB_CONSTRUCTOR(tristate)
@@ -72,5 +71,4 @@ namespace netlist
 	NETLIB_DEVICE_IMPL(tristate,  "TTL_TRISTATE",  "+CEQ1,+D1,+CEQ2,+D2")
 	NETLIB_DEVICE_IMPL(tristate3, "TTL_TRISTATE3", "")
 
-	} //namespace devices
-} // namespace netlist
+} // namespace netlist::devices
