@@ -26,10 +26,10 @@ public:
 	virtual uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 
 protected:
-	virtual void device_start();
-	virtual void device_reset();
+	virtual void device_start() override;
+	virtual void device_reset() override;
 	// optional information overrides
-	virtual const tiny_rom_entry *device_rom_region() const;
+	virtual const tiny_rom_entry *device_rom_region() const override;
 private:
 	void pixel_update(bitmap_ind16 &bitmap, uint8_t line, uint8_t pos, uint8_t y, uint8_t x, int state);
 

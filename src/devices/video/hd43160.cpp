@@ -89,7 +89,7 @@ inline void hd43160_device::pixel_update(bitmap_ind16 &bitmap, uint8_t line, uin
 		if (m_lines <= 2)
 		{
 			if (pos < m_chars)
-				bitmap.pix16(line * (line_height + 1) + y, pos * 6 + x) = state;
+				bitmap.pix(line * (line_height + 1) + y, pos * 6 + x) = state;
 		}
 		else
 		{
