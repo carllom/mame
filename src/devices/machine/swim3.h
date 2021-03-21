@@ -5,13 +5,13 @@
     Apple SWIM3 floppy disk controller
 
 *********************************************************************/
-
-#pragma once
-
 #ifndef MAME_MACHINE_SWIM3_H
 #define MAME_MACHINE_SWIM3_H
 
+#pragma once
+
 #include "applefdintf.h"
+
 
 //**************************************************************************
 //  TYPE DEFINITIONS
@@ -29,6 +29,8 @@ public:
 
 	virtual void set_floppy(floppy_image_device *floppy) override;
 	virtual floppy_image_device *get_floppy() const override;
+
+	virtual void sync() override;
 
 protected:
 	virtual void device_start() override;

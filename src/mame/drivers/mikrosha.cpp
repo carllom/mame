@@ -47,6 +47,7 @@ void mikrosha_state::machine_reset()
 	if (m_cart->exists())
 		m_maincpu->space(AS_PROGRAM).install_read_handler(0x8000, 0x8000 + m_cart->get_rom_size() - 1, read8sm_delegate(*m_cart, FUNC(generic_slot_device::read_rom)));
 	radio86_state::machine_reset();
+	m_mikrosha_font_page = 0;
 }
 
 /* Address maps */
@@ -190,7 +191,7 @@ I8275_DRAW_CHARACTER_MEMBER(mikrosha_state::display_pixels)
 		pixels ^= 0xff;
 
 	for(int i=0;i<6;i++)
-		bitmap.pix32(y, x + i) = palette[(pixels >> (5-i)) & 1 ? (hlgt ? 2 : 1) : 0];
+		bitmap.pix(y, x + i) = palette[(pixels >> (5-i)) & 1 ? (hlgt ? 2 : 1) : 0];
 }
 
 /* F4 Character Displayer */

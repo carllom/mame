@@ -52,15 +52,18 @@ k007232_device::k007232_device(const machine_config &mconfig, const char *tag, d
 
 void k007232_device::device_start()
 {
+	// assumes it can make an address mask with m_rom.length() - 1
+	assert (!m_rom.found() || !(m_rom.length() & (m_rom.length() - 1)));
+
 	m_pcmlimit = 1 << 17;
 	// default mapping (bankswitched ROM)
-	if ((m_rom.target() != nullptr) && (!has_configured_map(0)))
+	if (m_rom.found() && !has_configured_map(0))
 	{
 		if (m_rom.bytes() > 0x20000)
 			space(0).install_read_handler(0x00000, std::min<offs_t>(0x1ffff, m_rom.bytes() - 1), read8sm_delegate(*this, FUNC(k007232_device::read_rom_default)));
 		else
 		{
-			space(0).install_rom(0x00000, m_rom.mask(), m_rom.target());
+			space(0).install_rom(0x00000, m_rom.length() - 1, m_rom.target());
 			m_pcmlimit = m_rom.bytes();
 		}
 	}
@@ -86,7 +89,7 @@ void k007232_device::device_start()
 	for (auto & elem : m_wreg)
 		elem = 0;
 
-	m_stream = machine().sound().stream_alloc(*this, 0, 2, clock()/128);
+	m_stream = stream_alloc(0, 2, clock()/128);
 
 	save_item(STRUCT_MEMBER(m_channel, vol));
 	save_item(STRUCT_MEMBER(m_channel, addr));
@@ -209,11 +212,8 @@ void k007232_device::set_bank(int chan_a_bank, int chan_b_bank)
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void k007232_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void k007232_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
-	memset(outputs[0], 0, samples * sizeof(stream_sample_t));
-	memset(outputs[1], 0, samples * sizeof(stream_sample_t));
-
 	if (K007232_LOG_PCM)
 	{
 		for (int i = 0; i < KDAC_A_PCM_MAX; i++)
@@ -223,24 +223,24 @@ void k007232_device::sound_stream_update(sound_stream &stream, stream_sample_t *
 			{
 				char filebuf[256];
 				snprintf(filebuf, 256, "pcm%08x.wav", channel->start);
-				wav_file *file = wav_open(filebuf, stream.sample_rate(), 1);
-				if (file != nullptr)
+				util::wav_file_ptr file = util::wav_open(filebuf, stream.sample_rate(), 1);
+				if (file)
 				{
 					u32 addr = channel->start;
 					while (!BIT(read_sample(i, addr), 7) && addr < m_pcmlimit)
 					{
 						int16_t out = ((read_sample(i, addr) & 0x7f) - 0x40) << 7;
-						wav_add_data_16(file, &out, 1);
+						util::wav_add_data_16(*file, &out, 1);
 						addr++;
 					}
-					wav_close(file);
 				}
 			}
 		}
 	}
 
-	for (int j = 0; j < samples; j++)
+	for (int j = 0; j < outputs[0].samples(); j++)
 	{
+		s32 lsum = 0, rsum = 0;
 		for (int i = 0; i < KDAC_A_PCM_MAX; i++)
 		{
 			channel_t *channel = &m_channel[i];
@@ -279,9 +279,11 @@ void k007232_device::sound_stream_update(sound_stream &stream, stream_sample_t *
 
 				int out = (read_sample(i, addr) & 0x7f) - 0x40;
 
-				outputs[0][j] += out * vol_a;
-				outputs[1][j] += out * vol_b;
+				lsum += out * vol_a;
+				rsum += out * vol_b;
 			}
 		}
+		outputs[0].put_int(j, lsum, 32768);
+		outputs[1].put_int(j, rsum, 32768);
 	}
 }

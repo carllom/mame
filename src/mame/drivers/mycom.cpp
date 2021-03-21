@@ -148,20 +148,17 @@ private:
 
 MC6845_UPDATE_ROW( mycom_state::crtc_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	u8 chr,gfx=0,z;
-	u16 mem,x;
-	u32 *p = &bitmap.pix32(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	u32 *p = &bitmap.pix(y);
 
 	if (m_port0a & 0x40)
 	{
-		for (x = 0; x < x_count; x++)                   // lores pixels
+		for (u16 x = 0; x < x_count; x++)                   // lores pixels
 		{
-			u8 dbit=1;
-			if (x == cursor_x) dbit=0;
-			mem = (ma + x) & 0x7ff;
-			chr = m_vram[mem];
-			z = ra / 3;
+			u8 dbit = (x == cursor_x) ? 0 : 1;
+			u16 mem = (ma + x) & 0x7ff;
+			u8 chr = m_vram[mem];
+			u8 z = ra / 3;
 			*p++ = palette[BIT( chr, z ) ? dbit: dbit^1];
 			*p++ = palette[BIT( chr, z ) ? dbit: dbit^1];
 			*p++ = palette[BIT( chr, z ) ? dbit: dbit^1];
@@ -175,16 +172,16 @@ MC6845_UPDATE_ROW( mycom_state::crtc_update_row )
 	}
 	else
 	{
-		for (x = 0; x < x_count; x++)                   // text
+		for (u16 x = 0; x < x_count; x++)                   // text
 		{
-			u8 inv=0;
-			if (x == cursor_x) inv=0xff;
-			mem = (ma + x) & 0x7ff;
+			u8 inv = (x == cursor_x) ? 0xff : 0;
+			u16 mem = (ma + x) & 0x7ff;
+			u8 gfx;
 			if (ra > 7)
 				gfx = inv;  // some blank spacing lines
 			else
 			{
-				chr = m_vram[mem];
+				u8 chr = m_vram[mem];
 				gfx = m_p_chargen[(chr<<3) | ra] ^ inv;
 			}
 
@@ -563,8 +560,8 @@ void mycom_state::mycom(machine_config &config)
 	m_cass->add_route(ALL_OUTPUTS, "mono", 0.05);
 
 	FD1771(config, m_fdc, 16_MHz_XTAL / 16);
-	FLOPPY_CONNECTOR(config, "fdc:0", mycom_floppies, "525sd", floppy_image_device::default_floppy_formats).enable_sound(true);
-	FLOPPY_CONNECTOR(config, "fdc:1", mycom_floppies, "525sd", floppy_image_device::default_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, "fdc:0", mycom_floppies, "525sd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, "fdc:1", mycom_floppies, "525sd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
 
 	TIMER(config, "keyboard_timer").configure_periodic(FUNC(mycom_state::mycom_kbd), attotime::from_hz(20));
 }

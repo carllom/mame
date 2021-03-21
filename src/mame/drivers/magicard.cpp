@@ -646,43 +646,40 @@ void magicard_state::video_start()
 
 uint32_t magicard_state::screen_update_magicard(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	int x, y;
-	uint32_t count;
-
 	bitmap.fill(m_palette->black_pen(), cliprect); //TODO
 
 	if(!(SCC_DE_VREG)) //display enable
 		return 0;
 
-	count = ((SCC_VSR_VREG) / 2);
+	uint32_t count = ((SCC_VSR_VREG) / 2);
 
 	if(SCC_FG_VREG) //4bpp gfx
 	{
-		for(y = 0; y < 300; y++)
+		for(int y = 0; y < 300; y++)
 		{
-			for(x = 0; x < 84; x++)
+			for(int x = 0; x < 84; x++)
 			{
 				uint32_t color;
 
 				color = ((m_magicram[count]) & 0x000f) >> 0;
 
 				if(cliprect.contains((x * 4) + 3, y))
-					bitmap.pix32(y, (x * 4) + 3) = m_palette->pen(color);
+					bitmap.pix(y, (x * 4) + 3) = m_palette->pen(color);
 
 				color = ((m_magicram[count]) & 0x00f0) >> 4;
 
 				if(cliprect.contains((x * 4) + 2, y))
-					bitmap.pix32(y, (x * 4) + 2) = m_palette->pen(color);
+					bitmap.pix(y, (x * 4) + 2) = m_palette->pen(color);
 
 				color = ((m_magicram[count]) & 0x0f00) >> 8;
 
 				if(cliprect.contains((x * 4) + 1, y))
-					bitmap.pix32(y, (x * 4) + 1) = m_palette->pen(color);
+					bitmap.pix(y, (x * 4) + 1) = m_palette->pen(color);
 
 				color = ((m_magicram[count]) & 0xf000) >> 12;
 
 				if(cliprect.contains((x * 4) + 0, y))
-					bitmap.pix32(y, (x * 4) + 0) = m_palette->pen(color);
+					bitmap.pix(y, (x * 4) + 0) = m_palette->pen(color);
 
 				count++;
 			}
@@ -690,21 +687,21 @@ uint32_t magicard_state::screen_update_magicard(screen_device &screen, bitmap_rg
 	}
 	else //8bpp gfx
 	{
-		for(y = 0; y < 300; y++)
+		for(int y = 0; y < 300; y++)
 		{
-			for(x = 0; x < 168; x++)
+			for(int x = 0; x < 168; x++)
 			{
 				uint32_t color;
 
 				color = ((m_magicram[count]) & 0x00ff) >> 0;
 
 				if(cliprect.contains((x * 2) + 1, y))
-					bitmap.pix32(y, (x * 2) + 1) = m_palette->pen(color);
+					bitmap.pix(y, (x * 2) + 1) = m_palette->pen(color);
 
 				color = ((m_magicram[count]) & 0xff00) >> 8;
 
 				if(cliprect.contains((x * 2) + 0, y))
-					bitmap.pix32(y, (x * 2) + 0) = m_palette->pen(color);
+					bitmap.pix(y, (x * 2) + 0) = m_palette->pen(color);
 
 				count++;
 			}
@@ -909,8 +906,31 @@ ROM_START( magicardj )
 	ROM_REGION( 0x80000, "maincpu", 0 ) /* 68070 Code & GFX */
 	ROM_LOAD16_WORD_SWAP( "27c4002.ic21", 0x00000, 0x80000, CRC(ab2ed583) SHA1(a2d7148b785a8dfce8cff3b15ada293d65561c98) ) // sldh
 
-	ROM_REGION( 0x0100, "pic16f84", 0 ) /* protected */
-	ROM_LOAD("pic16f84.ic29",   0x0000, 0x0100, BAD_DUMP CRC(0d968558) SHA1(b376885ac8452b6cbf9ced81b1080bfd570d9b91) )
+	ROM_REGION16_LE( 0x4280, "pic16f84", 0 ) // decapped and dumped
+	ROM_LOAD("magicardj_4.01_pic16f84_code.bin",   0x0000, 0x0800, CRC(c6502436) SHA1(85c4126251bd60ec1f4e28615ec7f948ef8c088f) )
+	/*
+	{
+	"conf_word": 0,
+	"secure": true,
+	"user_id0": 16256,
+	"user_id1": 16262,
+	"user_id2": 16265,
+	"user_id3": 16264
+	}
+	*/
+	// ID locations:
+	ROM_FILL( 0x4000, 0x01, 0x80 )
+	ROM_FILL( 0x4001, 0x01, 0x3f )
+	ROM_FILL( 0x4002, 0x01, 0x86 )
+	ROM_FILL( 0x4003, 0x01, 0x3f )
+	ROM_FILL( 0x4004, 0x01, 0x89 )
+	ROM_FILL( 0x4005, 0x01, 0x3f )
+	ROM_FILL( 0x4006, 0x01, 0x88 )
+	ROM_FILL( 0x4007, 0x01, 0x3f )
+	// configuration word: all 0
+	ROM_FILL( 0x400e, 0x01, 0x00 )
+	ROM_FILL( 0x400f, 0x01, 0x00 )
+	ROM_LOAD("magicardj_4.01_pic16f84_data.bin",   0x4200, 0x0080, CRC(40961fef) SHA1(8617ef78d50842ea89d81d4db3728b3f799d7530) )
 
 	ROM_REGION( 0x200000, "other", 0 ) /* unknown contents */
 	ROM_LOAD("29f1610mc.ic30",  0x000000, 0x200000, NO_DUMP )
@@ -941,8 +961,8 @@ ROM_START( magicarde )
 	ROM_REGION( 0x80000, "maincpu", 0 ) /* 68070 Code & GFX */
 	ROM_LOAD16_WORD_SWAP( "27c4002.ic21", 0x00000, 0x80000, CRC(b5f24412) SHA1(73ff05c19132932a419fef0d5dc985440ce70e83) )
 
-	ROM_REGION( 0x0200, "pic16c54", 0 ) /* protected */
-	ROM_LOAD("pic16c54.ic29",   0x0000, 0x0200, BAD_DUMP CRC(73224200) SHA1(c9a1038146647430759d570bb5626047a476a05b) )
+	ROM_REGION( 0x2000, "pic16c54", 0 ) /* decapped */
+	ROM_LOAD("pic16c54.ic29",   0x0000, 0x1fff, CRC(9c225a49) SHA1(249c12d23d1a85de828652c55a1a19ef8ec378ef) )
 
 	ROM_REGION( 0x0100, "sereeprom", 0 ) /* Serial EPROM */
 	ROM_LOAD("st24c02.ic26",    0x0000, 0x0100, CRC(98287c67) SHA1(ad34e55c1ce4f77c27049dac88050ed3c94af1a0) )
@@ -987,8 +1007,8 @@ ROM_START( magicardw )
 	ROM_REGION( 0x80000, "maincpu", 0 )  // 68070 Code & GFX
 	ROM_LOAD16_WORD_SWAP( "am27c4096.bin", 0x00000, 0x80000, CRC(d9e2a4ec) SHA1(b3000ded242fa25709c90b9b2541c9d1d5cabebb) )
 
-	ROM_REGION( 0x0200, "pic16c54", 0 ) // protected
-	ROM_LOAD("pic16c54a.bin",   0x0000, 0x0200, NO_DUMP )
+	ROM_REGION( 0x1fff, "pic16c54", 0 ) // decapped
+	ROM_LOAD("pic16c54a.bin",   0x0000, 0x1fff, CRC(e777e814) SHA1(e0440be76fa1f3c7ae7d31e1b29a2ba73552231c) )
 ROM_END
 
 
@@ -996,8 +1016,31 @@ ROM_START( magicle )
 	ROM_REGION( 0x80000, "maincpu", 0 ) /* 68070 Code & GFX */
 	ROM_LOAD16_WORD_SWAP( "27c4002.ic21", 0x00000, 0x80000, CRC(73328346) SHA1(fca5f8a93f25377e659c2b291674d706ca37400e) )
 
-	ROM_REGION( 0x0100, "pic16f84", 0 ) /* protected */
-	ROM_LOAD("pic16f84.ic29",   0x0000, 0x0100, BAD_DUMP CRC(0d968558) SHA1(b376885ac8452b6cbf9ced81b1080bfd570d9b91) )
+	ROM_REGION16_LE( 0x4280, "pic16f84", 0 ) // decapped and dumped
+	ROM_LOAD("magicle_5.03_pic16f84_code.bin",   0x0000, 0x0800, CRC(22965864) SHA1(c421a9e9fac7c9c5dc01adda620dc8f5f16d94ba) )
+	/*
+{
+	"conf_word": 0,
+	"secure": true,
+	"user_id0": 16256,
+	"user_id1": 16263,
+	"user_id2": 16265,
+	"user_id3": 16265
+}
+	*/
+	// ID locations:
+	ROM_FILL( 0x4000, 0x01, 0x80 )
+	ROM_FILL( 0x4001, 0x01, 0x3f )
+	ROM_FILL( 0x4002, 0x01, 0x87 )
+	ROM_FILL( 0x4003, 0x01, 0x3f )
+	ROM_FILL( 0x4004, 0x01, 0x89 )
+	ROM_FILL( 0x4005, 0x01, 0x3f )
+	ROM_FILL( 0x4006, 0x01, 0x89 )
+	ROM_FILL( 0x4007, 0x01, 0x3f )
+	// configuration word: all 0
+	ROM_FILL( 0x400e, 0x01, 0x00 )
+	ROM_FILL( 0x400f, 0x01, 0x00 )
+	ROM_LOAD("magicle_5.03_pic16f84_data.bin",   0x4200, 0x0080, CRC(b3cdf90f) SHA1(0afec6f78320e5fe653073769cdeb32918da061b) )
 
 	ROM_REGION( 0x200000, "other", 0 ) /* unknown contents */
 	ROM_LOAD("29f1610mc.ic30",  0x000000, 0x200000, NO_DUMP )
@@ -1097,8 +1140,8 @@ ROM_START( puzzleme )
 	ROM_REGION( 0x80000, "maincpu", 0 ) /* 68070 Code & GFX */
 	ROM_LOAD16_WORD_SWAP( "27c4002.ic21", 0x00000, 0x80000, CRC(cd3bc5a9) SHA1(682f62eba454f4f00212b2a8dabb05d6747f22fd) )
 
-	ROM_REGION( 0x0200, "pic16c54", 0 ) /* protected */
-	ROM_LOAD("pic16c54.ic29",   0x0000, 0x0200, NO_DUMP )
+	ROM_REGION( 0x1fff, "pic16c54", 0 ) /* decapped */
+	ROM_LOAD("pic16c54.ic29",   0x0000, 0x1fff, CRC(6dd2bd8e) SHA1(380f6b952ddd3183e9ab5404866c30be015b3773) )
 
 	ROM_REGION( 0x0100, "sereeprom", 0 ) /* Serial EPROM */
 	ROM_LOAD("x24c02p.ic26",    0x0000, 0x0100, CRC(bc940f53) SHA1(6b870019752ba5c446a5ad5155e4a81dfbf6e523) )
@@ -1114,8 +1157,8 @@ ROM_START( unkte06 )
 	ROM_REGION( 0x80000, "maincpu", 0 )  // 68070 Code & GFX
 	ROM_LOAD16_WORD_SWAP( "m27c4002.bin", 0x00000, 0x80000, CRC(229a504f) SHA1(8033e9b4cb55f2364bf4606375ef9ac05fc715fe) )
 
-	ROM_REGION( 0x0200, "pic16c54", 0 ) // protected
-	ROM_LOAD("pic16c54.bin",   0x0000, 0x0200, NO_DUMP )
+	ROM_REGION( 0x1fff, "pic16c56", 0 ) // decapped
+	ROM_LOAD("pic16c56.bin",   0x0000, 0x1fff, CRC(b5655603) SHA1(d9126c36f3fca7e769ea60aaa711bb304b4b6a11) )
 ROM_END
 
 /*

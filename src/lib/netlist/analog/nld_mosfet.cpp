@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 //
@@ -18,8 +18,8 @@
 // Stefan Jahn, Michael Margraf, Vincent Habchi and Raimund Jacob, "Qucs Technical Papers" (2007)
 //
 
-#include "netlist/solver/nld_solver.h"
-#include "netlist/nl_setup.h"
+#include "solver/nld_solver.h"
+#include "../nl_setup.h"
 #include "nlid_twoterm.h"
 
 #define BODY_CONNECTED_TO_SOURCE    (1)
@@ -279,7 +279,7 @@ namespace analog
 
 			m_vto = m_modacc.m_VTO;
 			// FIXME zero conversion
-			if(m_vto != nlconst::zero())
+			if(m_vto == nlconst::zero())
 				log().warning(MW_MOSFET_THRESHOLD_VOLTAGE(m_model.name()));
 
 			// FIXME: VTO if missing may be calculated from TPG, NSS and temperature. Usually models

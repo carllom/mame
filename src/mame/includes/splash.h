@@ -28,7 +28,6 @@ public:
 		m_videoram(*this, "videoram"),
 		m_vregs(*this, "vregs"),
 		m_spriteram(*this, "spriteram"),
-		m_protdata(*this, "protdata"),
 		m_bitmap_mode(*this, "bitmap_mode")
 	{ }
 
@@ -53,7 +52,6 @@ protected:
 	required_shared_ptr<uint16_t> m_videoram;
 	required_shared_ptr<uint16_t> m_vregs;
 	required_shared_ptr<uint16_t> m_spriteram;
-	optional_shared_ptr<uint16_t> m_protdata;
 	optional_shared_ptr<uint16_t> m_bitmap_mode;
 
 	// driver init configuration
@@ -128,8 +126,10 @@ public:
 	{ }
 
 	void funystrp(machine_config &config);
+	void ringball(machine_config &config);
 
 	void init_funystrp();
+	void init_ringball();
 
 protected:
 	virtual void machine_start() override;
@@ -153,6 +153,7 @@ private:
 
 	void funystrp_map(address_map &map);
 	void funystrp_sound_io_map(address_map &map);
+	void ringball_map(address_map &map);
 
 	required_device<msm5205_device> m_msm1;
 	required_device<msm5205_device> m_msm2;

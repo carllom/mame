@@ -50,6 +50,7 @@ public:
 
 	void init_crc();
 	void init_tvsprt10();
+	void init_itvphone();
 
 protected:
 	virtual void machine_start() override;
@@ -286,10 +287,10 @@ public:
 	void wfcentro(machine_config &config);
 
 protected:
-//	virtual void machine_start() override;
-//	virtual void machine_reset() override;
+//  virtual void machine_start() override;
+//  virtual void machine_reset() override;
 
-//	virtual void portc_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0) override;
+//  virtual void portc_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0) override;
 
 private:
 
@@ -312,6 +313,49 @@ protected:
 	uint16_t ordentv_portc_r(offs_t offset, uint16_t mem_mask = ~0);
 private:
 };
+
+class spg2xx_game_hotwheels_state : public spg2xx_game_state
+{
+public:
+	spg2xx_game_hotwheels_state(const machine_config &mconfig, device_type type, const char *tag) :
+		spg2xx_game_state(mconfig, type, tag),
+		m_porta_dat_hot(0xffff),
+		m_io_p1_extra(*this, "P1EXTRA")
+	{ }
+
+	void hotwheels(machine_config &config);
+
+protected:
+
+	uint16_t hotwheels_porta_r(offs_t offset, uint16_t mem_mask = ~0);
+	virtual void porta_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0) override;
+
+private:
+
+	uint16_t m_porta_dat_hot;
+	required_ioport m_io_p1_extra;
+};
+
+class spg2xx_game_doraphone_state : public spg2xx_game_state
+{
+public:
+	spg2xx_game_doraphone_state(const machine_config &mconfig, device_type type, const char *tag) :
+		spg2xx_game_state(mconfig, type, tag),
+		m_portb_data(0),
+		m_io_p1_rows(*this, "P1_ROW%u", 1U)
+	{ }
+
+	void doraphone(machine_config &config);
+
+private:
+	uint16_t porta_r(offs_t offset, uint16_t mem_mask = ~0);
+
+	void portb_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0) override;
+	uint16_t m_portb_data;
+
+	required_ioport_array<6> m_io_p1_rows;
+};
+
 
 
 #endif // MAME_INCLUDES_SPG2XX_H

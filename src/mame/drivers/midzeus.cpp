@@ -764,7 +764,7 @@ void midzeus2_state::zeus2_map(address_map &map)
 	map(0x9f0000, 0x9f7fff).rw(FUNC(midzeus2_state::zeus2_timekeeper_r), FUNC(midzeus2_state::zeus2_timekeeper_w));
 	map(0x9f8000, 0x9f8000).w(FUNC(midzeus2_state::cmos_protect_w));
 	map(0xa00000, 0xbfffff).rom().region("user1", 0);
-	map(0xc00000, 0xffffff).bankr("bank1").region("user2", 0);
+	map(0xc00000, 0xffffff).bankr("bank1");
 }
 
 /*
@@ -1345,7 +1345,7 @@ void midzeus2_state::crusnexo(machine_config &config)
 void midzeus2_state::thegrid(machine_config &config)
 {
 	midzeus2(config);
-	PIC16C57(config, "pic", 8000000).disabled();  // unverified clock, not hooked up
+	PIC16C57(config, "pic", 8000000).set_disable();  // unverified clock, not hooked up
 	m_ioasic->set_upper(474/* or 491 */);
 }
 
@@ -1362,6 +1362,10 @@ ROM_START( mk4 )
 	ROM_LOAD16_BYTE( "mk4_l2.u3", 0x400000, 0x200000, CRC(8fbcf0ac) SHA1(c53704e72cfcba800c7af3a03267041f1e29a784) ) /* Labeled as v2.0, ROM type M27C160 */
 	ROM_LOAD16_BYTE( "mk4_l1.u4", 0x800000, 0x200000, CRC(dee91696) SHA1(00a182a36a414744cd014fcfc53c2e1a66ab5189) ) /* Labeled as v1.0, ROM type M27C160 */
 	ROM_LOAD16_BYTE( "mk4_l1.u5", 0xc00000, 0x200000, CRC(44d072be) SHA1(8a636c2801d799dfb84e69607ade76d2b49cf09f) ) /* Labeled as v1.0, ROM type M27C160 */
+
+	// 461 Mortal K. 4 25" U76
+	ROM_REGION( 0x2000, "pic", 0 ) // PIC16C57
+	ROM_LOAD( "461_mortal_k_4_25_u76.u76", 0x0000, 0x2000, CRC(d4432af9) SHA1(44a4b114f9b2075fdc611c011123a37b99458752) ) // decapped but not hooked up
 
 	ROM_REGION32_LE( 0x1800000, "user1", 0 )
 	ROM_LOAD32_WORD( "mk4_l3.u10", 0x0000000, 0x200000, CRC(84efe5a9) SHA1(e2a9bf6fab971691017371a87ab87b1bf66f96d0) ) /* Roms U10 & U11 were labeled as v3.0 */
@@ -1381,6 +1385,10 @@ ROM_START( mk4a )
 	ROM_LOAD16_BYTE( "mk4_l1.u4", 0x800000, 0x200000, CRC(dee91696) SHA1(00a182a36a414744cd014fcfc53c2e1a66ab5189) ) /* Labeled as v1.0, ROM type M27C160 */
 	ROM_LOAD16_BYTE( "mk4_l1.u5", 0xc00000, 0x200000, CRC(44d072be) SHA1(8a636c2801d799dfb84e69607ade76d2b49cf09f) ) /* Labeled as v1.0, ROM type M27C160 */
 
+	// 461 Mortal K. 4 25" U76
+	ROM_REGION( 0x2000, "pic", 0 ) // PIC16C57
+	ROM_LOAD( "461_mortal_k_4_25_u76.u76", 0x0000, 0x2000, CRC(d4432af9) SHA1(44a4b114f9b2075fdc611c011123a37b99458752) ) // decapped but not hooked up
+
 	ROM_REGION32_LE( 0x1800000, "user1", 0 )
 	ROM_LOAD32_WORD( "mk4_l2.1.u10", 0x000000, 0x200000, CRC(42d0f1c9) SHA1(5ac0ded8bf6e756319be2691e3b555eac079ebdc) ) /* ROMs U10 & U11 were labeled as v2.1 */
 	ROM_LOAD32_WORD( "mk4_l2.1.u11", 0x000002, 0x200000, CRC(6e21b243) SHA1(6d4768a5972db05c1409e0d16e79df9eff8918a0) )
@@ -1398,6 +1406,10 @@ ROM_START( mk4b )
 	ROM_LOAD16_BYTE( "mk4_l1.u3", 0x400000, 0x200000, CRC(cb59413e) SHA1(f7e5c589a8f6a2e7dceee4881594e7403be4d4ad) )
 	ROM_LOAD16_BYTE( "mk4_l1.u4", 0x800000, 0x200000, CRC(dee91696) SHA1(00a182a36a414744cd014fcfc53c2e1a66ab5189) )
 	ROM_LOAD16_BYTE( "mk4_l1.u5", 0xc00000, 0x200000, CRC(44d072be) SHA1(8a636c2801d799dfb84e69607ade76d2b49cf09f) )
+
+	// 461 Mortal K. 4 25" U76
+	ROM_REGION( 0x2000, "pic", 0 ) // PIC16C57
+	ROM_LOAD( "461_mortal_k_4_25_u76.u76", 0x0000, 0x2000, CRC(d4432af9) SHA1(44a4b114f9b2075fdc611c011123a37b99458752) ) // decapped but not hooked up
 
 	ROM_REGION32_LE( 0x1800000, "user1", 0 )
 	ROM_LOAD32_WORD( "mk4_l1.u10", 0x0000000, 0x200000, CRC(6fcc86dd) SHA1(b3b2b463daf51450fbcd5d2922ac1b091bd91c4a) ) /* All ROMs were labeled as v1.0 */
@@ -1417,7 +1429,7 @@ ROM_START( invasnab ) /* Version 5.0 Program ROMs, v4.0 Graphics ROMs, v2.0 Soun
 	ROM_LOAD16_BYTE( "invasion2.u5", 0xc00000, 0x200000, CRC(e42805c9) SHA1(e5b71eb1852809a649ac43a82168b3bdaf4b1526) )
 
 	ROM_REGION( 0x2000, "pic", 0 ) /* PIC16c57 Code */
-	ROM_LOAD( "pic16c57.u76", 0x00000, 0x2000, CRC(f62729c9) SHA1(9642c53dd7eceeb7eb178497d367691c44abc5c5) ) // is this even a valid dump?
+	ROM_LOAD( "pic16c57.u76", 0x00000, 0x2000, BAD_DUMP CRC(f62729c9) SHA1(9642c53dd7eceeb7eb178497d367691c44abc5c5) ) // is this even a valid dump?
 
 	ROM_REGION32_LE( 0x1800000, "user1", 0 )
 	ROM_LOAD32_WORD( "invasion5.u10", 0x0000000, 0x200000, CRC(8c7785d9) SHA1(701602314cd4eba4215c47ea0ae75fd4eddad43b) ) /* Roms U10 & U11 were labeled as v5.0 */
@@ -1440,7 +1452,7 @@ ROM_START( invasnab4 ) /* Version 4.0 Program ROMs & Graphics ROMs, v2.0 Sound R
 	ROM_LOAD16_BYTE( "invasion2.u5", 0xc00000, 0x200000, CRC(e42805c9) SHA1(e5b71eb1852809a649ac43a82168b3bdaf4b1526) )
 
 	ROM_REGION( 0x2000, "pic", 0 ) /* PIC16c57 Code */
-	ROM_LOAD( "pic16c57.u76", 0x00000, 0x2000, CRC(f62729c9) SHA1(9642c53dd7eceeb7eb178497d367691c44abc5c5) ) // is this even a valid dump?
+	ROM_LOAD( "pic16c57.u76", 0x00000, 0x2000, BAD_DUMP CRC(f62729c9) SHA1(9642c53dd7eceeb7eb178497d367691c44abc5c5) ) // is this even a valid dump?
 
 	ROM_REGION32_LE( 0x1800000, "user1", 0 )
 	ROM_LOAD32_WORD( "invasion4.u10", 0x0000000, 0x200000, CRC(b3ce958b) SHA1(ed51c167d85bc5f6155b8046ec056a4f4ad5cf9d) ) /* These ROM were all labeled as v4.0 */
@@ -1463,7 +1475,7 @@ ROM_START( invasnab3 ) /* Version 3.0 Program ROMs & v2.0 Graphics ROMs, v2.0 So
 	ROM_LOAD16_BYTE( "invasion2.u5", 0xc00000, 0x200000, CRC(e42805c9) SHA1(e5b71eb1852809a649ac43a82168b3bdaf4b1526) )
 
 	ROM_REGION( 0x2000, "pic", 0 ) /* PIC16c57 Code */
-	ROM_LOAD( "pic16c57.u76", 0x00000, 0x2000, CRC(f62729c9) SHA1(9642c53dd7eceeb7eb178497d367691c44abc5c5) ) // is this even a valid dump?
+	ROM_LOAD( "pic16c57.u76", 0x00000, 0x2000, BAD_DUMP CRC(f62729c9) SHA1(9642c53dd7eceeb7eb178497d367691c44abc5c5) ) // is this even a valid dump?
 
 	ROM_REGION32_LE( 0x1800000, "user1", 0 )
 	ROM_LOAD32_WORD( "invasion3.u10", 0x0000000, 0x200000, CRC(8404830e) SHA1(808fea45fb09fb7bf60f9f1e195a51d39e9966f5) ) /* Roms U10 through U13 were labeled as v3.0 Dated 8/30 */

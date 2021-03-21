@@ -7,7 +7,7 @@
     driver by Aaron Giles
 
     Games supported:
-        * Cruis'n USA (1994)        [4 sets]
+        * Cruis'n USA (1994)        [5 sets]
         * Cruis'n World (1996)      [7 sets]
         * War Gods (1996)           [3 sets]
         * Off Road Challenge (1997) [5 sets]
@@ -153,7 +153,7 @@ void midvunit_state::midvunit_cmos_protect_w(uint32_t data)
 void midvunit_state::midvunit_cmos_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	if (!m_cmos_protected)
-		COMBINE_DATA(m_nvram + offset);
+		COMBINE_DATA(&m_nvram[offset]);
 }
 
 
@@ -280,25 +280,20 @@ void midvunit_state::tms32031_control_w(offs_t offset, uint32_t data, uint32_t m
 
 uint32_t midvunit_state::crusnwld_serial_status_r()
 {
-	uint16_t in1 = (m_in1->read() & 0x7fff) | (m_midway_serial_pic->status_r() << 15);
+	uint16_t in1 = (m_in1->read() & 0x7fff) | (m_midway_serial_pic2->status_r() << 15);
 	return in1 | in1 << 16;
 }
 
 
 uint32_t midvunit_state::crusnwld_serial_data_r()
 {
-	return m_midway_serial_pic->read() << 16;
+	return m_midway_serial_pic2->read() << 16;
 }
 
 
 void midvunit_state::crusnwld_serial_data_w(uint32_t data)
 {
-	if ((data & 0xf0000) == 0x10000)
-	{
-		m_midway_serial_pic->reset_w(1);
-		m_midway_serial_pic->reset_w(0);
-	}
-	m_midway_serial_pic->write(data >> 16);
+	m_midway_serial_pic2->write(data >> 16);
 }
 
 
@@ -332,31 +327,6 @@ void midvunit_state::bit_reset_w(uint32_t data)
 	m_bit_index = 0;
 }
 
-
-
-/*************************************
- *
- *  Off Road Challenge PIC access
- *
- *************************************/
-
-uint32_t midvunit_state::offroadc_serial_status_r()
-{
-	uint16_t in1 = (m_in1->read() & 0x7fff) | (m_midway_serial_pic2->status_r() << 15);
-	return in1 | in1 << 16;
-}
-
-
-uint32_t midvunit_state::offroadc_serial_data_r()
-{
-	return m_midway_serial_pic2->read() << 16;
-}
-
-
-void midvunit_state::offroadc_serial_data_w(uint32_t data)
-{
-	m_midway_serial_pic2->write(data >> 16);
-}
 
 uint32_t midvunit_state::midvunit_wheel_board_r()
 {
@@ -642,7 +612,7 @@ void midvunit_state::midvunit_map(address_map &map)
 	map(0x400000, 0x41ffff).ram();
 	map(0x600000, 0x600000).w(FUNC(midvunit_state::midvunit_dma_queue_w));
 	map(0x808000, 0x80807f).rw(FUNC(midvunit_state::tms32031_control_r), FUNC(midvunit_state::tms32031_control_w)).share("32031_control");
-	map(0x900000, 0x97ffff).rw(FUNC(midvunit_state::midvunit_videoram_r), FUNC(midvunit_state::midvunit_videoram_w)).share("videoram");
+	map(0x900000, 0x97ffff).rw(FUNC(midvunit_state::midvunit_videoram_r), FUNC(midvunit_state::midvunit_videoram_w));
 	map(0x980000, 0x980000).r(FUNC(midvunit_state::midvunit_dma_queue_entries_r));
 	map(0x980020, 0x980020).r(FUNC(midvunit_state::midvunit_scanline_r));
 	map(0x980020, 0x98002b).w(FUNC(midvunit_state::midvunit_video_control_w));
@@ -673,7 +643,7 @@ void midvunit_state::midvplus_map(address_map &map)
 	map(0x400000, 0x41ffff).ram().share("fastram_base");
 	map(0x600000, 0x600000).w(FUNC(midvunit_state::midvunit_dma_queue_w));
 	map(0x808000, 0x80807f).rw(FUNC(midvunit_state::tms32031_control_r), FUNC(midvunit_state::tms32031_control_w)).share("32031_control");
-	map(0x900000, 0x97ffff).rw(FUNC(midvunit_state::midvunit_videoram_r), FUNC(midvunit_state::midvunit_videoram_w)).share("videoram");
+	map(0x900000, 0x97ffff).rw(FUNC(midvunit_state::midvunit_videoram_r), FUNC(midvunit_state::midvunit_videoram_w));
 	map(0x980000, 0x980000).r(FUNC(midvunit_state::midvunit_dma_queue_entries_r));
 	map(0x980020, 0x980020).r(FUNC(midvunit_state::midvunit_scanline_r));
 	map(0x980020, 0x98002b).w(FUNC(midvunit_state::midvunit_video_control_w));
@@ -1147,8 +1117,9 @@ void midvunit_state::crusnwld(machine_config &config)
 {
 	midvunit(config);
 	/* valid values are 450 or 460 */
-	MIDWAY_SERIAL_PIC(config, m_midway_serial_pic, 0);
-	m_midway_serial_pic->set_upper(450);
+	MIDWAY_SERIAL_PIC2(config, m_midway_serial_pic2, 0);
+	m_midway_serial_pic2->set_upper(450);
+	m_midway_serial_pic2->set_yearoffs(94);
 }
 
 void midvunit_state::offroadc(machine_config &config)
@@ -1279,7 +1250,49 @@ Each label had it's corresponding U position and checksum value.
 Also had V4.4 printed sideways at front of the label.
 
 */
-ROM_START( crusnusa ) /* Version 4.4, Wed Mar 15 1995 - 10:52:28 */
+ROM_START( crusnusa ) /* Version 4.5, Tue Apr 11 1995 - 16:06:48 */
+	ROM_REGION16_LE( 0x1000000, "dcs", ROMREGION_ERASEFF )  /* sound data */
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u2.u2", 0x000000, 0x80000, CRC(b9338332) SHA1(e5c420e63c4eba0010a68c7e0a57ef210e2c83d2) ) /* also known to be labeled as P2, the P1 revision hasn't been dumped or confirmed to be different */
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u3.u3", 0x200000, 0x80000, CRC(cd8325d6) SHA1(d65d7263e056ca1d637adb44cafef523e0831a34) )
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u4.u4", 0x400000, 0x80000, CRC(fab457f3) SHA1(2b4b647838b7a8100afc25ca1ffdc74ed67ae00a) )
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u5.u5", 0x600000, 0x80000, CRC(becc92f4) SHA1(6dffa73ff5270155c44f295e443d5e77c03c0338) )
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u6.u6", 0x800000, 0x80000, CRC(a9f915d3) SHA1(6a16a2d7a807a775673e7121b54f37c583581203) )
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u7.u7", 0xa00000, 0x80000, CRC(424f0bbc) SHA1(f38a431fc0fb7102c51f2d5b6f716dd4669a9822) )
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u8.u8", 0xc00000, 0x80000, CRC(03c28199) SHA1(393b009acd3eceb346b8fff45ae2bdf4f53d041f) )
+	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u9.u9", 0xe00000, 0x80000, CRC(24ba6371) SHA1(f60a9ff73b3645e2c8bad67e2f6debc61b5e0653) )
+
+	ROM_REGION32_LE( 0x1000000, "user1", 0 ) /* boot screen reports as HEAD 2 HEAD */
+	ROM_LOAD32_BYTE( "v4.5_4-11-95_cruisn_usa_u10_86b3.u10", 0x000000, 0x80000, CRC(b623eab9) SHA1(a523b0ee039904137e274bdd87f1962ea9ab3d38) ) /* V4.5   4/11/95   CRUIS'N USA U10   (C)1995 Midway 86B3 */
+	ROM_LOAD32_BYTE( "v4.5_4-11-95_cruisn_usa_u11_6d73.u11", 0x000001, 0x80000, CRC(2e47ee94) SHA1(6454093c4e77074c8d0ef1050c8b49043c44fe23) ) /* V4.5   4/11/95   CRUIS'N USA U11   (C)1995 Midway 6D73 */
+	ROM_LOAD32_BYTE( "v4.5_4-11-95_cruisn_usa_u12_4b32.u12", 0x000002, 0x80000, CRC(e9197942) SHA1(cfb6a47be35365f9d56721b4bb0bb6ab9163da8f) ) /* V4.5   4/11/95   CRUIS'N USA U12   (C)1995 Midway 4B32 */
+	ROM_LOAD32_BYTE( "v4.5_4-11-95_cruisn_usa_u13_430e.u13", 0x000003, 0x80000, CRC(4a7c434c) SHA1(bf3b4f22aa9445e1b0ebbbd54eebbf14ccaba8d2) ) /* V4.5   4/11/95   CRUIS'N USA U13   (C)1995 Midway 430E */
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u14.u14", 0x200000, 0x80000, CRC(6a4ae622) SHA1(f488e7616371125d5aef2047b8e0fc954ca4b9b4) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u15.u15", 0x200001, 0x80000, CRC(1a0ad3b7) SHA1(a5300f3c789a4d9d257fda3a280e882f17f4a99f) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u16.u16", 0x200002, 0x80000, CRC(799d4dd6) SHA1(f1208967544477005924f2a553037e0ffbc668ab) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u17.u17", 0x200003, 0x80000, CRC(3d68b660) SHA1(3f14e32c205a504ef39abf1e390bd8031d9d7b5b) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u18.u18", 0x400000, 0x80000, CRC(9e8193fb) SHA1(ec88c2b51bb607d3181e467f8b255c13efebc73c) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u19.u19", 0x400001, 0x80000, CRC(0bf60cde) SHA1(6c63b3eacaefeb405c8fdf641437786262bcb10d) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u20.u20", 0x400002, 0x80000, CRC(c07f68f0) SHA1(444ccf8e49fd9c0f707ab32347984ca5628207f9) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u21.u21", 0x400003, 0x80000, CRC(b0264aed) SHA1(d6a6eca4e4ecedfbc5590dbd06870761155ae8c5) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u22.u22", 0x600000, 0x80000, CRC(ad137193) SHA1(642a7c37940cb3b2b190661da7b1d4848c7c513d) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u23.u23", 0x600001, 0x80000, CRC(842449b0) SHA1(b23ebe28ff3c6a268ff9ae1242a4392d2305396b) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u24.u24", 0x600002, 0x80000, CRC(0b2275be) SHA1(3dc79095064cc158d37218c9a038b5b7a777fc66) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u25.u25", 0x600003, 0x80000, CRC(2b9fe68f) SHA1(2750613e61c1eaac629ef5b9e89fd88e99a262cc) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u26.u26", 0x800000, 0x80000, CRC(ae56b871) SHA1(1e218426084123c6c2389d96ce92691010012aa4) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u27.u27", 0x800001, 0x80000, CRC(2d977a8e) SHA1(8f4d511bfd6c3bee18daa7253be1a27d079aec8f) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u28.u28", 0x800002, 0x80000, CRC(cffa5fb1) SHA1(fb73bc8f65b604c374f88d0ecf06c50ef52f0547) )
+	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u29.u29", 0x800003, 0x80000, CRC(cbe52c60) SHA1(3f309ce8ef1784c830f4160cfe76dc3a0b438cac) )
+
+	ROM_REGION( 0x0b33, "pals", 0 ) // all protected
+	ROM_LOAD("a-19993.u38",  0x0000, 0x02e5, BAD_DUMP CRC(7e8b7b0d) SHA1(f9af19da171f949a11c5548da7b4277aecb6f2a8) ) /* TIBPAL22V10-15BCNT */
+	ROM_LOAD("a-19670.u43",  0x0000, 0x0144, BAD_DUMP CRC(acafcc97) SHA1(b6f916838d08590a536fe925ec62d66e6ea3dcbc) ) /* TIBPAL20L8-10CNT */
+	ROM_LOAD("a-19668.u52",  0x0000, 0x0157, BAD_DUMP CRC(7915134e) SHA1(aeb22e46abdc14a9e9b34cfe3b77da3e29b789fe) ) /* GAL20V8B */
+	ROM_LOAD("a-19671.u54",  0x0000, 0x02dd, BAD_DUMP CRC(b9cce038) SHA1(8d1df026bdac66ea5493e9e51c23f8eb182b024e) ) /* TIBPAL22V10-15BCNT */
+	ROM_LOAD("a-19673.u111", 0x0000, 0x02dd, BAD_DUMP CRC(8552977d) SHA1(a1a53d797697682b3f18893a90b6bef39ebb069e) ) /* TIBPAL22V10-15BCNT */
+	ROM_LOAD("a-19672.u114", 0x0000, 0x0001, NO_DUMP ) /* TIBPAL22V10-15BCNT */
+ROM_END
+
+ROM_START( crusnusa44 ) /* Version 4.4, Wed Mar 15 1995 - 10:52:28 */
 	ROM_REGION16_LE( 0x1000000, "dcs", ROMREGION_ERASEFF )  /* sound data */
 	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u2.u2", 0x000000, 0x80000, CRC(b9338332) SHA1(e5c420e63c4eba0010a68c7e0a57ef210e2c83d2) ) /* also known to be labeled as P2, the P1 revision hasn't been dumped or confirmed to be different */
 	ROM_LOAD16_BYTE( "l1_cruisin_u.s.a._sound_rom_u3.u3", 0x200000, 0x80000, CRC(cd8325d6) SHA1(d65d7263e056ca1d637adb44cafef523e0831a34) )
@@ -1441,7 +1454,7 @@ ROM_START( crusnusa21 ) /* Version 2.1, Wed Nov 09 1994 - 16:28:10 */
 	ROM_LOAD32_BYTE( "l1_cruisin_u.s.a._game_rom_u29.u29", 0x800003, 0x80000, CRC(cbe52c60) SHA1(3f309ce8ef1784c830f4160cfe76dc3a0b438cac) )
 
 	ROM_REGION( 0x0b33, "pals", 0 ) // all protected
-	ROM_LOAD("a-19669.u38",  0x0000, 0x02dd, NO_DUMP ) /* TIBPAL22V10-15BCNT */
+	ROM_LOAD("a-19669.u38",  0x0000, 0x02dd, NO_DUMP ) /* TIBPAL22V10-15BCNT  NOTE: Head to Head games use a different U38 PAL */
 	ROM_LOAD("a-19670.u43",  0x0000, 0x0144, BAD_DUMP CRC(acafcc97) SHA1(b6f916838d08590a536fe925ec62d66e6ea3dcbc) ) /* TIBPAL20L8-10CNT */
 	ROM_LOAD("a-19668.u52",  0x0000, 0x0157, BAD_DUMP CRC(7915134e) SHA1(aeb22e46abdc14a9e9b34cfe3b77da3e29b789fe) ) /* GAL20V8B */
 	ROM_LOAD("a-19671.u54",  0x0000, 0x02dd, BAD_DUMP CRC(b9cce038) SHA1(8d1df026bdac66ea5493e9e51c23f8eb182b024e) ) /* TIBPAL22V10-15BCNT */
@@ -1450,6 +1463,19 @@ ROM_START( crusnusa21 ) /* Version 2.1, Wed Nov 09 1994 - 16:28:10 */
 ROM_END
 
 
+/*
+Some Cruis'n World PCBs have mask ROMs for the data ROMs
+
+Mask ROMs are in the following format:
+--------------------------------   --------------------------------
+|    MIDWAY GAMES INC          |   |    MIDWAY GAMES INC          |
+|    CRUISN WORLD              |   |    CRUISN WORLD              |
+)    5341-15282-01             |   )    5341-15287-01             |
+|    U3 SOUND                  |   |    U14 VIDEO IMAGE           |
+|   (C)1996 MIDWAY GAMES       |   |   (C)1996 MIDWAY GAMES       |
+--------------------------------   --------------------------------
+
+*/
 ROM_START( crusnwld ) /* Version 2.5, Wed Nov 04 1998 - 15:50:52 */
 	ROM_REGION16_LE( 0x1000000, "dcs", ROMREGION_ERASEFF )  /* sound data */
 	ROM_LOAD16_BYTE( "1.0_cruisn_world_u2_sound.u2", 0x000000, 0x80000, CRC(7a233c89) SHA1(ecfad4bc48a69cd3399e3b3266c81574082e0169) )
@@ -1898,6 +1924,8 @@ ROM_START( wargods ) /* Boot EPROM Version 1.0, Game Type: 452 (11/07/1996) */
 	DISK_IMAGE( "wargods_11-07-1996", 0, SHA1(7585bc65b1038589cb59d3e7c56e08ca9d7015b8) ) // HDD had a label of 10-09-1996, but the game reports
 																						  // a version of 11-07-1996, so it was probably upgraded
 																						  // in the field.
+	ROM_REGION( 0x2000, "serial_security_pic", 0 ) // security PIC (provides game ID code and serial number)
+	ROM_LOAD( "452_wargods.u69",  0x0000, 0x2000, CRC(b908f560) SHA1(68b081f0583aa35c2daeedd43e030ebdcea1a54c) )
 ROM_END
 
 ROM_START( wargodsa ) /* Boot EPROM Version 1.0, Game Type: 452 (08/15/1996) */
@@ -1909,6 +1937,9 @@ ROM_START( wargodsa ) /* Boot EPROM Version 1.0, Game Type: 452 (08/15/1996) */
 
 	DISK_REGION( "ata:0:hdd:image" )
 	DISK_IMAGE( "wargods_08-15-1996", 0, SHA1(5dee00be40c315fbb1d6e3994dae8e498ab87fb2) )
+
+	ROM_REGION( 0x2000, "serial_security_pic", 0 ) // security PIC (provides game ID code and serial number)
+	ROM_LOAD( "452_wargods.u69",  0x0000, 0x2000, CRC(b908f560) SHA1(68b081f0583aa35c2daeedd43e030ebdcea1a54c) )
 ROM_END
 
 ROM_START( wargodsb ) /* Boot EPROM Version 1.0, Game Type: 452 (12/11/1995) */
@@ -1920,6 +1951,9 @@ ROM_START( wargodsb ) /* Boot EPROM Version 1.0, Game Type: 452 (12/11/1995) */
 
 	DISK_REGION( "ata:0:hdd:image" )
 	DISK_IMAGE( "wargods_12-11-1995", 0, SHA1(141063f95867fdcc4b15c844e510696604a70c6a) )
+
+	ROM_REGION( 0x2000, "serial_security_pic", 0 ) // security PIC (provides game ID code and serial number)
+	ROM_LOAD( "452_wargods.u69",  0x0000, 0x2000, CRC(b908f560) SHA1(68b081f0583aa35c2daeedd43e030ebdcea1a54c) )
 ROM_END
 
 
@@ -1984,8 +2018,9 @@ void midvunit_state::init_offroadc()
 	/* control register is different */
 	m_maincpu->space(AS_PROGRAM).install_write_handler(0x994000, 0x994000, write32s_delegate(*this, FUNC(midvunit_state::crusnwld_control_w)));
 
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x991030, 0x991030, read32smo_delegate(*this, FUNC(midvunit_state::offroadc_serial_status_r)));
-	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x996000, 0x996000, read32smo_delegate(*this, FUNC(midvunit_state::offroadc_serial_data_r)), write32smo_delegate(*this, FUNC(midvunit_state::offroadc_serial_data_w)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x991030, 0x991030, read32smo_delegate(*this, FUNC(midvunit_state::crusnwld_serial_status_r)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x996000, 0x996000, read32smo_delegate(*this, FUNC(midvunit_state::crusnwld_serial_data_r)));
+	m_maincpu->space(AS_PROGRAM).install_write_handler(0x996000, 0x996000, write32smo_delegate(*this, FUNC(midvunit_state::crusnwld_serial_data_w)));
 
 	/* speedups */
 	m_maincpu->space(AS_PROGRAM).install_read_handler(0x195aa, 0x195aa, read32sm_delegate(*this, FUNC(midvunit_state::generic_speedup_r)));
@@ -2021,18 +2056,19 @@ void midvunit_state::init_wargods()
  *
  *************************************/
 
-GAMEL( 1994, crusnusa,   0,        midvunit, crusnusa, midvunit_state, init_crusnusa, ROT0, "Midway", "Cruis'n USA (rev L4.4)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1994, crusnusa41, crusnusa, midvunit, crusnusa, midvunit_state, init_crusnu40, ROT0, "Midway", "Cruis'n USA (rev L4.1)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1994, crusnusa40, crusnusa, midvunit, crusnusa, midvunit_state, init_crusnu40, ROT0, "Midway", "Cruis'n USA (rev L4.0)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1994, crusnusa21, crusnusa, midvunit, crusnusa, midvunit_state, init_crusnu21, ROT0, "Midway", "Cruis'n USA (rev L2.1)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1994, crusnusa,   0,        midvunit, crusnusa, midvunit_state, init_crusnusa, ROT0, "Midway", "Cruis'n USA (v4.5)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1994, crusnusa44, crusnusa, midvunit, crusnusa, midvunit_state, init_crusnu40, ROT0, "Midway", "Cruis'n USA (v4.4)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1994, crusnusa41, crusnusa, midvunit, crusnusa, midvunit_state, init_crusnu40, ROT0, "Midway", "Cruis'n USA (v4.1)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1994, crusnusa40, crusnusa, midvunit, crusnusa, midvunit_state, init_crusnu40, ROT0, "Midway", "Cruis'n USA (v4.0)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1994, crusnusa21, crusnusa, midvunit, crusnusa, midvunit_state, init_crusnu21, ROT0, "Midway", "Cruis'n USA (v2.1)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
 
-GAMEL( 1996, crusnwld,   0,        crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (rev L2.5)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1996, crusnwld24, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (rev L2.4)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1996, crusnwld23, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (rev L2.3)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1996, crusnwld20, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (rev L2.0)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1996, crusnwld19, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (rev L1.9)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1996, crusnwld17, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (rev L1.7)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
-GAMEL( 1996, crusnwld13, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (rev L1.3)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1996, crusnwld,   0,        crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (v2.5)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1996, crusnwld24, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (v2.4)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1996, crusnwld23, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (v2.3)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1996, crusnwld20, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (v2.0)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1996, crusnwld19, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (v1.9)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1996, crusnwld17, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (v1.7)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
+GAMEL( 1996, crusnwld13, crusnwld, crusnwld, crusnwld, midvunit_state, init_crusnwld, ROT0, "Midway", "Cruis'n World (v1.3)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
 
 GAMEL( 1997, offroadc,  0,        offroadc, offroadc, midvunit_state, init_offroadc, ROT0, "Midway", "Off Road Challenge (v1.63)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )
 GAMEL( 1997, offroadc5, offroadc, offroadc, offroadc, midvunit_state, init_offroadc, ROT0, "Midway", "Off Road Challenge (v1.50)", MACHINE_SUPPORTS_SAVE, layout_crusnusa )

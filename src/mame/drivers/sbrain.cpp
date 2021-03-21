@@ -624,8 +624,7 @@ u32 sbrain_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, con
 		return 0;
 	}
 
-	u8 y,ra,chr,gfx;
-	uint16_t sy=0,x;
+	uint16_t sy=0;
 
 	// Where attributes come from:
 	// - Most systems use ram for character-based attributes, but this one uses strictly hardware which would seem cumbersome
@@ -639,18 +638,18 @@ u32 sbrain_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, con
 	uint16_t ma = m_crtc->top_of_page();
 	uint16_t cr = m_crtc->cursor_address();
 	uint8_t *videoram = &m_ram->pointer()[m_ram->size() - 0x800];
-	for (y = 0; y < 24; y++)
+	for (uint8_t y = 0; y < 24; y++)
 	{
-		for (ra = 0; ra < 10; ra++)
+		for (uint8_t ra = 0; ra < 10; ra++)
 		{
-			uint32_t *p = &bitmap.pix32(sy++);
+			uint32_t *p = &bitmap.pix(sy++);
 
-			for (x = 0; x < 80; x++)
+			for (uint16_t x = 0; x < 80; x++)
 			{
-				gfx = 0;
+				uint8_t gfx = 0;
 				if (ra > 0)
 				{
-					chr = videoram[(x + ma) & 0x7ff];
+					uint8_t chr = videoram[(x + ma) & 0x7ff];
 
 					if (!BIT(chr, 7) || BIT(m_framecnt, 5))
 					{
@@ -743,10 +742,10 @@ void sbrain_state::sbrain(machine_config &config)
 	FD1791(config, m_fdc, 16_MHz_XTAL / 16);
 	m_fdc->set_force_ready(true);
 
-	FLOPPY_CONNECTOR(config, "fdc:0", sbrain_floppies, "525dd", floppy_image_device::default_floppy_formats).enable_sound(true);
-	FLOPPY_CONNECTOR(config, "fdc:1", sbrain_floppies, "525dd", floppy_image_device::default_floppy_formats).enable_sound(true);
-	FLOPPY_CONNECTOR(config, "fdc:2", sbrain_floppies, nullptr, floppy_image_device::default_floppy_formats).enable_sound(true);
-	FLOPPY_CONNECTOR(config, "fdc:3", sbrain_floppies, nullptr, floppy_image_device::default_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, "fdc:0", sbrain_floppies, "525dd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, "fdc:1", sbrain_floppies, "525dd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, "fdc:2", sbrain_floppies, nullptr, floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, "fdc:3", sbrain_floppies, nullptr, floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
 
 	TIMER(config, "timer_a", 0).configure_periodic(FUNC(sbrain_state::kbd_scan), attotime::from_hz(15));
 

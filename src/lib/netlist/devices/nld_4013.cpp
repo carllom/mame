@@ -1,17 +1,48 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 /*
  * nld_4013.cpp
  *
+ *  CD4013: Dual Positive-Edge-Triggered D Flip-Flops
+ *          with Set, Reset and Complementary Outputs
+ *
+ *          +--------------+
+ *       Q1 |1     ++    14| VDD
+ *      Q1Q |2           13| Q2
+ *   CLOCK1 |3           12| Q2Q
+ *   RESET1 |4    4013   11| CLOCK2
+ *    DATA1 |5           10| RESET2
+ *     SET1 |6            9| DATA2
+ *      VSS |7            8| SET2
+ *          +--------------+
+ *
+ *          +-----+-----+-----+---++---+-----+
+ *          | SET | RES | CLK | D || Q | QQ  |
+ *          +=====+=====+=====+===++===+=====+
+ *          |  1  |  0  |  X  | X || 1 |  0  |
+ *          |  0  |  1  |  X  | X || 0 |  1  |
+ *          |  1  |  1  |  X  | X || 1 |  1  | (*)
+ *          |  0  |  0  |  R  | 1 || 1 |  0  |
+ *          |  0  |  0  |  R  | 0 || 0 |  1  |
+ *          |  0  |  0  |  0  | X || Q0| Q0Q |
+ *          +-----+-----+-----+---++---+-----+
+ *
+ *  (*) This configuration is not stable, i.e. it will not persist
+ *  when either the preset and or clear inputs return to their inactive (high) level
+ *
+ *  Q0 The output logic level of Q before the indicated input conditions were established
+ *
+ *  R:  0 -. 1
+ *
+ *  Naming conventions follow National Semiconductor datasheet
+ *
+ *  FIXME: Check that (*) is emulated properly
  */
 
-#include "netlist/nl_base.h"
-#include "netlist/nl_factory.h"
+#include "nl_base.h"
+#include "nl_factory.h"
 
-namespace netlist
-{
-	namespace devices
-	{
+namespace netlist::devices {
 
 	NETLIB_OBJECT(CD4013)
 	{
@@ -88,5 +119,4 @@ namespace netlist
 
 	NETLIB_DEVICE_IMPL(CD4013, "CD4013", "+CLOCK,+DATA,+RESET,+SET,@VDD,@VSS")
 
-	} //namespace devices
-} // namespace netlist
+} // namespace netlist::devices

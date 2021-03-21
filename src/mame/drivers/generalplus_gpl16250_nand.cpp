@@ -554,6 +554,14 @@ ROM_START( jak_hmhsm )
 	ROM_LOAD( "hmhsm.bin", 0x0000, 0x10800000, CRC(e63ad24c) SHA1(a7844b14af701914150aa7c06743a410f478ff7b) )
 ROM_END
 
+ROM_START( jak_camp )
+	ROM_REGION16_BE( 0x40000, "maincpu:internal", ROMREGION_ERASE00 )
+	ROM_LOAD16_WORD_SWAP( "internal.rom", 0x00000, 0x40000, NO_DUMP ) // used as bootstrap only
+
+	ROM_REGION( 0x10800000, "nandrom", ROMREGION_ERASE00 )
+	ROM_LOAD( "camprockguitar1_sandisk11352-256b_45da.bin", 0x0000, 0x10800000, CRC(f52a4289) SHA1(d027ae274cd4ac97924d2344df1a96456e8e7c55) )
+ROM_END
+
 
 ROM_START( jak_hsmg2 )
 	ROM_REGION16_BE( 0x40000, "maincpu:internal", ROMREGION_ERASE00 )
@@ -748,19 +756,72 @@ void generalplus_gpac800_game_state::machine_reset()
 			mem.write_word(dest + i, word);
 		}
 
-		// these vectors must either directly point to RAM, or at least redirect there after some code
+		/* these vectors must either directly point to RAM, or at least redirect there after some code
+
+		   kiugames has the startup code copied to 20xxx which is outside the scope of a 16-bit vector
+		   so these must trampoline (although 20xxx currently isn't handled as RAM, so that needs more
+		   thought anyway
+		*/
 		uint16_t* internal = (uint16_t*)memregion("maincpu:internal")->base();
-		internal[0x7ff5] = m_vectorbase + 0x0a;
-		internal[0x7ff6] = m_vectorbase + 0x0c;
-		internal[0x7ff7] = dest + 0x20; // point boot vector at code in RAM (probably in reality points to internal code that copies the first block)
-		internal[0x7ff8] = m_vectorbase + 0x10;
-		internal[0x7ff9] = m_vectorbase + 0x12;
-		internal[0x7ffa] = m_vectorbase + 0x14;
-		internal[0x7ffb] = m_vectorbase + 0x16;
-		internal[0x7ffc] = m_vectorbase + 0x18;
-		internal[0x7ffd] = m_vectorbase + 0x1a;
-		internal[0x7ffe] = m_vectorbase + 0x1c;
-		internal[0x7fff] = m_vectorbase + 0x1e;
+
+		int addr;
+		addr = (m_vectorbase + 0x0a) & 0x000fffff;
+		internal[0x7f00] = 0xfe80 | (addr >> 16);
+		internal[0x7f01] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x0c) & 0x000fffff;
+		internal[0x7f02] = 0xfe80 | (addr >> 16);
+		internal[0x7f03] = (addr & 0xffff);
+
+		addr = (dest + 0x20) & 0x000fffff; // point boot vector at code in RAM (probably in reality points to internal code that copies the first block)
+		internal[0x7f04] = 0xfe80 | (addr >> 16);
+		internal[0x7f05] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x10) & 0x000fffff;
+		internal[0x7f06] = 0xfe80 | (addr >> 16);
+		internal[0x7f07] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x12) & 0x000fffff;
+		internal[0x7f08] = 0xfe80 | (addr >> 16);
+		internal[0x7f09] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x14) & 0x000fffff;
+		internal[0x7f0a] = 0xfe80 | (addr >> 16);
+		internal[0x7f0b] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x16) & 0x000fffff;
+		internal[0x7f0c] = 0xfe80 | (addr >> 16);
+		internal[0x7f0d] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x18) & 0x000fffff;
+		internal[0x7f0e] = 0xfe80 | (addr >> 16);
+		internal[0x7f0f] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x1a) & 0x000fffff;
+		internal[0x7f10] = 0xfe80 | (addr >> 16);
+		internal[0x7f11] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x1c) & 0x000fffff;
+		internal[0x7f12] = 0xfe80 | (addr >> 16);
+		internal[0x7f13] = (addr & 0xffff);
+
+		addr = (m_vectorbase + 0x1e) & 0x000fffff;
+		internal[0x7f14] = 0xfe80 | (addr >> 16);
+		internal[0x7f15] = (addr & 0xffff);
+
+
+		internal[0x7ff5] = 0xff00;
+
+		internal[0x7ff6] = 0xff02;
+		internal[0x7ff7] = 0xff04;
+		internal[0x7ff8] = 0xff06;
+		internal[0x7ff9] = 0xff08;
+		internal[0x7ffa] = 0xff0a;
+		internal[0x7ffb] = 0xff0c;
+		internal[0x7ffc] = 0xff0e;
+		internal[0x7ffd] = 0xff10;
+		internal[0x7ffe] = 0xff12;
+		internal[0x7fff] = 0xff14;
 	}
 
 	m_maincpu->reset(); // reset CPU so vector gets read etc.
@@ -855,6 +916,7 @@ CONS(2008, jak_hsmg2,  0, 0, generalplus_gpac800,       jak_hsm,  generalplus_gp
 CONS(2008, jak_hmhsm,  0, 0, generalplus_gpac800,       jak_hsm,  generalplus_gpac800_game_state,       nand_init210_32mb,  "JAKKS Pacific Inc / HotGen Ltd",           "Hannah Montana G2 Deluxe / High School Musical G2 Deluxe - Two in One (JAKKS Pacific TV Game)",   MACHINE_NO_SOUND | MACHINE_NOT_WORKING) // Sep 12 2008 18:48:14 (Menu/HM) / Sep 12 2008 18:50:45 (HSM)
 CONS(2008, jak_umdf,   0, 0, generalplus_gpac800,       jak_hsm,  generalplus_gpac800_game_state,       nand_init210_32mb,  "JAKKS Pacific Inc / Handheld Games",       "Ultimotion - Disney Fairies Sleeping Beauty & TinkerBell (JAKKS Pacific TV Game)",   MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 // Ultimotion Swing Zone is SPG29xx instead
+CONS(2008, jak_camp,   0, 0, generalplus_gpac800,       jak_hsm,  generalplus_gpac800_game_state,       nand_init210_32mb,  "JAKKS Pacific Inc / HotGen Ltd",           "Camp Rock Guitar Video Game (JAKKS Pacific TV Game)",   MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 
 // There were 1 player and 2 player versions for several of the JAKKS guns.  The 2nd gun appears to be simply a controller (no AV connectors) but as they were separate products with the 2 player versions being released up to a year after the original, the code could differ.
 // If they differ, it is currently uncertain which versions these ROMs are from

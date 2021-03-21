@@ -45,6 +45,7 @@ Kaiun Quiz (KW1/VER.A1)                  (C) Namco/MOSS,   1999  COH-700     SYS
 Kart Duel (KTD1/VER.A)                   (C) Namco,        2000  COH-700     SYSTEM12 MOTHER(B)  SYSTEM12 M4F0    KC057
 Libero Grande (LG1/VER.A)                (C) Namco,        1997  COH-700     SYSTEM12 MOTHER(B)  SYSTEM12 M8F2F   KC014
 Libero Grande (LG2/VER.A)                (C) Namco,        1997  COH-700     SYSTEM12 MOTHER(B)  SYSTEM12 M8F2F   KC014
+Techno Drive (TH1/VER.B)                 (C) Namco,        1998  COH-700     SYSTEM12 MOTHER(B)  SYSTEM12 M8F2F   KC056
 Mr Driller (DRI3/VER.A2)                 (C) Namco,        1999  COH-700     SYSTEM12 MOTHER(C)  SYSTEM12 M8F2F   KC048
 Mr Driller (DRI1/VER.A2)                 (C) Namco,        1999  COH-700     SYSTEM12 MOTHER(C)  SYSTEM12 M8F2F   KC048
 Paca Paca Passion (PPP1/VER.A2)          (C) Produce/Namco,1999  COH-700     SYSTEM12 MOTHER(B)  SYSTEM12 M8F2F   KC038
@@ -870,8 +871,8 @@ Type 2
       SYSTEM12 COH716 PCB 8661962301 (8661972301)
       (manufactured by Namco, probably in 2001, under license from Sony)
       Component layout is identical to COH-700 PCB with some updated components. Generally
-      it has 2X the amount of video RAM and 4X the amount of program RAM that the COH-700 PCB has.
-      KM4132G271Q replaced with OKI 54V25632A 256k x 32-bit x 2 Banks SGRAM (x2, QFP100)
+      it has 4X the amount of program RAM that the COH-700 PCB has.
+      KM4132G271Q replaced with OKI 54V25632A 128k x 32-bit x 2 Banks SGRAM (x2, QFP100)
       KM416V1204 replaced with Samsung Electronics K4E6416120D 4M x16 EDO DRAM (x2, TSOP44)
       Updated Sony CXD8561CQ GPU (QFP208)
       Updated Sony CXD8606BQ R3000A-based CPU (QFP208)
@@ -1761,11 +1762,11 @@ void namcos12_state::coh700(machine_config &config)
 	/* basic machine hardware */
 	CXD8661R(config, m_maincpu, XTAL(100'000'000));
 	m_maincpu->set_addrmap(AS_PROGRAM, &namcos12_state::namcos12_map);
-	m_maincpu->subdevice<ram_device>("ram")->set_default_size("4M");
+	m_maincpu->subdevice<ram_device>("ram")->set_default_size("4M"); // 2 KM416V1204s
 	m_maincpu->subdevice<psxdma_device>("dma")->install_read_handler(5, psxdma_device::read_delegate(&namcos12_state::namcos12_rom_read, this));
 
 	/* video hardware */
-	CXD8654Q(config, "gpu", XTAL(53'693'175), 0x200000, subdevice<psxcpu_device>("maincpu")).set_screen("screen");
+	CXD8654Q(config, "gpu", XTAL(53'693'175), 0x200000, subdevice<psxcpu_device>("maincpu")).set_screen("screen"); // 2 KM4132G271Qs
 
 	SCREEN(config, "screen", SCREEN_TYPE_RASTER).screen_vblank().set(FUNC(namcos12_state::namcos12_sub_irq));
 }
@@ -1777,11 +1778,11 @@ void namcos12_state::coh716(machine_config &config)
 	/* basic machine hardware */
 	CXD8606BQ(config, m_maincpu, XTAL(100'000'000));
 	m_maincpu->set_addrmap(AS_PROGRAM, &namcos12_state::namcos12_map);
-	m_maincpu->subdevice<ram_device>("ram")->set_default_size("16M");
+	m_maincpu->subdevice<ram_device>("ram")->set_default_size("16M"); // 2 K4E6416120Ds
 	m_maincpu->subdevice<psxdma_device>("dma")->install_read_handler(5, psxdma_device::read_delegate(&namcos12_state::namcos12_rom_read, this));
 
 	/* video hardware */
-	CXD8561CQ(config, "gpu", XTAL(53'693'175), 0x400000, subdevice<psxcpu_device>("maincpu")).set_screen("screen");
+	CXD8561CQ(config, "gpu", XTAL(53'693'175), 0x200000, subdevice<psxcpu_device>("maincpu")).set_screen("screen"); // 2 54V25632As
 
 	SCREEN(config, "screen", SCREEN_TYPE_RASTER).screen_vblank().set(FUNC(namcos12_state::namcos12_sub_irq));
 }
@@ -3204,7 +3205,7 @@ ROM_END
 
 ROM_START( technodr )
 	ROM_REGION32_LE( 0x00400000, "maincpu:rom", 0 ) /* main prg */
-	ROM_LOAD16_BYTE( "th1verb.2l",   0x000000, 0x200000, CRC(736fae08) SHA1(099e648784f617cc3b5a57a5838b8fbb54cacca1) )
+	ROM_LOAD16_BYTE( "th1verb.2l",   0x000000, 0x200000, CRC(736fae08) SHA1(099e648784f617cc3b5a57a5838b8fbb54cacca1) ) // service mode reports Ver 1.06 JPN
 	ROM_LOAD16_BYTE( "th1verb.2p",   0x000001, 0x200000, CRC(1fafb2d2) SHA1(ea0617714dcd7636e21a10fa2665a6f9c0f0a93b) )
 
 	ROM_REGION32_LE( 0x3400000, "bankedroms", 0 ) /* main data */
@@ -3279,7 +3280,7 @@ GAME( 1998, ehrgeizja, ehrgeiz,  coh700,   namcos12,  namcos12_state,          i
 GAME( 1998, mdhorse,   0,        coh700,   namcos12,  namcos12_state,          init_namcos12, ROT0, "MOSS / Namco",    "Derby Quiz My Dream Horse (Japan, MDH1/VER.A2)", MACHINE_NOT_WORKING ) /* KC035 */
 GAME( 1998, aplarail,  0,        aplarail, aplarail,  namcos12_boothack_state, init_namcos12, ROT0, "Namco / Tomy",    "Attack Pla Rail (Japan, AP1/VER.A)", 0 ) /* KC032 */
 GAME( 1998, sws98,     0,        coh700,   namcos12,  namcos12_state,          init_namcos12, ROT0, "Namco",           "Super World Stadium '98 (Japan, SS81/VER.A)", 0 ) /* KC0?? */
-GAME( 1998, technodr,  0,        technodr, technodr,  namcos12_boothack_state, init_technodr, ROT0, "Namco",           "Techno Drive (Japan, TD2/VER.B)", MACHINE_NODEVICE_PRINTER ) /* KC056 */
+GAME( 1998, technodr,  0,        technodr, technodr,  namcos12_boothack_state, init_technodr, ROT0, "Namco",           "Techno Drive (Japan, TH1/VER.B)", MACHINE_NODEVICE_PRINTER ) /* KC056 */
 GAME( 1998, tenkomor,  0,        coh700,   namcos12,  namcos12_boothack_state, init_namcos12, ROT90,"Namco",           "Tenkomori Shooting (World, TKM2/VER.A1)", 0 ) /* KC036 */
 GAME( 1998, tenkomorja,tenkomor, coh700,   namcos12,  namcos12_boothack_state, init_namcos12, ROT90,"Namco",           "Tenkomori Shooting (Japan, TKM1/VER.A1)", 0 ) /* KC036 */
 GAME( 1998, fgtlayer,  0,        coh700,   namcos12,  namcos12_boothack_state, init_namcos12, ROT0, "Arika / Namco",   "Fighting Layer (Japan, FTL1/VER.A)", 0 ) /* KC037 */

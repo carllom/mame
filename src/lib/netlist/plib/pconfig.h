@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 #ifndef PCONFIG_H_
@@ -8,7 +8,7 @@
 /// \file pconfig.h
 ///
 
-/// \brief More accurate measurements if you processor supports RDTSCP.
+/// \brief More accurate measurements the processor supports RDTSCP.
 ///
 #ifndef PHAS_RDTSCP
 #define PHAS_RDTSCP (0)
@@ -41,7 +41,11 @@
 /// Set this to one if you want to use aligned storage optimizations.
 ///
 #ifndef PUSE_ALIGNED_OPTIMIZATIONS
+#if defined(__EMSCRIPTEN__)
+#define PUSE_ALIGNED_OPTIMIZATIONS (0)
+#else
 #define PUSE_ALIGNED_OPTIMIZATIONS (1)
+#endif
 #endif
 
 /// \brief Use aligned allocations.
@@ -71,8 +75,13 @@
 
 #define PALIGN_MIN_SIZE         (16)
 
+#if (PUSE_ALIGNED_OPTIMIZATIONS)
 #define PALIGNAS_CACHELINE()    PALIGNAS(PALIGN_CACHELINE)
 #define PALIGNAS_VECTOROPT()    PALIGNAS(PALIGN_VECTOROPT)
+#else
+#define PALIGNAS_CACHELINE()
+#define PALIGNAS_VECTOROPT()
+#endif
 
 // FIXME: Breaks mame build on windows mingw due to -Wattribute
 //        also triggers -Wattribute on ARM

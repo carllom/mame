@@ -1,4 +1,4 @@
-// license:BSD-3-Clause
+// license:CC0
 // copyright-holders:Aaron Giles
 
 //
@@ -23,7 +23,6 @@
 
 #include "netlist/devices/net_lib.h"
 #include "nl_cinemat_common.h"
-#include "nl_sundance.h"
 
 
 //

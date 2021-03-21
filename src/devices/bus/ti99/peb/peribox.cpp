@@ -197,6 +197,7 @@ CRUCLK*  51||52  DBIN
 #include "horizon.h"
 #include "forti.h"
 #include "pgram.h"
+#include "sidmaster.h"
 
 #define LOG_WARN        (1U<<1)   // Warnings
 #define LOG_CONFIG      (1U<<2)   // Configuration
@@ -227,7 +228,7 @@ DEFINE_DEVICE_TYPE_NS(TI99_PERIBOX_GENMOD,  bus::ti99::peb, peribox_genmod_devic
 // Single slot of the PEB
 DEFINE_DEVICE_TYPE_NS(TI99_PERIBOX_SLOT, bus::ti99::peb, peribox_slot_device, "peribox_slot", "TI P-Box slot")
 
-namespace bus { namespace ti99 { namespace peb {
+namespace bus::ti99::peb {
 
 #define PEBSLOT2 "slot2"
 #define PEBSLOT3 "slot3"
@@ -499,6 +500,7 @@ void ti99_peribox_slot_standard(device_slot_interface &device)
 	device.option_add("ccfdc",    TI99_CCFDC);
 	device.option_add("ddcc1",    TI99_DDCC1);
 	device.option_add("forti",    TI99_FORTI);
+	device.option_add("sidmaster", TI99_SIDMASTER);
 }
 
 void peribox_device::device_add_mconfig(machine_config &config)
@@ -543,6 +545,7 @@ void ti99_peribox_slot_evpc(device_slot_interface &device)
 	device.option_add("ccfdc",    TI99_CCFDC);
 	device.option_add("ddcc1",    TI99_DDCC1);
 	device.option_add("forti",    TI99_FORTI);
+	device.option_add("sidmaster", TI99_SIDMASTER);
 }
 
 void peribox_ev_device::device_add_mconfig(machine_config &config)
@@ -580,7 +583,9 @@ peribox_genmod_device::peribox_genmod_device(const machine_config &mconfig, cons
 }
 
 // The BwG controller will not run with the Geneve due to its wait state
-// logic (see bwg.c)
+// logic (see bwg.cpp)
+// The SID master card may have trouble with the Geneve because of its CRU
+// handling (see sidmaster.cpp)
 
 void ti99_peribox_slot_geneve(device_slot_interface &device)
 {
@@ -596,6 +601,7 @@ void ti99_peribox_slot_geneve(device_slot_interface &device)
 	device.option_add("ccfdc",    TI99_CCFDC);
 	device.option_add("ddcc1",    TI99_DDCC1);
 	device.option_add("forti",    TI99_FORTI);
+	device.option_add("sidmaster", TI99_SIDMASTER);
 }
 
 void peribox_gen_device::device_add_mconfig(machine_config &config)
@@ -651,6 +657,7 @@ void ti99_peribox_slot_sgcpu(device_slot_interface &device)
 	device.option_add("ccfdc",    TI99_CCFDC);
 	device.option_add("ddcc1",    TI99_DDCC1);
 	device.option_add("forti",    TI99_FORTI);
+	device.option_add("sidmaster", TI99_SIDMASTER);
 }
 
 void peribox_sg_device::device_add_mconfig(machine_config &config)
@@ -793,4 +800,4 @@ bool device_ti99_peribox_card_interface::in_cart_space(offs_t offset, bool amade
 		return (offset & 0x0e000)==0x06000;
 }
 
-} } } // end namespace bus::ti99::peb
+} // end namespace bus::ti99::peb

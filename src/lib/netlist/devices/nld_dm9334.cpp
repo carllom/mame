@@ -3,15 +3,69 @@
 /*
  * nld_dm9334.cpp
  *
+ *  DM9334: 8-Bit Addressable Latch
+ *
+ *          +--------------+
+ *       A0 |1     ++    16| VCC
+ *       A1 |2           15| /C
+ *       A2 |3           14| /E
+ *       Q0 |4   DM9334  13| D
+ *       Q1 |5           12| Q7
+ *       Q2 |6           11| Q6
+ *       Q3 |7           10| Q5
+ *      GND |8            9| Q4
+ *          +--------------+
+ *
+ *          +---+---++---++---+---+---++---+---+---+---+---+---+---+---+
+ *          | C | E || D || A0| A1| A2|| Q0| Q1| Q2| Q3| Q4| Q5| Q6| Q7|
+ *          +===+===++===++===+===+===++===+===+===+===+===+===+===+===+
+ *          | 1 | 0 || X || X | X | X || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          +---+---++---++---+---+---++---+---+---+---+---+---+---+---+
+ *          | 1 | 1 || 0 || 0 | 0 | 0 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 0 | 0 | 0 || 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 0 || 0 | 0 | 1 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 0 | 0 | 1 || 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 0 || 0 | 1 | 0 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 0 | 1 | 0 || 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 0 || 0 | 1 | 1 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 0 | 1 | 1 || 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 0 || 1 | 0 | 0 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 1 | 0 | 0 || 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
+ *          | 1 | 1 || 0 || 1 | 0 | 1 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 1 | 0 | 1 || 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
+ *          | 1 | 1 || 0 || 1 | 1 | 0 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 1 | 1 | 0 || 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 |
+ *          | 1 | 1 || 0 || 1 | 1 | 1 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+ *          | 1 | 1 || 1 || 1 | 1 | 1 || 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+ *          +---+---++---++---+---+---++---+---+---+---+---+---+---+---+
+ *          | 0 | 0 || X || X | X | X || P | P | P | P | P | P | P | P |
+ *          +---+---++---++---+---+---++---+---+---+---+---+---+---+---+
+ *          | 0 | 1 || 0 || 0 | 0 | 0 || 0 | P | P | P | P | P | P | P |
+ *          | 0 | 1 || 1 || 0 | 0 | 0 || 1 | P | P | P | P | P | P | P |
+ *          | 0 | 1 || 0 || 0 | 0 | 1 || P | 0 | P | P | P | P | P | P |
+ *          | 0 | 1 || 1 || 0 | 0 | 1 || P | 1 | P | P | P | P | P | P |
+ *          | 0 | 1 || 0 || 0 | 1 | 0 || P | P | 0 | P | P | P | P | P |
+ *          | 0 | 1 || 1 || 0 | 1 | 0 || P | P | 1 | P | P | P | P | P |
+ *          | 0 | 1 || 0 || 0 | 1 | 1 || P | P | P | 0 | P | P | P | P |
+ *          | 0 | 1 || 1 || 0 | 1 | 1 || P | P | P | 1 | P | P | P | P |
+ *          | 0 | 1 || 0 || 1 | 0 | 0 || P | P | P | P | 0 | P | P | P |
+ *          | 0 | 1 || 1 || 1 | 0 | 0 || P | P | P | P | 1 | P | P | P |
+ *          | 0 | 1 || 0 || 1 | 0 | 1 || P | P | P | P | P | 0 | P | P |
+ *          | 0 | 1 || 1 || 1 | 0 | 1 || P | P | P | P | P | 1 | P | P |
+ *          | 0 | 1 || 0 || 1 | 1 | 0 || P | P | P | P | P | P | 0 | P |
+ *          | 0 | 1 || 1 || 1 | 1 | 0 || P | P | P | P | P | P | 1 | P |
+ *          | 0 | 1 || 0 || 1 | 1 | 1 || P | P | P | P | P | P | P | 0 |
+ *          | 0 | 1 || 1 || 1 | 1 | 1 || P | P | P | P | P | P | P | 1 |
+ *          +---+---++---++---+---+---++---+---+---+---+---+---+---+---+
+ *
+ *  Naming convention attempts to follow Texas Instruments / National Semiconductor datasheet Literature Number SNOS382A
+ *
  */
 
-#include "nld_dm9334.h"
-#include "netlist/nl_base.h"
+#include "nl_base.h"
 
-namespace netlist
-{
-	namespace devices
-	{
+namespace netlist::devices {
+
 	NETLIB_OBJECT(9334)
 	{
 		NETLIB_CONSTRUCTOR(9334)
@@ -29,6 +83,7 @@ namespace netlist
 		{
 		}
 
+	private:
 		NETLIB_RESETI()
 		{
 			m_last_CQ = 0;
@@ -38,8 +93,6 @@ namespace netlist
 			m_last_Q = 0;
 		}
 
-		friend class NETLIB_NAME(9334_dip);
-	private:
 		NETLIB_HANDLERI(inputs)
 		{
 			uint_fast8_t a = 0;
@@ -120,37 +173,6 @@ namespace netlist
 		nld_power_pins m_power_pins;
 	};
 
-	NETLIB_OBJECT(9334_dip)
-	{
-		NETLIB_CONSTRUCTOR(9334_dip)
-		, A(*this, "A")
-		{
-			register_subalias("1", A.m_A[0]);
-			register_subalias("2", A.m_A[1]);
-			register_subalias("3", A.m_A[2]);
-			register_subalias("4", A.m_Q[0]);
-			register_subalias("5", A.m_Q[1]);
-			register_subalias("6", A.m_Q[2]);
-			register_subalias("7", A.m_Q[3]);
-			register_subalias("8", "A.GND");
-
-			register_subalias("9",  A.m_Q[4]);
-			register_subalias("10", A.m_Q[5]);
-			register_subalias("11", A.m_Q[6]);
-			register_subalias("12", A.m_Q[7]);
-			register_subalias("13", A.m_D);
-			register_subalias("14", A.m_EQ);
-			register_subalias("15", A.m_CQ);
-			register_subalias("16", "A.VCC");
-
-		}
-		//NETLIB_RESETI() {}
-	private:
-		NETLIB_SUB(9334) A;
-	};
-
 	NETLIB_DEVICE_IMPL(9334,     "TTL_9334",     "+CQ,+EQ,+D,+A0,+A1,+A2,@VCC,@GND")
-	NETLIB_DEVICE_IMPL(9334_dip, "TTL_9334_DIP", "")
 
-	} //namespace devices
-} // namespace netlist
+} // namespace netlist::devices

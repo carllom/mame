@@ -281,13 +281,13 @@ I8275_DRAW_CHARACTER_MEMBER( rc702_state::display_pixels )
 		gfx ^= 0xff;
 
 	// Highlight not used
-	bitmap.pix32(y, x++) = palette[BIT(gfx, 1) ? 1 : 0];
-	bitmap.pix32(y, x++) = palette[BIT(gfx, 2) ? 1 : 0];
-	bitmap.pix32(y, x++) = palette[BIT(gfx, 3) ? 1 : 0];
-	bitmap.pix32(y, x++) = palette[BIT(gfx, 4) ? 1 : 0];
-	bitmap.pix32(y, x++) = palette[BIT(gfx, 5) ? 1 : 0];
-	bitmap.pix32(y, x++) = palette[BIT(gfx, 6) ? 1 : 0];
-	bitmap.pix32(y, x++) = palette[BIT(gfx, 7) ? 1 : 0];
+	bitmap.pix(y, x++) = palette[BIT(gfx, 1) ? 1 : 0];
+	bitmap.pix(y, x++) = palette[BIT(gfx, 2) ? 1 : 0];
+	bitmap.pix(y, x++) = palette[BIT(gfx, 3) ? 1 : 0];
+	bitmap.pix(y, x++) = palette[BIT(gfx, 4) ? 1 : 0];
+	bitmap.pix(y, x++) = palette[BIT(gfx, 5) ? 1 : 0];
+	bitmap.pix(y, x++) = palette[BIT(gfx, 6) ? 1 : 0];
+	bitmap.pix(y, x++) = palette[BIT(gfx, 7) ? 1 : 0];
 }
 
 // Baud rate generator. All inputs are 0.614MHz.
@@ -374,7 +374,7 @@ void rc702_state::rc702(machine_config &config)
 	UPD765A(config, m_fdc, 8_MHz_XTAL, true, true);
 	m_fdc->intrq_wr_callback().set(m_ctc1, FUNC(z80ctc_device::trg3));
 	m_fdc->drq_wr_callback().set(m_dma, FUNC(am9517a_device::dreq1_w));
-	FLOPPY_CONNECTOR(config, "fdc:0", floppies, "525qd", floppy_image_device::default_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, "fdc:0", floppies, "525qd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
 
 	/* Keyboard */
 	generic_keyboard_device &keyboard(GENERIC_KEYBOARD(config, "keyboard", 0));

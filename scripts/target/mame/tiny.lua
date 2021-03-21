@@ -30,6 +30,9 @@ SOUNDS["BEEP"] = true
 -- specify available video cores
 --------------------------------------------------
 
+VIDEOS["MC6845"] = true
+
+
 --------------------------------------------------
 -- specify available machine cores
 --------------------------------------------------
@@ -42,6 +45,7 @@ SOUNDS["BEEP"] = true
 --------------------------------------------------
 
 --BUSES["CENTRONICS"] = true
+
 
 --------------------------------------------------
 -- This is the list of files that are necessary

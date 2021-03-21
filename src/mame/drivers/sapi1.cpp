@@ -52,6 +52,9 @@ ZPS stands for "Základní Počítačová Sestava" (basic computer system).
 #include "machine/timer.h"
 #include "speaker.h"
 
+
+namespace {
+
 class sapi_state : public driver_device
 {
 public:
@@ -78,6 +81,10 @@ public:
 	void init_sapizps3a();
 	void init_sapizps3b();
 
+protected:
+	virtual void machine_reset() override;
+	virtual void machine_start() override;
+
 private:
 	optional_shared_ptr<uint8_t> m_p_videoram;
 	void kbd_put(u8 data);
@@ -100,8 +107,7 @@ private:
 	MC6845_UPDATE_ROW(crtc_update_row);
 	DECLARE_READ_LINE_MEMBER(si);
 	DECLARE_WRITE_LINE_MEMBER(so);
-	void machine_reset() override;
-	void machine_start() override;
+
 	uint32_t screen_update_sapi1(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	uint32_t screen_update_sapi3(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 
@@ -285,8 +291,8 @@ void sapi_state::sapi3b_mem(address_map &map)
 	map.unmap_value_high();
 	map(0x0000, 0x07ff).ram().bankrw("bank1");
 	map(0x0800, 0xafff).ram();
-	map(0xb000, 0xb7ff).ram().share("videoram");
-	map(0xb800, 0xffff).ram();
+	map(0xb000, 0xbfff).ram().share("videoram");
+	map(0xc000, 0xffff).ram();
 }
 
 void sapi_state::sapi3_io(address_map &map)
@@ -383,24 +389,20 @@ INPUT_PORTS_END
 
 uint32_t sapi_state::screen_update_sapi1(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
-	bool val;
-	uint16_t addr,xpos;
-	uint8_t chr,attr,ra,x,y,b;
-
-	for(y = 0; y < 24; y++ )
+	for(uint8_t y = 0; y < 24; y++ )
 	{
-		addr = y*64;
-		xpos = 0;
-		for(x = 0; x < 40; x++ )
+		uint16_t addr = y*64;
+		uint16_t xpos = 0;
+		for(uint8_t x = 0; x < 40; x++ )
 		{
-			chr = m_p_videoram[addr + x];
-			attr = (chr >> 6) & 3;
+			uint8_t chr = m_p_videoram[addr + x];
+			uint8_t attr = (chr >> 6) & 3;
 			chr &= 0x3f;
-			for(ra = 0; ra < 9; ra++ )
+			for(uint8_t ra = 0; ra < 9; ra++ )
 			{
-				for(b = 0; b < 6; b++ )
+				for(uint8_t b = 0; b < 6; b++ )
 				{
-					val = 0;
+					bool val = 0;
 
 					if (ra==8)
 					{
@@ -416,12 +418,12 @@ uint32_t sapi_state::screen_update_sapi1(screen_device &screen, bitmap_ind16 &bi
 
 					if(attr==3)
 					{
-						bitmap.pix16(y*9+ra, xpos+2*b   ) = val;
-						bitmap.pix16(y*9+ra, xpos+2*b+1 ) = val;
+						bitmap.pix(y*9+ra, xpos+2*b   ) = val;
+						bitmap.pix(y*9+ra, xpos+2*b+1 ) = val;
 					}
 					else
 					{
-						bitmap.pix16(y*9+ra, xpos+b ) = val;
+						bitmap.pix(y*9+ra, xpos+b ) = val;
 					}
 				}
 			}
@@ -436,26 +438,22 @@ uint32_t sapi_state::screen_update_sapi1(screen_device &screen, bitmap_ind16 &bi
 // The attributes seem to be different on this one, they need to be understood, so disabled for now
 uint32_t sapi_state::screen_update_sapi3(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
-	bool val;
-	uint16_t addr,xpos;
-	uint8_t chr,attr,ra,x,y,b;
-
-	for(y = 0; y < 20; y++ )
+	for(uint8_t y = 0; y < 20; y++ )
 	{
-		addr = y*64;
-		xpos = 0;
-		for(x = 0; x < 40; x++ )
+		uint16_t addr = y*64;
+		uint16_t xpos = 0;
+		for(uint8_t x = 0; x < 40; x++ )
 		{
-			chr = m_p_videoram[addr + x];
-			attr = 0;//(chr >> 6) & 3;
+			uint8_t chr = m_p_videoram[addr + x];
+			uint8_t attr = 0;//(chr >> 6) & 3;
 			if (chr > 0x3f)
 				chr &= 0x1f;
 
-			for(ra = 0; ra < 9; ra++ )
+			for(uint8_t ra = 0; ra < 9; ra++ )
 			{
-				for(b = 0; b < 6; b++ )
+				for(uint8_t b = 0; b < 6; b++ )
 				{
-					val = 0;
+					bool val = 0;
 
 					if (ra==8)
 					{
@@ -471,12 +469,12 @@ uint32_t sapi_state::screen_update_sapi3(screen_device &screen, bitmap_ind16 &bi
 
 					if(attr==3)
 					{
-						bitmap.pix16(y*9+ra, xpos+2*b   ) = val;
-						bitmap.pix16(y*9+ra, xpos+2*b+1 ) = val;
+						bitmap.pix(y*9+ra, xpos+2*b   ) = val;
+						bitmap.pix(y*9+ra, xpos+2*b+1 ) = val;
 					}
 					else
 					{
-						bitmap.pix16(y*9+ra, xpos+b ) = val;
+						bitmap.pix(y*9+ra, xpos+b ) = val;
 					}
 				}
 			}
@@ -490,17 +488,15 @@ uint32_t sapi_state::screen_update_sapi3(screen_device &screen, bitmap_ind16 &bi
 
 MC6845_UPDATE_ROW( sapi_state::crtc_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint8_t chr,gfx,inv;
-	uint16_t mem,x;
-	uint32_t *p = &bitmap.pix32(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
 
-	for (x = 0; x < x_count; x++)
+	for (uint16_t x = 0; x < x_count; x++)
 	{
-		inv = gfx = 0;
+		uint8_t inv = 0, gfx = 0;
 		if (x == cursor_x) inv ^= 0xff;
-		mem = (2*(ma + x)) & 0xfff;
-		chr = m_p_videoram[mem] & 0x3f;
+		uint16_t mem = (2*(ma + x)) & 0xfff;
+		uint8_t chr = m_p_videoram[mem] & 0x3f;
 
 		if (ra < 8)
 			gfx = MHB2501[(chr<<3) | ra] ^ inv;
@@ -757,6 +753,8 @@ void sapi_state::machine_start()
 	save_item(NAME(m_cassold));
 	save_item(NAME(m_ier));
 	save_item(NAME(m_iet));
+
+	m_term_data = 0;
 }
 
 void sapi_state::init_sapizps3()
@@ -868,7 +866,6 @@ void sapi_state::sapi3b(machine_config &config)
 static DEVICE_INPUT_DEFAULTS_START( terminal )
 	DEVICE_INPUT_DEFAULTS( "RS232_RXBAUD", 0xff, RS232_BAUD_9600 )
 	DEVICE_INPUT_DEFAULTS( "RS232_TXBAUD", 0xff, RS232_BAUD_9600 )
-	DEVICE_INPUT_DEFAULTS( "RS232_STARTBITS", 0xff, RS232_STARTBITS_1 )
 	DEVICE_INPUT_DEFAULTS( "RS232_DATABITS", 0xff, RS232_DATABITS_8 ) // high bit stripped off in software
 	DEVICE_INPUT_DEFAULTS( "RS232_PARITY", 0xff, RS232_PARITY_NONE )
 	DEVICE_INPUT_DEFAULTS( "RS232_STOPBITS", 0xff, RS232_STOPBITS_1 )
@@ -949,6 +946,8 @@ ROM_START( sapizps3b )
 	// This BIOS uses a 6845
 	ROM_LOAD("pkt1.bin",       0x10000, 0x0800, CRC(ed5a2725) SHA1(3383c15f87f976400b8d0f31829e2a95236c4b6c))
 ROM_END
+
+} // Anonymous namespace
 
 
 /* Driver */

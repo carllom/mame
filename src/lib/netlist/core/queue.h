@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 ///
@@ -21,12 +21,13 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <queue>
 
 namespace netlist
 {
 	namespace detail {
 		// Use timed_queue_heap to use stdc++ heap functions instead of linear processing.
-		// This slows down processing by about 25% on a Kaby Lake.
+		// This slows down processing by about 35% on a Kaby Lake.
 		// template <class T, bool TS>
 		// using timed_queue = plib::timed_queue_heap<T, TS>;
 

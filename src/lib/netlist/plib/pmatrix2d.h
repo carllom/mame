@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 #ifndef PMATRIX2D_H_
@@ -50,6 +50,11 @@ namespace plib
 			for (std::size_t i = 0; i < N * m_stride; i++)
 				::new(&m_v[i]) T();
 		}
+
+		pmatrix2d(const pmatrix2d &) = delete;
+		pmatrix2d &operator=(const pmatrix2d &) = delete;
+		pmatrix2d(pmatrix2d &&) = delete;
+		pmatrix2d &operator=(pmatrix2d &&) = delete;
 
 		~pmatrix2d()
 		{
@@ -155,7 +160,11 @@ namespace plib
 			m_v.resize(N); //FIXME
 		}
 
-		PCOPYASSIGNMOVE(pmatrix2d_vrl, default)
+		pmatrix2d_vrl(const pmatrix2d_vrl &) = default;
+		pmatrix2d_vrl &operator=(const pmatrix2d_vrl &) = default;
+		pmatrix2d_vrl(pmatrix2d_vrl &&) = default;
+		pmatrix2d_vrl &operator=(pmatrix2d_vrl &&) = default;
+
 		~pmatrix2d_vrl() = default;
 
 		void resize(size_type N, size_type M)

@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 #ifndef PALLOC_H_
@@ -256,7 +256,10 @@ namespace plib {
 
 		~arena_allocator() noexcept = default;
 
-		PCOPYASSIGNMOVE(arena_allocator, default)
+		arena_allocator(const arena_allocator &) = default;
+		arena_allocator &operator=(const arena_allocator &) = default;
+		arena_allocator(arena_allocator &&) noexcept = default;
+		arena_allocator &operator=(arena_allocator &&) noexcept = default;
 
 		explicit arena_allocator(arena_type & a) noexcept : m_a(a)
 		{
@@ -288,7 +291,7 @@ namespace plib {
 		void construct(U* p, Args&&... args)
 		{
 			// NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-			::new (static_cast<void *>(p)) U(std::forward<Args>(args)...);
+			::new (void_ptr_cast(p)) U(std::forward<Args>(args)...);
 		}
 
 		template<typename U>
@@ -419,7 +422,7 @@ namespace plib {
 		#if (PUSE_ALIGNED_ALLOCATION)
 		#if defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
 			return _aligned_malloc(size, alignment);
-		#elif defined(__APPLE__)
+		#elif defined(__APPLE__) || defined(__ANDROID__)
 			void* p;
 			if (::posix_memalign(&p, alignment, size) != 0) {
 				p = nullptr;
@@ -623,8 +626,8 @@ namespace plib {
 	struct align_traits : public align_traits_base<T, has_align<T>::value>
 	{};
 
-	template <typename BASEARENA = aligned_arena, std::size_t PAGESIZE = 1024>
-	class paged_arena : public arena_base<paged_arena<BASEARENA, PAGESIZE>, true, true>
+	template <typename BASEARENA = aligned_arena, std::size_t PG_SIZE = 1024>
+	class paged_arena : public arena_base<paged_arena<BASEARENA, PG_SIZE>, true, true>
 	{
 	public:
 		paged_arena() = default;
@@ -636,13 +639,13 @@ namespace plib {
 		static void *allocate(size_t align, size_t size)
 		{
 			plib::unused_var(align);
-			//size = ((size + PAGESIZE - 1) / PAGESIZE) * PAGESIZE;
-			return arena().allocate(PAGESIZE, size);
+			//size = ((size + PG_SIZE - 1) / PG_SIZE) * PG_SIZE;
+			return arena().allocate(PG_SIZE, size);
 		}
 
 		static void deallocate(void *ptr, size_t size) noexcept
 		{
-			//size = ((size + PAGESIZE - 1) / PAGESIZE) * PAGESIZE;
+			//size = ((size + PG_SIZE - 1) / PG_SIZE) * PG_SIZE;
 			arena().deallocate(ptr, size);
 		}
 

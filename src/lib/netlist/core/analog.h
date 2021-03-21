@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Couriersud
 
 ///
@@ -60,6 +60,9 @@ namespace netlist
 		/// @param aname name of this terminal
 		/// @param otherterm pointer to the sibling terminal
 		terminal_t(core_device_t &dev, const pstring &aname, terminal_t *otherterm, nldelegate delegate);
+
+		terminal_t(core_device_t &dev, const pstring &aname, terminal_t *otherterm,
+			const std::array<terminal_t *, 2> &splitterterms, nldelegate delegate);
 
 		/// \brief Returns voltage of connected net
 		///
@@ -155,6 +158,11 @@ namespace netlist
 	private:
 		analog_net_t m_my_net;
 	};
+
+	inline solver::matrix_solver_t *analog_t::solver() const noexcept
+	{
+		return (this->has_net() ? net().solver() : nullptr);
+	}
 
 } // namespace netlist
 

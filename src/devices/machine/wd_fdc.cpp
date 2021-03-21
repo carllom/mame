@@ -2540,7 +2540,7 @@ bool wd_fdc_digital_device_base::digital_pll_t::write_next_bit(bool bit, attotim
 		uint16_t pre_counter = counter;
 		counter += increment;
 		if(bit && !(pre_counter & 0x400) && (counter & 0x400))
-			if(write_position < ARRAY_LENGTH(write_buffer))
+			if(write_position < std::size(write_buffer))
 				write_buffer[write_position++] = etime;
 		slot++;
 		tm = etime;
@@ -2960,7 +2960,7 @@ int wd2797_device::calc_sector_size(uint8_t size, uint8_t command) const
 wd1770_device::wd1770_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : wd_fdc_digital_device_base(mconfig, WD1770, tag, owner, clock)
 {
 	step_times = wd_digital_step_times;
-	delay_register_commit = 32;
+	delay_register_commit = 16;
 	delay_command_commit = 36; // official 48 is too high for oric jasmin boot
 	disable_mfm = false;
 	has_enmf = false;
@@ -2978,7 +2978,7 @@ wd1772_device::wd1772_device(const machine_config &mconfig, const char *tag, dev
 	const static int wd1772_step_times[4] = { 12000, 24000, 4000, 6000 };
 
 	step_times = wd1772_step_times;
-	delay_register_commit = 32;
+	delay_register_commit = 16;
 	delay_command_commit = 48;
 	disable_mfm = false;
 	has_enmf = false;
@@ -3004,7 +3004,7 @@ int wd1772_device::settle_time() const
 wd1773_device::wd1773_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : wd_fdc_digital_device_base(mconfig, WD1773, tag, owner, clock)
 {
 	step_times = wd_digital_step_times;
-	delay_register_commit = 32;
+	delay_register_commit = 16;
 	delay_command_commit = 48;
 	disable_mfm = false;
 	has_enmf = false;
