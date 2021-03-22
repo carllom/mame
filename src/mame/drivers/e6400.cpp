@@ -1,17 +1,22 @@
-#include "machine/upd765.h"
-#include "formats/pc_dsk.h"
+#include "emu.h"
+
 #include "cpu/m68000/m68000.h"
-#include "video/t6963.h"
-//#include "video/tms3556.h"
-//#include "s330.lh"
-//#include "audio/sa16.h"
+
+// hardware
+#include "machine/upd765.h"
+
+// devices and buses
+#include "formats/pc_dsk.h"
+#include "imagedev/floppy.h"
+
+// display
+#include "video/t6963c.h"
+#include "emupal.h"
+
 //#include "bus/midi/midiinport.h"
 //#include "bus/midi/midioutport.h"
 
-//#include "formats/ql_dsk.h"
-
-#include "emu.h"
-
+#define XTAL_24MHz 24000000
 #define	XTAL_14_3496MHz 14349600
 #define XTAL_26_88MHz 26880000
 /*
@@ -39,35 +44,32 @@ public:
 	e6400_state(const machine_config &mconfig, device_type type, const char *tag)
 		: driver_device(mconfig, type, tag),
 		m_maincpu(*this, "maincpu"),
-		m_lcdc(*this, "t6963"),
+		m_lcd(*this, "lcd"),
 		m_fdc(*this, "fdc"),
 		m_csel(0)
 	{
 	}
+	void e6400(machine_config &config);
 
+private:
 	required_device<cpu_device> m_maincpu;
-	required_device<t6963_device> m_lcdc;
+	required_device<lm24014h_device> m_lcd;
 	optional_device<n82077aa_device> m_fdc;
 
+	int m_csel; // Chip select register
 
-	int m_csel;
+	void mem_map(address_map &map);
+	void lcd_map(address_map &map); // not sure yet what to do with this
 
-	DECLARE_DRIVER_INIT( e6400 );
-//	DECLARE_READ8_MEMBER(d800_read);
-//	DECLARE_WRITE8_MEMBER(d800_write);
-	DECLARE_WRITE16_MEMBER(chipsel_w);
-	DECLARE_READ8_MEMBER(t696x_r);
-	DECLARE_WRITE8_MEMBER(t696x_w);
+	void chipsel_w(offs_t offset, uint16_t data);
+	uint8_t t696x_r();
+	void t696x_w(offs_t offset, uint8_t data);
 
-	DECLARE_FLOPPY_FORMATS( floppy_formats );
+	// DECLARE_FLOPPY_FORMATS( floppy_formats );
 
-	virtual void machine_reset();
-	virtual void machine_start();
+	virtual void machine_reset() override;
+	virtual void machine_start() override;
 };
-
-DRIVER_INIT_MEMBER( e6400_state, e6400 )
-{
-}
 
 void e6400_state::machine_reset()
 {
@@ -78,120 +80,76 @@ void e6400_state::machine_start()
 {
 }
 
-/*** Floppy interface start ***/
-
-static SLOT_INTERFACE_START( e6400_floppies )
-	SLOT_INTERFACE( "35hd", FLOPPY_35_HD )
-SLOT_INTERFACE_END
-
-FLOPPY_FORMATS_MEMBER( e6400_state::floppy_formats )
-	FLOPPY_PC_FORMAT
-FLOPPY_FORMATS_END
-
-/*** Floppy interface end ***/
-
-WRITE16_MEMBER(e6400_state::chipsel_w)
+void e6400_state::chipsel_w(offs_t offset, uint16_t data)
 {
 	m_csel = data;
 }
 
-READ8_MEMBER(e6400_state::t696x_r)
+uint8_t e6400_state::t696x_r()
 {
 	if (m_csel & 0x100)
 	{
-		return m_lcdc->status_r(space, offset/2, mem_mask);
+		return m_lcd->read(1); // Status
 	}
 	else
 	{
-		return m_lcdc->data_r(space, offset, mem_mask);
-
+		return m_lcd->read(0); // Data
 	}
-	//logerror("%s: LCD Read\n", space.machine().describe_context());
-	//return 3;
-	return -1;
 }
 
-WRITE8_MEMBER(e6400_state::t696x_w)
+void e6400_state::t696x_w(offs_t offset, uint8_t data)
 {
 	if (m_csel & 0x100)
 	{
-		m_lcdc->control_w(space, offset, data, mem_mask);
+		m_lcd->write(1, data); // Command
 	}
 	else
 	{
-		m_lcdc->data_w(space, offset, data, mem_mask);
+		m_lcd->write(0, data); // Data
 	}
-	//logerror("%s: LCD Write %02x\n", space.machine().describe_context(), data);
 }
-//READ8_MEMBER( s330_state::d800_read )
-//{
-//	logerror("%s: $D800 read\n", space.machine().describe_context());
-//	return m_d800;
-//}
-//WRITE8_MEMBER( s330_state::d800_write )
-//{
-//	logerror("%s: $D800 write (data=%02x)\n", space.machine().describe_context(), data);
-//	m_d800 = data;
-//}
 
-static ADDRESS_MAP_START( e6400_map, AS_PROGRAM, 32, e6400_state )
+void e6400_state::mem_map(address_map &map) {
+// static ADDRESS_MAP_START( mem_map, AS_PROGRAM, 32, e6400_state )
 
-	AM_RANGE(0x000000, 0x0001FF) AM_ROM AM_REGION("eos_flash", 0x0)
-	AM_RANGE(0x000200, 0x0003FF) AM_RAM
-	AM_RANGE(0x010800, 0x0FF3FF) AM_ROM AM_REGION("eos_flash", 0x400)
+	map(0x000000, 0x0001FF).rom().region("eos_flash", 0);
+	map(0x000200, 0x0003FF).ram();
+	map(0x010800, 0x0FF3FF).rom().region("eos_flash", 0x400);
 
-//	AM_RANGE(0x400000, 0x5FFFFF) AM_UNMAP
-	AM_RANGE(0x400000, 0x400003) AM_WRITE16(chipsel_w, 0xffffffff)
+	map(0x400000, 0x400003).w(FUNC(e6400_state::chipsel_w));
 
-	AM_RANGE(0x560000, 0x560007) AM_DEVICE8("fdc", n82077aa_device, map, 0xffffffff)
-	AM_RANGE(0x580000, 0x580003) AM_READWRITE8(t696x_r, t696x_w, 0xffffffff)
+	map(0x560000, 0x560007).m(m_fdc, FUNC(n82077aa_device::map));
+	map(0x580000, 0x580003).rw(FUNC(e6400_state::t696x_r), FUNC(e6400_state::t696x_w));
 
 	// 0x5A0000 - isr
 
-//	AM_RANGE(0xC300, 0xC300) AM_DEVREADWRITE("hd44780", hd44780_device, control_read, control_write)
-//	AM_RANGE(0xC302, 0xC302) AM_DEVREADWRITE("hd44780", hd44780_device, data_read, data_write)
-
-	AM_RANGE(0xF00000, 0xFFFFFF) AM_RAM // 2x256k 16 bit DRAM
+	map(0xF00000, 0xFFFFFF).ram(); // 2x256k 16 bit DRAM
 //	AM_RANGE(0xF00400, 0xF063FF) AM_RAM // RAM copy of flash data portion
 //	AM_RANGE(0xFF0000, 0xFFBFFF) AM_RAM // Stack from FFC000 down
-	//
-	// I/O area
-	// The I/O controller maps odd addresses to SR-16 (Wave RAM interface)
-	// Even addresses are mapped to other chips/ports
-	//
-//	AM_RANGE(0xC200, 0xC200) AM_READWRITE(fdc_r, fdc_w)
+}
 
-//	AM_RANGE(0xC300, 0xC300) AM_DEVREADWRITE("hd44780", hd44780_device, control_read, control_write)
-//	AM_RANGE(0xC302, 0xC302) AM_DEVREADWRITE("hd44780", hd44780_device, data_read, data_write)
-	// Catch for odd/unmapped addresses
-//	AM_RANGE(0xC000, 0xFFFF) AM_READWRITE(m60013_r, m60013_w)
-ADDRESS_MAP_END
+void e6400_state::lcd_map(address_map &map) {
+	map(0x0000, 0x1fff).ram();
+}
 
-//static ADDRESS_MAP_START( cpu_io_map, AS_IO, 16, s330_state )
-//	AM_RANGE(i8x9x_device::A4, i8x9x_device::A4) AM_READ(ad_adj_r)
-//	AM_RANGE(i8x9x_device::A7, i8x9x_device::A7) AM_READ(ad_conv_r)
-//	AM_RANGE(i8x9x_device::SERIAL, i8x9x_device::SERIAL) AM_READWRITE(midi_r, midi_w)
-//ADDRESS_MAP_END
+static void e6400_floppies(device_slot_interface &device)
+{
+	device.option_add("35hd", FLOPPY_35_HD);
+}
 
-static MACHINE_CONFIG_START( e6400, e6400_state )
-	MCFG_CPU_ADD( "maincpu", M68EC020, XTAL_24MHz )
-	MCFG_CPU_PROGRAM_MAP( e6400_map )
-//	MCFG_CPU_IO_MAP( cpu_io_map )
+void e6400_state::e6400(machine_config &config)
+{
+	M68EC020(config, m_maincpu, XTAL_24MHz );
+	m_maincpu->set_addrmap(AS_PROGRAM, &e6400_state::mem_map);
 
-	MCFG_PALETTE_ADD_BLACK_AND_WHITE("lcd_pal")
-	MCFG_SCREEN_ADD("screen", LCD)
-	MCFG_SCREEN_REFRESH_RATE(10)
-	MCFG_SCREEN_UPDATE_DEVICE("t6963", t6963_device, screen_update)
-//	MCFG_SCREEN_SIZE(240, 64)
-//	MCFG_SCREEN_VISIBLE_AREA(0, 240-1, 0, 64-1)
-	MCFG_SCREEN_PALETTE("lcd_pal")
+	N82077AA(config, m_fdc, XTAL_24MHz, n82077aa_device::mode_t::AT);
+	// m_fdc->intrq_wr_callback().set(FUNC(next_state::fdc_irq));
+	// m_fdc->drq_wr_callback().set(FUNC(next_state::fdc_drq));
+	FLOPPY_CONNECTOR(config, "fdc:0", e6400_floppies, "35hd", floppy_image_device::default_pc_floppy_formats);
 
-	MCFG_N82077AA_ADD("fdc", n82077aa_device::MODE_AT)
-	MCFG_FLOPPY_DRIVE_ADD("fdc:0", e6400_floppies, "35hd", e6400_state::floppy_formats)
-
-	MCFG_T6963_ADD("t6963", "screen", 240, 64)
-
-MACHINE_CONFIG_END
+	LM24014H(config, m_lcd, 0);
+	m_lcd->set_fs(1); // font size 6x8
+}
 
 /*
  * Memory
@@ -206,6 +164,7 @@ ROM_START( e6400 )
 	ROM_LOAD( "eos30b.raw", 0x000000, 0x0EF000, CRC(69E5D16E) )
 //	ROM_REGION(0x20000, "bankram", ROMREGION_ERASE) // 128kbyte bank RAM
 //	ROM_REGION16_LE(0x100000, "waveram", ROMREGION_ERASE) // 512kword 12-bit wave RAM (768kbyte)
+	ROM_REGION(0x400, "lcdc:cgrom", ROMREGION_ERASE00) // chargen data
 ROM_END
 //    YEAR,NAME,PARENT,COMPAT,MACHINE,INPUT,     CLASS,INIT, COMPANY,FULLNAME,FLAGS)
-CONS( 1996,e6400,     0,     0,   e6400, 0,e6400_state,e6400,"E-mu", "e6400", MACHINE_NOT_WORKING|MACHINE_NO_SOUND)
+SYST( 1996,e6400,     0,     0,   e6400, 0,e6400_state, empty_init,"E-mu", "e6400", MACHINE_NOT_WORKING|MACHINE_NO_SOUND)
