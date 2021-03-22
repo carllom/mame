@@ -153,15 +153,15 @@ public:
 	uint8_t m_terminal_shift;
 	DECLARE_WRITE_LINE_MEMBER(terminal_serial_w);
 
-    virtual void machine_start();
-    virtual void machine_reset();
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr);
+  virtual void machine_start() override;
+  virtual void machine_reset() override;
+	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
-    //DECLARE_WRITE8_MEMBER(term_kbd_out);
+  //DECLARE_WRITE8_MEMBER(term_kbd_out);
    
 	uint8_t cpu_readx();
 	void cpu_writex(uint8_t data);
-    DECLARE_READ_LINE_MEMBER(cpu_irq);
+  DECLARE_READ_LINE_MEMBER(cpu_irq);
 	void kbd_put(uint8_t data);
 
 
