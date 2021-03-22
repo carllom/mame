@@ -380,14 +380,15 @@ const tiny_rom_entry *victor_9000_keyboard_device::device_rom_region() const
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(victor_9000_keyboard_device::device_add_mconfig)
-	MCFG_CPU_ADD(I8021_TAG, I8021, XTAL(3'579'545))
+void victor_9000_keyboard_device::device_add_mconfig(machine_config &config)
+{
+	I8021(config, m_maincpu, XTAL(3'579'545));
 	// P0 is unconnected on pcb
-	MCFG_MCS48_PORT_P1_IN_CB(READ8(victor_9000_keyboard_device, kb_p1_r))
-	MCFG_MCS48_PORT_P1_OUT_CB(WRITE8(victor_9000_keyboard_device, kb_p1_w))
-	MCFG_MCS48_PORT_P2_OUT_CB(WRITE8(victor_9000_keyboard_device, kb_p2_w))
-	MCFG_MCS48_PORT_T1_IN_CB(READLINE(victor_9000_keyboard_device, kb_t1_r))
-MACHINE_CONFIG_END
+	m_maincpu->p1_in_cb().set(FUNC(victor_9000_keyboard_device::kb_p1_r));
+	m_maincpu->p1_out_cb().set(FUNC(victor_9000_keyboard_device::kb_p1_w));
+	m_maincpu->p2_out_cb().set(FUNC(victor_9000_keyboard_device::kb_p2_w));
+	m_maincpu->t1_in_cb().set(FUNC(victor_9000_keyboard_device::kb_t1_r));
+}
 
 
 //-------------------------------------------------
@@ -459,7 +460,7 @@ INPUT_PORTS_START( victor9k_keyboard )
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("- _ ~") PORT_CODE(KEYCODE_MINUS) PORT_CHAR('-') PORT_CHAR('_') PORT_CHAR('~') // S24
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("= + \\") PORT_CODE(KEYCODE_EQUALS) PORT_CHAR('=') PORT_CHAR('+') PORT_CHAR('\\') // S25
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("\xc2\xbd \xc2\xbc") PORT_CODE(KEYCODE_OPENBRACE) // unicode half fraction U+00BD / quarter fraction U+00BC // S45
-	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("[ ]") PORT_CODE(KEYCODE_CLOSEBRACE) PORT_CHAR('[') PORT_CHAR(']') // S46
+	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("[ ]") PORT_CODE(KEYCODE_CLOSEBRACE) PORT_CHAR(']') PORT_CHAR('[') // S46
 	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("' \"") PORT_CODE(KEYCODE_QUOTE) PORT_CHAR('\'') PORT_CHAR('\"') // S66
 	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("UNUSED S67") // unused // S67
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_NAME("/ ?") PORT_CODE(KEYCODE_SLASH) PORT_CHAR('/') PORT_CHAR('?') // S87
@@ -597,7 +598,7 @@ WRITE_LINE_MEMBER( victor_9000_keyboard_device::kback_w )
 //  kb_p1_r -
 //-------------------------------------------------
 
-READ8_MEMBER( victor_9000_keyboard_device::kb_p1_r )
+uint8_t victor_9000_keyboard_device::kb_p1_r()
 {
 	uint8_t data = 0xff;
 
@@ -619,7 +620,7 @@ READ8_MEMBER( victor_9000_keyboard_device::kb_p1_r )
 //  kb_p1_w -
 //-------------------------------------------------
 
-WRITE8_MEMBER( victor_9000_keyboard_device::kb_p1_w )
+void victor_9000_keyboard_device::kb_p1_w(uint8_t data)
 {
 	m_p1 = data;
 }
@@ -629,7 +630,7 @@ WRITE8_MEMBER( victor_9000_keyboard_device::kb_p1_w )
 //  kb_p2_w -
 //-------------------------------------------------
 
-WRITE8_MEMBER( victor_9000_keyboard_device::kb_p2_w )
+void victor_9000_keyboard_device::kb_p2_w(uint8_t data)
 {
 	/*
 

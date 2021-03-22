@@ -17,7 +17,6 @@
 
  ***********************************************************************************************************/
 
-
 #include "emu.h"
 #include "gb_slot.h"
 
@@ -36,13 +35,13 @@ DEFINE_DEVICE_TYPE(MEGADUCK_CART_SLOT, megaduck_cart_slot_device, "megaduck_cart
 //  device_gb_cart_interface - constructor
 //-------------------------------------------------
 
-device_gb_cart_interface::device_gb_cart_interface(const machine_config &mconfig, device_t &device)
-	: device_slot_card_interface(mconfig, device),
-		m_rom(nullptr),
-		m_rom_size(0), m_ram_bank(0), m_latch_bank(0), m_latch_bank2(0),
-		has_rumble(false),
-		has_timer(false),
-		has_battery(false)
+device_gb_cart_interface::device_gb_cart_interface(const machine_config &mconfig, device_t &device) :
+	device_interface(device, "gbcart"),
+	m_rom(nullptr),
+	m_rom_size(0), m_ram_bank(0), m_latch_bank(0), m_latch_bank2(0),
+	has_rumble(false),
+	has_timer(false),
+	has_battery(false)
 {
 }
 
@@ -140,7 +139,7 @@ void device_gb_cart_interface::ram_map_setup(uint8_t banks)
 gb_cart_slot_device_base::gb_cart_slot_device_base(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, type, tag, owner, clock),
 	device_image_interface(mconfig, *this),
-	device_slot_interface(mconfig, *this),
+	device_single_card_slot_interface<device_gb_cart_interface>(mconfig, *this),
 	m_type(GB_MBC_UNKNOWN),
 	m_cart(nullptr)
 {
@@ -170,7 +169,7 @@ gb_cart_slot_device_base::~gb_cart_slot_device_base()
 
 void gb_cart_slot_device_base::device_start()
 {
-	m_cart = dynamic_cast<device_gb_cart_interface *>(get_card_device());
+	m_cart = get_card_device();
 }
 
 
@@ -222,7 +221,7 @@ static int gb_get_pcb_id(const char *slot)
 {
 	for (auto & elem : slot_list)
 	{
-		if (!core_stricmp(elem.slot_option, slot))
+		if (!strcmp(elem.slot_option, slot))
 			return elem.pcb_id;
 	}
 
@@ -314,13 +313,13 @@ image_init_result gb_cart_slot_device_base::call_load()
 
 			if (get_feature("rumble"))
 			{
-				if (!core_stricmp(get_feature("rumble"), "yes"))
+				if (!strcmp(get_feature("rumble"), "yes"))
 					m_cart->set_has_rumble(true);
 			}
 
 			if (get_feature("rtc"))
 			{
-				if (!core_stricmp(get_feature("rtc"), "yes"))
+				if (!strcmp(get_feature("rtc"), "yes"))
 					m_cart->set_has_timer(true);
 			}
 		}
@@ -477,7 +476,7 @@ bool gb_cart_slot_device_base::is_mbc1col_game(const uint8_t *ROM, uint32_t len)
 		"SUPERCHINESE 123"
 	};
 
-	const uint8_t rows = ARRAY_LENGTH(internal_names);
+	const uint8_t rows = std::size(internal_names);
 
 	for (uint8_t i = 0x00; i < rows; ++i) {
 		if (0 == memcmp(&ROM[0x134], &internal_names[i][0], name_length))
@@ -624,18 +623,18 @@ std::string megaduck_cart_slot_device::get_default_card_software(get_default_car
  read
  -------------------------------------------------*/
 
-READ8_MEMBER(gb_cart_slot_device_base::read_rom)
+uint8_t gb_cart_slot_device_base::read_rom(offs_t offset)
 {
 	if (m_cart)
-		return m_cart->read_rom(space, offset);
+		return m_cart->read_rom(offset);
 	else
 		return 0xff;
 }
 
-READ8_MEMBER(gb_cart_slot_device_base::read_ram)
+uint8_t gb_cart_slot_device_base::read_ram(offs_t offset)
 {
 	if (m_cart)
-		return m_cart->read_ram(space, offset);
+		return m_cart->read_ram(offset);
 	else
 		return 0xff;
 }
@@ -645,16 +644,16 @@ READ8_MEMBER(gb_cart_slot_device_base::read_ram)
  write
  -------------------------------------------------*/
 
-WRITE8_MEMBER(gb_cart_slot_device_base::write_bank)
+void gb_cart_slot_device_base::write_bank(offs_t offset, uint8_t data)
 {
 	if (m_cart)
-		m_cart->write_bank(space, offset, data);
+		m_cart->write_bank(offset, data);
 }
 
-WRITE8_MEMBER(gb_cart_slot_device_base::write_ram)
+void gb_cart_slot_device_base::write_ram(offs_t offset, uint8_t data)
 {
 	if (m_cart)
-		m_cart->write_ram(space, offset, data);
+		m_cart->write_ram(offset, data);
 }
 
 
@@ -804,10 +803,10 @@ void gb_cart_slot_device_base::internal_header_logging(uint8_t *ROM, uint32_t le
 	logerror("\tRAM Size:         %d kB [0x%02X]\n", ramsize[ROM[0x0149] & 0x07], ROM[0x0149]);
 	logerror("\tLicense code:     0x%02X%02X\n", ROM[0x0145], ROM[0x0144] );
 	tmp = (ROM[0x014b] << 8) + ROM[0x014a];
-	for (i = 0; i < ARRAY_LENGTH(companies); i++)
+	for (i = 0; i < std::size(companies); i++)
 		if (tmp == companies[i].code)
 			break;
-	logerror("\tManufacturer ID:  0x%02X [%s]\n", tmp, (i < ARRAY_LENGTH(companies)) ? companies[i].name : "?");
+	logerror("\tManufacturer ID:  0x%02X [%s]\n", tmp, (i < std::size(companies)) ? companies[i].name : "?");
 	logerror("\tVersion Number:   0x%02X\n", ROM[0x014c]);
 	logerror("\tComplement Check: 0x%02X\n", ROM[0x014d]);
 	logerror("\tChecksum:         0x%04X\n", ((ROM[0x014e] << 8) + ROM[0x014f]));

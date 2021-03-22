@@ -5,38 +5,54 @@
 
 #pragma once
 
-#include "machine/gen_latch.h"
 #include "machine/timer.h"
 #include "sound/k007232.h"
 #include "video/k051316.h"
+#include "emupal.h"
 #include "screen.h"
+#include "tilemap.h"
 
 class wecleman_state : public driver_device
 {
 public:
 	wecleman_state(const machine_config &mconfig, device_type type, const char *tag)
-		: driver_device(mconfig, type, tag),
-		m_videostatus(*this, "videostatus"),
-		m_protection_ram(*this, "protection_ram"),
-		m_blitter_regs(*this, "blitter_regs"),
-		m_pageram(*this, "pageram"),
-		m_txtram(*this, "txtram"),
-		m_spriteram(*this, "spriteram"),
-		m_roadram(*this, "roadram"),
-		m_generic_paletteram_16(*this, "paletteram"),
-		m_maincpu(*this, "maincpu"),
-		m_audiocpu(*this, "audiocpu"),
-		m_subcpu(*this, "sub"),
-		m_k051316_1(*this, "k051316_1"),
-		m_k051316_2(*this, "k051316_2"),
-		m_k007232(*this, "k007232"),
-		m_k007232_1(*this, "k007232_1"),
-		m_k007232_2(*this, "k007232_2"),
-		m_k007232_3(*this, "k007232_3"),
-		m_gfxdecode(*this, "gfxdecode"),
-		m_palette(*this, "palette"),
-		m_screen(*this, "screen"),
-		m_soundlatch(*this, "soundlatch") { }
+		: driver_device(mconfig, type, tag)
+		, m_videostatus(*this, "videostatus")
+		, m_protection_ram(*this, "protection_ram")
+		, m_blitter_regs(*this, "blitter_regs")
+		, m_pageram(*this, "pageram")
+		, m_txtram(*this, "txtram")
+		, m_spriteram(*this, "spriteram")
+		, m_roadram(*this, "roadram")
+		, m_generic_paletteram_16(*this, "paletteram")
+		, m_sprite_region(*this, "sprites")
+		, m_maincpu(*this, "maincpu")
+		, m_audiocpu(*this, "audiocpu")
+		, m_subcpu(*this, "sub")
+		, m_k051316(*this, "k051316_%u", 1)
+		, m_k007232(*this, "k007232_%u", 1)
+		, m_gfxdecode(*this, "gfxdecode")
+		, m_palette(*this, "palette")
+		, m_screen(*this, "screen")
+		, m_led(*this, "led%u", 0U)
+	{ }
+
+	void wecleman(machine_config &config);
+
+	void init_wecleman();
+
+	DECLARE_READ_LINE_MEMBER(hotchase_sound_status_r);
+
+protected:
+	virtual void machine_start() override;
+	virtual void machine_reset() override;
+	virtual void video_start() override;
+
+	enum
+	{
+		WECLEMAN_ID = 0,
+		HOTCHASE_ID
+	};
 
 	optional_shared_ptr<uint16_t> m_videostatus;
 	optional_shared_ptr<uint16_t> m_protection_ram;
@@ -46,6 +62,8 @@ public:
 	required_shared_ptr<uint16_t> m_spriteram;
 	required_shared_ptr<uint16_t> m_roadram;
 	required_shared_ptr<uint16_t> m_generic_paletteram_16;
+
+	required_region_ptr<uint8_t> m_sprite_region;
 
 	int m_multiply_reg[2];
 	int m_spr_color_offs;
@@ -72,80 +90,51 @@ public:
 	int m_sound_hw_type;
 	bool m_hotchase_sound_hs;
 	pen_t m_black_pen;
-	DECLARE_READ16_MEMBER(wecleman_protection_r);
-	DECLARE_WRITE16_MEMBER(wecleman_protection_w);
-	DECLARE_WRITE16_MEMBER(irqctrl_w);
-	DECLARE_WRITE16_MEMBER(selected_ip_w);
-	DECLARE_READ16_MEMBER(selected_ip_r);
-	DECLARE_WRITE16_MEMBER(blitter_w);
-	DECLARE_READ8_MEMBER(multiply_r);
-	DECLARE_WRITE8_MEMBER(multiply_w);
-	DECLARE_WRITE16_MEMBER(hotchase_soundlatch_w);
-	DECLARE_WRITE8_MEMBER(hotchase_sound_control_w);
-	DECLARE_WRITE16_MEMBER(wecleman_soundlatch_w);
-	DECLARE_WRITE16_MEMBER(wecleman_txtram_w);
-	DECLARE_WRITE16_MEMBER(wecleman_pageram_w);
-	DECLARE_WRITE16_MEMBER(wecleman_videostatus_w);
-	DECLARE_WRITE16_MEMBER(hotchase_paletteram16_SBGRBBBBGGGGRRRR_word_w);
-	DECLARE_WRITE16_MEMBER(wecleman_paletteram16_SSSSBBBBGGGGRRRR_word_w);
-	DECLARE_WRITE8_MEMBER(wecleman_K00723216_bank_w);
-	DECLARE_WRITE8_MEMBER(wecleman_volume_callback);
-	DECLARE_READ8_MEMBER(hotchase_1_k007232_r);
-	DECLARE_WRITE8_MEMBER(hotchase_1_k007232_w);
-	DECLARE_READ8_MEMBER(hotchase_2_k007232_r);
-	DECLARE_WRITE8_MEMBER(hotchase_2_k007232_w);
-	DECLARE_READ8_MEMBER(hotchase_3_k007232_r);
-	DECLARE_WRITE8_MEMBER(hotchase_3_k007232_w);
-	DECLARE_DRIVER_INIT(wecleman);
-	DECLARE_DRIVER_INIT(hotchase);
+
+	uint16_t wecleman_protection_r();
+	void wecleman_protection_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void irqctrl_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void selected_ip_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	uint8_t selected_ip_r();
+	void blitter_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	uint8_t multiply_r();
+	void multiply_w(offs_t offset, uint8_t data);
+
+	void wecleman_txtram_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void wecleman_pageram_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void wecleman_videostatus_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void wecleman_paletteram16_SSSSBBBBGGGGRRRR_word_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void wecleman_K00723216_bank_w(uint8_t data);
+	void wecleman_volume_callback(uint8_t data);
+
 	TILE_GET_INFO_MEMBER(wecleman_get_txt_tile_info);
 	TILE_GET_INFO_MEMBER(wecleman_get_bg_tile_info);
 	TILE_GET_INFO_MEMBER(wecleman_get_fg_tile_info);
-	DECLARE_MACHINE_RESET(wecleman);
-	DECLARE_VIDEO_START(wecleman);
-	DECLARE_MACHINE_RESET(hotchase);
-	DECLARE_VIDEO_START(hotchase);
+
 	uint32_t screen_update_wecleman(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
-	uint32_t screen_update_hotchase(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
-	INTERRUPT_GEN_MEMBER(hotchase_sound_timer);
 	TIMER_DEVICE_CALLBACK_MEMBER(wecleman_scanline);
-	TIMER_DEVICE_CALLBACK_MEMBER(hotchase_scanline);
 	void draw_cloud(bitmap_rgb32 &bitmap,gfx_element *gfx,uint16_t *tm_base,int x0,int y0,int xcount,int ycount,int scrollx,int scrolly,int tmw_l2,int tmh_l2,int alpha,int pal_offset);
 	void wecleman_unpack_sprites();
 	void bitswap(uint8_t *src,size_t len,int _14,int _13,int _12,int _11,int _10,int _f,int _e,int _d,int _c,int _b,int _a,int _9,int _8,int _7,int _6,int _5,int _4,int _3,int _2,int _1,int _0);
-	void hotchase_sprite_decode( int num16_banks, int bank_size );
 	void get_sprite_info();
 	void sortsprite(int *idx_array, int *key_array, int size);
 	void wecleman_draw_road(bitmap_rgb32 &bitmap, const rectangle &cliprect, int priority);
-	void hotchase_draw_road(bitmap_ind16 &bitmap, const rectangle &cliprect);
-	K051316_CB_MEMBER(hotchase_zoom_callback_1);
-	K051316_CB_MEMBER(hotchase_zoom_callback_2);
-	DECLARE_CUSTOM_INPUT_MEMBER(hotchase_sound_status_r);
-	DECLARE_WRITE8_MEMBER(hotchase_sound_hs_w);
 
 	required_device<cpu_device> m_maincpu;
 	required_device<cpu_device> m_audiocpu;
 	required_device<cpu_device> m_subcpu;
-	optional_device<k051316_device> m_k051316_1;
-	optional_device<k051316_device> m_k051316_2;
-	optional_device<k007232_device> m_k007232;
-	optional_device<k007232_device> m_k007232_1;
-	optional_device<k007232_device> m_k007232_2;
-	optional_device<k007232_device> m_k007232_3;
+	optional_device_array<k051316_device, 2> m_k051316;
+	optional_device_array<k007232_device, 3> m_k007232;
 	required_device<gfxdecode_device> m_gfxdecode;
 	required_device<palette_device> m_palette;
 	required_device<screen_device> m_screen;
-	required_device<generic_latch_8_device> m_soundlatch;
 
-	void hotchase(machine_config &config);
-	void wecleman(machine_config &config);
-	void hotchase_map(address_map &map);
-	void hotchase_sound_map(address_map &map);
-	void hotchase_sub_map(address_map &map);
+	output_finder<1> m_led;
+
 	void wecleman_map(address_map &map);
 	void wecleman_sound_map(address_map &map);
 	void wecleman_sub_map(address_map &map);
-private:
+
 	struct sprite_t
 	{
 		sprite_t() { }
@@ -163,11 +152,52 @@ private:
 		int shadow_mode = 0, flags = 0;
 	};
 
-	template<class _BitmapClass> void do_blit_zoom32(_BitmapClass &bitmap, const rectangle &cliprect, const sprite_t &sprite);
-	template<class _BitmapClass> void sprite_draw(_BitmapClass &bitmap, const rectangle &cliprect);
+	template<class BitmapClass> void do_blit_zoom32(BitmapClass &bitmap, const rectangle &cliprect, const sprite_t &sprite);
+	template<class BitmapClass> void sprite_draw(BitmapClass &bitmap, const rectangle &cliprect);
 
 	std::unique_ptr<sprite_t []> m_sprite_list;
 	sprite_t **m_spr_ptr_list;
+};
+
+class hotchase_state : public wecleman_state
+{
+public:
+	hotchase_state(const machine_config &mconfig, device_type type, const char* tag)
+		: wecleman_state(mconfig, type, tag)
+	{
+	}
+
+	void hotchase(machine_config &config);
+
+	void init_hotchase();
+
+protected:
+	virtual void machine_reset() override;
+	virtual void video_start() override;
+
+private:
+	uint32_t screen_update_hotchase(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+	void hotchase_draw_road(bitmap_ind16 &bitmap, const rectangle &cliprect);
+
+	void hotchase_paletteram16_SBGRBBBBGGGGRRRR_word_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+
+	K051316_CB_MEMBER(hotchase_zoom_callback_1);
+	K051316_CB_MEMBER(hotchase_zoom_callback_2);
+
+	TIMER_DEVICE_CALLBACK_MEMBER(hotchase_scanline);
+
+	void hotchase_sound_control_w(offs_t offset, uint8_t data);
+	void hotchase_sound_hs_w(uint8_t data);
+	template<int Chip> uint8_t hotchase_k007232_r(offs_t offset);
+	template<int Chip> void hotchase_k007232_w(offs_t offset, uint8_t data);
+
+	INTERRUPT_GEN_MEMBER(hotchase_sound_timer);
+
+	void hotchase_sprite_decode( int num16_banks, int bank_size );
+
+	void hotchase_map(address_map &map);
+	void hotchase_sound_map(address_map &map);
+	void hotchase_sub_map(address_map &map);
 };
 
 #endif // MAME_INCLUDES_WECLEMAN_H

@@ -2,7 +2,7 @@
 // copyright-holders:Aaron Giles, hap
 /***************************************************************************
 
-    plaparse.h
+    plaparse.cpp
 
     Simple parser for Berkeley standard PLA files into raw fusemaps.
     It supports no more than one output matrix, and is limited to
@@ -10,12 +10,12 @@
 
 ***************************************************************************/
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include "jedparse.h"
 #include "plaparse.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cctype>
 
 
 
@@ -212,11 +212,11 @@ static bool process_field(jed_data *data, const uint8_t **src, const uint8_t *sr
 
 	// find keyword
 	char dest[0x10];
-	memset(dest, 0, ARRAY_LENGTH(dest));
+	memset(dest, 0, sizeof(dest));
 	const uint8_t *seek = *src;
 	int destptr = 0;
 
-	while (seek < srcend && isalpha(*seek) && destptr < ARRAY_LENGTH(dest) - 1)
+	while (seek < srcend && isalpha(*seek) && destptr < sizeof(dest) - 1)
 	{
 		dest[destptr] = tolower(*seek);
 		seek++;
@@ -308,7 +308,7 @@ static bool process_field(jed_data *data, const uint8_t **src, const uint8_t *sr
 
 int pla_parse(const void *data, size_t length, jed_data *result)
 {
-	const uint8_t *src = (const uint8_t *)data;
+	const auto *src = (const uint8_t *)data;
 	const uint8_t *srcend = src + length;
 
 	parse_info pinfo;

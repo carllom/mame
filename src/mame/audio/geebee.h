@@ -15,14 +15,14 @@ public:
 		TIMER_VOLUME_DECAY
 	};
 
-	DECLARE_WRITE8_MEMBER( sound_w );
+	void sound_w(u8 data);
 
 protected:
 	// device-level overrides
 	virtual void device_start() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
@@ -38,6 +38,6 @@ private:
 	int m_vcount;
 };
 
-DECLARE_DEVICE_TYPE(GEEBEE, geebee_sound_device)
+DECLARE_DEVICE_TYPE(GEEBEE_SOUND, geebee_sound_device)
 
 #endif // MAME_AUDIO_GEEBEE_H

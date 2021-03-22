@@ -11,6 +11,8 @@
 #include "emu.h"
 #include "spu.h"
 #include "spureverb.h"
+#include "cpu/psx/psx.h"
+#include "corestr.h"
 
 //
 //
@@ -108,7 +110,7 @@ enum srrr_flags
 	srrr_rr_mask=0x1f
 };
 
-static const unsigned int /*sound_buffer_size=65536*4,*/
+static unsigned int const /*sound_buffer_size=65536*4,*/
 													xa_sector_size=(18*28*8)<<1,
 													xa_buffer_sectors=16,
 													cdda_sector_size=2352,
@@ -132,7 +134,7 @@ static const unsigned int /*sound_buffer_size=65536*4,*/
 //
 //
 
-static const int filter_coef[5][2]=
+static int const filter_coef[5][2]=
 {
 	{ 0,0 },
 	{ 60,0 },
@@ -160,7 +162,7 @@ static const int filter_coef[5][2]=
 		_name##"0-15",                    \
 		_name##"16-23"
 
-	static const char *spu_register_names[256]=
+	static char const *const spu_register_names[256]=
 	{
 		_voice_registers(0),
 		_voice_registers(1),
@@ -271,7 +273,8 @@ public:
 					invalid_end,
 					loopaddr,
 					last_update_end;
-	signed short *data,*loop,*dend;
+	std::unique_ptr<signed short []> data;
+	signed short *loop,*dend;
 	adpcm_decoder decoder, update_decoder;
 	mutable int ref_count;
 	bool valid,
@@ -300,8 +303,8 @@ public:
 		ref_count--;
 		if (ref_count==0)
 		{
-			cache_size-=(dend-data)<<1;
-			global_free(this);
+			cache_size-=(dend-data.get())<<1;
+			delete this;
 		}
 	}
 
@@ -443,7 +446,7 @@ struct spu_device::voiceinfo
 //
 //
 
-class stream_buffer
+class spu_stream_buffer
 {
 public:
 	struct stream_marker
@@ -465,7 +468,7 @@ public:
 	stream_marker *marker_head,
 								*marker_tail;
 
-	stream_buffer(const unsigned int _sector_size,
+	spu_stream_buffer(const unsigned int _sector_size,
 								const unsigned int _num_sectors)
 		:   head(0),
 			tail(0),
@@ -480,7 +483,7 @@ public:
 		memset(&buffer[0], 0, buffer_size);
 	}
 
-	~stream_buffer()
+	~spu_stream_buffer()
 	{
 		flush_all();
 	}
@@ -520,7 +523,7 @@ public:
 			head=xam->offset;
 			marker_tail=xam->prev;
 			if (marker_tail) marker_tail->next=nullptr;
-			global_free(xam);
+			delete xam;
 		}
 
 		// Set marker head to nullptr if the list is now empty
@@ -543,7 +546,7 @@ public:
 		{
 			stream_marker *m=marker_head;
 			marker_head=marker_head->next;
-			global_free(m);
+			delete m;
 		}
 
 		marker_head=marker_tail=nullptr;
@@ -565,7 +568,7 @@ public:
 
 			stream_marker *xam=marker_head;
 			marker_head=xam->next;
-			global_free(xam);
+			delete xam;
 			if (marker_head) marker_head->prev=nullptr;
 		}
 
@@ -605,12 +608,12 @@ static inline int clamp(const int v)
 
 spu_device::sample_cache::~sample_cache()
 {
-	global_free_array(data);
+	data.reset();
 	while (loop_cache)
 	{
 		sample_loop_cache *lc=loop_cache;
 		loop_cache=lc->next;
-		global_free(lc);
+		delete lc;
 	}
 }
 
@@ -622,7 +625,7 @@ signed short *spu_device::sample_cache::get_sample_pointer(const unsigned int ad
 {
 	if ((addr>=start) && (addr<end))
 	{
-		return data+(((addr-start)>>4)*28);
+		return &data[((addr-start)>>4)*28];
 	} else
 	{
 		return nullptr;
@@ -667,9 +670,9 @@ bool spu_device::sample_cache::get_loop_pointer(cache_pointer *cp)
 
 unsigned int spu_device::sample_cache::get_sample_address(const signed short *ptr) const
 {
-	if ((ptr>=data) && (ptr<=dend))
+	if ((ptr>=data.get()) && (ptr<=dend))
 	{
-		return start+(((ptr-data)/28)<<4);
+		return start+(((ptr-data.get())/28)<<4);
 	} else
 	{
 		return -1;
@@ -704,7 +707,7 @@ void spu_device::sample_cache::add_loop_cache(sample_loop_cache *lc)
 
 bool spu_device::sample_cache::is_valid_pointer(signed short *ptr) const
 {
-	if ((ptr>=data) && (data<=dend)) return true;
+	if ((ptr>=data.get()) && (data.get()<=dend)) return true;
 	for (sample_loop_cache *slc=loop_cache; slc; slc=slc->next)
 		if ((ptr>=slc->data) && (ptr<(slc->data+num_loop_cache_samples)))
 			return true;
@@ -719,7 +722,7 @@ bool spu_device::sample_cache::try_update(spu_device *spu)
 {
 	if ((invalid_start>=start) && (invalid_end<=end))
 	{
-		adpcm_packet *ap=(adpcm_packet *)(spu->spu_ram+start);
+		adpcm_packet *ap=(adpcm_packet *)&spu->spu_ram[start];
 		unsigned int a;
 		unsigned int loop=0;
 
@@ -755,8 +758,8 @@ bool spu_device::sample_cache::try_update(spu_device *spu)
 				printf("\n");
 			#endif
 
-			signed short *dp=data+(((invalid_start-start)>>4)*28);
-			ap=(adpcm_packet *)(spu->spu_ram+invalid_start);
+			signed short *dp=&data[((invalid_start-start)>>4)*28];
+			ap=(adpcm_packet *)&spu->spu_ram[invalid_start];
 			for (a=invalid_start; a<invalid_end; a+=16, ap++)
 				dp=update_decoder.decode_packet(ap,dp);
 
@@ -778,7 +781,7 @@ bool spu_device::sample_cache::try_update(spu_device *spu)
 					signed short *dpend=dp+lc->len;
 					unsigned int adr=lc->loopstart;
 					for (unsigned int i=0; ((i<num_loop_cache_packets) && (dp<dpend)); i++, adr+=16)
-						dp=tmp.decode_packet((adpcm_packet *)(spu->spu_ram+adr),dp);
+						dp=tmp.decode_packet((adpcm_packet *)&spu->spu_ram[adr],dp);
 				}
 			}
 
@@ -846,7 +849,7 @@ bool spu_device::cache_pointer::update(spu_device *spu)
 			// Cache is invalid, calculate play address offset from start of
 			// old cache block
 
-			unsigned int off=ptr-cache->data,
+			unsigned int off=ptr-cache->data.get(),
 										addr=cache->start;
 
 			// Release cache block and get updated one
@@ -855,7 +858,7 @@ bool spu_device::cache_pointer::update(spu_device *spu)
 
 			// Calculate play address in new cache block
 
-			ptr=cache->data+off;
+			ptr=&cache->data[off];
 
 			if (ptr>=cache->dend)
 			{
@@ -869,7 +872,7 @@ bool spu_device::cache_pointer::update(spu_device *spu)
 
 	// Return false if we do not have a cache block or the play address is invalid
 
-	if ((cache) && ((ptr>=cache->data) && (ptr<cache->dend)))
+	if ((cache) && ((ptr>=cache->data.get()) && (ptr<cache->dend)))
 	{
 		return true;
 	} else
@@ -934,6 +937,16 @@ static int shift_register15(int &shift)
 //  spu_device - constructor
 //-------------------------------------------------
 
+spu_device::spu_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, psxcpu_device *cpu)
+	: spu_device(mconfig, tag, owner, clock)
+{
+	cpu->spu_read().set(tag, FUNC(spu_device::read));
+	cpu->spu_write().set(tag, FUNC(spu_device::write));
+	cpu->subdevice<psxdma_device>("dma")->install_read_handler(4, psxdma_device::read_delegate(&spu_device::dma_read, this));
+	cpu->subdevice<psxdma_device>("dma")->install_write_handler(4, psxdma_device::write_delegate(&spu_device::dma_write, this));
+	irq_handler().set(*cpu->subdevice<psxirq_device>("irq"), FUNC(psxirq_device::intin9));
+}
+
 spu_device::spu_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, SPU, tag, owner, clock),
 	device_sound_interface(mconfig, *this),
@@ -956,15 +969,15 @@ void spu_device::device_start()
 	m_irq_handler.resolve_safe();
 
 	voice=new voiceinfo [24];
-	spu_ram=new unsigned char [spu_ram_size];
+	spu_ram=std::make_unique<unsigned char []>(spu_ram_size);
 
-	xa_buffer=new stream_buffer(xa_sector_size,xa_buffer_sectors);
-	cdda_buffer=new stream_buffer(cdda_sector_size,cdda_buffer_sectors);
+	xa_buffer=new spu_stream_buffer(xa_sector_size,xa_buffer_sectors);
+	cdda_buffer=new spu_stream_buffer(cdda_sector_size,cdda_buffer_sectors);
 
 	init_stream();
 
-	cache=new sample_cache *[spu_ram_size>>4];
-	memset(cache,0,(spu_ram_size>>4)*sizeof(sample_cache *));
+	cache=std::make_unique<sample_cache * []>(spu_ram_size>>4);
+	std::fill_n(cache.get(), spu_ram_size>>4, nullptr);
 
 	// register save state stuff
 	save_item(NAME(reg));           // this covers all spureg.* plus the reverb parameter block
@@ -1020,16 +1033,16 @@ void spu_device::device_reset()
 	cdda_playing=false;
 	m_cd_out_ptr = 0;
 
-	memset(spu_ram,0,spu_ram_size);
+	memset(spu_ram.get(),0,spu_ram_size);
 	memset(reg,0,0x200);
 	memset(voice,0,sizeof(voiceinfo)*24);
 
 	spureg.status|=(1<<7)|(1<<10);
 
-	memset(cache,0,(spu_ram_size>>4)*sizeof(sample_cache *));
+	std::fill_n(cache.get(), spu_ram_size>>4, nullptr);
 
 	for (auto & elem : output_buf)
-		elem=new unsigned char [output_buffer_size];
+		elem=std::make_unique<unsigned char []>(output_buffer_size);
 	output_head=output_tail=output_size=0;
 
 	noise_t=0;
@@ -1047,7 +1060,7 @@ void spu_device::device_post_load()
 	dirty_flags = -1;
 
 	// kill and reallocate reverb to avoid artifacts
-	global_free(rev);
+	delete rev;
 	rev = new reverb(44100);
 
 	// and do some update processing
@@ -1063,16 +1076,16 @@ void spu_device::device_post_load()
 void spu_device::device_stop()
 {
 	for (auto & elem : output_buf)
-		global_free_array(elem);
+		elem.reset();
 
 	kill_stream();
 
-	global_free_array(spu_ram);
+	spu_ram.reset();
 	invalidate_cache(0,spu_ram_size);
-	global_free_array(cache);
-	global_free(xa_buffer);
-	global_free(cdda_buffer);
-	global_free_array(voice);
+	cache.reset();
+	delete xa_buffer;
+	delete cdda_buffer;
+	delete [] voice;
 }
 //
 //
@@ -1082,7 +1095,7 @@ void spu_device::init_stream()
 {
 	const unsigned int hz=44100;
 
-	m_stream = machine().sound().stream_alloc(*this, 0, 2, hz);
+	m_stream = stream_alloc(0, 2, hz);
 
 	rev=new reverb(hz);
 
@@ -1096,7 +1109,7 @@ void spu_device::init_stream()
 
 void spu_device::kill_stream()
 {
-	global_free(rev);
+	delete rev;
 	rev=nullptr;
 }
 
@@ -1125,7 +1138,7 @@ void spu_device::kill_sound()
 //
 //
 
-READ16_MEMBER( spu_device::read )
+uint16_t spu_device::read(offs_t offset)
 {
 	unsigned short ret, *rp=(unsigned short *)(reg+((offset*2)&0x1ff));
 
@@ -1147,7 +1160,7 @@ READ16_MEMBER( spu_device::read )
 //
 //
 
-WRITE16_MEMBER( spu_device::write )
+void spu_device::write(offs_t offset, uint16_t data)
 {
 	#ifdef debug_spu_registers
 		printf("spu: write %08x = %04x [%s]\n",
@@ -1251,7 +1264,7 @@ void spu_device::write_data(const unsigned short data)
 
 	assert(taddr<spu_ram_size);
 	if (cache[taddr>>4]) flush_cache(cache[taddr>>4],taddr,taddr+2);
-	*((unsigned short *)(spu_ram+taddr))=data;
+	*((unsigned short *)&spu_ram[taddr])=data;
 	taddr+=2;
 }
 
@@ -1331,7 +1344,7 @@ spu_device::sample_cache *spu_device::get_sample_cache(const unsigned int addr)
 	sc->start=addr;
 	sc->loop=nullptr;
 
-	adpcm_packet *ap=(adpcm_packet *)(spu_ram+sc->start);
+	adpcm_packet *ap=(adpcm_packet *)&spu_ram[sc->start];
 	unsigned int a;
 	for (a=addr; a<(512*1024); a+=16, ap++)
 	{
@@ -1347,13 +1360,13 @@ spu_device::sample_cache *spu_device::get_sample_cache(const unsigned int addr)
 	sc->end=(std::min)(spu_ram_size,a+16);
 
 	unsigned int sz=((sc->end-sc->start)>>4)*28;
-	sc->data=new signed short [sz];
+	sc->data=std::make_unique<signed short []>(sz);
 	sample_cache::cache_size+=sz<<1;
 	sc->loopaddr=loop;
-	if (loop) sc->loop=sc->data+(((loop-sc->start)>>4)*28);
+	if (loop) sc->loop=&sc->data[((loop-sc->start)>>4)*28];
 
-	signed short *dp=sc->data;
-	ap=(adpcm_packet *)(spu_ram+sc->start);
+	signed short *dp=sc->data.get();
+	ap=(adpcm_packet *)&spu_ram[sc->start];
 
 	for (a=sc->start; a<sc->end; a+=16, ap++)
 		dp=sc->decoder.decode_packet(ap,dp);
@@ -1378,7 +1391,7 @@ bool spu_device::translate_sample_addr(const unsigned int addr, cache_pointer *c
 	cp->reset();
 	if ((cp->cache=get_sample_cache(addr)))
 	{
-		cp->ptr=cp->cache->data+(((addr-cp->cache->start)>>4)*28);
+		cp->ptr=&cp->cache->data[((addr-cp->cache->start)>>4)*28];
 		cp->cache->add_ref();
 		return true;
 	}
@@ -1519,7 +1532,7 @@ spu_device::sample_loop_cache *spu_device::get_loop_cache(sample_cache *cache, c
 		signed short *dp=lc->data;
 		for (unsigned int i=0; ((i<num_loop_cache_packets) &&
 														(adr<lpcache->end)); i++, adr+=16)
-			dp=tmp.decode_packet((adpcm_packet *)(spu_ram+adr),dp);
+			dp=tmp.decode_packet((adpcm_packet *)&spu_ram[adr],dp);
 
 		#ifdef log_loop_cache
 			log(log_spu,"spu: add loop cache %08x %08x->%08x (end at %08x)\n",lc,lpen,lpst,adr);
@@ -1561,7 +1574,7 @@ void spu_device::update_voice_loop(const unsigned int v)
 	{
 		ra=spureg.voice[v].repaddr<<3;
 		ra=(ra+0xf)&~0xf;
-		const adpcm_packet *ap=ra?(adpcm_packet *)(spu_ram+ra):nullptr;
+		const adpcm_packet *ap=ra?(adpcm_packet *)&spu_ram[ra]:nullptr;
 
 		if (ap)
 		{
@@ -2382,8 +2395,8 @@ void spu_device::generate_xa(void *ptr, const unsigned int sz)
 			// Write to SPU XA buffer (for emulation purposes - some games read this
 			// back to do analysers, etc...)
 
-			*(signed short *)(spu_ram+xa_out_ptr)=vl;
-			*(signed short *)(spu_ram+xa_out_ptr+0x800)=vr;
+			*(signed short *)&spu_ram[xa_out_ptr]=vl;
+			*(signed short *)&spu_ram[xa_out_ptr+0x800]=vr;
 			xa_out_ptr=(xa_out_ptr+2)&0x7ff;
 
 			// Mix samples into output buffer
@@ -2419,7 +2432,7 @@ void spu_device::generate_xa(void *ptr, const unsigned int sz)
 	{
 		xa_playing=false;
 
-		memset(spu_ram,0,0x1000);
+		memset(spu_ram.get(),0,0x1000);
 		xa_out_ptr=0;
 	}
 }
@@ -2454,8 +2467,8 @@ void spu_device::generate_cdda(void *ptr, const unsigned int sz)
 			int16_t vr = ((sp[1]*volr)>>15);
 
 			// if the volume adjusted samples are stored here, vibribbon does nothing
-			*(signed short *)(spu_ram+m_cd_out_ptr)=sp[0];
-			*(signed short *)(spu_ram+m_cd_out_ptr+0x400)=sp[1];
+			*(signed short *)&spu_ram[m_cd_out_ptr]=sp[0];
+			*(signed short *)&spu_ram[m_cd_out_ptr+0x400]=sp[1];
 			m_cd_out_ptr=(m_cd_out_ptr+2)&0x3ff;
 
 			//if((m_cd_out_ptr == ((spureg.irq_addr << 3) & ~0x400)) && (spureg.ctrl & spuctrl_irq_enable))
@@ -2564,10 +2577,10 @@ void spu_device::generate(void *ptr, const unsigned int sz)
 	while ((left) && (output_size))
 	{
 		unsigned int n=(std::min)((std::min)(left,output_buffer_size-output_head),output_size);
-		memcpy(dp,output_buf[0]+output_head,n);
+		memcpy(dp,&output_buf[0][output_head],n);
 
 		rev->process((signed short *)dp,
-									(signed short *)(output_buf[1]+output_head),
+									(signed short *)&output_buf[1][output_head],
 									spu_reverb_cfg,
 									(signed short)spureg.rvol_l,
 									(signed short)spureg.rvol_r,
@@ -2672,10 +2685,10 @@ void spu_device::process_until(const unsigned int tsample)
 		process_samples=(std::min)(process_samples,
 												(output_buffer_size-output_tail)>>2);
 
-		unsigned char *outptr=output_buf[0]+output_tail,
-									*reverbptr=output_buf[1]+output_tail,
-									*fmptr=output_buf[2]+output_tail,
-									*noiseptr=output_buf[3]+output_tail;
+		unsigned char *outptr=&output_buf[0][output_tail],
+									*reverbptr=&output_buf[1][output_tail],
+									*fmptr=&output_buf[2][output_tail],
+									*noiseptr=&output_buf[3][output_tail];
 
 		output_tail+=process_samples<<2;
 		output_tail&=(output_buffer_size-1);
@@ -2750,21 +2763,20 @@ void spu_device::update_timing()
 //
 //
 
-void spu_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void spu_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
-	stream_sample_t *outL, *outR;
 	int16_t temp[44100], *src;
 
-	outL = outputs[0];
-	outR = outputs[1];
+	auto &outL = outputs[0];
+	auto &outR = outputs[1];
 
-	generate(temp, samples*4);  // second parameter is bytes, * 2 (size of int16_t) * 2 (stereo)
+	generate(temp, outputs[0].samples()*4);  // second parameter is bytes, * 2 (size of int16_t) * 2 (stereo)
 
 	src = &temp[0];
-	for (int i = 0; i < samples; i++)
+	for (int i = 0; i < outputs[0].samples(); i++)
 	{
-		*outL++ = *src++;
-		*outR++ = *src++;
+		outL.put_int(i, *src++, 32768);
+		outR.put_int(i, *src++, 32768);
 	}
 }
 
@@ -2786,13 +2798,13 @@ void spu_device::start_dma(uint8_t *mainram, bool to_spu, uint32_t size)
 	{
 		invalidate_cache(st,en);
 
-		memcpy(spu_ram+(spureg.trans_addr<<3), mainram, size);
+		memcpy(&spu_ram[spureg.trans_addr<<3], mainram, size);
 
 		dirty_flags|=dirtyflag_ram;
 	}
 	else
 	{
-		memcpy(mainram, spu_ram+(spureg.trans_addr<<3), size);
+		memcpy(mainram, &spu_ram[spureg.trans_addr<<3], size);
 	}
 }
 

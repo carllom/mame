@@ -17,7 +17,7 @@
  *
  *************************************/
 
-WRITE8_MEMBER(capbowl_state::tms34061_w)
+void capbowl_state::tms34061_w(offs_t offset, uint8_t data)
 {
 	int func = (offset >> 8) & 3;
 	int col = offset & 0xff;
@@ -28,11 +28,11 @@ WRITE8_MEMBER(capbowl_state::tms34061_w)
 		col ^= 2;
 
 	/* Row address (RA0-RA8) is not dependent on the offset */
-	m_tms34061->write(space, col, *m_rowaddress, func, data);
+	m_tms34061->write(col, *m_rowaddress, func, data);
 }
 
 
-READ8_MEMBER(capbowl_state::tms34061_r)
+uint8_t capbowl_state::tms34061_r(offs_t offset)
 {
 	int func = (offset >> 8) & 3;
 	int col = offset & 0xff;
@@ -43,7 +43,7 @@ READ8_MEMBER(capbowl_state::tms34061_r)
 		col ^= 2;
 
 	/* Row address (RA0-RA8) is not dependent on the offset */
-	return m_tms34061->read(space, col, *m_rowaddress, func);
+	return m_tms34061->read(col, *m_rowaddress, func);
 }
 
 
@@ -54,7 +54,7 @@ READ8_MEMBER(capbowl_state::tms34061_r)
  *
  *************************************/
 
-WRITE8_MEMBER(capbowl_state::bowlrama_blitter_w)
+void capbowl_state::bowlrama_blitter_w(offs_t offset, uint8_t data)
 {
 	switch (offset)
 	{
@@ -77,7 +77,7 @@ WRITE8_MEMBER(capbowl_state::bowlrama_blitter_w)
 }
 
 
-READ8_MEMBER(capbowl_state::bowlrama_blitter_r)
+uint8_t capbowl_state::bowlrama_blitter_r(offs_t offset)
 {
 	uint8_t data = memregion("gfx1")->base()[m_blitter_addr];
 	uint8_t result = 0;
@@ -140,8 +140,8 @@ uint32_t capbowl_state::screen_update(screen_device &screen, bitmap_rgb32 &bitma
 	/* now regenerate the bitmap */
 	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
 	{
-		uint8_t const *src = &m_tms34061->vram(y);
-		uint32_t *dest = &bitmap.pix32(y);
+		uint8_t const *const src = &m_tms34061->vram(y);
+		uint32_t *dest = &bitmap.pix(y);
 
 		for (int x = cliprect.min_x & ~1; x <= cliprect.max_x; x += 2)
 		{

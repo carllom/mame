@@ -36,10 +36,10 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 
 	// device_wangpcbus_card_interface overrides
-	virtual uint16_t wangpcbus_mrdc_r(address_space &space, offs_t offset, uint16_t mem_mask) override;
-	virtual void wangpcbus_amwc_w(address_space &space, offs_t offset, uint16_t mem_mask, uint16_t data) override;
-	virtual uint16_t wangpcbus_iorc_r(address_space &space, offs_t offset, uint16_t mem_mask) override;
-	virtual void wangpcbus_aiowc_w(address_space &space, offs_t offset, uint16_t mem_mask, uint16_t data) override;
+	virtual uint16_t wangpcbus_mrdc_r(offs_t offset, uint16_t mem_mask) override;
+	virtual void wangpcbus_amwc_w(offs_t offset, uint16_t mem_mask, uint16_t data) override;
+	virtual uint16_t wangpcbus_iorc_r(offs_t offset, uint16_t mem_mask) override;
+	virtual void wangpcbus_aiowc_w(offs_t offset, uint16_t mem_mask, uint16_t data) override;
 
 private:
 	MC6845_UPDATE_ROW( crtc_update_row );
@@ -48,9 +48,9 @@ private:
 	inline void set_irq(int state);
 
 	required_device<mc6845_device> m_crtc;
-	optional_shared_ptr<uint16_t> m_video_ram;
-	optional_shared_ptr<uint16_t> m_char_ram;
-	optional_shared_ptr<uint16_t> m_bitmap_ram;
+	memory_share_creator<uint16_t> m_video_ram;
+	memory_share_creator<uint16_t> m_char_ram;
+	memory_share_creator<uint16_t> m_bitmap_ram;
 
 	uint8_t m_option;
 	int m_irq;

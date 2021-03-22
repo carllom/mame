@@ -10,10 +10,10 @@
 
 ***************************************************************************/
 
-#pragma once
+#ifndef MAME_UTIL_HASH_H
+#define MAME_UTIL_HASH_H
 
-#ifndef __HASH_H__
-#define __HASH_H__
+#pragma once
 
 #include "hashing.h"
 
@@ -46,9 +46,9 @@ public:
 	static constexpr char HASH_SHA1 = 'S';
 
 	// common combinations for requests
-	static const char *HASH_TYPES_CRC;
-	static const char *HASH_TYPES_CRC_SHA1;
-	static const char *HASH_TYPES_ALL;
+	static char const *const HASH_TYPES_CRC;
+	static char const *const HASH_TYPES_CRC_SHA1;
+	static char const *const HASH_TYPES_ALL;
 
 	// flags are identified by punctuation marks
 	static constexpr char FLAG_NO_DUMP = '!';
@@ -56,7 +56,7 @@ public:
 
 	// construction/destruction
 	hash_collection();
-	hash_collection(const char *string);
+	hash_collection(std::string_view string);
 	hash_collection(const hash_collection &src);
 	~hash_collection();
 
@@ -71,7 +71,7 @@ public:
 
 	// hash manipulators
 	void reset();
-	bool add_from_string(char type, const char *buffer, int length = -1);
+	bool add_from_string(char type, std::string_view string);
 	bool remove(char type);
 
 	// CRC-specific helpers
@@ -86,7 +86,7 @@ public:
 	std::string internal_string() const;
 	std::string macro_string() const;
 	std::string attribute_string() const;
-	bool from_internal_string(const char *string);
+	bool from_internal_string(std::string_view string);
 
 	// creation
 	void begin(const char *types = nullptr);
@@ -119,4 +119,4 @@ private:
 
 } // namespace util
 
-#endif  /* __HASH_H__ */
+#endif // MAME_UTIL_HASH_H

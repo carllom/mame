@@ -10,10 +10,6 @@
 #define MAME_SOUND_UPD1771_H
 
 
-#define MCFG_UPD1771_ACK_HANDLER(_devcb) \
-	devcb = &upd1771c_device::set_ack_handler(*device, DEVCB_##_devcb);
-
-
 /***************************************************************************
     MACROS / CONSTANTS
 ***************************************************************************/
@@ -24,11 +20,11 @@ class upd1771c_device : public device_t,
 public:
 	upd1771c_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
-	template <class Object> static devcb_base &set_ack_handler(device_t &device, Object &&cb) { return downcast<upd1771c_device &>(device).m_ack_handler.set_callback(std::forward<Object>(cb)); }
+	auto ack_handler() { return m_ack_handler.bind(); }
 
-	DECLARE_READ8_MEMBER( read );
-	DECLARE_WRITE8_MEMBER( write );
-	WRITE_LINE_MEMBER( pcm_write );
+	uint8_t read();
+	void write(uint8_t data);
+	void pcm_write(int state);
 
 protected:
 	// device-level overrides
@@ -36,7 +32,7 @@ protected:
 	virtual void device_reset() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	static constexpr unsigned MAX_PACKET_SIZE = 0x8000;

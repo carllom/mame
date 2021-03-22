@@ -2,7 +2,7 @@
 // copyright-holders:Aaron Giles
 /*********************************************************************
 
-    dvstate.c
+    dvstate.cpp
 
     State debugger view.
 
@@ -16,13 +16,6 @@
 #include "screen.h"
 
 
-const int debug_view_state::REG_DIVIDER;
-const int debug_view_state::REG_CYCLES;
-const int debug_view_state::REG_BEAMX;
-const int debug_view_state::REG_BEAMY;
-const int debug_view_state::REG_FRAME;
-
-
 //**************************************************************************
 //  DEBUG VIEW STATE SOURCE
 //**************************************************************************
@@ -31,8 +24,8 @@ const int debug_view_state::REG_FRAME;
 //  debug_view_state_source - constructor
 //-------------------------------------------------
 
-debug_view_state_source::debug_view_state_source(const char *name, device_t &device)
-	: debug_view_source(name, &device)
+debug_view_state_source::debug_view_state_source(std::string &&name, device_t &device)
+	: debug_view_source(std::move(name), &device)
 	, m_stateintf(dynamic_cast<device_state_interface *>(&device))
 	, m_execintf(dynamic_cast<device_execute_interface *>(&device))
 {
@@ -55,7 +48,7 @@ debug_view_state::debug_view_state(running_machine &machine, debug_view_osd_upda
 {
 	// fail if no available sources
 	enumerate_sources();
-	if (m_source_list.count() == 0)
+	if (m_source_list.empty())
 		throw std::bad_alloc();
 }
 
@@ -78,18 +71,20 @@ debug_view_state::~debug_view_state()
 void debug_view_state::enumerate_sources()
 {
 	// start with an empty list
-	m_source_list.reset();
+	m_source_list.clear();
 
 	// iterate over devices that have state interfaces
-	std::string name;
-	for (device_state_interface &state : state_interface_iterator(machine().root_device()))
+	for (device_state_interface &state : state_interface_enumerator(machine().root_device()))
 	{
-		name = string_format("%s '%s'", state.device().name(), state.device().tag());
-		m_source_list.append(*global_alloc(debug_view_state_source(name.c_str(), state.device())));
+		m_source_list.emplace_back(
+				std::make_unique<debug_view_state_source>(
+					util::string_format("%s '%s'", state.device().name(), state.device().tag()),
+					state.device()));
 	}
 
 	// reset the source to a known good entry
-	set_source(*m_source_list.first());
+	if (!m_source_list.empty())
+		set_source(*m_source_list[0]);
 }
 
 
@@ -119,17 +114,35 @@ void debug_view_state::recompute()
 	// add a cycles entry: cycles:99999999
 	m_state_list.emplace_back(REG_CYCLES, "cycles", 8);
 
-	// add a beam entry: beamx:1234
-	m_state_list.emplace_back(REG_BEAMX, "beamx", 4);
+	screen_device_enumerator screen_iterator(machine().root_device());
+	screen_device_enumerator::iterator iter = screen_iterator.begin();
+	const int screen_count = screen_iterator.count();
 
-	// add a beam entry: beamy:5678
-	m_state_list.emplace_back(REG_BEAMY, "beamy", 4);
+	if (screen_count == 1)
+	{
+		// add a beam entry: beamx:1234
+		m_state_list.emplace_back(REG_BEAMX, "beamx", 4);
 
-	// add a beam entry: frame:123456
-	m_state_list.emplace_back(REG_FRAME, "frame", 6);
+		// add a beam entry: beamy:5678
+		m_state_list.emplace_back(REG_BEAMY, "beamy", 4);
+
+		// add a beam entry: frame:123456
+		m_state_list.emplace_back(REG_FRAME, "frame", 6);
+	}
+	else if (screen_count > 1)
+	{
+		for (int i = 0; (i < screen_count) && (i < 8); i++, iter++)
+		{
+			m_state_list.emplace_back(REG_BEAMX_S0 - i, string_format("beamx%d", i).c_str(), 4);
+			m_state_list.emplace_back(REG_BEAMY_S0 - i, string_format("beamy%d", i).c_str(), 4);
+			m_state_list.emplace_back(REG_FRAME_S0 - i, string_format("frame%d", i).c_str(), 6);
+		}
+	}
 
 	// add a flags entry: flags:xxxxxxxx
-	m_state_list.emplace_back(STATE_GENFLAGS, "flags", source.m_stateintf->state_string_max_length(STATE_GENFLAGS));
+	const device_state_entry *flags = source.m_stateintf->state_find_entry(STATE_GENFLAGS);
+	if (flags != nullptr)
+		m_state_list.emplace_back(STATE_GENFLAGS, "flags", flags->max_length());
 
 	// add a divider entry
 	m_state_list.emplace_back(REG_DIVIDER, "", 0);
@@ -140,7 +153,7 @@ void debug_view_state::recompute()
 		if (entry->divider())
 			m_state_list.emplace_back(REG_DIVIDER, "", 0);
 		else if (entry->visible())
-			m_state_list.emplace_back(entry->index(), entry->symbol(), source.m_stateintf->state_string_max_length(entry->index()));
+			m_state_list.emplace_back(entry->index(), entry->symbol(), entry->max_length());
 	}
 
 	// count the entries and determine the maximum tag and value sizes
@@ -196,7 +209,6 @@ void debug_view_state::view_update()
 
 	// loop over rows
 	auto it(m_state_list.begin());
-	screen_device const *const screen(machine().first_screen());
 	debug_view_char *dest(&m_viewdata[0]);
 	for (s32 index = 0, limit = m_topleft.y + m_visible.y; (index < limit) || (it != m_state_list.end()); ++index)
 	{
@@ -222,24 +234,30 @@ void debug_view_state::view_update()
 				valstr = string_format("%-8d", curitem.value());
 				break;
 
-			case REG_BEAMX:
-				curitem.update(screen ? screen->hpos() : 0, cycles_changed);
+			case REG_BEAMX_S0: case REG_BEAMX_S1: case REG_BEAMX_S2: case REG_BEAMX_S3:
+			case REG_BEAMX_S4: case REG_BEAMX_S5: case REG_BEAMX_S6: case REG_BEAMX_S7:
+				curitem.update(screen_device_enumerator(machine().root_device()).byindex(-(curitem.index() - REG_BEAMX_S0))->hpos(), cycles_changed);
 				valstr = string_format("%4d", curitem.value());
 				break;
 
-			case REG_BEAMY:
-				curitem.update(screen ? screen->vpos() : 0, cycles_changed);
+			case REG_BEAMY_S0: case REG_BEAMY_S1: case REG_BEAMY_S2: case REG_BEAMY_S3:
+			case REG_BEAMY_S4: case REG_BEAMY_S5: case REG_BEAMY_S6: case REG_BEAMY_S7:
+				curitem.update(screen_device_enumerator(machine().root_device()).byindex(-(curitem.index() - REG_BEAMY_S0))->vpos(), cycles_changed);
 				valstr = string_format("%4d", curitem.value());
 				break;
 
-			case REG_FRAME:
-				curitem.update(screen ? screen->frame_number() : 0, cycles_changed);
+			case REG_FRAME_S0: case REG_FRAME_S1: case REG_FRAME_S2: case REG_FRAME_S3:
+			case REG_FRAME_S4: case REG_FRAME_S5: case REG_FRAME_S6: case REG_FRAME_S7:
+				curitem.update(screen_device_enumerator(machine().root_device()).byindex(-(curitem.index() - REG_FRAME_S0))->frame_number(), cycles_changed);
 				valstr = string_format("%-6d", curitem.value());
 				break;
 
 			default:
 				curitem.update(source.m_stateintf->state_int(curitem.index()), cycles_changed);
 				valstr = source.m_stateintf->state_string(curitem.index());
+				// state_string may not always provide the maximum number of characters with some formats
+				valstr.resize(curitem.value_length(), ' ');
+				break;
 			}
 
 			// if this row is visible, add it to the buffer

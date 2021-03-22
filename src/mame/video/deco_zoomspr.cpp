@@ -93,47 +93,46 @@ inline void deco_zoomspr_device::dragngun_drawgfxzoom(
 					y_index = 0;
 				}
 
-				if( sx < clip.min_x)
+				if( sx < clip.left())
 				{ /* clip left */
-					int pixels = clip.min_x-sx;
+					int pixels = clip.left()-sx;
 					sx += pixels;
 					x_index_base += pixels*dx;
 				}
-				if( sy < clip.min_y )
+				if( sy < clip.top() )
 				{ /* clip top */
-					int pixels = clip.min_y-sy;
+					int pixels = clip.top()-sy;
 					sy += pixels;
 					y_index += pixels*dy;
 				}
 				/* NS 980211 - fixed incorrect clipping */
-				if( ex > clip.max_x+1 )
+				if( ex > clip.right()+1 )
 				{ /* clip right */
-					int pixels = ex-clip.max_x-1;
+					int pixels = ex-clip.right()-1;
 					ex -= pixels;
 				}
-				if( ey > clip.max_y+1 )
+				if( ey > clip.bottom()+1 )
 				{ /* clip bottom */
-					int pixels = ey-clip.max_y-1;
+					int pixels = ey-clip.bottom()-1;
 					ey -= pixels;
 				}
 
 				if( ex>sx )
 				{ /* skip if inner loop doesn't draw anything */
-					int y;
 
 					/* case 1: no alpha */
 					if (alpha == 0xff)
 					{
 						{
-							for( y=sy; y<ey; y++ )
+							for( int y=sy; y<ey; y++ )
 							{
-								const uint8_t *source = code_base + (y_index>>16) * gfx->rowbytes();
-								uint32_t *dest = &temp_bitmap.pix32(y);
-								uint8_t *pri = &pri_bitmap.pix8(y);
+								uint8_t const *const source = code_base + (y_index>>16) * gfx->rowbytes();
+								uint32_t *const dest = &temp_bitmap.pix(y);
+								uint8_t *const pri = &pri_bitmap.pix(y);
 
 
-								int x, x_index = x_index_base;
-								for( x=sx; x<ex; x++ )
+								int x_index = x_index_base;
+								for( int x=sx; x<ex; x++ )
 								{
 									int c = source[x_index>>16];
 									if (c != transparent_color)
@@ -161,16 +160,16 @@ inline void deco_zoomspr_device::dragngun_drawgfxzoom(
 					else
 					{
 						{
-							for( y=sy; y<ey; y++ )
+							for( int y=sy; y<ey; y++ )
 							{
-								const uint8_t *source = code_base + (y_index>>16) * gfx->rowbytes();
-								uint32_t *dest = &temp_bitmap.pix32(y);
-								uint8_t *pri = &pri_bitmap.pix8(y);
-								uint32_t *tmapcolor = &dest_bmp.pix32(y);
+								uint8_t const *const source = code_base + (y_index>>16) * gfx->rowbytes();
+								uint32_t *const dest = &temp_bitmap.pix(y);
+								uint8_t *const pri = &pri_bitmap.pix(y);
+								uint32_t *const tmapcolor = &dest_bmp.pix(y);
 
 
-								int x, x_index = x_index_base;
-								for( x=sx; x<ex; x++ )
+								int x_index = x_index_base;
+								for( int x=sx; x<ex; x++ )
 								{
 									int c = source[x_index>>16];
 									if (c != transparent_color)
@@ -206,7 +205,7 @@ inline void deco_zoomspr_device::dragngun_drawgfxzoom(
 	}
 }
 
-void deco_zoomspr_device::dragngun_draw_sprites( bitmap_rgb32 &bitmap, const rectangle &cliprect, const uint32_t *spritedata, uint32_t* dragngun_sprite_layout_0_ram, uint32_t* dragngun_sprite_layout_1_ram, uint32_t* dragngun_sprite_lookup_0_ram, uint32_t* dragngun_sprite_lookup_1_ram, uint32_t dragngun_sprite_ctrl,  bitmap_ind8 &pri_bitmap, bitmap_rgb32 &temp_bitmap)
+void deco_zoomspr_device::dragngun_draw_sprites(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect, const uint32_t *spritedata, uint32_t* dragngun_sprite_layout_0_ram, uint32_t* dragngun_sprite_layout_1_ram, uint32_t* dragngun_sprite_lookup_0_ram, uint32_t* dragngun_sprite_lookup_1_ram, uint32_t dragngun_sprite_ctrl,  bitmap_ind8 &pri_bitmap, bitmap_rgb32 &temp_bitmap)
 {
 	const uint32_t *layout_ram;
 	const uint32_t *lookup_ram;
@@ -236,10 +235,11 @@ void deco_zoomspr_device::dragngun_draw_sprites( bitmap_rgb32 &bitmap, const rec
 	        0x8000: Y flip
 	        0x03ff: Y size of block in pixels (for scaling)
 	    Word 6 :
-	        0x1f - colour.
-	        0x20 - ?  Used for background at 'frog' boss and title screen dragon.
-	        0x40 - ?  priority?
-	        0x80 - Alpha blending enable
+	        0x0000001f - colour.
+	        0x00000020 - ?  Used for background at 'frog' boss and title screen dragon.
+	        0x00000040 - ?  priority?
+	        0x00000080 - flicker
+	        0x40000000 - Additive/Subtractable blend? (dragngun)
 	    Word 7 :
 
 
@@ -264,7 +264,10 @@ void deco_zoomspr_device::dragngun_draw_sprites( bitmap_rgb32 &bitmap, const rec
 
 	for (offs = 0;offs < 0x800;offs += 8)
 	{
-		int sx,sy,colour,fx,fy,w,h,x,y,bx,by,alpha,scalex,scaley;
+		if ((spritedata[offs+6]&0x80) && (screen.frame_number() & 1)) // flicker
+			continue;
+
+		int sx,sy,colour,fx,fy,w,h,x,y,bx,by/*,alpha*/,scalex,scaley;
 		int zoomx,zoomy;
 		int xpos,ypos;
 
@@ -306,11 +309,6 @@ void deco_zoomspr_device::dragngun_draw_sprites( bitmap_rgb32 &bitmap, const rec
 		else if (priority == 1) priority = 7; // set to 1 to have the 'masking effect' with the dragon on the dragngun attract mode, but that breaks the player select where it needs to be 3, probably missing some bits..
 		else if (priority == 2) priority = 7;
 		else if (priority == 3) priority = 7;
-
-		if (spritedata[offs+6]&0x80)
-			alpha=0x80;
-		else
-			alpha=0xff;
 
 		fx = spritedata[offs+4]&0x8000;
 		fy = spritedata[offs+5]&0x8000;
@@ -378,7 +376,7 @@ void deco_zoomspr_device::dragngun_draw_sprites( bitmap_rgb32 &bitmap, const rec
 						fx,fy,
 						xpos>>16,ypos>>16,
 						15,zoomx,zoomy,nullptr,0,
-						((xpos+(zoomx<<4))>>16) - (xpos>>16), ((ypos+(zoomy<<4))>>16) - (ypos>>16), alpha,
+						((xpos+(zoomx<<4))>>16) - (xpos>>16), ((ypos+(zoomy<<4))>>16) - (ypos>>16), 0xff/*alpha*/,
 						pri_bitmap, temp_bitmap,
 						priority
 						);
@@ -396,14 +394,14 @@ void deco_zoomspr_device::dragngun_draw_sprites( bitmap_rgb32 &bitmap, const rec
 		}
 	}
 
-	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
+	for (int y = cliprect.top(); y <= cliprect.bottom(); y++)
 	{
-		uint32_t *src = &temp_bitmap.pix32(y);
-		uint32_t *dst = &bitmap.pix32(y);
+		uint32_t const *const src = &temp_bitmap.pix(y);
+		uint32_t *const dst = &bitmap.pix(y);
 
-		for (int x = cliprect.min_x; x <= cliprect.max_x; x++)
+		for (int x = cliprect.left(); x <= cliprect.right(); x++)
 		{
-			uint32_t srcpix = src[x];
+			uint32_t const srcpix = src[x];
 
 			if ((srcpix & 0xff000000) == 0xff000000)
 			{

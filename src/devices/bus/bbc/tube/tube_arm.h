@@ -38,19 +38,16 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 	virtual const tiny_rom_entry *device_rom_region() const override;
 
-	virtual DECLARE_READ8_MEMBER( host_r ) override;
-	virtual DECLARE_WRITE8_MEMBER( host_w ) override;
+	virtual uint8_t host_r(offs_t offset) override;
+	virtual void host_w(offs_t offset, uint8_t data) override;
 
 private:
-	required_device<arm_cpu_device> m_arm;
+	required_device<arm_cpu_device> m_maincpu;
 	required_device<tube_device> m_ula;
 	required_device<ram_device> m_ram;
 	required_memory_region m_bootstrap;
 
-	bool m_rom_select;
-
-	DECLARE_READ8_MEMBER( ram_r );
-	DECLARE_WRITE8_MEMBER( ram_w );
+	memory_passthrough_handler *m_rom_shadow_tap;
 
 	void tube_arm_mem(address_map &map);
 };

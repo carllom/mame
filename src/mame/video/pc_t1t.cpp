@@ -13,7 +13,6 @@
 #include "emu.h"
 #include "pc_t1t.h"
 
-#include "machine/pic8259.h"
 #include "machine/ram.h"
 #include "screen.h"
 
@@ -34,8 +33,8 @@ enum
 DEFINE_DEVICE_TYPE(PCVIDEO_T1000, pcvideo_t1000_device, "tandy_1000_graphics", "Tandy 1000 Graphics Adapter")
 DEFINE_DEVICE_TYPE(PCVIDEO_PCJR,  pcvideo_pcjr_device,  "pcjr_graphics",       "PC Jr Graphics Adapter")
 
-pc_t1t_device::pc_t1t_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, type, tag, owner, clock),
+pc_t1t_device::pc_t1t_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
+	device_t(mconfig, type, tag, owner, clock),
 	device_video_interface(mconfig, *this),
 	m_mc6845(*this, T1000_MC6845_NAME),
 	m_mode_control(0),
@@ -65,6 +64,7 @@ pcvideo_t1000_device::pcvideo_t1000_device(const machine_config &mconfig, const 
 
 pcvideo_pcjr_device::pcvideo_pcjr_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: pc_t1t_device(mconfig, PCVIDEO_PCJR, tag, owner, clock),
+	m_pic8259(*this, ":pic8259"),
 	m_jxkanji(nullptr)
 {
 }
@@ -110,56 +110,50 @@ void pcvideo_pcjr_device::device_start()
 
 ***************************************************************************/
 
-ADDRESS_MAP_START(pc_t1t_device::vram_map)
-	ADDRESS_MAP_UNMAP_HIGH
-	AM_RANGE(0x20000, 0x3ffff) AM_NOP
-ADDRESS_MAP_END
+void pc_t1t_device::vram_map(address_map &map)
+{
+	map.unmap_value_high();
+	map(0x20000, 0x3ffff).noprw();
+}
 
-MACHINE_CONFIG_START(pcvideo_t1000_device::device_add_mconfig)
-	MCFG_SCREEN_ADD(T1000_SCREEN_NAME, RASTER)
-	MCFG_SCREEN_RAW_PARAMS(XTAL(14'318'181),912,0,640,262,0,200)
-	MCFG_SCREEN_UPDATE_DEVICE( T1000_MC6845_NAME, mc6845_device, screen_update )
+void pcvideo_t1000_device::device_add_mconfig(machine_config &config)
+{
+	screen_device &screen(SCREEN(config, T1000_SCREEN_NAME, SCREEN_TYPE_RASTER));
+	screen.set_raw(XTAL(14'318'181),912,0,640,262,0,200);
+	screen.set_screen_update(T1000_MC6845_NAME, FUNC(mc6845_device::screen_update));
 
-	MCFG_PALETTE_ADD( "palette", 32 )
-	MCFG_PALETTE_INIT_OWNER(pc_t1t_device, pcjr)
+	PALETTE(config, m_palette, FUNC(pcvideo_t1000_device::pcjr_palette), 32);
 
-	MCFG_MC6845_ADD(T1000_MC6845_NAME, MC6845, T1000_SCREEN_NAME, XTAL(14'318'181)/8)
-	MCFG_MC6845_SHOW_BORDER_AREA(false)
-	MCFG_MC6845_CHAR_WIDTH(8)
-	MCFG_MC6845_UPDATE_ROW_CB(pc_t1t_device, crtc_update_row)
-	MCFG_MC6845_OUT_DE_CB(WRITELINE(pc_t1t_device, t1000_de_changed))
-	MCFG_MC6845_OUT_VSYNC_CB(WRITELINE(pcvideo_t1000_device, t1000_vsync_changed))
+	MC6845(config, m_mc6845, XTAL(14'318'181)/8);
+	m_mc6845->set_screen(T1000_SCREEN_NAME);
+	m_mc6845->set_show_border_area(false);
+	m_mc6845->set_char_width(8);
+	m_mc6845->set_update_row_callback(FUNC(pc_t1t_device::crtc_update_row));
+	m_mc6845->out_de_callback().set(FUNC(pc_t1t_device::t1000_de_changed));
+	m_mc6845->out_vsync_callback().set(FUNC(pcvideo_t1000_device::t1000_vsync_changed));
 
-	MCFG_DEVICE_ADD("vram", ADDRESS_MAP_BANK, 0)
-	MCFG_DEVICE_PROGRAM_MAP(vram_map)
-	MCFG_ADDRESS_MAP_BANK_ENDIANNESS(ENDIANNESS_LITTLE)
-	MCFG_ADDRESS_MAP_BANK_DATA_WIDTH(8)
-	MCFG_ADDRESS_MAP_BANK_ADDR_WIDTH(18)
-	MCFG_ADDRESS_MAP_BANK_STRIDE(0x4000)
-MACHINE_CONFIG_END
+	ADDRESS_MAP_BANK(config, m_vram).set_map(&pc_t1t_device::vram_map).set_options(ENDIANNESS_LITTLE, 8, 18, 0x4000);
+}
 
 
-MACHINE_CONFIG_START(pcvideo_pcjr_device::device_add_mconfig)
-	MCFG_SCREEN_ADD(T1000_SCREEN_NAME, RASTER)
-	MCFG_SCREEN_RAW_PARAMS(XTAL(14'318'181), 912, 0, 640, 262, 0, 200)
-	MCFG_SCREEN_UPDATE_DEVICE( T1000_MC6845_NAME, mc6845_device, screen_update )
+void pcvideo_pcjr_device::device_add_mconfig(machine_config &config)
+{
+	screen_device &screen(SCREEN(config, T1000_SCREEN_NAME, SCREEN_TYPE_RASTER));
+	screen.set_raw(XTAL(14'318'181), 912, 0, 640, 262, 0, 200);
+	screen.set_screen_update(T1000_MC6845_NAME, FUNC(mc6845_device::screen_update));
 
-	MCFG_PALETTE_ADD( "palette", 32 )
-	MCFG_PALETTE_INIT_OWNER(pc_t1t_device, pcjr)
+	PALETTE(config, m_palette, FUNC(pcvideo_pcjr_device::pcjr_palette), 32);
 
-	MCFG_MC6845_ADD(T1000_MC6845_NAME, MC6845, T1000_SCREEN_NAME, XTAL(14'318'181)/16)
-	MCFG_MC6845_SHOW_BORDER_AREA(false)
-	MCFG_MC6845_CHAR_WIDTH(8)
-	MCFG_MC6845_UPDATE_ROW_CB(pcvideo_pcjr_device, crtc_update_row)
-	MCFG_MC6845_OUT_DE_CB(WRITELINE(pc_t1t_device, t1000_de_changed))
-	MCFG_MC6845_OUT_VSYNC_CB(WRITELINE(pcvideo_pcjr_device, pcjr_vsync_changed))
-	MCFG_DEVICE_ADD("vram", ADDRESS_MAP_BANK, 0)
-	MCFG_DEVICE_PROGRAM_MAP(vram_map)
-	MCFG_ADDRESS_MAP_BANK_ENDIANNESS(ENDIANNESS_LITTLE)
-	MCFG_ADDRESS_MAP_BANK_DATA_WIDTH(8)
-	MCFG_ADDRESS_MAP_BANK_ADDR_WIDTH(18)
-	MCFG_ADDRESS_MAP_BANK_STRIDE(0x4000)
-MACHINE_CONFIG_END
+	MC6845(config, m_mc6845, XTAL(14'318'181)/16);
+	m_mc6845->set_screen(T1000_SCREEN_NAME);
+	m_mc6845->set_show_border_area(false);
+	m_mc6845->set_char_width(8);
+	m_mc6845->set_update_row_callback(FUNC(pcvideo_pcjr_device::crtc_update_row));
+	m_mc6845->out_de_callback().set(FUNC(pcvideo_pcjr_device::de_changed));
+	m_mc6845->out_vsync_callback().set(FUNC(pcvideo_pcjr_device::pcjr_vsync_changed));
+
+	ADDRESS_MAP_BANK(config, m_vram).set_map(&pc_t1t_device::vram_map).set_options(ENDIANNESS_LITTLE, 8, 18, 0x4000);
+}
 
 
 /***************************************************************************
@@ -169,35 +163,33 @@ MACHINE_CONFIG_END
 ***************************************************************************/
 
 /* Initialise the cga palette */
-PALETTE_INIT_MEMBER( pc_t1t_device, pcjr )
+void pc_t1t_device::pcjr_palette(palette_device &palette) const
 {
-	const static unsigned char tga_palette[16][3] =
+	static constexpr rgb_t tga_palette[16] =
 	{
 		{ 0x00, 0x00, 0x00 }, { 0x00, 0x00, 0xaa }, { 0x00, 0xaa, 0x00 }, { 0x00, 0xaa, 0xaa },
 		{ 0xaa, 0x00, 0x00 }, { 0xaa, 0x00, 0xaa }, { 0xaa, 0x55, 0x00 }, { 0xaa, 0xaa, 0xaa },
 		{ 0x55, 0x55, 0x55 }, { 0x55, 0x55, 0xff }, { 0x55, 0xff, 0x55 }, { 0x55, 0xff, 0xff },
 		{ 0xff, 0x55, 0x55 }, { 0xff, 0x55, 0xff }, { 0xff, 0xff, 0x55 }, { 0xff, 0xff, 0xff }
 	};
-	int i;
 
-	/* colors */
-	for(i = 0; i < 16; i++)
-		palette.set_pen_color(i, tga_palette[i][0], tga_palette[i][1], tga_palette[i][2]);
+	// colors
+	for (int i = 0; i < 16; i++)
+		palette.set_pen_color(i, tga_palette[i]);
 
 	/* b/w mode shades */
-	for(i = 0; i < 16; i++)
-		palette.set_pen_color(16+i, ( i << 4 ) | i, ( i << 4 ) | i, ( i << 4 ) | i );
+	for (int i = 0; i < 16; i++)
+		palette.set_pen_color(16+i, pal4bit(i), pal4bit(i), pal4bit(i));
 }
 
 
 MC6845_UPDATE_ROW( pc_t1t_device::t1000_text_inten_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
 
 	if ( y == 0 ) logerror("t1000_text_inten_update_row\n");
-	for ( i = 0; i < x_count; i++ )
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x3fff;
 		uint8_t chr = m_displayram[ offset ];
@@ -211,25 +203,24 @@ MC6845_UPDATE_ROW( pc_t1t_device::t1000_text_inten_update_row )
 			data = 0xFF;
 		}
 
-		*p = palette[( data & 0x80 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x40 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x20 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x10 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x08 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x04 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x02 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x01 ) ? fg : bg]; p++;
+		*p++ = palette[BIT(data, 7) ? fg : bg];
+		*p++ = palette[BIT(data, 6) ? fg : bg];
+		*p++ = palette[BIT(data, 5) ? fg : bg];
+		*p++ = palette[BIT(data, 4) ? fg : bg];
+		*p++ = palette[BIT(data, 3) ? fg : bg];
+		*p++ = palette[BIT(data, 2) ? fg : bg];
+		*p++ = palette[BIT(data, 1) ? fg : bg];
+		*p++ = palette[BIT(data, 0) ? fg : bg];
 	}
 }
 
 
 MC6845_UPDATE_ROW( pc_t1t_device::t1000_text_blink_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
 
-	for ( i = 0; i < x_count; i++ )
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x3fff;
 		uint8_t chr = m_displayram[ offset ];
@@ -253,24 +244,23 @@ MC6845_UPDATE_ROW( pc_t1t_device::t1000_text_blink_update_row )
 			}
 		}
 
-		*p = palette[( data & 0x80 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x40 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x20 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x10 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x08 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x04 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x02 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x01 ) ? fg : bg]; p++;
+		*p++ = palette[BIT(data, 7) ? fg : bg];
+		*p++ = palette[BIT(data, 6) ? fg : bg];
+		*p++ = palette[BIT(data, 5) ? fg : bg];
+		*p++ = palette[BIT(data, 4) ? fg : bg];
+		*p++ = palette[BIT(data, 3) ? fg : bg];
+		*p++ = palette[BIT(data, 2) ? fg : bg];
+		*p++ = palette[BIT(data, 1) ? fg : bg];
+		*p++ = palette[BIT(data, 0) ? fg : bg];
 	}
 }
 
 MC6845_UPDATE_ROW( pcvideo_pcjr_device::pcjx_text_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
 
-	for ( i = 0; i < x_count; i++ )
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x3fff;
 		uint8_t chr = m_displayram[ offset ];
@@ -294,157 +284,152 @@ MC6845_UPDATE_ROW( pcvideo_pcjr_device::pcjx_text_update_row )
 		else
 			data = ((i == cursor_x) && (m_pc_framecnt & 8)) ? 0xff: 0;
 
-		*p = palette[( data & 0x80 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x40 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x20 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x10 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x08 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x04 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x02 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x01 ) ? fg : bg]; p++;
+		*p++ = palette[BIT(data, 7) ? fg : bg];
+		*p++ = palette[BIT(data, 6) ? fg : bg];
+		*p++ = palette[BIT(data, 5) ? fg : bg];
+		*p++ = palette[BIT(data, 4) ? fg : bg];
+		*p++ = palette[BIT(data, 3) ? fg : bg];
+		*p++ = palette[BIT(data, 2) ? fg : bg];
+		*p++ = palette[BIT(data, 1) ? fg : bg];
+		*p++ = palette[BIT(data, 0) ? fg : bg];
 	}
 }
 
 MC6845_UPDATE_ROW( pc_t1t_device::t1000_gfx_4bpp_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	uint8_t   *vid = m_displayram + ( ra << 13 );
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
+	uint8_t const *const vid = m_displayram + ( ra << 13 );
 
-	for ( i = 0; i < x_count; i++ )
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x1fff;
-		uint8_t data = vid[ offset ];
+		uint8_t data = vid[offset];
 
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data >> 4 )]]; p++;
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data >> 4 )]]; p++;
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data & 0x0F )]]; p++;
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data & 0x0F )]]; p++;
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data >> 4)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data >> 4)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data & 0x0f)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data & 0x0f)]];
 
-		data = vid[ offset + 1 ];
+		data = vid[offset + 1];
 
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data >> 4 )]]; p++;
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data >> 4 )]]; p++;
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data & 0x0F )]]; p++;
-		*p = palette[m_palette_base + m_reg.data[0x10 + ( data & 0x0F )]]; p++;
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data >> 4)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data >> 4)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data & 0x0f)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | (data & 0x0f)]];
 	}
 }
 
 
 MC6845_UPDATE_ROW( pc_t1t_device::t1000_gfx_2bpp_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	uint8_t   *vid = m_displayram + ( ra << 13 );
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
+	uint8_t const *const vid = m_displayram + ( ra << 13 );
 
-	for ( i = 0; i < x_count; i++ )
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x1fff;
-		uint8_t data = vid[ offset ];
+		uint8_t data = vid[offset];
 
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( data >> 6 ) & 0x03 ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( data >> 4 ) & 0x03 ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( data >> 2 ) & 0x03 ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + (   data        & 0x03 ) ]]; p++;
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 6) & 0x03)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 4) & 0x03)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 2) & 0x03)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 0) & 0x03)]];
 
-		data = vid[ offset+1 ];
+		data = vid[offset + 1];
 
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( data >> 6 ) & 0x03 ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( data >> 4 ) & 0x03 ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( data >> 2 ) & 0x03 ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + (   data        & 0x03 ) ]]; p++;
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 6) & 0x03)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 4) & 0x03)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 2) & 0x03)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data >> 0) & 0x03)]];
 	}
 }
 
 
 MC6845_UPDATE_ROW( pcvideo_pcjr_device::pcjr_gfx_2bpp_high_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	uint8_t   *vid = m_displayram + ( ra << 13 );
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
+	uint8_t const *const vid = m_displayram + ( ra << 13 );
 
-	for ( i = 0; i < x_count; i++ )
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x1fff;
-		uint8_t data0 = vid[ offset ];
-		uint8_t data1 = vid[ offset + 1 ];
+		uint8_t data0 = vid[offset];
+		uint8_t data1 = vid[offset + 1];
 
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x80 ) >> 7 ) | ( ( data1 & 0x80 ) >> 6 ) ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x40 ) >> 6 ) | ( ( data1 & 0x40 ) >> 5 ) ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x20 ) >> 5 ) | ( ( data1 & 0x20 ) >> 4 ) ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x10 ) >> 4 ) | ( ( data1 & 0x10 ) >> 3 ) ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x08 ) >> 3 ) | ( ( data1 & 0x08 ) >> 2 ) ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x04 ) >> 2 ) | ( ( data1 & 0x04 ) >> 1 ) ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x02 ) >> 1 ) | ( ( data1 & 0x02 )      ) ) ]]; p++;
-		*p = palette[m_palette_base + m_reg.data[ 0x10 + ( ( ( data0 & 0x01 )      ) | ( ( data1 & 0x01 ) << 1 ) ) ]]; p++;
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 7) & 0x01) | ((data1 >> 6) & 0x02)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 6) & 0x01) | ((data1 >> 5) & 0x02)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 5) & 0x01) | ((data1 >> 4) & 0x02)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 4) & 0x01) | ((data1 >> 3) & 0x02)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 3) & 0x01) | ((data1 >> 2) & 0x02)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 2) & 0x01) | ((data1 >> 1) & 0x02)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 1) & 0x01) | ((data1 >> 0) & 0x02)]];
+		*p++ = palette[m_palette_base + m_reg.data[0x10 | ((data0 >> 0) & 0x01) | ((data1 << 1) & 0x02)]];
 	}
 }
 
 
 MC6845_UPDATE_ROW( pc_t1t_device::t1000_gfx_2bpp_tga_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	uint8_t   *vid = m_displayram + ( ra << 13 );
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
+	uint8_t const *const vid = m_displayram + ( ra << 13 );
 
-	if ( y == 0 ) logerror("t1000_gfx_2bpp_tga_update_row\n");
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) logerror("t1000_gfx_2bpp_tga_update_row\n");
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x1fff;
-		uint8_t data = vid[ offset ];
-		uint16_t data2 = ( vid[ offset + 1 ] ) << 1;
+		uint8_t data = vid[offset];
+		uint8_t data2 = vid[offset + 1] << 1;
 
-		*p = palette[m_reg.data[ 0x10 + ( ( ( data2 & 0x100 ) | ( data & 0x80 ) ) >> 7 ) ]]; p++;
-		*p = palette[m_reg.data[ 0x10 + ( ( ( data2 & 0x80 ) | ( data & 0x40 ) ) >> 6 ) ]]; p++;
-		*p = palette[m_reg.data[ 0x10 + ( ( ( data2 & 0x40 ) | ( data & 0x20 ) ) >> 5 ) ]]; p++;
-		*p = palette[m_reg.data[ 0x10 + ( ( ( data2 & 0x20 ) | ( data & 0x10 ) ) >> 4 ) ]]; p++;
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x100) | (data & 0x80)) >> 7)]];
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x080) | (data & 0x40)) >> 6)]];
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x040) | (data & 0x20)) >> 5)]];
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x020) | (data & 0x10)) >> 4)]];
 
-		*p = palette[m_reg.data[ 0x10 + ( ( ( data2 & 0x10 ) | ( data & 0x08 ) ) >> 3 ) ]]; p++;
-		*p = palette[m_reg.data[ 0x10 + ( ( ( data2 & 0x08 ) | ( data & 0x04 ) ) >> 2 ) ]]; p++;
-		*p = palette[m_reg.data[ 0x10 + ( ( ( data2 & 0x04 ) | ( data & 0x02 ) ) >> 1 ) ]]; p++;
-		*p = palette[m_reg.data[ 0x10 + (   ( data2 & 0x02 ) | ( data & 0x01 )        ) ]]; p++;
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x010) | (data & 0x08)) >> 3)]];
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x008) | (data & 0x04)) >> 2)]];
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x004) | (data & 0x02)) >> 1)]];
+		*p++ = palette[m_reg.data[0x10 | (((data2 & 0x002) | (data & 0x01)) >> 0)]];
 	}
 }
 
 
 MC6845_UPDATE_ROW( pc_t1t_device::t1000_gfx_1bpp_update_row )
 {
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint32_t  *p = &bitmap.pix32(y);
-	uint8_t   *vid = m_displayram + ( ra << 13 );
-	uint8_t   fg = m_palette_base + m_reg.data[0x11];
-	uint8_t   bg = m_palette_base + m_reg.data[0x10];
-	int i;
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint32_t *p = &bitmap.pix(y);
+	uint8_t const *const vid = m_displayram + ( ra << 13 );
+	uint8_t fg = m_palette_base + m_reg.data[0x11];
+	uint8_t bg = m_palette_base + m_reg.data[0x10];
 
-	if ( y == 0 ) logerror("t1000_gfx_1bpp_update_row\n");
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) logerror("t1000_gfx_1bpp_update_row\n");
+	for (int i = 0; i < x_count; i++)
 	{
 		uint16_t offset = ( ( ma + i ) << 1 ) & 0x1fff;
-		uint8_t data = vid[ offset ];
+		uint8_t data = vid[offset];
 
-		*p = palette[( data & 0x80 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x40 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x20 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x10 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x08 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x04 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x02 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x01 ) ? fg : bg]; p++;
+		*p++ = palette[BIT(data, 7) ? fg : bg];
+		*p++ = palette[BIT(data, 6) ? fg : bg];
+		*p++ = palette[BIT(data, 5) ? fg : bg];
+		*p++ = palette[BIT(data, 4) ? fg : bg];
+		*p++ = palette[BIT(data, 3) ? fg : bg];
+		*p++ = palette[BIT(data, 2) ? fg : bg];
+		*p++ = palette[BIT(data, 1) ? fg : bg];
+		*p++ = palette[BIT(data, 0) ? fg : bg];
 
-		data = vid[ offset + 1 ];
+		data = vid[offset + 1];
 
-		*p = palette[( data & 0x80 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x40 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x20 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x10 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x08 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x04 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x02 ) ? fg : bg]; p++;
-		*p = palette[( data & 0x01 ) ? fg : bg]; p++;
+		*p++ = palette[BIT(data, 7) ? fg : bg];
+		*p++ = palette[BIT(data, 6) ? fg : bg];
+		*p++ = palette[BIT(data, 5) ? fg : bg];
+		*p++ = palette[BIT(data, 4) ? fg : bg];
+		*p++ = palette[BIT(data, 3) ? fg : bg];
+		*p++ = palette[BIT(data, 2) ? fg : bg];
+		*p++ = palette[BIT(data, 1) ? fg : bg];
+		*p++ = palette[BIT(data, 0) ? fg : bg];
 	}
 }
 
@@ -497,7 +482,7 @@ MC6845_UPDATE_ROW( pcvideo_pcjr_device::crtc_update_row )
 }
 
 
-void pcvideo_t1000_device::mode_switch( void )
+void pcvideo_t1000_device::mode_switch()
 {
 	switch( m_mode_control & 0x3B )
 	{
@@ -616,11 +601,11 @@ void pcvideo_pcjr_device::pc_pcjr_mode_switch()
 	/* Determine mc6845 input clock */
 	if ( m_reg.data[0] & 0x01 )
 	{
-		m_mc6845->set_clock( XTAL(14'318'181)/8 );
+		m_mc6845->set_unscaled_clock( XTAL(14'318'181)/8 );
 	}
 	else
 	{
-		m_mc6845->set_clock( XTAL(14'318'181)/16 );
+		m_mc6845->set_unscaled_clock( XTAL(14'318'181)/16 );
 	}
 
 	/* color or b/w? */
@@ -638,7 +623,7 @@ void pcvideo_t1000_device::mode_control_w(int data)
 	mode_switch();
 }
 
-int pc_t1t_device::mode_control_r(void)
+int pc_t1t_device::mode_control_r()
 {
 	int data = m_mode_control;
 	return data;
@@ -654,7 +639,7 @@ void pc_t1t_device::color_select_w(int data)
 	m_color_select = data;
 }
 
-int pc_t1t_device::color_select_r(void)
+int pc_t1t_device::color_select_r()
 {
 	int data = m_color_select;
 	return data;
@@ -676,7 +661,7 @@ int pc_t1t_device::color_select_r(void)
  *      =1  memory access without interfering with display
  *      (Genoa SuperEGA) horizontal or vertical retrace
  */
-int pc_t1t_device::status_r(void)
+int pc_t1t_device::status_r()
 {
 	int data = m_vsync | m_status | m_display_enable;
 	/* HACK HACK HACK */
@@ -766,7 +751,7 @@ void pcvideo_pcjr_device::pc_pcjr_vga_data_w(int data)
 }
 
 
-int pc_t1t_device::vga_data_r(void)
+int pc_t1t_device::vga_data_r()
 {
 	int data = m_reg.data[m_reg.index];
 
@@ -867,7 +852,7 @@ void pcvideo_pcjr_device::pc_pcjx_bank_w(int data)
 		pc_pcjr_mode_switch();
 }
 
-int pc_t1t_device::bank_r(void)
+int pc_t1t_device::bank_r()
 {
 	return m_bank;
 }
@@ -879,15 +864,15 @@ int pc_t1t_device::bank_r(void)
  *
  *************************************************************************/
 
-WRITE8_MEMBER( pcvideo_t1000_device::write )
+void pcvideo_t1000_device::write(offs_t offset, uint8_t data)
 {
 	switch( offset )
 	{
 		case 0: case 2: case 4: case 6:
-			m_mc6845->address_w( space, offset, data );
+			m_mc6845->address_w(data);
 			break;
 		case 1: case 3: case 5: case 7:
-			m_mc6845->register_w( space, offset, data );
+			m_mc6845->register_w(data);
 			break;
 		case 8:
 			mode_control_w(data);
@@ -917,15 +902,15 @@ WRITE8_MEMBER( pcvideo_t1000_device::write )
 	}
 }
 
-WRITE8_MEMBER( pcvideo_pcjr_device::write )
+void pcvideo_pcjr_device::write(offs_t offset, uint8_t data)
 {
 	switch( offset )
 	{
 		case 0: case 4:
-			m_mc6845->address_w( space, offset, data );
+			m_mc6845->address_w(data);
 			break;
 		case 1: case 5:
-			m_mc6845->register_w( space, offset, data );
+			m_mc6845->register_w(data);
 			break;
 		case 10:
 			if ( m_address_data_ff & 0x01 )
@@ -956,7 +941,7 @@ WRITE8_MEMBER( pcvideo_pcjr_device::write )
 }
 
 
-READ8_MEMBER( pc_t1t_device::read )
+uint8_t pc_t1t_device::read(offs_t offset)
 {
 	int             data = 0xff;
 
@@ -967,7 +952,7 @@ READ8_MEMBER( pc_t1t_device::read )
 			break;
 
 		case 1: case 3: case 5: case 7:
-			data = m_mc6845->register_r( space, offset );
+			data = m_mc6845->register_r();
 			break;
 
 		case 8:
@@ -1004,6 +989,12 @@ READ8_MEMBER( pc_t1t_device::read )
 
 WRITE_LINE_MEMBER( pc_t1t_device::t1000_de_changed )
 {
+	m_display_enable = state ? 0 : 1;
+}
+
+
+WRITE_LINE_MEMBER( pcvideo_pcjr_device::de_changed )
+{
 	m_display_enable = state ? 1 : 0;
 }
 
@@ -1033,5 +1024,5 @@ WRITE_LINE_MEMBER( pcvideo_pcjr_device::pcjr_vsync_changed )
 	{
 		m_pc_framecnt++;
 	}
-	machine().device<pic8259_device>("pic8259")->ir5_w(state);
+	m_pic8259->ir5_w(state);
 }

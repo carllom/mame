@@ -14,13 +14,20 @@
 #include "ui/utils.h"
 #include "ui/menuitem.h"
 
+#if defined(UI_WINDOWS) && !defined(UI_SDL)
+#include "../osd/windows/winmain.h"
+#else
+#include "../osd/modules/lib/osdobj_common.h"
+#endif
+
 #include <limits>
 
 
 namespace ui {
 std::vector<submenu::option> const submenu::misc_options = {
 	{ submenu::option_type::HEAD, __("Miscellaneous Options") },
-	{ submenu::option_type::UI,   __("Re-select last machine played"),           OPTION_REMEMBER_LAST },
+	{ submenu::option_type::UI,   __("Skip imperfect emulation warnings"),       OPTION_SKIP_WARNINGS },
+	{ submenu::option_type::UI,   __("Re-select last machine launched"),         OPTION_REMEMBER_LAST },
 	{ submenu::option_type::UI,   __("Enlarge images in the right panel"),       OPTION_ENLARGE_SNAPS },
 	{ submenu::option_type::EMU,  __("Cheats"),                                  OPTION_CHEAT },
 	{ submenu::option_type::EMU,  __("Show mouse pointer"),                      OPTION_UI_MOUSE },
@@ -43,6 +50,7 @@ std::vector<submenu::option> const submenu::advanced_options = {
 	{ submenu::option_type::EMU,  __("Sleep"),                                   OPTION_SLEEP },
 	{ submenu::option_type::EMU,  __("Speed"),                                   OPTION_SPEED },
 	{ submenu::option_type::EMU,  __("Refresh speed"),                           OPTION_REFRESHSPEED },
+	{ submenu::option_type::EMU,  __("Low latency"),                             OPTION_LOWLATENCY },
 
 	{ submenu::option_type::HEAD, __("Rotation Options") },
 	{ submenu::option_type::EMU,  __("Rotate"),                                  OPTION_ROTATE },
@@ -55,11 +63,6 @@ std::vector<submenu::option> const submenu::advanced_options = {
 
 	{ submenu::option_type::HEAD, __("Artwork Options") },
 	{ submenu::option_type::EMU,  __("Artwork Crop"),                            OPTION_ARTWORK_CROP },
-	{ submenu::option_type::EMU,  __("Use Backdrops"),                           OPTION_USE_BACKDROPS },
-	{ submenu::option_type::EMU,  __("Use Overlays"),                            OPTION_USE_OVERLAYS },
-	{ submenu::option_type::EMU,  __("Use Bezels"),                              OPTION_USE_BEZELS },
-	{ submenu::option_type::EMU,  __("Use Control Panels"),                      OPTION_USE_CPANELS },
-	{ submenu::option_type::EMU,  __("Use Marquees"),                            OPTION_USE_MARQUEES },
 
 	{ submenu::option_type::HEAD, __("State/Playback Options") },
 	{ submenu::option_type::EMU,  __("Automatic save/restore"),                  OPTION_AUTOSAVE },
@@ -328,13 +331,13 @@ void submenu::populate(float &customtop, float &custombottom)
 		switch (sm_option->type)
 		{
 		case option_type::HEAD:
-			item_append(_(sm_option->description), "", FLAG_DISABLE | FLAG_UI_HEADING, nullptr);
+			item_append(_(sm_option->description), FLAG_DISABLE | FLAG_UI_HEADING, nullptr);
 			break;
 		case option_type::SEP:
 			item_append(menu_item_type::SEPARATOR);
 			break;
 		case option_type::CMD:
-			item_append(_(sm_option->description), "", 0, static_cast<void*>(&(*sm_option)));
+			item_append(_(sm_option->description), 0, static_cast<void*>(&(*sm_option)));
 			break;
 		case option_type::EMU:
 		case option_type::UI:
@@ -342,10 +345,9 @@ void submenu::populate(float &customtop, float &custombottom)
 			switch (sm_option->entry->type())
 			{
 			case OPTION_BOOLEAN:
-				arrow_flags = sm_option->options->bool_value(sm_option->name) ? FLAG_RIGHT_ARROW : FLAG_LEFT_ARROW;
-				item_append(_(sm_option->description),
-					(arrow_flags == FLAG_RIGHT_ARROW) ? "On" : "Off",
-					arrow_flags,
+				item_append_on_off(_(sm_option->description),
+					sm_option->options->bool_value(sm_option->name),
+					0,
 					static_cast<void*>(&(*sm_option)));
 				break;
 			case OPTION_INTEGER:
@@ -386,7 +388,7 @@ void submenu::populate(float &customtop, float &custombottom)
 					arrow_flags = get_arrow_flags(f_min, f_max, f_cur);
 					std::string tmptxt = string_format("%g", f_cur);
 					item_append(_(sm_option->description),
-						tmptxt.c_str(),
+						tmptxt,
 						arrow_flags,
 						static_cast<void*>(&(*sm_option)));
 				}
@@ -416,7 +418,7 @@ void submenu::populate(float &customtop, float &custombottom)
 	}
 
 	item_append(menu_item_type::SEPARATOR);
-	custombottom = customtop = ui().get_line_height() + (3.0f * UI_BOX_TB_BORDER);
+	custombottom = customtop = ui().get_line_height() + (3.0f * ui().box_tb_border());
 }
 
 //-------------------------------------------------
@@ -428,9 +430,9 @@ void submenu::custom_render(void *selectedref, float top, float bottom, float or
 	char const *const toptext[] = { _(m_options[0].description) };
 	draw_text_box(
 			std::begin(toptext), std::end(toptext),
-			origx1, origx2, origy1 - top, origy1 - UI_BOX_TB_BORDER,
+			origx1, origx2, origy1 - top, origy1 - ui().box_tb_border(),
 			ui::text_layout::CENTER, ui::text_layout::TRUNCATE, false,
-			UI_TEXT_COLOR, UI_GREEN_COLOR, 1.0f);
+			ui().colors().text_color(), UI_GREEN_COLOR, 1.0f);
 
 	if (selectedref)
 	{
@@ -440,9 +442,9 @@ void submenu::custom_render(void *selectedref, float top, float bottom, float or
 			char const *const bottomtext[] = { selected_sm_option.entry->description() };
 			draw_text_box(
 					std::begin(bottomtext), std::end(bottomtext),
-					origx1, origx2, origy2 + UI_BOX_TB_BORDER, origy2 + bottom,
+					origx1, origx2, origy2 + ui().box_tb_border(), origy2 + bottom,
 					ui::text_layout::CENTER, ui::text_layout::TRUNCATE, false,
-					UI_TEXT_COLOR, UI_RED_COLOR, 1.0f);
+					ui().colors().text_color(), UI_RED_COLOR, 1.0f);
 		}
 	}
 }

@@ -70,8 +70,8 @@ Revision History:
 */
 
 #include "emu.h"
-#include "ymdeltat.h"
 #include "fmopl.h"
+#include "ymdeltat.h"
 
 
 
@@ -1498,7 +1498,7 @@ const int8_t FM_OPL::lfo_pm_table[8*8*2] = {
 int FM_OPL::num_lock = 0;
 
 
-
+#if 0
 static inline int limit( int val, int max, int min ) {
 	if ( val > max )
 		val = max;
@@ -1507,7 +1507,7 @@ static inline int limit( int val, int max, int min ) {
 
 	return val;
 }
-
+#endif
 
 /* generic table initialize */
 int FM_OPL::init_tables()
@@ -1631,7 +1631,7 @@ void FM_OPL::initialize()
 	/*logerror("freqbase=%f\n", freqbase);*/
 
 	/* Timer base time */
-	TimerBase = attotime::from_hz(clock) * 72;
+	TimerBase = clock ? attotime::from_hz(clock) * 72 : attotime::zero;
 
 	/* make fnumber -> increment counter table */
 	for( i=0 ; i < 1024 ; i++ )
@@ -2206,14 +2206,13 @@ void ym3812_set_update_handler(void *chip,OPL_UPDATEHANDLER UpdateHandler,device
 ** '*buffer' is the output buffer pointer
 ** 'length' is the number of samples that should be generated
 */
-void ym3812_update_one(void *chip, OPLSAMPLE *buffer, int length)
+void ym3812_update_one(void *chip, write_stream_view &buf)
 {
 	FM_OPL      *OPL = (FM_OPL *)chip;
 	uint8_t       rhythm = OPL->rhythm&0x20;
-	OPLSAMPLE   *buf = buffer;
 	int i;
 
-	for( i=0; i < length ; i++ )
+	for( i=0; i < buf.samples(); i++ )
 	{
 		int lt;
 
@@ -2242,11 +2241,6 @@ void ym3812_update_one(void *chip, OPLSAMPLE *buffer, int length)
 
 		lt = OPL->output[0];
 
-		lt >>= FINAL_SH;
-
-		/* limit check */
-		lt = limit( lt , MAXOUT, MINOUT );
-
 		#ifdef SAVE_SAMPLE
 		if (which==0)
 		{
@@ -2255,7 +2249,7 @@ void ym3812_update_one(void *chip, OPLSAMPLE *buffer, int length)
 		#endif
 
 		/* store to sound buffer */
-		buf[i] = lt;
+		buf.put_int_clamp(i, lt, 32768 << FINAL_SH);
 
 		OPL->advance();
 	}
@@ -2335,14 +2329,13 @@ void ym3526_set_update_handler(void *chip,OPL_UPDATEHANDLER UpdateHandler,device
 ** '*buffer' is the output buffer pointer
 ** 'length' is the number of samples that should be generated
 */
-void ym3526_update_one(void *chip, OPLSAMPLE *buffer, int length)
+void ym3526_update_one(void *chip, write_stream_view &buf)
 {
 	FM_OPL      *OPL = (FM_OPL *)chip;
 	uint8_t       rhythm = OPL->rhythm&0x20;
-	OPLSAMPLE   *buf = buffer;
 	int i;
 
-	for( i=0; i < length ; i++ )
+	for( i=0; i < buf.samples() ; i++ )
 	{
 		int lt;
 
@@ -2371,11 +2364,6 @@ void ym3526_update_one(void *chip, OPLSAMPLE *buffer, int length)
 
 		lt = OPL->output[0];
 
-		lt >>= FINAL_SH;
-
-		/* limit check */
-		lt = limit( lt , MAXOUT, MINOUT );
-
 		#ifdef SAVE_SAMPLE
 		if (which==0)
 		{
@@ -2384,7 +2372,7 @@ void ym3526_update_one(void *chip, OPLSAMPLE *buffer, int length)
 		#endif
 
 		/* store to sound buffer */
-		buf[i] = lt;
+		buf.put_int_clamp(i, lt, 32768 << FINAL_SH);
 
 		OPL->advance();
 	}
@@ -2406,6 +2394,11 @@ static void Y8950_deltat_status_reset(void *chip, uint8_t changebits)
 {
 	FM_OPL *Y8950 = (FM_OPL *)chip;
 	Y8950->STATUS_RESET(changebits);
+}
+
+void y8950_clock_changed(void *chip, uint32_t clock, uint32_t rate)
+{
+	reinterpret_cast<FM_OPL *>(chip)->clock_changed(clock, rate);
 }
 
 void *y8950_init(device_t *device, uint32_t clock, uint32_t rate)
@@ -2472,11 +2465,11 @@ void y8950_set_update_handler(void *chip,OPL_UPDATEHANDLER UpdateHandler,device_
 	reinterpret_cast<FM_OPL *>(chip)->SetUpdateHandler(UpdateHandler, device);
 }
 
-void y8950_set_delta_t_memory(void *chip, void * deltat_mem_ptr, int deltat_mem_size )
+void y8950_set_delta_t_memory(void *chip, FM_READBYTE read_byte, FM_WRITEBYTE write_byte)
 {
 	FM_OPL      *OPL = (FM_OPL *)chip;
-	OPL->deltat->memory = (uint8_t *)(deltat_mem_ptr);
-	OPL->deltat->memory_size = deltat_mem_size;
+	OPL->deltat->read_byte = read_byte;
+	OPL->deltat->write_byte = write_byte;
 }
 
 /*
@@ -2486,15 +2479,14 @@ void y8950_set_delta_t_memory(void *chip, void * deltat_mem_ptr, int deltat_mem_
 ** '*buffer' is the output buffer pointer
 ** 'length' is the number of samples that should be generated
 */
-void y8950_update_one(void *chip, OPLSAMPLE *buffer, int length)
+void y8950_update_one(void *chip, write_stream_view &buf)
 {
 	int i;
 	FM_OPL      *OPL = (FM_OPL *)chip;
 	uint8_t       rhythm  = OPL->rhythm&0x20;
 	YM_DELTAT   &DELTAT = *OPL->deltat;
-	OPLSAMPLE   *buf    = buffer;
 
-	for( i=0; i < length ; i++ )
+	for( i=0; i < buf.samples() ; i++ )
 	{
 		int lt;
 
@@ -2528,11 +2520,6 @@ void y8950_update_one(void *chip, OPLSAMPLE *buffer, int length)
 
 		lt = OPL->output[0] + (OPL->output_deltat[0]>>11);
 
-		lt >>= FINAL_SH;
-
-		/* limit check */
-		lt = limit( lt , MAXOUT, MINOUT );
-
 		#ifdef SAVE_SAMPLE
 		if (which==0)
 		{
@@ -2541,7 +2528,7 @@ void y8950_update_one(void *chip, OPLSAMPLE *buffer, int length)
 		#endif
 
 		/* store to sound buffer */
-		buf[i] = lt;
+		buf.put_int_clamp(i, lt, 32768 << FINAL_SH);
 
 		OPL->advance();
 	}

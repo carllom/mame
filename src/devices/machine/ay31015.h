@@ -18,20 +18,18 @@
 class ay31015_device : public device_t
 {
 public:
-	ay31015_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	ay31015_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 0);
 
-	static void set_tx_clock(device_t &device, double tx_clock) { downcast<ay31015_device &>(device).m_tx_clock = tx_clock; }
-	static void set_tx_clock(device_t &device, const XTAL &xtal) { set_tx_clock(device, xtal.dvalue()); }
-	static void set_rx_clock(device_t &device, double rx_clock) { downcast<ay31015_device &>(device).m_rx_clock = rx_clock; }
-	static void set_rx_clock(device_t &device, const XTAL &xtal) { set_rx_clock(device, xtal.dvalue()); }
-	template <class Object> static devcb_base &set_read_si_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_read_si_cb.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_write_so_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_write_so_cb.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_write_pe_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_write_pe_cb.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_write_fe_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_write_fe_cb.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_write_or_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_write_or_cb.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_write_dav_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_write_dav_cb.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_write_tbmt_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_write_tbmt_cb.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_write_eoc_callback(device_t &device, Object &&cb) { return downcast<ay31015_device &>(device).m_write_eoc_cb.set_callback(std::forward<Object>(cb)); }
+	void set_auto_rdav(bool auto_rdav) { m_auto_rdav = auto_rdav; }
+
+	auto read_si_callback() { return m_read_si_cb.bind(); }
+	auto write_so_callback() { return m_write_so_cb.bind(); }
+	auto write_pe_callback() { return m_write_pe_cb.bind(); }
+	auto write_fe_callback() { return m_write_fe_cb.bind(); }
+	auto write_or_callback() { return m_write_or_cb.bind(); }
+	auto write_dav_callback() { return m_write_dav_cb.bind(); }
+	auto write_tbmt_callback() { return m_write_tbmt_cb.bind(); }
+	auto write_eoc_callback() { return m_write_eoc_cb.bind(); }
 
 	/* Set an input pin */
 	DECLARE_WRITE_LINE_MEMBER(write_swe) { set_input_pin(SWE, state); }
@@ -56,22 +54,13 @@ public:
 	DECLARE_READ_LINE_MEMBER(eoc_r) { return get_output_pin(EOC); }
 	DECLARE_READ_LINE_MEMBER(so_r) { return get_output_pin(SO); }
 
-	/* Set a new transmitter clock (new_clock is in Hz) */
-	void set_transmitter_clock( double new_clock );
-
-	/* Set a new receiver clock (new_clock is in Hz) */
-	void set_receiver_clock( double new_clock );
-
-	/* Reead the received data */
+	/* Read the received data */
 	/* The received data is available on RD8-RD1 (pins 5-12) */
-	uint8_t get_received_data();
+	uint8_t receive();
 
 	/* Set the transmitter buffer */
 	/* The data to transmit is set on DB1-DB8 (pins 26-33) */
-	void set_transmit_data( uint8_t data );
-
-	void rx_process();
-	void tx_process();
+	void transmit( uint8_t data );
 
 protected:
 	enum input_pin
@@ -112,16 +101,15 @@ protected:
 		PREP_TIME
 	};
 
-	static constexpr device_timer_id TIMER_RX = 0;
-	static constexpr device_timer_id TIMER_TX = 1;
-
 	ay31015_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock);
 
 	// device-level overrides
+	virtual void device_resolve_objects() override;
 	virtual void device_start() override;
 	virtual void device_reset() override;
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
+	void rx_process();
+	void tx_process();
 	virtual void internal_reset();
 
 	// internal state
@@ -132,8 +120,6 @@ protected:
 	void transfer_control_pins();
 	void set_input_pin(input_pin pin, int data);
 	int get_output_pin(output_pin pin);
-	inline void update_rx_timer();
-	inline void update_tx_timer();
 
 	int m_pins[41];
 
@@ -149,16 +135,12 @@ protected:
 	uint8_t m_rx_bit_count;
 	uint8_t m_rx_parity;
 	uint16_t m_rx_pulses;   // total pulses left
-	double m_rx_clock;    /* RCP - pin 17 */
-	emu_timer *m_rx_timer;
 
 	state_t m_tx_state;
 	uint8_t m_tx_data;      // byte being sent
 	uint8_t m_tx_buffer;    // next byte to send
 	uint8_t m_tx_parity;
 	uint16_t m_tx_pulses;   // total pulses left
-	double m_tx_clock;    /* TCP - pin 40 */
-	emu_timer *m_tx_timer;
 
 	devcb_read_line m_read_si_cb;           // SI - pin 20 - This will be called whenever the SI pin is sampled. Optional
 	devcb_write_line m_write_so_cb;         // SO - pin 25 - This will be called whenever data is put on the SO pin. Optional
@@ -168,12 +150,14 @@ protected:
 	devcb_write_line m_write_dav_cb;        // DAV - pin 19 - This will be called whenever the DAV pin may have changed. Optional
 	devcb_write_line m_write_tbmt_cb;       // TBMT - pin 22 - This will be called whenever the TBMT pin may have changed. Optional
 	devcb_write_line m_write_eoc_cb;        // EOC - pin 24 - This will be called whenever the EOC pin may have changed. Optional
+
+	bool m_auto_rdav;                       // true if RDAV (pin 18) is tied to RDE (pin 4)
 };
 
 class ay51013_device : public ay31015_device
 {
 public:
-	ay51013_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	ay51013_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 0);
 
 protected:
 	virtual void internal_reset() override;
@@ -184,73 +168,5 @@ ALLOW_SAVE_TYPE(ay31015_device::state_t);
 
 DECLARE_DEVICE_TYPE(AY31015, ay31015_device)   // For AY-3-1014A, AY-3-1015(D) and HD6402 variants
 DECLARE_DEVICE_TYPE(AY51013, ay51013_device)   // For AY-3-1014, AY-5-1013 and AY-6-1013 variants
-
-
-
-/***************************************************************************
- DEVICE CONFIGURATION MACROS
- ***************************************************************************/
-
-
-#define MCFG_AY31015_TX_CLOCK(_txclk) \
-	ay31015_device::set_tx_clock(*device, _txclk);
-
-#define MCFG_AY31015_RX_CLOCK(_rxclk) \
-	ay31015_device::set_rx_clock(*device, _rxclk);
-
-#define MCFG_AY31015_READ_SI_CB(_devcb) \
-	devcb = &ay31015_device::set_read_si_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY31015_WRITE_SO_CB(_devcb) \
-	devcb = &ay31015_device::set_write_so_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY31015_WRITE_PE_CB(_devcb) \
-	devcb = &ay31015_device::set_write_pe_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY31015_WRITE_FE_CB(_devcb) \
-	devcb = &ay31015_device::set_write_fe_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY31015_WRITE_OR_CB(_devcb) \
-	devcb = &ay31015_device::set_write_or_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY31015_WRITE_DAV_CB(_devcb) \
-	devcb = &ay31015_device::set_write_dav_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY31015_WRITE_TBMT_CB(_devcb) \
-	devcb = &ay31015_device::set_write_tbmt_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY31015_WRITE_EOC_CB(_devcb) \
-	devcb = &ay31015_device::set_write_eoc_callback(*device, DEVCB_##_devcb);
-
-
-#define MCFG_AY51013_TX_CLOCK(_txclk) \
-	ay51013_device::set_tx_clock(*device, _txclk);
-
-#define MCFG_AY51013_RX_CLOCK(_rxclk) \
-	ay51013_device::set_rx_clock(*device, _rxclk);
-
-#define MCFG_AY51013_READ_SI_CB(_devcb) \
-	devcb = &ay51013_device::set_read_si_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY51013_WRITE_SO_CB(_devcb) \
-	devcb = &ay51013_device::set_write_so_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY51013_WRITE_PE_CB(_devcb) \
-	devcb = &ay51013_device::set_write_pe_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY51013_WRITE_FE_CB(_devcb) \
-	devcb = &ay51013_device::set_write_fe_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY51013_WRITE_OR_CB(_devcb) \
-	devcb = &ay51013_device::set_write_or_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY51013_WRITE_DAV_CB(_devcb) \
-	devcb = &ay51013_device::set_write_dav_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY51013_WRITE_TBMT_CB(_devcb) \
-	devcb = &ay51013_device::set_write_tbmt_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_AY51013_WRITE_EOC_CB(_devcb) \
-	devcb = &ay51013_device::set_write_eoc_callback(*device, DEVCB_##_devcb);
 
 #endif // MAME_MACHINE_AY31015_H

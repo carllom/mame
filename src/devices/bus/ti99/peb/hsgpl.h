@@ -22,17 +22,17 @@
 #include "machine/at29x.h"
 #include "machine/ram.h"
 
-namespace bus { namespace ti99 { namespace peb {
+namespace bus::ti99::peb {
 
 class snug_high_speed_gpl_device : public device_t, public device_ti99_peribox_card_interface
 {
 public:
 	snug_high_speed_gpl_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
-	DECLARE_READ8Z_MEMBER(readz) override;
-	DECLARE_WRITE8_MEMBER(write) override;
+	void readz(offs_t offset, uint8_t *value) override;
+	void write(offs_t offset, uint8_t data) override;
 
-	DECLARE_READ8Z_MEMBER(crureadz) override;
-	DECLARE_WRITE8_MEMBER(cruwrite) override;
+	void crureadz(offs_t offset, uint8_t *value) override;
+	void cruwrite(offs_t offset, uint8_t data) override;
 
 protected:
 	virtual void device_start() override;
@@ -51,12 +51,12 @@ private:
 	required_device<ram_device>      m_ram6_memory;
 	required_device<ram_device>      m_gram_memory;
 
-	void            dsrspace_readz(address_space& space, offs_t offset, uint8_t* value, uint8_t mem_mask);
-	void            cartspace_readz(address_space& space, offs_t offset, uint8_t* value, uint8_t mem_mask);
-	void            grom_readz(address_space& space, offs_t offset, uint8_t* value, uint8_t mem_mask);
+	void            dsrspace_readz(offs_t offset, uint8_t* value);
+	void            cartspace_readz(offs_t offset, uint8_t* value);
+	void            grom_readz(offs_t offset, uint8_t* value);
 
-	void            cartspace_write(address_space& space, offs_t offset, uint8_t data, uint8_t mem_mask);
-	void            grom_write(address_space& space, offs_t offset, uint8_t data, uint8_t mem_mask);
+	void            cartspace_write(offs_t offset, uint8_t data);
+	void            grom_write(offs_t offset, uint8_t data);
 
 	bool            m_dsr_enabled;
 	bool            m_gram_enabled;
@@ -81,7 +81,7 @@ private:
 	int             m_grom_address;
 };
 
-} } } // end namespace bus::ti99::peb
+} // end namespace bus::ti99::peb
 
 DECLARE_DEVICE_TYPE_NS(TI99_HSGPL, bus::ti99::peb, snug_high_speed_gpl_device)
 

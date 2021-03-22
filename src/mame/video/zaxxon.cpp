@@ -17,46 +17,44 @@
  *
  *************************************/
 
-PALETTE_INIT_MEMBER(zaxxon_state, zaxxon)
+void zaxxon_state::zaxxon_palette(palette_device &palette)
 {
-	const uint8_t *color_prom = memregion("proms")->base();
-	static const int resistances[3] = { 1000, 470, 220 };
-	double rweights[3], gweights[3], bweights[2];
-	int i;
+	uint8_t const *const color_prom = memregion("proms")->base();
+	static constexpr int resistances[3] = { 1000, 470, 220 };
 
-	/* compute the color output resistor weights */
+	// compute the color output resistor weights
+	double rweights[3], gweights[3], bweights[2];
 	compute_resistor_weights(0, 255, -1.0,
 			3,  &resistances[0], rweights, 470, 0,
 			3,  &resistances[0], gweights, 470, 0,
 			2,  &resistances[1], bweights, 470, 0);
 
-	/* initialize the palette with these colors */
-	for (i = 0; i < palette.entries(); i++)
+	// initialize the palette with these colors
+	for (int i = 0; i < palette.entries(); i++)
 	{
 		int bit0, bit1, bit2;
-		int r, g, b;
 
-		/* red component */
-		bit0 = (color_prom[i] >> 0) & 0x01;
-		bit1 = (color_prom[i] >> 1) & 0x01;
-		bit2 = (color_prom[i] >> 2) & 0x01;
-		r = combine_3_weights(rweights, bit0, bit1, bit2);
+		// red component
+		bit0 = BIT(color_prom[i], 0);
+		bit1 = BIT(color_prom[i], 1);
+		bit2 = BIT(color_prom[i], 2);
+		int const r = combine_weights(rweights, bit0, bit1, bit2);
 
-		/* green component */
-		bit0 = (color_prom[i] >> 3) & 0x01;
-		bit1 = (color_prom[i] >> 4) & 0x01;
-		bit2 = (color_prom[i] >> 5) & 0x01;
-		g = combine_3_weights(gweights, bit0, bit1, bit2);
+		// green component
+		bit0 = BIT(color_prom[i], 3);
+		bit1 = BIT(color_prom[i], 4);
+		bit2 = BIT(color_prom[i], 5);
+		int const g = combine_weights(gweights, bit0, bit1, bit2);
 
-		/* blue component */
-		bit0 = (color_prom[i] >> 6) & 0x01;
-		bit1 = (color_prom[i] >> 7) & 0x01;
-		b = combine_2_weights(bweights, bit0, bit1);
+		// blue component
+		bit0 = BIT(color_prom[i], 6);
+		bit1 = BIT(color_prom[i], 7);
+		int const b = combine_weights(bweights, bit0, bit1);
 
 		palette.set_pen_color(i, rgb_t(r, g, b));
 	}
 
-	/* color_prom now points to the beginning of the character color codes */
+	// color_prom now points to the beginning of the character color codes
 	m_color_codes = &color_prom[256];
 }
 
@@ -76,7 +74,7 @@ TILE_GET_INFO_MEMBER(zaxxon_state::get_bg_tile_info)
 	int code = source[eff_index] + 256 * (source[eff_index + size] & 3);
 	int color = source[eff_index + size] >> 4;
 
-	SET_TILE_INFO_MEMBER(1, code, color, 0);
+	tileinfo.set(1, code, color, 0);
 }
 
 
@@ -87,7 +85,7 @@ TILE_GET_INFO_MEMBER(zaxxon_state::zaxxon_get_fg_tile_info)
 	int code = m_videoram[tile_index];
 	int color = m_color_codes[sx + 32 * (sy / 4)] & 0x0f;
 
-	SET_TILE_INFO_MEMBER(0, code, color * 2, 0);
+	tileinfo.set(0, code, color * 2, 0);
 }
 
 
@@ -96,7 +94,7 @@ TILE_GET_INFO_MEMBER(zaxxon_state::razmataz_get_fg_tile_info)
 	int code = m_videoram[tile_index];
 	int color = m_color_codes[code] & 0x0f;
 
-	SET_TILE_INFO_MEMBER(0, code, color * 2, 0);
+	tileinfo.set(0, code, color * 2, 0);
 }
 
 
@@ -105,7 +103,7 @@ TILE_GET_INFO_MEMBER(zaxxon_state::congo_get_fg_tile_info)
 	int code = m_videoram[tile_index] + (m_congo_fg_bank << 8);
 	int color = m_colorram[tile_index] & 0x1f;
 
-	SET_TILE_INFO_MEMBER(0, code, color * 2, 0);
+	tileinfo.set(0, code, color * 2, 0);
 }
 
 
@@ -116,7 +114,7 @@ TILE_GET_INFO_MEMBER(zaxxon_state::congo_get_fg_tile_info)
  *
  *************************************/
 
-void zaxxon_state::video_start_common(tilemap_get_info_delegate fg_tile_info)
+void zaxxon_state::video_start_common(tilemap_get_info_delegate &&fg_tile_info)
 {
 	/* reset globals */
 	m_bg_enable = 0;
@@ -128,14 +126,14 @@ void zaxxon_state::video_start_common(tilemap_get_info_delegate fg_tile_info)
 	m_congo_color_bank = 0;
 	memset(m_congo_custom, 0, sizeof(m_congo_custom));
 
-	/* create a background and foreground tilemap */
-	m_bg_tilemap = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(FUNC(zaxxon_state::get_bg_tile_info),this), TILEMAP_SCAN_ROWS,  8,8, 32,512);
-	m_fg_tilemap = &machine().tilemap().create(*m_gfxdecode, fg_tile_info, TILEMAP_SCAN_ROWS,  8,8, 32,32);
+	// create a background and foreground tilemap
+	m_bg_tilemap = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(*this, FUNC(zaxxon_state::get_bg_tile_info)), TILEMAP_SCAN_ROWS, 8,8, 32,512);
+	m_fg_tilemap = &machine().tilemap().create(*m_gfxdecode, std::move(fg_tile_info), TILEMAP_SCAN_ROWS, 8,8, 32,32);
 
-	/* configure the foreground tilemap */
+	// configure the foreground tilemap
 	m_fg_tilemap->set_transparent_pen(0);
 
-	/* register for save states */
+	// register for save states
 	save_item(NAME(m_bg_enable));
 	save_item(NAME(m_bg_color));
 	save_item(NAME(m_bg_position));
@@ -146,27 +144,24 @@ void zaxxon_state::video_start_common(tilemap_get_info_delegate fg_tile_info)
 
 void zaxxon_state::video_start()
 {
-	video_start_common(tilemap_get_info_delegate(FUNC(zaxxon_state::zaxxon_get_fg_tile_info),this));
+	video_start_common(tilemap_get_info_delegate(*this, FUNC(zaxxon_state::zaxxon_get_fg_tile_info)));
 }
 
 
 VIDEO_START_MEMBER(zaxxon_state,razmataz)
 {
-	video_start_common(tilemap_get_info_delegate(FUNC(zaxxon_state::razmataz_get_fg_tile_info),this));
+	video_start_common(tilemap_get_info_delegate(*this, FUNC(zaxxon_state::razmataz_get_fg_tile_info)));
 }
 
 
 VIDEO_START_MEMBER(zaxxon_state,congo)
 {
-	/* allocate our own spriteram since it is not accessible by the main CPU */
-	m_spriteram.allocate(0x100);
-
 	/* register for save states */
 	save_item(NAME(m_congo_fg_bank));
 	save_item(NAME(m_congo_color_bank));
 	save_item(NAME(m_congo_custom));
 
-	video_start_common(tilemap_get_info_delegate(FUNC(zaxxon_state::congo_get_fg_tile_info),this));
+	video_start_common(tilemap_get_info_delegate(*this, FUNC(zaxxon_state::congo_get_fg_tile_info)));
 }
 
 
@@ -193,7 +188,7 @@ WRITE_LINE_MEMBER(zaxxon_state::fg_color_w)
 }
 
 
-WRITE8_MEMBER(zaxxon_state::bg_position_w)
+void zaxxon_state::bg_position_w(offs_t offset, uint8_t data)
 {
 	/* 11 bits of scroll position are stored */
 	if (offset == 0)
@@ -240,14 +235,14 @@ WRITE_LINE_MEMBER(zaxxon_state::congo_color_bank_w)
  *
  *************************************/
 
-WRITE8_MEMBER(zaxxon_state::zaxxon_videoram_w)
+void zaxxon_state::zaxxon_videoram_w(offs_t offset, uint8_t data)
 {
 	m_videoram[offset] = data;
 	m_fg_tilemap->mark_tile_dirty(offset);
 }
 
 
-WRITE8_MEMBER(zaxxon_state::congo_colorram_w)
+void zaxxon_state::congo_colorram_w(offs_t offset, uint8_t data)
 {
 	m_colorram[offset] = data;
 	m_fg_tilemap->mark_tile_dirty(offset);
@@ -261,10 +256,8 @@ WRITE8_MEMBER(zaxxon_state::congo_colorram_w)
  *
  *************************************/
 
-WRITE8_MEMBER(zaxxon_state::congo_sprite_custom_w)
+void zaxxon_state::congo_sprite_custom_w(address_space &space, offs_t offset, uint8_t data)
 {
-	uint8_t *spriteram = m_spriteram;
-
 	m_congo_custom[offset] = data;
 
 	/* seems to trigger on a write of 1 to the 4th byte */
@@ -280,10 +273,10 @@ WRITE8_MEMBER(zaxxon_state::congo_sprite_custom_w)
 		while (count-- >= 0)
 		{
 			uint8_t daddr = space.read_byte(saddr + 0) * 4;
-			spriteram[(daddr + 0) & 0xff] = space.read_byte(saddr + 1);
-			spriteram[(daddr + 1) & 0xff] = space.read_byte(saddr + 2);
-			spriteram[(daddr + 2) & 0xff] = space.read_byte(saddr + 3);
-			spriteram[(daddr + 3) & 0xff] = space.read_byte(saddr + 4);
+			m_spriteram[(daddr + 0) & 0xff] = space.read_byte(saddr + 1);
+			m_spriteram[(daddr + 1) & 0xff] = space.read_byte(saddr + 2);
+			m_spriteram[(daddr + 2) & 0xff] = space.read_byte(saddr + 3);
+			m_spriteram[(daddr + 3) & 0xff] = space.read_byte(saddr + 4);
 			saddr += 0x20;
 		}
 	}
@@ -308,7 +301,6 @@ void zaxxon_state::draw_background(bitmap_ind16 &bitmap, const rectangle &clipre
 		int ymask = pixmap.height() - 1;
 		int flipmask = m_flip_screen ? 0xff : 0x00;
 		int flipoffs = m_flip_screen ? 0x38 : 0x40;
-		int x, y;
 
 		/* the starting X value is offset by 1 pixel (normal) or 7 pixels */
 		/* (flipped) due to a delay in the loading */
@@ -318,25 +310,23 @@ void zaxxon_state::draw_background(bitmap_ind16 &bitmap, const rectangle &clipre
 			flipoffs += 7;
 
 		/* loop over visible rows */
-		for (y = cliprect.min_y; y <= cliprect.max_y; y++)
+		for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
 		{
-			uint16_t *dst = &bitmap.pix16(y);
-			int srcx, srcy, vf;
-			uint16_t *src;
+			uint16_t *const dst = &bitmap.pix(y);
 
 			/* VF = flipped V signals */
-			vf = y ^ flipmask;
+			int vf = y ^ flipmask;
 
 			/* base of the source row comes from VF plus the scroll value */
 			/* this is done by the 3 4-bit adders at U56, U74, U75 */
-			srcy = vf + ((m_bg_position << 1) ^ 0xfff) + 1;
-			src = &pixmap.pix16(srcy & ymask);
+			int srcy = vf + ((m_bg_position << 1) ^ 0xfff) + 1;
+			uint16_t const *src = &pixmap.pix(srcy & ymask);
 
 			/* loop over visible columns */
-			for (x = cliprect.min_x; x <= cliprect.max_x; x++)
+			for (int x = cliprect.min_x; x <= cliprect.max_x; x++)
 			{
 				/* start with HF = flipped H signals */
-				srcx = x ^ flipmask;
+				int srcx = x ^ flipmask;
 				if (skew)
 				{
 					/* position within source row is a two-stage addition */
@@ -470,6 +460,24 @@ uint32_t zaxxon_state::screen_update_razmataz(screen_device &screen, bitmap_ind1
 	draw_background(bitmap, cliprect, false);
 	draw_sprites(bitmap, cliprect, 0x140, 0x180);
 	m_fg_tilemap->draw(screen, bitmap, cliprect, 0, 0);
+	return 0;
+}
+
+uint32_t zaxxon_state::screen_update_ixion(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+{
+	draw_background(bitmap, cliprect, false);
+	// On Ixion the fg tilemap is used to blank out erased tiles. The sprites must appear above these
+	// or bullets and explosions get hidden, leaving the game nearly unplayable.
+	//
+	// On Razzmatazz instead the fg tilemap is used to mask off sprites near the edges so must appear
+	// above them.
+	// 	   
+	// The Zaxxon and Congo Bongo schematics don't appear to show anything related to priority control
+	// so this is most likely a hardwired change somewhere on the PCB.  There are additional bits set
+	// in the 2nd PROM, which are currently masked out as they're not used for palette.
+
+	m_fg_tilemap->draw(screen, bitmap, cliprect, 0, 0);
+	draw_sprites(bitmap, cliprect, 0x140, 0x180);
 	return 0;
 }
 

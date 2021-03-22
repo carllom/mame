@@ -36,7 +36,6 @@
 
 #include "emu.h"
 #include "cpu/mcs51/mcs51.h"
-#include "rendlay.h"
 #include "speaker.h"
 
 #include "barata.lh"
@@ -47,19 +46,24 @@ class barata_state : public driver_device
 {
 public:
 	barata_state(const machine_config &mconfig, device_type type, const char *tag)
-		: driver_device(mconfig, type, tag),
-		m_maincpu(*this, "maincpu") { }
-	DECLARE_WRITE8_MEMBER(fpga_w);
-	DECLARE_WRITE8_MEMBER(port0_w);
-	DECLARE_WRITE8_MEMBER(port2_w);
-	DECLARE_READ8_MEMBER(port2_r);
-	void fpga_send(unsigned char cmd);
+		: driver_device(mconfig, type, tag)
+		, m_maincpu(*this, "maincpu")
+		, m_digits(*this, "digit%u", 0U)
+		, m_lamps(*this, "lamp%u", 0U)
+	{ }
 
-	required_device<cpu_device> m_maincpu;
+	void fpga_w(uint8_t data);
+	void port0_w(uint8_t data);
+	void port2_w(uint8_t data);
+	uint8_t port2_r();
 	void barata(machine_config &config);
-	void i8051_io_port(address_map &map);
 private:
 	unsigned char row_selection;
+	void fpga_send(unsigned char cmd);
+	virtual void machine_start() override { m_digits.resolve(); m_lamps.resolve(); }
+	required_device<i8051_device> m_maincpu;
+	output_finder<4> m_digits;
+	output_finder<16> m_lamps;
 };
 
 /************************
@@ -186,7 +190,8 @@ void barata_state::fpga_send(unsigned char cmd)
 	bool state, erase_all;
 	char lamp_index;
 	if (mode == FPGA_LAMP){
-		switch (byte){
+		switch (byte)
+		{
 			case 1:
 				lamp_data = cmd;
 				break;
@@ -196,14 +201,18 @@ void barata_state::fpga_send(unsigned char cmd)
 				erase_all = BIT(lamp_data,4);
 				lamp_index = lamp_data & 0x0F;
 
-				if (erase_all){
+				if (erase_all)
+				{
 //                  logerror("LED: ERASE ALL\n");
 					for (int i=0; i<16; i++){
-						output().set_led_value(i, 1);
+						m_lamps[i] = 1;
 					}
-				} else {
-					output().set_led_value(lamp_index, state ? 0 : 1);
 				}
+				else
+				{
+					m_lamps[lamp_index] = state ? 0 : 1;
+				}
+				[[fallthrough]]; // FIXME: really?
 			default:
 				mode = FPGA_WAITING_FOR_NEW_CMD;
 				break;
@@ -229,13 +238,17 @@ void barata_state::fpga_send(unsigned char cmd)
 			case 3:
 				counter_data = (counter_data << 3) | cmd;
 
-				if (counter_state){
-					output().set_digit_value(2*counter_bank, 0);
-					output().set_digit_value(2*counter_bank+1, 0);
-				} else {
-					output().set_digit_value(2*counter_bank, dec_7seg(counter_data/10));
-					output().set_digit_value(2*counter_bank+1, dec_7seg(counter_data%10));
+				if (counter_state)
+				{
+					m_digits[2*counter_bank] = 0;
+					m_digits[2*counter_bank+1] = 0;
 				}
+				else
+				{
+					m_digits[2*counter_bank] = dec_7seg(counter_data/10);
+					m_digits[2*counter_bank+1] = dec_7seg(counter_data%10);
+				}
+				[[fallthrough]]; // FIXME: really?
 			default:
 				mode = FPGA_WAITING_FOR_NEW_CMD;
 				break;
@@ -253,6 +266,7 @@ void barata_state::fpga_send(unsigned char cmd)
 			case 2:
 				sample_index = (sample_index << 3) | cmd;
 				logerror("PLAY_SAMPLE #%d.\n", sample_index);
+				[[fallthrough]]; // FIXME: really?
 			default:
 				mode = FPGA_WAITING_FOR_NEW_CMD;
 				break;
@@ -262,7 +276,7 @@ void barata_state::fpga_send(unsigned char cmd)
 	}
 }
 
-WRITE8_MEMBER(barata_state::fpga_w)
+void barata_state::fpga_w(uint8_t data)
 {
 	static unsigned char old_data = 0;
 	if (!BIT(old_data, 5) && BIT(data, 5)){
@@ -272,17 +286,17 @@ WRITE8_MEMBER(barata_state::fpga_w)
 	old_data = data;
 }
 
-WRITE8_MEMBER(barata_state::port0_w)
+void barata_state::port0_w(uint8_t data)
 {
 	row_selection = data;
 }
 
-WRITE8_MEMBER(barata_state::port2_w)
+void barata_state::port2_w(uint8_t data)
 {
 	/* why does it write to PORT2 ? */
 }
 
-READ8_MEMBER(barata_state::port2_r)
+uint8_t barata_state::port2_r()
 {
 	if (!BIT(row_selection, 0)) return ioport("PLAYER1_ROW1")->read();
 	if (!BIT(row_selection, 1)) return ioport("PLAYER1_ROW2")->read();
@@ -291,33 +305,27 @@ READ8_MEMBER(barata_state::port2_r)
 	return 0;
 }
 
-/*************************
-* Memory Map Information *
-*************************/
-
-ADDRESS_MAP_START(barata_state::i8051_io_port)
-	AM_RANGE(MCS51_PORT_P0,   MCS51_PORT_P0  ) AM_WRITE(port0_w)
-	AM_RANGE(MCS51_PORT_P1,   MCS51_PORT_P1  ) AM_READ_PORT("PORT1")
-	AM_RANGE(MCS51_PORT_P2,   MCS51_PORT_P2  ) AM_READWRITE(port2_r, port2_w)
-	AM_RANGE(MCS51_PORT_P3,   MCS51_PORT_P3  ) AM_WRITE(fpga_w)
-ADDRESS_MAP_END
-
 /************************
 *    Machine Drivers    *
 ************************/
 
-MACHINE_CONFIG_START(barata_state::barata)
+void barata_state::barata(machine_config &config)
+{
 	/* basic machine hardware */
-	MCFG_CPU_ADD("maincpu", I8051, CPU_CLOCK)
-	MCFG_CPU_IO_MAP(i8051_io_port)
+	I8051(config, m_maincpu, CPU_CLOCK);
+	m_maincpu->port_out_cb<0>().set(FUNC(barata_state::port0_w));
+	m_maincpu->port_in_cb<1>().set_ioport("PORT1");
+	m_maincpu->port_in_cb<2>().set(FUNC(barata_state::port2_r));
+	m_maincpu->port_out_cb<2>().set(FUNC(barata_state::port2_w));
+	m_maincpu->port_out_cb<3>().set(FUNC(barata_state::fpga_w));
 
-	MCFG_DEFAULT_LAYOUT( layout_barata )
+	config.set_default_layout(layout_barata);
 
 	/* sound hardware */
-	MCFG_SPEAKER_STANDARD_MONO("speaker")
+	SPEAKER(config, "speaker").front_center();
 
 	/* TODO: add sound samples */
-MACHINE_CONFIG_END
+}
 
 /*************************
 *        Rom Load        *
@@ -331,4 +339,4 @@ ROM_END
 /*************************
 *      Game Drivers      *
 *************************/
-GAME( 2002, barata,     0,        barata,   barata,    barata_state, 0,        ROT0,  "Eletro Matic Equipamentos Eletromec??nicos", "Dona Barata (early prototype)", MACHINE_IMPERFECT_GRAPHICS )
+GAME( 2002, barata, 0, barata, barata, barata_state, empty_init, ROT0, "Eletro Matic Equipamentos Eletromec??nicos", "Dona Barata (early prototype)", MACHINE_IMPERFECT_GRAPHICS )

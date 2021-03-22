@@ -56,8 +56,8 @@ protected:
 	static u8 convert_to_bcd(int val);
 	static int bcd_to_integer(u8 val);
 
-	void set_clock_register(int register, int value);
-	int get_clock_register(int register);
+	void set_clock_register(int reg, int value);
+	int get_clock_register(int reg);
 	void clock_updated();
 
 	void advance_seconds();
@@ -75,7 +75,7 @@ protected:
 };
 
 // iterator
-typedef device_interface_iterator<device_rtc_interface> rtc_interface_iterator;
+typedef device_interface_enumerator<device_rtc_interface> rtc_interface_enumerator;
 
 
 #endif // MAME_EMU_DIRTC_H

@@ -11,7 +11,7 @@
 class cdda_device : public device_t, public device_sound_interface
 {
 public:
-	cdda_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	cdda_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 44'100);
 
 	void set_cdrom(void *file);
 
@@ -30,10 +30,10 @@ protected:
 	virtual void device_start() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
-	void get_audio_data(stream_sample_t *bufL, stream_sample_t *bufR, uint32_t samples_wanted);
+	void get_audio_data(write_stream_view &bufL, write_stream_view &bufR);
 
 	cdrom_file *        m_disc;
 

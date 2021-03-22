@@ -8,7 +8,7 @@
 
 ***************************************************************************/
 
-#include <assert.h>
+#include <cassert>
 
 #include "chd.h"
 #include "avhuff.h"
@@ -17,9 +17,9 @@
 #include "cdrom.h"
 #include "coretmpl.h"
 #include <zlib.h>
-#include <time.h>
-#include <stddef.h>
-#include <stdlib.h>
+#include <ctime>
+#include <cstddef>
+#include <cstdlib>
 #include <new>
 #include "eminline.h"
 
@@ -788,6 +788,7 @@ chd_error chd_file::open(util::core_file &file, bool writeable, chd_file *parent
 	m_file = &file;
 	m_owns_file = false;
 	m_parent = parent;
+	m_cachehunk = ~0;
 	return open_common(writeable);
 }
 
@@ -887,7 +888,7 @@ chd_error chd_file::read_hunk(uint32_t hunknum, void *buffer)
 		uint32_t blocklen;
 		util::crc32_t blockcrc;
 		uint8_t *rawmap;
-		uint8_t *dest = reinterpret_cast<uint8_t *>(buffer);
+		auto *dest = reinterpret_cast<uint8_t *>(buffer);
 		switch (m_version)
 		{
 			// v3/v4 map entries
@@ -1044,7 +1045,7 @@ chd_error chd_file::write_hunk(uint32_t hunknum, const void *buffer)
 		{
 			// first make sure we need to allocate it
 			bool all_zeros = true;
-			const uint32_t *scan = reinterpret_cast<const uint32_t *>(buffer);
+			const auto *scan = reinterpret_cast<const uint32_t *>(buffer);
 			for (uint32_t index = 0; index < m_hunkbytes / 4; index++)
 				if (scan[index] != 0)
 				{
@@ -1139,7 +1140,7 @@ chd_error chd_file::read_bytes(uint64_t offset, void *buffer, uint32_t bytes)
 	// iterate over hunks
 	uint32_t first_hunk = offset / m_hunkbytes;
 	uint32_t last_hunk = (offset + bytes - 1) / m_hunkbytes;
-	uint8_t *dest = reinterpret_cast<uint8_t *>(buffer);
+	auto *dest = reinterpret_cast<uint8_t *>(buffer);
 	for (uint32_t curhunk = first_hunk; curhunk <= last_hunk; curhunk++)
 	{
 		// determine start/end boundaries
@@ -1192,7 +1193,7 @@ chd_error chd_file::write_bytes(uint64_t offset, const void *buffer, uint32_t by
 	// iterate over hunks
 	uint32_t first_hunk = offset / m_hunkbytes;
 	uint32_t last_hunk = (offset + bytes - 1) / m_hunkbytes;
-	const uint8_t *source = reinterpret_cast<const uint8_t *>(buffer);
+	const auto *source = reinterpret_cast<const uint8_t *>(buffer);
 	for (uint32_t curhunk = first_hunk; curhunk <= last_hunk; curhunk++)
 	{
 		// determine start/end boundaries
@@ -1625,7 +1626,7 @@ chd_error chd_file::codec_configure(chd_codec_type codec, int param, void *confi
 	try
 	{
 		// find the codec and call its configuration
-		for (int codecnum = 0; codecnum < ARRAY_LENGTH(m_compression); codecnum++)
+		for (int codecnum = 0; codecnum < std::size(m_compression); codecnum++)
 			if (m_compression[codecnum] == codec)
 			{
 				m_decompressor[codecnum]->configure(param, config);
@@ -2217,6 +2218,7 @@ void chd_file::decompress_v5_map()
 			// pseudo-types; convert into base types
 			case COMPRESSION_SELF_1:
 				last_self++;
+				[[fallthrough]];
 			case COMPRESSION_SELF_0:
 				rawmap[0] = COMPRESSION_SELF;
 				offset = last_self;
@@ -2229,6 +2231,7 @@ void chd_file::decompress_v5_map()
 
 			case COMPRESSION_PARENT_1:
 				last_parent += m_hunkbytes / m_unitbytes;
+				[[fallthrough]];
 			case COMPRESSION_PARENT_0:
 				rawmap[0] = COMPRESSION_PARENT;
 				offset = last_parent;
@@ -2450,7 +2453,7 @@ chd_error chd_file::open_common(bool writeable)
 void chd_file::create_open_common()
 {
 	// verify the compression types and initialize the codecs
-	for (int decompnum = 0; decompnum < ARRAY_LENGTH(m_compression); decompnum++)
+	for (int decompnum = 0; decompnum < std::size(m_compression); decompnum++)
 	{
 		m_decompressor[decompnum] = chd_codec_list::new_decompressor(m_compression[decompnum], *this);
 		if (m_decompressor[decompnum] == nullptr && m_compression[decompnum] != 0)
@@ -2946,7 +2949,7 @@ chd_error chd_file_compressor::compress_continue(double &progress, double &ratio
 			hunk_write_compressed(item.m_hunknum, item.m_compression, item.m_compressed, item.m_complen, item.m_hash[0].m_crc16);
 			m_total_out += item.m_complen;
 			m_current_map.add(item.m_hunknum, item.m_hash[0].m_crc16, item.m_hash[0].m_sha1);
-		} while (0);
+		} while (false);
 
 		// reset the item and advance
 		item.m_status = WS_READY;
@@ -3009,7 +3012,7 @@ chd_error chd_file_compressor::compress_continue(double &progress, double &ratio
 
 void *chd_file_compressor::async_walk_parent_static(void *param, int threadid)
 {
-	work_item *item = reinterpret_cast<work_item *>(param);
+	auto *item = reinterpret_cast<work_item *>(param);
 	item->m_compressor->async_walk_parent(*item);
 	return nullptr;
 }
@@ -3051,7 +3054,7 @@ void chd_file_compressor::async_walk_parent(work_item &item)
 
 void *chd_file_compressor::async_compress_hunk_static(void *param, int threadid)
 {
-	work_item *item = reinterpret_cast<work_item *>(param);
+	auto *item = reinterpret_cast<work_item *>(param);
 	item->m_compressor->async_compress_hunk(*item, threadid);
 	return nullptr;
 }
@@ -3068,7 +3071,7 @@ void *chd_file_compressor::async_compress_hunk_static(void *param, int threadid)
 void chd_file_compressor::async_compress_hunk(work_item &item, int threadid)
 {
 	// use our thread's codec
-	assert(threadid < ARRAY_LENGTH(m_codecs));
+	assert(threadid < std::size(m_codecs));
 	item.m_codecs = m_codecs[threadid];
 
 	// compute CRC-16 and SHA-1 hashes
@@ -3275,7 +3278,7 @@ uint64_t chd_file_compressor::hashmap::find(util::crc16_t crc16, util::sha1_t sh
 void chd_file_compressor::hashmap::add(uint64_t itemnum, util::crc16_t crc16, util::sha1_t sha1)
 {
 	// add to the appropriate map
-	if (m_block_list->m_nextalloc == ARRAY_LENGTH(m_block_list->m_array))
+	if (m_block_list->m_nextalloc == std::size(m_block_list->m_array))
 		m_block_list = new entry_block(m_block_list);
 	entry_t *entry = &m_block_list->m_array[m_block_list->m_nextalloc++];
 	entry->m_itemnum = itemnum;

@@ -38,8 +38,6 @@ DEFINE_DEVICE_TYPE(A2BUS_MCMS2, a2bus_mcms2_device, "a2mcms2", "Mountain Compute
 
 #define ENGINE_TAG  "engine"
 
-#define MCFG_MCMS_IRQ_CALLBACK(_cb) \
-	devcb = &mcms_device::set_irq_cb(*device, DEVCB_##_cb);
 
 /***************************************************************************
     FUNCTION PROTOTYPES
@@ -49,15 +47,16 @@ DEFINE_DEVICE_TYPE(A2BUS_MCMS2, a2bus_mcms2_device, "a2mcms2", "Mountain Compute
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(a2bus_mcms1_device::device_add_mconfig)
-	MCFG_SPEAKER_STANDARD_STEREO("mcms_l", "mcms_r")
+void a2bus_mcms1_device::device_add_mconfig(machine_config &config)
+{
+	SPEAKER(config, "mcms_l").front_left();
+	SPEAKER(config, "mcms_r").front_right();
 
-	MCFG_DEVICE_ADD(ENGINE_TAG, MCMS, 1000000)
-	MCFG_MCMS_IRQ_CALLBACK(WRITELINE(a2bus_mcms1_device, irq_w))
-
-	MCFG_SOUND_ROUTE(0, "mcms_l", 1.0)
-	MCFG_SOUND_ROUTE(1, "mcms_r", 1.0)
-MACHINE_CONFIG_END
+	MCMS(config, m_mcms, 1000000);
+	m_mcms->irq_cb().set(FUNC(a2bus_mcms1_device::irq_w));
+	m_mcms->add_route(0, "mcms_l", 1.0);
+	m_mcms->add_route(1, "mcms_r", 1.0);
+}
 
 //**************************************************************************
 //  LIVE DEVICE - Card 1
@@ -207,7 +206,7 @@ mcms_device::mcms_device(const machine_config &mconfig, const char *tag, device_
 void mcms_device::device_start()
 {
 	m_write_irq.resolve();
-	m_stream = machine().sound().stream_alloc(*this, 0, 2, 31250);
+	m_stream = stream_alloc(0, 2, 31250);
 	m_timer = timer_alloc(0, nullptr);
 	m_clrtimer = timer_alloc(1, nullptr);
 	m_enabled = false;
@@ -253,20 +252,19 @@ void mcms_device::device_timer(emu_timer &timer, device_timer_id tid, int param,
 	}
 }
 
-void mcms_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void mcms_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
-	stream_sample_t *outL, *outR;
 	int i, v;
 	uint16_t wptr;
 	int8_t sample;
 	int32_t mixL, mixR;
 
-	outL = outputs[1];
-	outR = outputs[0];
+	auto &outL = outputs[1];
+	auto &outR = outputs[0];
 
 	if (m_enabled)
 	{
-		for (i = 0; i < samples; i++)
+		for (i = 0; i < outL.samples(); i++)
 		{
 			mixL = mixR = 0;
 
@@ -276,7 +274,7 @@ void mcms_device::sound_stream_update(sound_stream &stream, stream_sample_t **in
 				wptr = (m_table[v]<<8) | (m_acc[v]>>8);
 				m_rand = (m_acc[v]>>8) & 0x1f;
 
-				sample = (m_pBusDevice->slot_dma_read_no_space(wptr) ^ 0x80);
+				sample = (m_pBusDevice->slot_dma_read(wptr) ^ 0x80);
 				if (v & 1)
 				{
 					mixL += sample * m_vols[v];
@@ -287,16 +285,14 @@ void mcms_device::sound_stream_update(sound_stream &stream, stream_sample_t **in
 				}
 			}
 
-			outL[i] = (mixL * m_mastervol)>>9;
-			outR[i] = (mixR * m_mastervol)>>9;
+			outL.put_int(i, mixL * m_mastervol, 32768 << 9);
+			outR.put_int(i, mixR * m_mastervol, 32768 << 9);
 		}
 	}
 	else
 	{
-		for (i = 0; i < samples; i++)
-		{
-			outL[i] = outR[i] = 0;
-		}
+		outL.fill(0);
+		outR.fill(0);
 	}
 }
 

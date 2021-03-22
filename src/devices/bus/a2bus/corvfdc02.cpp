@@ -29,14 +29,16 @@ DEFINE_DEVICE_TYPE(A2BUS_CORVFDC02, a2bus_corvfdc02_device, "crvfdc02", "Corvus 
 #define FDC02_ROM_REGION    "fdc02_rom"
 #define FDC02_FDC_TAG       "fdc02_fdc"
 
-FLOPPY_FORMATS_MEMBER( a2bus_corvfdc02_device::corv_floppy_formats )
-	FLOPPY_CONCEPT_525DSDD_FORMAT,
-	FLOPPY_IMD_FORMAT
-FLOPPY_FORMATS_END
+void a2bus_corvfdc02_device::corv_floppy_formats(format_registration &fr)
+{
+	fr.add_mfm_containers();
+	fr.add(FLOPPY_CONCEPT_525DSDD_FORMAT);
+}
 
-static SLOT_INTERFACE_START( corv_floppies )
-	SLOT_INTERFACE( "525dsqd", FLOPPY_525_QD )
-SLOT_INTERFACE_END
+static void corv_floppies(device_slot_interface &device)
+{
+	device.option_add("525dsqd", FLOPPY_525_QD);
+}
 
 ROM_START( fdc02 )
 	ROM_REGION(0x20, FDC02_ROM_REGION, 0)
@@ -51,15 +53,16 @@ ROM_END
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(a2bus_corvfdc02_device::device_add_mconfig)
-	MCFG_UPD765A_ADD(FDC02_FDC_TAG, true, false)
-	MCFG_UPD765_INTRQ_CALLBACK(WRITELINE(a2bus_corvfdc02_device, intrq_w))
-	MCFG_UPD765_DRQ_CALLBACK(WRITELINE(a2bus_corvfdc02_device, drq_w))
-	MCFG_FLOPPY_DRIVE_ADD(FDC02_FDC_TAG":0", corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats)
-	MCFG_FLOPPY_DRIVE_ADD(FDC02_FDC_TAG":1", corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats)
-	MCFG_FLOPPY_DRIVE_ADD(FDC02_FDC_TAG":2", corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats)
-	MCFG_FLOPPY_DRIVE_ADD(FDC02_FDC_TAG":3", corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats)
-MACHINE_CONFIG_END
+void a2bus_corvfdc02_device::device_add_mconfig(machine_config &config)
+{
+	UPD765A(config, m_fdc, 16_MHz_XTAL / 2, true, false); // clocked through FDC9229BT
+	m_fdc->intrq_wr_callback().set(FUNC(a2bus_corvfdc02_device::intrq_w));
+	m_fdc->drq_wr_callback().set(FUNC(a2bus_corvfdc02_device::drq_w));
+	FLOPPY_CONNECTOR(config, m_con1, corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats);
+	FLOPPY_CONNECTOR(config, m_con2, corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats);
+	FLOPPY_CONNECTOR(config, m_con3, corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats);
+	FLOPPY_CONNECTOR(config, m_con4, corv_floppies, "525dsqd", a2bus_corvfdc02_device::corv_floppy_formats);
+}
 
 //-------------------------------------------------
 //  rom_region - device-specific ROM region

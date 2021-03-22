@@ -16,12 +16,10 @@
  *
  *************************************/
 
-PALETTE_INIT_MEMBER(exterm_state, exterm)
+void exterm_state::exterm_palette(palette_device &palette) const
 {
-	int i;
-
-	/* initialize 555 RGB lookup */
-	for (i = 0; i < 32768; i++)
+	// initialize 555 RGB lookup
+	for (int i = 0; i < 32768; i++)
 		palette.set_pen_color(i + 0x800, pal5bit(i >> 10), pal5bit(i >> 5), pal5bit(i >> 0));
 }
 
@@ -66,18 +64,17 @@ TMS340X0_FROM_SHIFTREG_CB_MEMBER(exterm_state::from_shiftreg_slave)
 
 TMS340X0_SCANLINE_IND16_CB_MEMBER(exterm_state::scanline_update)
 {
-	uint16_t *bgsrc = &m_master_videoram[(params->rowaddr << 8) & 0xff00];
-	uint16_t *fgsrc = nullptr;
-	uint16_t *dest = &bitmap.pix16(scanline);
+	uint16_t *const bgsrc = &m_master_videoram[(params->rowaddr << 8) & 0xff00];
+	uint16_t *const dest = &bitmap.pix(scanline);
 	tms340x0_device::display_params fgparams;
 	int coladdr = params->coladdr;
 	int fgcoladdr = 0;
-	int x;
 
 	/* get parameters for the slave CPU */
 	m_slave->get_display_params(&fgparams);
 
 	/* compute info about the slave vram */
+	uint16_t *fgsrc = nullptr;
 	if (fgparams.enabled && scanline >= fgparams.veblnk && scanline < fgparams.vsblnk && fgparams.heblnk < fgparams.hsblnk)
 	{
 		fgsrc = &m_slave_videoram[((fgparams.rowaddr << 8) + (fgparams.yoffset << 7)) & 0xff80];
@@ -85,7 +82,7 @@ TMS340X0_SCANLINE_IND16_CB_MEMBER(exterm_state::scanline_update)
 	}
 
 	/* copy the non-blanked portions of this scanline */
-	for (x = params->heblnk; x < params->hsblnk; x += 2)
+	for (int x = params->heblnk; x < params->hsblnk; x += 2)
 	{
 		uint16_t bgdata, fgdata = 0;
 

@@ -18,19 +18,13 @@ public:
 		: s11_state(mconfig, type, tag)
 	{ }
 
-	DECLARE_WRITE8_MEMBER(bgbank_w);
-	DECLARE_WRITE8_MEMBER(dig0_w);
-	DECLARE_MACHINE_RESET(s11a);
-	DECLARE_DRIVER_INIT(s11a);
-
+	void s11a_base(machine_config &config);
 	void s11a(machine_config &config);
-	void s11a_audio_map(address_map &map);
-	void s11a_bg_map(address_map &map);
-	void s11a_main_map(address_map &map);
-protected:
+	void s11a_obg(machine_config &config);
 
-private:
+	void init_s11a();
 
+	void dig0_w(uint8_t data);
 };
 
 #endif // MAME_INCLUDES_S11A_H

@@ -54,18 +54,18 @@ enum
  *
  *************************************/
 
-WRITE16_MEMBER( acclaim_rax_device::data_w )
+void acclaim_rax_device::data_w(uint16_t data)
 {
-	m_data_in->write(space, 0, data, 0xffff);
+	m_data_in->write(data);
 	m_cpu->set_input_line(ADSP2181_IRQL0, ASSERT_LINE);
 	machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(5));
 }
 
 
-READ16_MEMBER( acclaim_rax_device::data_r )
+uint16_t acclaim_rax_device::data_r()
 {
 	m_adsp_snd_pf0 = 1;
-	return m_data_out->read(space, 0);
+	return m_data_out->read();
 }
 
 
@@ -75,7 +75,7 @@ READ16_MEMBER( acclaim_rax_device::data_r )
  *
  *************************************/
 
-READ16_MEMBER( acclaim_rax_device::adsp_control_r )
+uint16_t acclaim_rax_device::adsp_control_r(offs_t offset)
 {
 	uint16_t res = 0;
 
@@ -91,7 +91,7 @@ READ16_MEMBER( acclaim_rax_device::adsp_control_r )
 	return res;
 }
 
-WRITE16_MEMBER( acclaim_rax_device::adsp_control_w )
+void acclaim_rax_device::adsp_control_w(offs_t offset, uint16_t data)
 {
 	m_control_regs[offset] = data;
 
@@ -111,7 +111,7 @@ WRITE16_MEMBER( acclaim_rax_device::adsp_control_w )
 		{
 			m_control_regs[BDMA_WORD_COUNT_REG] = data & 0x3fff;
 
-			const uint8_t * adsp_rom = m_rom + m_rom_bank * 0x400000;
+			const uint8_t *adsp_rom = &m_rom[m_rom_bank * 0x400000];
 
 			uint32_t page = (m_control_regs[BDMA_CONTROL_REG] >> 8) & 0xff;
 			uint32_t dir = (m_control_regs[BDMA_CONTROL_REG] >> 2) & 1;
@@ -184,7 +184,7 @@ WRITE16_MEMBER( acclaim_rax_device::adsp_control_w )
 			/* autobuffer off: nuke the timer, and disable the DAC */
 			if ((data & 0x0002) == 0)
 			{
-				dmadac_enable(&m_dmadac[1], 1, 0);
+				m_dmadac[1]->enable(0);
 			}
 			break;
 
@@ -192,8 +192,8 @@ WRITE16_MEMBER( acclaim_rax_device::adsp_control_w )
 			/* autobuffer off: nuke the timer, and disable the DAC */
 			if ((data & 0x0002) == 0)
 			{
-				dmadac_enable(&m_dmadac[0], 1, 0);
-				m_reg_timer[0]->reset();
+				m_dmadac[0]->enable(0);
+				m_reg_timer->reset();
 			}
 			break;
 
@@ -225,7 +225,7 @@ TIMER_DEVICE_CALLBACK_MEMBER( acclaim_rax_device::dma_timer_callback )
 	m_control_regs[BDMA_CONTROL_REG] |= ((param >> 14) & 0xff) << 8;
 
 	if (m_control_regs[BDMA_CONTROL_REG] & 8)
-		m_cpu->set_input_line(INPUT_LINE_RESET, PULSE_LINE);
+		m_cpu->pulse_input_line(INPUT_LINE_RESET, attotime::zero);
 	else
 		m_cpu->pulse_input_line(ADSP2181_BDMA, m_cpu->minimum_quantum_time());
 
@@ -241,27 +241,27 @@ void acclaim_rax_device::update_data_ram_bank()
 		membank("databank")->set_entry(1 + m_data_bank);
 }
 
-WRITE16_MEMBER( acclaim_rax_device::ram_bank_w )
+void acclaim_rax_device::ram_bank_w(uint16_t data)
 {
 	// Note: The PCB has two unstuffed RAM locations
 	m_data_bank = data & 3;
 	update_data_ram_bank();
 }
 
-WRITE16_MEMBER( acclaim_rax_device::rom_bank_w )
+void acclaim_rax_device::rom_bank_w(uint16_t data)
 {
 	m_rom_bank = data;
 }
 
-READ16_MEMBER( acclaim_rax_device::host_r )
+uint16_t acclaim_rax_device::host_r()
 {
 	m_cpu->set_input_line(ADSP2181_IRQL0, CLEAR_LINE);
-	return m_data_in->read(space, 0);
+	return m_data_in->read();
 }
 
-WRITE16_MEMBER( acclaim_rax_device::host_w )
+void acclaim_rax_device::host_w(uint16_t data)
 {
-	m_data_out->write(space, 0, data, 0xffff);
+	m_data_out->write(data);
 	m_adsp_snd_pf0 = 0;
 }
 
@@ -272,41 +272,37 @@ WRITE16_MEMBER( acclaim_rax_device::host_w )
  *
  *************************************/
 
-ADDRESS_MAP_START(acclaim_rax_device::adsp_program_map)
-	ADDRESS_MAP_UNMAP_HIGH
-	AM_RANGE(0x0000, 0x3fff) AM_RAM AM_SHARE("adsp_pram")
-ADDRESS_MAP_END
+void acclaim_rax_device::adsp_program_map(address_map &map)
+{
+	map.unmap_value_high();
+	map(0x0000, 0x3fff).ram().share("adsp_pram");
+}
 
-ADDRESS_MAP_START(acclaim_rax_device::adsp_data_map)
-	ADDRESS_MAP_UNMAP_HIGH
-	AM_RANGE(0x0000, 0x1fff) AM_RAMBANK("databank")
-	AM_RANGE(0x2000, 0x3fdf) AM_RAM // Internal RAM
-	AM_RANGE(0x3fe0, 0x3fff) AM_READWRITE(adsp_control_r, adsp_control_w)
-ADDRESS_MAP_END
+void acclaim_rax_device::adsp_data_map(address_map &map)
+{
+	map.unmap_value_high();
+	map(0x0000, 0x1fff).bankrw("databank");
+	map(0x2000, 0x3fdf).ram(); // Internal RAM
+	map(0x3fe0, 0x3fff).rw(FUNC(acclaim_rax_device::adsp_control_r), FUNC(acclaim_rax_device::adsp_control_w));
+}
 
-ADDRESS_MAP_START(acclaim_rax_device::adsp_io_map)
-	ADDRESS_MAP_UNMAP_HIGH
-	AM_RANGE(0x0000, 0x0000) AM_WRITE(ram_bank_w)
-	AM_RANGE(0x0001, 0x0001) AM_WRITE(rom_bank_w)
-	AM_RANGE(0x0003, 0x0003) AM_READWRITE(host_r, host_w)
-ADDRESS_MAP_END
+void acclaim_rax_device::adsp_io_map(address_map &map)
+{
+	map.unmap_value_high();
+	map(0x0000, 0x0000).w(FUNC(acclaim_rax_device::ram_bank_w));
+	map(0x0001, 0x0001).w(FUNC(acclaim_rax_device::rom_bank_w));
+	map(0x0003, 0x0003).rw(FUNC(acclaim_rax_device::host_r), FUNC(acclaim_rax_device::host_w));
+}
 
 
 void acclaim_rax_device::device_start()
 {
-	m_rom = (uint8_t *)machine().root_device().memregion("rax")->base();
-
 	m_program = &m_cpu->space(AS_PROGRAM);
 	m_data = &m_cpu->space(AS_DATA);
 
-	m_dmadac[0] = subdevice<dmadac_sound_device>("dacl");
-	m_dmadac[1] = subdevice<dmadac_sound_device>("dacr");
-
-	m_reg_timer[0] = subdevice<timer_device>("adsp_reg_timer0");
-	m_dma_timer = subdevice<timer_device>("adsp_dma_timer");
-
 	// 1 bank for internal
-	membank("databank")->configure_entries(0, 5, auto_alloc_array(machine(), uint16_t, 0x2000 * 5), 0x2000*sizeof(uint16_t));
+	m_banked_ram = make_unique_clear<uint16_t[]>(0x2000 * 5);
+	membank("databank")->configure_entries(0, 5, &m_banked_ram[0], 0x2000*sizeof(uint16_t));
 }
 
 void acclaim_rax_device::device_reset()
@@ -359,7 +355,11 @@ void acclaim_rax_device::adsp_irq(int which)
 		reg += m_incs[which];
 	}
 
-	dmadac_transfer(&m_dmadac[0], 2, 1, 2, count/2, buffer);
+	for (int i = 0; i < 2; i++)
+	{
+		m_dmadac[i]->flush();
+		m_dmadac[i]->transfer(i, 1, 2, count/2, buffer);
+	}
 
 	/* check for wrapping */
 	if (reg >= m_ireg_base[which] + m_size[which])
@@ -387,28 +387,31 @@ void acclaim_rax_device::recompute_sample_rate(int which)
 
 	/* now put it down to samples, so we know what the channel frequency has to be */
 	sample_period = sample_period * (16 * 1);
-	dmadac_set_frequency(&m_dmadac[0], 2, ATTOSECONDS_TO_HZ(sample_period.attoseconds()));
-	dmadac_enable(&m_dmadac[0], 2, 1);
+	for (auto &dmadac : m_dmadac)
+	{
+		dmadac->set_frequency(sample_period.as_hz());
+		dmadac->enable(1);
+	}
 
 	/* fire off a timer which will hit every half-buffer */
 	if (m_incs[which])
 	{
 		attotime period = (sample_period * m_size[which]) / (4 * 2 * m_incs[which]);
-		m_reg_timer[which]->adjust(period, 0, period);
+		m_reg_timer->adjust(period, 0, period);
 	}
 }
 
-WRITE32_MEMBER(acclaim_rax_device::adsp_sound_tx_callback)
+void acclaim_rax_device::adsp_sound_tx_callback(offs_t offset, uint32_t data)
 {
 	int which = offset;
 
 	if (which != 0)
 		return;
 
-	int autobuf_reg = which ? S1_AUTOBUF_REG : S0_AUTOBUF_REG;
+	int autobuf_reg = which ? S1_AUTOBUF_REG : S0_AUTOBUF_REG; // "which" must equal 0 here, invalid test: Coverity 315932
 
 	/* check if SPORT1 is enabled */
-	if (m_control_regs[SYSCONTROL_REG] & (which ? 0x0800 : 0x1000)) /* bit 11 */
+	if (m_control_regs[SYSCONTROL_REG] & (which ? 0x0800 : 0x1000)) /* bit 11 */ // invalid test here too
 	{
 		/* we only support autobuffer here (which is what this thing uses), bail if not enabled */
 		if (m_control_regs[autobuf_reg] & 0x0002) /* bit 1 */
@@ -446,15 +449,16 @@ WRITE32_MEMBER(acclaim_rax_device::adsp_sound_tx_callback)
 	}
 
 	/* if we get there, something went wrong. Disable playing */
-	dmadac_enable(&m_dmadac[0], 2, 0);
+	for (auto &dmadac : m_dmadac)
+		dmadac->enable(0);
 
 	/* remove timer */
-	m_reg_timer[which]->reset();
+	m_reg_timer->reset();
 }
 
-WRITE32_MEMBER(acclaim_rax_device::dmovlay_callback)
+void acclaim_rax_device::dmovlay_callback(uint32_t data)
 {
-	if (data < 0 || data > 1)
+	if (data > 1)
 	{
 		fatalerror("dmovlay_callback: Error! dmovlay called with value = %X\n", data);
 	}
@@ -475,8 +479,12 @@ DEFINE_DEVICE_TYPE(ACCLAIM_RAX, acclaim_rax_device, "rax_audio", "Acclaim RAX")
 acclaim_rax_device::acclaim_rax_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, ACCLAIM_RAX, tag, owner, clock)
 	, m_cpu(*this, "adsp")
+	, m_dmadac(*this, { "dacl", "dacr" })
+	, m_reg_timer(*this, "adsp_reg_timer")
+	, m_dma_timer(*this, "adsp_dma_timer")
 	, m_adsp_pram(*this, "adsp_pram")
 	, m_adsp_data_bank(*this, "databank")
+	, m_rom(*this, DEVICE_SELF)
 	, m_data_in(*this, "data_in")
 	, m_data_out(*this, "data_out")
 {
@@ -487,26 +495,25 @@ acclaim_rax_device::acclaim_rax_device(const machine_config &mconfig, const char
 // device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(acclaim_rax_device::device_add_mconfig)
-	MCFG_CPU_ADD("adsp", ADSP2181, XTAL(16'670'000))
-	MCFG_ADSP21XX_SPORT_TX_CB(WRITE32(acclaim_rax_device, adsp_sound_tx_callback))      /* callback for serial transmit */
-	MCFG_ADSP21XX_DMOVLAY_CB(WRITE32(acclaim_rax_device, dmovlay_callback)) // callback for adsp 2181 dmovlay instruction
-	MCFG_CPU_PROGRAM_MAP(adsp_program_map)
-	MCFG_CPU_DATA_MAP(adsp_data_map)
-	MCFG_CPU_IO_MAP(adsp_io_map)
+void acclaim_rax_device::device_add_mconfig(machine_config &config)
+{
+	ADSP2181(config, m_cpu, XTAL(16'670'000));
+	m_cpu->sport_tx().set(FUNC(acclaim_rax_device::adsp_sound_tx_callback)); /* callback for serial transmit */
+	m_cpu->dmovlay().set(FUNC(acclaim_rax_device::dmovlay_callback)); /* callback for adsp 2181 dmovlay instruction */
+	m_cpu->set_addrmap(AS_PROGRAM, &acclaim_rax_device::adsp_program_map);
+	m_cpu->set_addrmap(AS_DATA, &acclaim_rax_device::adsp_data_map);
+	m_cpu->set_addrmap(AS_IO, &acclaim_rax_device::adsp_io_map);
 
-	MCFG_TIMER_DEVICE_ADD("adsp_reg_timer0", DEVICE_SELF, acclaim_rax_device, adsp_irq0)
-	MCFG_TIMER_DEVICE_ADD("adsp_dma_timer", DEVICE_SELF, acclaim_rax_device, dma_timer_callback)
+	TIMER(config, "adsp_reg_timer").configure_generic(FUNC(acclaim_rax_device::adsp_irq0));
+	TIMER(config, "adsp_dma_timer").configure_generic(FUNC(acclaim_rax_device::dma_timer_callback));
 
-	MCFG_GENERIC_LATCH_16_ADD("data_in")
-	MCFG_GENERIC_LATCH_16_ADD("data_out")
+	GENERIC_LATCH_16(config, m_data_in);
+	GENERIC_LATCH_16(config, m_data_out);
 
-	MCFG_SPEAKER_STANDARD_STEREO("lspeaker", "rspeaker")
+	SPEAKER(config, "lspeaker").front_left();
+	SPEAKER(config, "rspeaker").front_right();
 
-	MCFG_SOUND_ADD("dacl", DMADAC, 0)
-	MCFG_SOUND_ROUTE(ALL_OUTPUTS, "lspeaker", 1.0)
-
-	MCFG_SOUND_ADD("dacr", DMADAC, 0)
-	MCFG_SOUND_ROUTE(ALL_OUTPUTS, "rspeaker", 1.0)
-MACHINE_CONFIG_END
+	DMADAC(config, "dacl").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	DMADAC(config, "dacr").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+}
 

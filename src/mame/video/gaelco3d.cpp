@@ -25,7 +25,7 @@
 #define IS_POLYEND(x)       (((x) ^ ((x) >> 1)) & 0x4000)
 
 
-gaelco3d_renderer::gaelco3d_renderer(gaelco3d_state &state)
+gaelco3d_state::gaelco3d_renderer::gaelco3d_renderer(gaelco3d_state &state)
 	: poly_manager<float, gaelco3d_object_data, 1, 2000>(state.machine()),
 		m_state(state),
 		m_screenbits(state.m_screen->width(), state.m_screen->height()),
@@ -75,8 +75,8 @@ void gaelco3d_state::video_start()
 
 	/* save states */
 
-	save_pointer(NAME(m_palette.get()), 32768);
-	save_pointer(NAME(m_polydata_buffer.get()), MAX_POLYDATA);
+	save_pointer(NAME(m_palette), 32768);
+	save_pointer(NAME(m_polydata_buffer), MAX_POLYDATA);
 	save_item(NAME(m_polydata_count));
 	save_item(NAME(m_lastscan));
 }
@@ -110,7 +110,7 @@ void gaelco3d_state::video_start()
     (repeat these two for each additional point in the fan)
 */
 
-void gaelco3d_renderer::render_poly(screen_device &screen, uint32_t *polydata)
+void gaelco3d_state::gaelco3d_renderer::render_poly(screen_device &screen, uint32_t *polydata)
 {
 	float midx = screen.width() / 2;
 	float midy = screen.height() / 2;
@@ -170,7 +170,7 @@ void gaelco3d_renderer::render_poly(screen_device &screen, uint32_t *polydata)
 
 	/* extract vertices */
 	data = 0;
-	for (vertnum = 0; vertnum < ARRAY_LENGTH(vert) && !IS_POLYEND(data); vertnum++)
+	for (vertnum = 0; vertnum < std::size(vert) && !IS_POLYEND(data); vertnum++)
 	{
 		/* extract vertex data */
 		data = polydata[13 + vertnum * 2];
@@ -201,7 +201,7 @@ void gaelco3d_renderer::render_poly(screen_device &screen, uint32_t *polydata)
 
 
 
-void gaelco3d_renderer::render_noz_noperspective(int32_t scanline, const extent_t &extent, const gaelco3d_object_data &object, int threadid)
+void gaelco3d_state::gaelco3d_renderer::render_noz_noperspective(int32_t scanline, const extent_t &extent, const gaelco3d_object_data &object, int threadid)
 {
 	float zbase = recip_approx(object.ooz_base);
 	float uoz_step = object.uoz_dx * zbase;
@@ -210,8 +210,8 @@ void gaelco3d_renderer::render_noz_noperspective(int32_t scanline, const extent_
 	offs_t endmask = m_texture_size - 1;
 	const rgb_t *palsource = m_state.m_palette.get() + object.color;
 	uint32_t tex = object.tex;
-	uint16_t *dest = &m_screenbits.pix16(scanline);
-	uint16_t *zbuf = &m_zbuffer.pix16(scanline);
+	uint16_t *dest = &m_screenbits.pix(scanline);
+	uint16_t *zbuf = &m_zbuffer.pix(scanline);
 	int startx = extent.startx;
 	float uoz = (object.uoz_base + scanline * object.uoz_dy + startx * object.uoz_dx) * zbase;
 	float voz = (object.voz_base + scanline * object.voz_dy + startx * object.voz_dx) * zbase;
@@ -240,7 +240,7 @@ void gaelco3d_renderer::render_noz_noperspective(int32_t scanline, const extent_
 }
 
 
-void gaelco3d_renderer::render_normal(int32_t scanline, const extent_t &extent, const gaelco3d_object_data &object, int threadid)
+void gaelco3d_state::gaelco3d_renderer::render_normal(int32_t scanline, const extent_t &extent, const gaelco3d_object_data &object, int threadid)
 {
 	float ooz_dx = object.ooz_dx;
 	float uoz_dx = object.uoz_dx;
@@ -249,8 +249,8 @@ void gaelco3d_renderer::render_normal(int32_t scanline, const extent_t &extent, 
 	const rgb_t *palsource = m_state.m_palette.get() + object.color;
 	uint32_t tex = object.tex;
 	float z0 = object.z0;
-	uint16_t *dest = &m_screenbits.pix16(scanline);
-	uint16_t *zbuf = &m_zbuffer.pix16(scanline);
+	uint16_t *dest = &m_screenbits.pix(scanline);
+	uint16_t *zbuf = &m_zbuffer.pix(scanline);
 	int startx = extent.startx;
 	float ooz = object.ooz_base + scanline * object.ooz_dy + startx * ooz_dx;
 	float uoz = object.uoz_base + scanline * object.uoz_dy + startx * uoz_dx;
@@ -290,7 +290,7 @@ void gaelco3d_renderer::render_normal(int32_t scanline, const extent_t &extent, 
 }
 
 
-void gaelco3d_renderer::render_alphablend(int32_t scanline, const extent_t &extent, const gaelco3d_object_data &object, int threadid)
+void gaelco3d_state::gaelco3d_renderer::render_alphablend(int32_t scanline, const extent_t &extent, const gaelco3d_object_data &object, int threadid)
 {
 	float ooz_dx = object.ooz_dx;
 	float uoz_dx = object.uoz_dx;
@@ -299,8 +299,8 @@ void gaelco3d_renderer::render_alphablend(int32_t scanline, const extent_t &exte
 	const rgb_t *palsource = m_state.m_palette.get() + object.color;
 	uint32_t tex = object.tex;
 	float z0 = object.z0;
-	uint16_t *dest = &m_screenbits.pix16(scanline);
-	uint16_t *zbuf = &m_zbuffer.pix16(scanline);
+	uint16_t *dest = &m_screenbits.pix(scanline);
+	uint16_t *zbuf = &m_zbuffer.pix(scanline);
 	int startx = extent.startx;
 	float ooz = object.ooz_base + object.ooz_dy * scanline + startx * ooz_dx;
 	float uoz = object.uoz_base + object.uoz_dy * scanline + startx * uoz_dx;
@@ -370,7 +370,7 @@ void gaelco3d_state::gaelco3d_render(screen_device &screen)
  *
  *************************************/
 
-WRITE32_MEMBER(gaelco3d_state::gaelco3d_render_w)
+void gaelco3d_state::gaelco3d_render_w(uint32_t data)
 {
 	/* append the data to our buffer */
 	m_polydata_buffer[m_polydata_count++] = data;
@@ -401,7 +401,7 @@ WRITE32_MEMBER(gaelco3d_state::gaelco3d_render_w)
  *
  *************************************/
 
-WRITE16_MEMBER(gaelco3d_state::gaelco3d_paletteram_w)
+void gaelco3d_state::gaelco3d_paletteram_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	m_poly->wait("Palette change");
 	COMBINE_DATA(&m_paletteram16[offset]);
@@ -409,7 +409,7 @@ WRITE16_MEMBER(gaelco3d_state::gaelco3d_paletteram_w)
 }
 
 
-WRITE32_MEMBER(gaelco3d_state::gaelco3d_paletteram_020_w)
+void gaelco3d_state::gaelco3d_paletteram_020_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	m_poly->wait("Palette change");
 	COMBINE_DATA(&m_paletteram32[offset]);
@@ -425,7 +425,7 @@ WRITE32_MEMBER(gaelco3d_state::gaelco3d_paletteram_020_w)
  *
  *************************************/
 
-uint32_t gaelco3d_state::screen_update_gaelco3d(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+uint32_t gaelco3d_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	int ret;
 
@@ -454,7 +454,7 @@ uint32_t gaelco3d_state::screen_update_gaelco3d(screen_device &screen, bitmap_in
 
         for (y = cliprect.min_y; y <= cliprect.max_y; y++)
         {
-            uint16_t *dest = &bitmap.pix16(y);
+            uint16_t *dest = &bitmap.pix(y);
             for (x = cliprect.min_x; x <= cliprect.max_x; x++)
             {
                 int offs = (yv + y - cliprect.min_y) * 4096 + xv + x - cliprect.min_x;
@@ -474,6 +474,5 @@ uint32_t gaelco3d_state::screen_update_gaelco3d(screen_device &screen, bitmap_in
 		m_video_changed = false;
 	}
 
-	logerror("---update---\n");
 	return (!ret);
 }

@@ -8,10 +8,10 @@
 
 ***************************************************************************/
 
-#pragma once
+#ifndef MAME_UTIL_CDROM_H
+#define MAME_UTIL_CDROM_H
 
-#ifndef __CDROM_H__
-#define __CDROM_H__
+#pragma once
 
 #include "osdcore.h"
 #include "chd.h"
@@ -82,11 +82,15 @@ struct cdrom_track_info
 
 	/* fields used in CHDMAN only */
 	uint32_t padframes;   /* number of frames of padding to add to the end of the track; needed for GDI */
+	uint32_t splitframes; /* number of frames to read from the next file; needed for Redump split-bin GDI */
 
 	/* fields used in MAME/MESS only */
 	uint32_t logframeofs; /* logical frame of actual track data - offset by pregap size if pregap not physically present */
 	uint32_t physframeofs; /* physical frame of actual track data in CHD data */
 	uint32_t chdframeofs; /* frame number this track starts at on the CHD */
+
+	/* fields used in multi-cue GDI */
+	uint32_t multicuearea;
 };
 
 
@@ -179,7 +183,4 @@ static inline uint32_t lba_to_msf_alt(int lba)
 	return ret;
 }
 
-
-
-
-#endif  // __CDROM_H__
+#endif // MAME_UTIL_CDROM_H

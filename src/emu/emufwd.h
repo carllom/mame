@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 
 //----------------------------------
 // 3rdparty
@@ -50,11 +52,8 @@ class chd_file;
 // declared in unzip.h
 namespace util { class archive_file; }
 
-// declared in wavwrite.h
-struct wav_file;
-
 // declared in xmlfile.h
-namespace util { namespace xml { class data_node; } }
+namespace util::xml { class data_node; }
 
 
 
@@ -79,7 +78,7 @@ class crosshair_manager;
 // declared in debug/debugcmd.h
 class debugger_commands;
 
-// declared in debug/debugcmd.h
+// declared in debug/debugcon.h
 class debugger_console;
 
 // declared in debug/debugcpu.h
@@ -94,19 +93,28 @@ class debug_view_manager;
 class parsed_expression;
 class symbol_table;
 
+// declared in debug/points.h
+class debug_breakpoint;
+class debug_watchpoint;
+class debug_registerpoint;
+
 // declared in debugger.h
 class debugger_manager;
 
 // declared in devcb.h
-class devcb_read_base;
-class devcb_write_base;
+class devcb_base;
+template <typename Input, std::make_unsigned_t<Input> DefaultMask> class devcb_write;
 
 // declared in devfind.h
 class finder_base;
+template <class DeviceClass, bool Required> class device_finder;
 
 // declared in device.h
 class device_interface;
 class device_t;
+
+// declared in didisasm.h
+class device_disasm_interface;
 
 // declared in diexec.h
 class device_execute_interface;
@@ -134,18 +142,14 @@ class driver_device;
 
 // declared in emumem.h
 class address_space;
-template<int addr_shift> class direct_read_data;
 class memory_bank;
-class memory_block;
 class memory_manager;
 class memory_region;
 class memory_share;
+class memory_view;
 
 // declared in emuopts.h
 class emu_options;
-
-// declared in emupal.h
-class palette_device;
 
 // declared in gamedrv.h
 class game_driver;
@@ -175,6 +179,7 @@ struct ioport_port_live;
 class running_machine;
 
 // declared in mconfig.h
+namespace emu::detail { class machine_config_replace; }
 class machine_config;
 
 // declared in natkeyboard.h
@@ -189,6 +194,7 @@ class output_manager;
 // declared in render.h
 class layout_element;
 class layout_view;
+class layout_file;
 class render_container;
 class render_manager;
 class render_target;
@@ -221,6 +227,9 @@ class software_list_loader;
 // declared in sound.h
 class sound_manager;
 class sound_stream;
+
+// declared in speaker.h
+class speaker_device;
 
 // declared in tilemap.h
 class tilemap_device;

@@ -11,13 +11,6 @@
 #include "emu.h"
 #include "m740.h"
 
-DEFINE_DEVICE_TYPE(M740, m740_device, "m740", "M740")
-
-m740_device::m740_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
-	m740_device(mconfig, M740, tag, owner, clock)
-{
-}
-
 m740_device::m740_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
 	m6502_device(mconfig, type, tag, owner, clock), m_irq_multiplex(0), m_irq_vector(0)
 {
@@ -28,9 +21,9 @@ u32 m740_device::get_state_base() const
 	return inst_state_base;
 }
 
-util::disasm_interface *m740_device::create_disassembler()
+std::unique_ptr<util::disasm_interface> m740_device::create_disassembler()
 {
-	return new m740_disassembler(this);
+	return std::make_unique<m740_disassembler>(this);
 }
 
 void m740_device::device_start()
@@ -52,6 +45,7 @@ void m740_device::device_reset()
 	m_irq_vector = 0xfffc;
 	apu_irq_state = false;
 	irq_taken = false;
+	nmi_pending = false;
 	v_state = false;
 	sync = false;
 	inhibit_interrupts = false;

@@ -165,23 +165,23 @@ http://www.z88forever.org.uk/zxplus3e/
 /* TS2048 specific functions */
 
 
-READ8_MEMBER( spectrum_state::ts2068_port_f4_r )
+uint8_t ts2068_state::port_f4_r()
 {
 	return m_port_f4_data;
 }
 
-WRITE8_MEMBER( spectrum_state::ts2068_port_f4_w )
+void ts2068_state::port_f4_w(uint8_t data)
 {
 	m_port_f4_data = data;
 	ts2068_update_memory();
 }
 
-READ8_MEMBER( spectrum_state::ts2068_port_ff_r )
+uint8_t tc2048_state::port_ff_r()
 {
 	return m_port_ff_data;
 }
 
-WRITE8_MEMBER( spectrum_state::ts2068_port_ff_w )
+void ts2068_state::port_ff_w(offs_t offset, uint8_t data)
 {
 		/* Bits 0-2 Video Mode Select
 		   Bits 3-5 64 column mode ink/paper selection
@@ -212,7 +212,7 @@ WRITE8_MEMBER( spectrum_state::ts2068_port_ff_w )
  *      at the same time.
  *
  *******************************************************************/
-void spectrum_state::ts2068_update_memory()
+void ts2068_state::ts2068_update_memory()
 {
 	uint8_t *messram = nullptr;
 	if (m_ram) messram = m_ram->pointer();
@@ -228,7 +228,7 @@ void spectrum_state::ts2068_update_memory()
 	{
 		if (m_port_ff_data & 0x80)
 		{
-				space.install_read_bank(0x0000, 0x1fff, "bank1");
+				space.install_read_bank(0x0000, 0x1fff, membank("bank1"));
 				space.unmap_write(0x0000, 0x1fff);
 				membank("bank1")->set_base(ExROM);
 				logerror("0000-1fff EXROM\n");
@@ -238,9 +238,9 @@ void spectrum_state::ts2068_update_memory()
 			if (m_dock_cart_type == TIMEX_CART_DOCK)
 			{
 				membank("bank1")->set_base(DOCK);
-				space.install_read_bank(0x0000, 0x1fff, "bank1");
+				space.install_read_bank(0x0000, 0x1fff, membank("bank1"));
 				if (m_ram_chunks & 0x01)
-					space.install_write_bank(0x0000, 0x1fff, "bank9");
+					space.install_write_bank(0x0000, 0x1fff, membank("bank9"));
 				else
 					space.unmap_write(0x0000, 0x1fff);
 
@@ -258,7 +258,7 @@ void spectrum_state::ts2068_update_memory()
 	{
 		ChosenROM = memregion("maincpu")->base() + 0x010000;
 		membank("bank1")->set_base(ChosenROM);
-		space.install_read_bank(0x0000, 0x1fff, "bank1");
+		space.install_read_bank(0x0000, 0x1fff, membank("bank1"));
 		space.unmap_write(0x0000, 0x1fff);
 		logerror("0000-1fff HOME\n");
 	}
@@ -268,7 +268,7 @@ void spectrum_state::ts2068_update_memory()
 		if (m_port_ff_data & 0x80)
 		{
 			membank("bank2")->set_base(ExROM);
-			space.install_read_bank(0x2000, 0x3fff, "bank2");
+			space.install_read_bank(0x2000, 0x3fff, membank("bank2"));
 			space.unmap_write(0x2000, 0x3fff);
 			logerror("2000-3fff EXROM\n");
 		}
@@ -277,9 +277,9 @@ void spectrum_state::ts2068_update_memory()
 			if (m_dock_cart_type == TIMEX_CART_DOCK)
 			{
 				membank("bank2")->set_base(DOCK+0x2000);
-				space.install_read_bank(0x2000, 0x3fff, "bank2");
+				space.install_read_bank(0x2000, 0x3fff, membank("bank2"));
 				if (m_ram_chunks & 0x02)
-					space.install_write_bank(0x2000, 0x3fff, "bank10");
+					space.install_write_bank(0x2000, 0x3fff, membank("bank10"));
 				else
 					space.unmap_write(0x2000, 0x3fff);
 
@@ -296,7 +296,7 @@ void spectrum_state::ts2068_update_memory()
 	{
 		ChosenROM = memregion("maincpu")->base() + 0x012000;
 		membank("bank2")->set_base(ChosenROM);
-		space.install_read_bank(0x2000, 0x3fff, "bank2");
+		space.install_read_bank(0x2000, 0x3fff, membank("bank2"));
 		space.unmap_write(0x2000, 0x3fff);
 		logerror("2000-3fff HOME\n");
 	}
@@ -306,7 +306,7 @@ void spectrum_state::ts2068_update_memory()
 		if (m_port_ff_data & 0x80)
 		{
 			membank("bank3")->set_base(ExROM);
-			space.install_read_bank(0x4000, 0x5fff, "bank3");
+			space.install_read_bank(0x4000, 0x5fff, membank("bank3"));
 			space.unmap_write(0x4000, 0x5fff);
 			logerror("4000-5fff EXROM\n");
 		}
@@ -315,9 +315,9 @@ void spectrum_state::ts2068_update_memory()
 			if (m_dock_cart_type == TIMEX_CART_DOCK)
 			{
 				membank("bank3")->set_base(DOCK+0x4000);
-				space.install_read_bank(0x4000, 0x5fff, "bank3");
+				space.install_read_bank(0x4000, 0x5fff, membank("bank3"));
 				if (m_ram_chunks & 0x04)
-					space.install_write_bank(0x4000, 0x5fff, "bank11");
+					space.install_write_bank(0x4000, 0x5fff, membank("bank11"));
 				else
 					space.unmap_write(0x4000, 0x5fff);
 			}
@@ -333,8 +333,8 @@ void spectrum_state::ts2068_update_memory()
 	{
 		membank("bank3")->set_base(messram);
 		membank("bank11")->set_base(messram);
-		space.install_read_bank(0x4000, 0x5fff, "bank3");
-		space.install_write_bank(0x4000, 0x5fff, "bank11");
+		space.install_read_bank(0x4000, 0x5fff, membank("bank3"));
+		space.install_write_bank(0x4000, 0x5fff, membank("bank11"));
 		logerror("4000-5fff RAM\n");
 	}
 
@@ -343,7 +343,7 @@ void spectrum_state::ts2068_update_memory()
 		if (m_port_ff_data & 0x80)
 		{
 			membank("bank4")->set_base(ExROM);
-			space.install_read_bank(0x6000, 0x7fff, "bank4");
+			space.install_read_bank(0x6000, 0x7fff, membank("bank4"));
 			space.unmap_write(0x6000, 0x7fff);
 			logerror("6000-7fff EXROM\n");
 		}
@@ -352,9 +352,9 @@ void spectrum_state::ts2068_update_memory()
 				if (m_dock_cart_type == TIMEX_CART_DOCK)
 				{
 					membank("bank4")->set_base(DOCK+0x6000);
-					space.install_read_bank(0x6000, 0x7fff, "bank4");
+					space.install_read_bank(0x6000, 0x7fff, membank("bank4"));
 					if (m_ram_chunks & 0x08)
-						space.install_write_bank(0x6000, 0x7fff, "bank12");
+						space.install_write_bank(0x6000, 0x7fff, membank("bank12"));
 					else
 						space.unmap_write(0x6000, 0x7fff);
 				}
@@ -370,8 +370,8 @@ void spectrum_state::ts2068_update_memory()
 	{
 		membank("bank4")->set_base(messram + 0x2000);
 		membank("bank12")->set_base(messram + 0x2000);
-		space.install_read_bank(0x6000, 0x7fff, "bank4");
-		space.install_write_bank(0x6000, 0x7fff, "bank12");
+		space.install_read_bank(0x6000, 0x7fff, membank("bank4"));
+		space.install_write_bank(0x6000, 0x7fff, membank("bank12"));
 		logerror("6000-7fff RAM\n");
 	}
 
@@ -380,7 +380,7 @@ void spectrum_state::ts2068_update_memory()
 		if (m_port_ff_data & 0x80)
 		{
 			membank("bank5")->set_base(ExROM);
-			space.install_read_bank(0x8000, 0x9fff, "bank5");
+			space.install_read_bank(0x8000, 0x9fff, membank("bank5"));
 			space.unmap_write(0x8000, 0x9fff);
 			logerror("8000-9fff EXROM\n");
 		}
@@ -389,9 +389,9 @@ void spectrum_state::ts2068_update_memory()
 			if (m_dock_cart_type == TIMEX_CART_DOCK)
 			{
 				membank("bank5")->set_base(DOCK+0x8000);
-				space.install_read_bank(0x8000, 0x9fff,"bank5");
+				space.install_read_bank(0x8000, 0x9fff,membank("bank5"));
 				if (m_ram_chunks & 0x10)
-					space.install_write_bank(0x8000, 0x9fff,"bank13");
+					space.install_write_bank(0x8000, 0x9fff,membank("bank13"));
 				else
 					space.unmap_write(0x8000, 0x9fff);
 			}
@@ -407,8 +407,8 @@ void spectrum_state::ts2068_update_memory()
 	{
 		membank("bank5")->set_base(messram + 0x4000);
 		membank("bank13")->set_base(messram + 0x4000);
-		space.install_read_bank(0x8000, 0x9fff,"bank5");
-		space.install_write_bank(0x8000, 0x9fff,"bank13");
+		space.install_read_bank(0x8000, 0x9fff,membank("bank5"));
+		space.install_write_bank(0x8000, 0x9fff,membank("bank13"));
 		logerror("8000-9fff RAM\n");
 	}
 
@@ -417,7 +417,7 @@ void spectrum_state::ts2068_update_memory()
 		if (m_port_ff_data & 0x80)
 		{
 			membank("bank6")->set_base(ExROM);
-			space.install_read_bank(0xa000, 0xbfff, "bank6");
+			space.install_read_bank(0xa000, 0xbfff, membank("bank6"));
 			space.unmap_write(0xa000, 0xbfff);
 			logerror("a000-bfff EXROM\n");
 		}
@@ -426,9 +426,9 @@ void spectrum_state::ts2068_update_memory()
 			if (m_dock_cart_type == TIMEX_CART_DOCK)
 			{
 				membank("bank6")->set_base(DOCK+0xa000);
-				space.install_read_bank(0xa000, 0xbfff, "bank6");
+				space.install_read_bank(0xa000, 0xbfff, membank("bank6"));
 				if (m_ram_chunks & 0x20)
-					space.install_write_bank(0xa000, 0xbfff, "bank14");
+					space.install_write_bank(0xa000, 0xbfff, membank("bank14"));
 				else
 					space.unmap_write(0xa000, 0xbfff);
 
@@ -445,8 +445,8 @@ void spectrum_state::ts2068_update_memory()
 	{
 		membank("bank6")->set_base(messram + 0x6000);
 		membank("bank14")->set_base(messram + 0x6000);
-		space.install_read_bank(0xa000, 0xbfff, "bank6");
-		space.install_write_bank(0xa000, 0xbfff, "bank14");
+		space.install_read_bank(0xa000, 0xbfff, membank("bank6"));
+		space.install_write_bank(0xa000, 0xbfff, membank("bank14"));
 		logerror("a000-bfff RAM\n");
 	}
 
@@ -455,7 +455,7 @@ void spectrum_state::ts2068_update_memory()
 		if (m_port_ff_data & 0x80)
 		{
 			membank("bank7")->set_base(ExROM);
-			space.install_read_bank(0xc000, 0xdfff, "bank7");
+			space.install_read_bank(0xc000, 0xdfff, membank("bank7"));
 			space.unmap_write(0xc000, 0xdfff);
 			logerror("c000-dfff EXROM\n");
 		}
@@ -464,9 +464,9 @@ void spectrum_state::ts2068_update_memory()
 			if (m_dock_cart_type == TIMEX_CART_DOCK)
 			{
 				membank("bank7")->set_base(DOCK+0xc000);
-				space.install_read_bank(0xc000, 0xdfff, "bank7");
+				space.install_read_bank(0xc000, 0xdfff, membank("bank7"));
 				if (m_ram_chunks & 0x40)
-					space.install_write_bank(0xc000, 0xdfff, "bank15");
+					space.install_write_bank(0xc000, 0xdfff, membank("bank15"));
 				else
 					space.unmap_write(0xc000, 0xdfff);
 			}
@@ -482,8 +482,8 @@ void spectrum_state::ts2068_update_memory()
 	{
 		membank("bank7")->set_base(messram + 0x8000);
 		membank("bank15")->set_base(messram + 0x8000);
-		space.install_read_bank(0xc000, 0xdfff, "bank7");
-		space.install_write_bank(0xc000, 0xdfff, "bank15");
+		space.install_read_bank(0xc000, 0xdfff, membank("bank7"));
+		space.install_write_bank(0xc000, 0xdfff, membank("bank15"));
 		logerror("c000-dfff RAM\n");
 	}
 
@@ -492,7 +492,7 @@ void spectrum_state::ts2068_update_memory()
 		if (m_port_ff_data & 0x80)
 		{
 			membank("bank8")->set_base(ExROM);
-			space.install_read_bank(0xe000, 0xffff, "bank8");
+			space.install_read_bank(0xe000, 0xffff, membank("bank8"));
 			space.unmap_write(0xe000, 0xffff);
 			logerror("e000-ffff EXROM\n");
 		}
@@ -501,9 +501,9 @@ void spectrum_state::ts2068_update_memory()
 			if (m_dock_cart_type == TIMEX_CART_DOCK)
 			{
 				membank("bank8")->set_base(DOCK+0xe000);
-				space.install_read_bank(0xe000, 0xffff, "bank8");
+				space.install_read_bank(0xe000, 0xffff, membank("bank8"));
 				if (m_ram_chunks & 0x80)
-					space.install_write_bank(0xe000, 0xffff, "bank16");
+					space.install_write_bank(0xe000, 0xffff, membank("bank16"));
 				else
 					space.unmap_write(0xe000, 0xffff);
 			}
@@ -519,33 +519,35 @@ void spectrum_state::ts2068_update_memory()
 	{
 		membank("bank8")->set_base(messram + 0xa000);
 		membank("bank16")->set_base(messram + 0xa000);
-		space.install_read_bank(0xe000, 0xffff, "bank8");
-		space.install_write_bank(0xe000, 0xffff, "bank16");
+		space.install_read_bank(0xe000, 0xffff, membank("bank8"));
+		space.install_write_bank(0xe000, 0xffff, membank("bank16"));
 		logerror("e000-ffff RAM\n");
 	}
 }
 
-ADDRESS_MAP_START(spectrum_state::ts2068_io)
-	AM_RANGE(0xf4, 0xf4) AM_READWRITE(ts2068_port_f4_r,ts2068_port_f4_w ) AM_MIRROR(0xff00)
-	AM_RANGE(0xf5, 0xf5) AM_DEVWRITE("ay8912", ay8910_device, address_w ) AM_MIRROR(0xff00)
-	AM_RANGE(0xf6, 0xf6) AM_DEVREADWRITE("ay8912", ay8910_device, data_r, data_w ) AM_MIRROR(0xff00)
-	AM_RANGE(0xfe, 0xfe) AM_READWRITE(spectrum_port_fe_r,spectrum_port_fe_w )  AM_SELECT(0xff00)
-	AM_RANGE(0xff, 0xff) AM_READWRITE(ts2068_port_ff_r,ts2068_port_ff_w ) AM_MIRROR(0xff00)
-ADDRESS_MAP_END
+void ts2068_state::ts2068_io(address_map &map)
+{
+	map(0xf4, 0xf4).rw(FUNC(ts2068_state::port_f4_r), FUNC(ts2068_state::port_f4_w)).mirror(0xff00);
+	map(0xf5, 0xf5).w("ay8912", FUNC(ay8910_device::address_w)).mirror(0xff00);
+	map(0xf6, 0xf6).rw("ay8912", FUNC(ay8910_device::data_r), FUNC(ay8910_device::data_w)).mirror(0xff00);
+	map(0xfe, 0xfe).rw(FUNC(ts2068_state::spectrum_port_fe_r), FUNC(ts2068_state::spectrum_port_fe_w)).select(0xff00);
+	map(0xff, 0xff).rw(FUNC(ts2068_state::port_ff_r), FUNC(ts2068_state::port_ff_w)).mirror(0xff00);
+}
 
-ADDRESS_MAP_START(spectrum_state::ts2068_mem)
-	AM_RANGE(0x0000, 0x1fff) AM_READ_BANK("bank1") AM_WRITE_BANK("bank9")
-	AM_RANGE(0x2000, 0x3fff) AM_READ_BANK("bank2") AM_WRITE_BANK("bank10")
-	AM_RANGE(0x4000, 0x5fff) AM_READ_BANK("bank3") AM_WRITE_BANK("bank11")
-	AM_RANGE(0x6000, 0x7fff) AM_READ_BANK("bank4") AM_WRITE_BANK("bank12")
-	AM_RANGE(0x8000, 0x9fff) AM_READ_BANK("bank5") AM_WRITE_BANK("bank13")
-	AM_RANGE(0xa000, 0xbfff) AM_READ_BANK("bank6") AM_WRITE_BANK("bank14")
-	AM_RANGE(0xc000, 0xdfff) AM_READ_BANK("bank7") AM_WRITE_BANK("bank15")
-	AM_RANGE(0xe000, 0xffff) AM_READ_BANK("bank8") AM_WRITE_BANK("bank16")
-ADDRESS_MAP_END
+void ts2068_state::ts2068_mem(address_map &map)
+{
+	map(0x0000, 0x1fff).bankr("bank1").bankw("bank9");
+	map(0x2000, 0x3fff).bankr("bank2").bankw("bank10");
+	map(0x4000, 0x5fff).bankr("bank3").bankw("bank11");
+	map(0x6000, 0x7fff).bankr("bank4").bankw("bank12");
+	map(0x8000, 0x9fff).bankr("bank5").bankw("bank13");
+	map(0xa000, 0xbfff).bankr("bank6").bankw("bank14");
+	map(0xc000, 0xdfff).bankr("bank7").bankw("bank15");
+	map(0xe000, 0xffff).bankr("bank8").bankw("bank16");
+}
 
 
-MACHINE_RESET_MEMBER(spectrum_state,ts2068)
+void ts2068_state::machine_reset()
 {
 	m_port_ff_data = 0;
 	m_port_f4_data = 0;
@@ -555,7 +557,7 @@ MACHINE_RESET_MEMBER(spectrum_state,ts2068)
 	m_dock_cart_type = m_dock_crt ? TIMEX_CART_DOCK : TIMEX_CART_NONE;
 
 	ts2068_update_memory();
-	MACHINE_RESET_CALL_MEMBER(spectrum);
+	spectrum_state::machine_reset();
 }
 
 
@@ -563,23 +565,25 @@ MACHINE_RESET_MEMBER(spectrum_state,ts2068)
 /* TC2048 specific functions */
 
 
-WRITE8_MEMBER( spectrum_state::tc2048_port_ff_w )
+void tc2048_state::port_ff_w(offs_t offset, uint8_t data)
 {
 	m_port_ff_data = data;
 	logerror("Port %04x write %02x\n", offset, data);
 }
 
-ADDRESS_MAP_START(spectrum_state::tc2048_io)
-	AM_RANGE(0x00, 0x00) AM_READWRITE(spectrum_port_fe_r,spectrum_port_fe_w) AM_SELECT(0xfffe)
-	AM_RANGE(0xff, 0xff) AM_READWRITE(ts2068_port_ff_r,tc2048_port_ff_w)  AM_MIRROR(0xff00)
-ADDRESS_MAP_END
+void tc2048_state::tc2048_io(address_map &map)
+{
+	map(0x00, 0x00).rw(FUNC(tc2048_state::spectrum_port_fe_r), FUNC(tc2048_state::spectrum_port_fe_w)).select(0xfffe);
+	map(0xff, 0xff).rw(FUNC(tc2048_state::port_ff_r), FUNC(tc2048_state::port_ff_w)).mirror(0xff00);
+}
 
-ADDRESS_MAP_START(spectrum_state::tc2048_mem)
-	AM_RANGE( 0x0000, 0x3fff) AM_ROM
-	AM_RANGE( 0x4000, 0xffff) AM_READ_BANK("bank1") AM_WRITE_BANK("bank2")
-ADDRESS_MAP_END
+void tc2048_state::tc2048_mem(address_map &map)
+{
+	map(0x0000, 0x3fff).rom();
+	map(0x4000, 0xffff).bankr("bank1").bankw("bank2");
+}
 
-MACHINE_RESET_MEMBER(spectrum_state,tc2048)
+void tc2048_state::machine_reset()
 {
 	uint8_t *messram = m_ram->pointer();
 
@@ -587,11 +591,11 @@ MACHINE_RESET_MEMBER(spectrum_state,tc2048)
 	membank("bank2")->set_base(messram);
 	m_port_ff_data = 0;
 	m_port_f4_data = -1;
-	MACHINE_RESET_CALL_MEMBER(spectrum);
+	spectrum_state::machine_reset();
 }
 
 
-DEVICE_IMAGE_LOAD_MEMBER( spectrum_state, timex_cart )
+DEVICE_IMAGE_LOAD_MEMBER( ts2068_state::cart_load )
 {
 	uint32_t size = m_dock->common_get_size("rom");
 
@@ -678,79 +682,70 @@ static const gfx_layout ts2068_charlayout =
 	8*8                 /* every char takes 8 bytes */
 };
 
-static GFXDECODE_START( ts2068 )
+static GFXDECODE_START( gfx_ts2068 )
 	GFXDECODE_ENTRY( "maincpu", 0x13d00, ts2068_charlayout, 0, 8 )
 GFXDECODE_END
 
-MACHINE_CONFIG_START(spectrum_state::ts2068)
+void ts2068_state::ts2068(machine_config &config)
+{
 	spectrum_128(config);
-	MCFG_CPU_REPLACE("maincpu", Z80, XTAL(14'112'000)/4)        /* From Schematic; 3.528 MHz */
-	MCFG_CPU_PROGRAM_MAP(ts2068_mem)
-	MCFG_CPU_IO_MAP(ts2068_io)
-	MCFG_CPU_VBLANK_INT_DRIVER("screen", spectrum_state,  spec_interrupt)
-	MCFG_QUANTUM_TIME(attotime::from_hz(60))
 
-	MCFG_MACHINE_RESET_OVERRIDE(spectrum_state, ts2068 )
+	Z80(config.replace(), m_maincpu, XTAL(14'112'000)/4);        /* From Schematic; 3.528 MHz */
+	m_maincpu->set_addrmap(AS_PROGRAM, &ts2068_state::ts2068_mem);
+	m_maincpu->set_addrmap(AS_IO, &ts2068_state::ts2068_io);
+	m_maincpu->set_vblank_int("screen", FUNC(ts2068_state::spec_interrupt));
+	config.set_maximum_quantum(attotime::from_hz(60));
 
 	/* video hardware */
-	MCFG_SCREEN_MODIFY("screen")
-	MCFG_SCREEN_REFRESH_RATE(60)
-	MCFG_SCREEN_SIZE(TS2068_SCREEN_WIDTH, TS2068_SCREEN_HEIGHT)
-	MCFG_SCREEN_VISIBLE_AREA(0, TS2068_SCREEN_WIDTH-1, 0, TS2068_SCREEN_HEIGHT-1)
-	MCFG_SCREEN_UPDATE_DRIVER(spectrum_state, screen_update_ts2068)
-	MCFG_SCREEN_VBLANK_CALLBACK(WRITELINE(spectrum_state, screen_vblank_timex))
+	m_screen->set_refresh_hz(60);
+	m_screen->set_size(TS2068_SCREEN_WIDTH, TS2068_SCREEN_HEIGHT);
+	m_screen->set_visarea(0, TS2068_SCREEN_WIDTH-1, 0, TS2068_SCREEN_HEIGHT-1);
+	m_screen->set_screen_update(FUNC(ts2068_state::screen_update));
+	m_screen->screen_vblank().set(FUNC(ts2068_state::screen_vblank_timex));
 
-	MCFG_GFXDECODE_MODIFY("gfxdecode", ts2068)
-
-	MCFG_VIDEO_START_OVERRIDE(spectrum_state, ts2068 )
+	subdevice<gfxdecode_device>("gfxdecode")->set_info(gfx_ts2068);
 
 	/* sound */
-	MCFG_SOUND_REPLACE("ay8912", AY8912, XTAL(14'112'000)/8)        /* From Schematic; 1.764 MHz */
-	MCFG_SOUND_ROUTE(ALL_OUTPUTS, "mono", 0.25)
+	AY8912(config.replace(), "ay8912", XTAL(14'112'000)/8).add_route(ALL_OUTPUTS, "mono", 0.25);        /* From Schematic; 1.764 MHz */
 
 	/* cartridge */
-	MCFG_GENERIC_CARTSLOT_ADD("dockslot", generic_plain_slot, "timex_cart")
-	MCFG_GENERIC_EXTENSIONS("dck,bin")
-	MCFG_GENERIC_LOAD(spectrum_state, timex_cart)
+	GENERIC_CARTSLOT(config, "dockslot", generic_plain_slot, "timex_cart", "dck,bin").set_device_load(FUNC(ts2068_state::cart_load));
 
 	/* Software lists */
-	MCFG_SOFTWARE_LIST_ADD("cart_list", "timex_dock")
+	SOFTWARE_LIST(config, "cart_list").set_original("timex_dock");
+	SOFTWARE_LIST(config, "cass_list_t").set_original("timex_cass");
 
 	/* internal ram */
-	MCFG_RAM_MODIFY(RAM_TAG)
-	MCFG_RAM_DEFAULT_SIZE("48K")
-MACHINE_CONFIG_END
+	m_ram->set_default_size("48K");
+}
 
 
-MACHINE_CONFIG_START(spectrum_state::uk2086)
+void ts2068_state::uk2086(machine_config &config)
+{
 	ts2068(config);
-	MCFG_SCREEN_MODIFY("screen")
-	MCFG_SCREEN_REFRESH_RATE(50)
-MACHINE_CONFIG_END
+	m_screen->set_refresh_hz(50);
+}
 
 
-MACHINE_CONFIG_START(spectrum_state::tc2048)
+void tc2048_state::tc2048(machine_config &config)
+{
 	spectrum(config);
-	MCFG_CPU_MODIFY("maincpu")
-	MCFG_CPU_PROGRAM_MAP(tc2048_mem)
-	MCFG_CPU_IO_MAP(tc2048_io)
-
-	MCFG_MACHINE_RESET_OVERRIDE(spectrum_state, tc2048 )
+	m_maincpu->set_addrmap(AS_PROGRAM, &tc2048_state::tc2048_mem);
+	m_maincpu->set_addrmap(AS_IO, &tc2048_state::tc2048_io);
 
 	/* video hardware */
-	MCFG_SCREEN_MODIFY("screen")
-	MCFG_SCREEN_REFRESH_RATE(50)
-	MCFG_SCREEN_SIZE(TS2068_SCREEN_WIDTH, SPEC_SCREEN_HEIGHT)
-	MCFG_SCREEN_VISIBLE_AREA(0, TS2068_SCREEN_WIDTH-1, 0, SPEC_SCREEN_HEIGHT-1)
-	MCFG_SCREEN_UPDATE_DRIVER(spectrum_state, screen_update_tc2048)
-	MCFG_SCREEN_VBLANK_CALLBACK(WRITELINE(spectrum_state, screen_vblank_timex))
-
-	MCFG_VIDEO_START_OVERRIDE(spectrum_state, spectrum_128 )
+	m_screen->set_refresh_hz(50);
+	m_screen->set_size(TS2068_SCREEN_WIDTH, SPEC_SCREEN_HEIGHT);
+	m_screen->set_visarea(0, TS2068_SCREEN_WIDTH-1, 0, SPEC_SCREEN_HEIGHT-1);
+	m_screen->set_screen_update(FUNC(tc2048_state::screen_update));
+	m_screen->screen_vblank().set(FUNC(tc2048_state::screen_vblank_timex));
 
 	/* internal ram */
-	MCFG_RAM_MODIFY(RAM_TAG)
-	MCFG_RAM_DEFAULT_SIZE("48K")
-MACHINE_CONFIG_END
+	m_ram->set_default_size("48K");
+
+	/* Software lists */
+	SOFTWARE_LIST(config, "cass_list_t").set_original("timex_cass");
+}
 
 
 
@@ -777,7 +772,7 @@ ROM_START(uk2086)
 	ROM_LOAD("ts2068_x.rom",0x14000,0x2000, CRC(ae16233a) SHA1(7e265a2c1f621ed365ea23bdcafdedbc79c1299c))
 ROM_END
 
-//    YEAR  NAME      PARENT    COMPAT  MACHINE  INPUT     STATE           INIT  COMPANY               FULLNAME             FLAGS
-COMP( 1984, tc2048,   spectrum, 0,      tc2048,  spectrum, spectrum_state, 0,    "Timex of Portugal",  "TC-2048" ,          0 )
-COMP( 1983, ts2068,   spectrum, 0,      ts2068,  spectrum, spectrum_state, 0,    "Timex Sinclair",     "TS-2068" ,          0 )
-COMP( 1986, uk2086,   spectrum, 0,      uk2086,  spectrum, spectrum_state, 0,    "Unipolbrit",         "UK-2086 ver. 1.2" , 0 )
+//    YEAR  NAME    PARENT    COMPAT  MACHINE  INPUT     CLASS        INIT        COMPANY              FULLNAME             FLAGS
+COMP( 1984, tc2048, spectrum, 0,      tc2048,  spectrum, tc2048_state, empty_init, "Timex of Portugal", "TC-2048" ,          0 )
+COMP( 1983, ts2068, spectrum, 0,      ts2068,  spectrum, ts2068_state, empty_init, "Timex Sinclair",    "TS-2068" ,          0 )
+COMP( 1986, uk2086, spectrum, 0,      uk2086,  spectrum, ts2068_state, empty_init, "Unipolbrit",        "UK-2086 ver. 1.2" , 0 )

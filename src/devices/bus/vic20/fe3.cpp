@@ -86,9 +86,10 @@ const tiny_rom_entry *vic20_final_expansion_3_device::device_rom_region() const
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(vic20_final_expansion_3_device::device_add_mconfig)
-	MCFG_AMD_29F040_ADD(AM29F040_TAG)
-MACHINE_CONFIG_END
+void vic20_final_expansion_3_device::device_add_mconfig(machine_config &config)
+{
+	AMD_29F040(config, AM29F040_TAG);
+}
 
 
 
@@ -104,7 +105,7 @@ vic20_final_expansion_3_device::vic20_final_expansion_3_device(const machine_con
 	device_t(mconfig, VIC20_FE3, tag, owner, clock),
 	device_vic20_expansion_card_interface(mconfig, *this),
 	m_flash_rom(*this, AM29F040_TAG),
-	m_ram(*this, "sram"), m_reg1(0), m_reg2(0), m_lockbit(0)
+	m_ram(*this, "sram", 0x80000, ENDIANNESS_LITTLE), m_reg1(0), m_reg2(0), m_lockbit(0)
 {
 }
 
@@ -115,8 +116,6 @@ vic20_final_expansion_3_device::vic20_final_expansion_3_device(const machine_con
 
 void vic20_final_expansion_3_device::device_start()
 {
-	m_ram.allocate(0x80000);
-
 	// state saving
 	save_item(NAME(m_reg1));
 	save_item(NAME(m_reg2));
@@ -139,7 +138,7 @@ void vic20_final_expansion_3_device::device_reset()
 //  vic20_cd_r - cartridge data read
 //-------------------------------------------------
 
-uint8_t vic20_final_expansion_3_device::vic20_cd_r(address_space &space, offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3)
+uint8_t vic20_final_expansion_3_device::vic20_cd_r(offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3)
 {
 	switch (m_reg1 & REG1_MODE_MASK)
 	{
@@ -360,7 +359,7 @@ uint8_t vic20_final_expansion_3_device::vic20_cd_r(address_space &space, offs_t 
 //  vic20_cd_w - cartridge data write
 //-------------------------------------------------
 
-void vic20_final_expansion_3_device::vic20_cd_w(address_space &space, offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3)
+void vic20_final_expansion_3_device::vic20_cd_w(offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3)
 {
 	switch (m_reg1 & REG1_MODE_MASK)
 	{

@@ -32,13 +32,13 @@ public:
 	// construction/destruction
 	c2040_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
-	DECLARE_READ8_MEMBER( dio_r );
-	DECLARE_WRITE8_MEMBER( dio_w );
-	DECLARE_READ8_MEMBER( riot1_pa_r );
-	DECLARE_WRITE8_MEMBER( riot1_pa_w );
-	DECLARE_READ8_MEMBER( riot1_pb_r );
-	DECLARE_WRITE8_MEMBER( riot1_pb_w );
-	DECLARE_WRITE8_MEMBER( via_pb_w );
+	uint8_t dio_r();
+	void dio_w(uint8_t data);
+	uint8_t riot1_pa_r();
+	void riot1_pa_w(uint8_t data);
+	uint8_t riot1_pb_r();
+	void riot1_pb_w(uint8_t data);
+	void via_pb_w(uint8_t data);
 
 	void c2040_fdc_mem(address_map &map);
 	void c2040_main_mem(address_map &map);
@@ -66,9 +66,10 @@ protected:
 		LED_ERR
 	};
 
+	void add_common_devices(machine_config &config);
 	inline void update_ieee_signals();
 
-	DECLARE_FLOPPY_FORMATS( floppy_formats );
+	static void floppy_formats(format_registration &fr);
 
 	required_device<m6502_device> m_maincpu;
 	required_device<m6504_device> m_fdccpu;
@@ -81,6 +82,7 @@ protected:
 	required_device<c2040_fdc_device> m_fdc;
 	required_memory_region m_gcr;
 	required_ioport m_address;
+	output_finder<4> m_leds;
 
 	// IEEE-488 bus
 	int m_rfdo;                         // not ready for data output
@@ -104,7 +106,7 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 
 private:
-	DECLARE_FLOPPY_FORMATS( floppy_formats );
+	static void floppy_formats(format_registration &fr);
 };
 
 
@@ -122,7 +124,7 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 
 private:
-	DECLARE_FLOPPY_FORMATS( floppy_formats );
+	static void floppy_formats(format_registration &fr);
 };
 
 

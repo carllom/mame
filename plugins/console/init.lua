@@ -18,17 +18,32 @@ function console.startplugin()
 	local matches = {}
 	local lastindex = 0
 	local consolebuf
-	print("    _/      _/    _/_/    _/      _/  _/_/_/_/");
-	print("   _/_/  _/_/  _/    _/  _/_/  _/_/  _/       ");
-	print("  _/  _/  _/  _/_/_/_/  _/  _/  _/  _/_/_/    ");
-	print(" _/      _/  _/    _/  _/      _/  _/         ");
-	print("_/      _/  _/    _/  _/      _/  _/_/_/_/    \n");
+	_G.history = function (index)
+		local history = ln.historyget()
+		if index then
+			ln.preload(history[index])
+			return
+		end
+		for num, line in ipairs(history) do
+			print(num, line)
+		end
+	end
+	print("       /|  /|    /|     /|  /|    _______")
+	print("      / | / |   / |    / | / |   /      /")
+	print("     /  |/  |  /  |   /  |/  |  /  ____/ ")
+	print("    /       | /   |  /       | /  /_     ")
+	print("   /        |/    | /        |/  __/     ")
+	print("  /  /|  /|    /| |/  /|  /|    /____    ")
+	print(" /  / | / |   / |    / | / |        /    ")
+	print("/ _/  |/  /  /  |___/  |/  /_______/     ")
+	print("         /  /                            ")
+	print("        / _/                             \n")
 	print(emu.app_name() .. " " .. emu.app_version(), "\nCopyright (C) Nicola Salmoria and the MAME team\n");
 	print(_VERSION, "\nCopyright (C) Lua.org, PUC-Rio\n");
 	-- linenoise isn't thread safe but that means history can handled here
 	-- that also means that bad things will happen if anything outside lua tries to use it
 	-- especially the completion callback
-	ln.historysetmaxlen(10)
+	ln.historysetmaxlen(50)
 	local scr = [[
 local ln = require('linenoise')
 ln.setcompletion(function(c, str, pos)
@@ -201,8 +216,8 @@ return ln.linenoise('$PROMPT')
 	end
 
 	emu.register_start(function()
-		if not consolebuf and manager:machine():debugger() then
-			consolebuf = manager:machine():debugger().consolelog
+		if not consolebuf and manager.machine.debugger then
+			consolebuf = manager.machine.debugger.consolelog
 			lastindex = 0
 		end
 	end)

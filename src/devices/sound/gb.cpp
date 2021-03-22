@@ -142,7 +142,7 @@ cgb04_apu_device::cgb04_apu_device(const machine_config &mconfig, const char *ta
 
 void gameboy_sound_device::device_start()
 {
-	m_channel = machine().sound().stream_alloc(*this, 0, 2, machine().sample_rate());
+	m_channel = stream_alloc(0, 2, SAMPLE_RATE_OUTPUT_ADAPTIVE);
 	m_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(gameboy_sound_device::timer_callback),this));
 	m_timer->adjust(clocks_to_attotime(FRAME_CYCLES/128), 0, clocks_to_attotime(FRAME_CYCLES/128));
 
@@ -166,6 +166,16 @@ void gameboy_sound_device::device_start()
 	SAVE_CHANNEL(m_snd_2);
 	SAVE_CHANNEL(m_snd_3);
 	SAVE_CHANNEL(m_snd_4);
+}
+
+
+//-------------------------------------------------
+//  device_clock_changed
+//-------------------------------------------------
+
+void gameboy_sound_device::device_clock_changed()
+{
+	m_timer->adjust(clocks_to_attotime(FRAME_CYCLES / 128), 0, clocks_to_attotime(FRAME_CYCLES / 128));
 }
 
 
@@ -625,7 +635,7 @@ uint64_t gameboy_sound_device::noise_period_cycles()
 }
 
 
-READ8_MEMBER( dmg_apu_device::wave_r )
+u8 dmg_apu_device::wave_r(offs_t offset)
 {
 	m_channel->update();
 	update_state();
@@ -639,7 +649,7 @@ READ8_MEMBER( dmg_apu_device::wave_r )
 }
 
 
-READ8_MEMBER( cgb04_apu_device::wave_r )
+u8 cgb04_apu_device::wave_r(offs_t offset)
 {
 	m_channel->update();
 	update_state();
@@ -653,7 +663,7 @@ READ8_MEMBER( cgb04_apu_device::wave_r )
 }
 
 
-READ8_MEMBER( gameboy_sound_device::sound_r )
+u8 gameboy_sound_device::sound_r(offs_t offset)
 {
 	static const uint8_t read_mask[0x40] =
 	{
@@ -682,7 +692,7 @@ READ8_MEMBER( gameboy_sound_device::sound_r )
 }
 
 
-WRITE8_MEMBER(dmg_apu_device::wave_w)
+void dmg_apu_device::wave_w(offs_t offset, u8 data)
 {
 	m_channel->update();
 	update_state();
@@ -701,7 +711,7 @@ WRITE8_MEMBER(dmg_apu_device::wave_w)
 }
 
 
-WRITE8_MEMBER(cgb04_apu_device::wave_w)
+void cgb04_apu_device::wave_w(offs_t offset, u8 data)
 {
 	m_channel->update();
 	update_state();
@@ -717,7 +727,7 @@ WRITE8_MEMBER(cgb04_apu_device::wave_w)
 }
 
 
-WRITE8_MEMBER( dmg_apu_device::sound_w )
+void dmg_apu_device::sound_w(offs_t offset, u8 data)
 {
 	/* change in registers so update first */
 	m_channel->update();
@@ -731,7 +741,7 @@ WRITE8_MEMBER( dmg_apu_device::sound_w )
 }
 
 
-WRITE8_MEMBER( cgb04_apu_device::sound_w )
+void cgb04_apu_device::sound_w(offs_t offset, u8 data)
 {
 	/* change in registers so update first */
 	m_channel->update();
@@ -1204,13 +1214,15 @@ void cgb04_apu_device::apu_power_off()
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void gameboy_sound_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void gameboy_sound_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
-	while (samples-- > 0)
+	auto &outputl = outputs[0];
+	auto &outputr = outputs[1];
+	for (int sampindex = 0; sampindex < outputl.samples(); sampindex++)
 	{
-		stream_sample_t sample;
-		stream_sample_t left = 0;
-		stream_sample_t right = 0;
+		s32 sample;
+		s32 left = 0;
+		s32 right = 0;
 
 		/* Mode 1 - Wave with Envelope and Sweep */
 		if (m_snd_1.on)
@@ -1257,12 +1269,8 @@ void gameboy_sound_device::sound_stream_update(sound_stream &stream, stream_samp
 		left *= m_snd_control.vol_left;
 		right *= m_snd_control.vol_right;
 
-		/* pump up the volume */
-		left <<= 6;
-		right <<= 6;
-
 		/* Update the buffers */
-		*(outputs[0]++) = left;
-		*(outputs[1]++) = right;
+		outputl.put_int(sampindex, left, 32768 / 64);
+		outputr.put_int(sampindex, right, 32768 / 64);
 	}
 }

@@ -33,12 +33,12 @@ protected:
 	virtual ioport_constructor device_input_ports() const override;
 
 	// electron_cart_interface overrides
-	virtual uint8_t read(address_space &space, offs_t offset, int infc, int infd, int romqa) override;
-	virtual void write(address_space &space, offs_t offset, uint8_t data, int infc, int infd, int romqa) override;
+	virtual uint8_t read(offs_t offset, int infc, int infd, int romqa, int oe, int oe2) override;
+	virtual void write(offs_t offset, uint8_t data, int infc, int infd, int romqa, int oe, int oe2) override;
 
 private:
 	required_device<sn76489_device> m_sn;
-	required_ioport m_jumper;
+	required_ioport m_link;
 
 	uint8_t m_sound_latch;
 	uint8_t m_sound_enable;

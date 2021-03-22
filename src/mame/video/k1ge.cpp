@@ -14,37 +14,33 @@
 #include "screen.h"
 
 
-PALETTE_INIT_MEMBER(k1ge_device, k1ge)
+void k1ge_device::k1ge_palette(palette_device &palette) const
 {
-	int i;
-
-	for ( i = 0; i < 8; i++ )
+	for (int i = 0; i < 8; i++)
 	{
-		int j = ( i << 5 ) | ( i << 2 ) | ( i >> 1 );
+		int const j = pal3bit(i);
 
-		palette.set_pen_color( 7-i, j, j, j );
+		palette.set_pen_color(7 - i, j, j, j);
 	}
 }
 
 
-PALETTE_INIT_MEMBER(k2ge_device, k2ge)
+void k2ge_device::k2ge_palette(palette_device &palette) const
 {
-	int r,g,b;
-
-	for ( b = 0; b < 16; b++ )
+	for (int b = 0; b < 16; b++ )
 	{
-		for ( g = 0; g < 16; g++ )
+		for (int g = 0; g < 16; g++ )
 		{
-			for ( r = 0; r < 16; r++ )
+			for (int r = 0; r < 16; r++ )
 			{
-				palette.set_pen_color( ( b << 8 ) | ( g << 4 ) | r, ( r << 4 ) | r, ( g << 4 ) | g, ( b << 4 ) | b );
+				palette.set_pen_color((b << 8) | (g << 4) | r, (r << 4) | r, (g << 4) | g, (b << 4) | b);
 			}
 		}
 	}
 }
 
 
-READ8_MEMBER( k1ge_device::read )
+uint8_t k1ge_device::read(offs_t offset)
 {
 	assert(offset < 0x4000);
 
@@ -63,7 +59,7 @@ READ8_MEMBER( k1ge_device::read )
 }
 
 
-WRITE8_MEMBER( k1ge_device::write )
+void k1ge_device::write(offs_t offset, uint8_t data)
 {
 	assert(offset < 0x4000);
 
@@ -247,13 +243,12 @@ void k1ge_device::draw_sprite_plane( uint16_t *p, uint16_t priority, int line, i
 
 void k1ge_device::draw( int line )
 {
-	uint16_t *p = &m_bitmap->pix16(line);
+	uint16_t *const p = &m_bitmap->pix(line);
 	uint16_t oowcol = m_vram[0x012] & 0x07;
-	int i;
 
 	if ( line < m_wba_v || line >= m_wba_v + m_wsi_v )
 	{
-		for( i = 0; i < 160; i++ )
+		for( int i = 0; i < 160; i++ )
 		{
 			p[i] = oowcol;
 		}
@@ -262,7 +257,7 @@ void k1ge_device::draw( int line )
 	{
 		uint16_t col = ( ( m_vram[0x118] & 0xc0 ) == 0x80 ) ? m_vram[0x118] & 0x07 : 0;
 
-		for ( i = 0; i < 160; i++ )
+		for ( int i = 0; i < 160; i++ )
 			p[i] = col;
 
 		if ( m_vram[0x030] & 0x80 )
@@ -300,12 +295,12 @@ void k1ge_device::draw( int line )
 			draw_sprite_plane( p, 3, line, m_vram[0x020], m_vram[0x021] );
 		}
 
-		for( i = 0; i < m_wba_h; i++ )
+		for( int i = 0; i < m_wba_h; i++ )
 		{
 			p[i] = oowcol;
 		}
 
-		for( i = m_wba_h + m_wsi_h; i < 160; i++ )
+		for( int i = m_wba_h + m_wsi_h; i < 160; i++ )
 		{
 			p[i] = oowcol;
 		}
@@ -609,17 +604,16 @@ void k2ge_device::k1ge_draw_sprite_plane( uint16_t *p, uint16_t priority, int li
 
 void k2ge_device::draw( int line )
 {
-	uint16_t *p = &m_bitmap->pix16(line);
+	uint16_t *const p = &m_bitmap->pix(line);
 	uint16_t col = 0;
 	uint16_t oowcol;
-	int i;
 
 	oowcol = ( m_vram[0x012] & 0x07 ) * 2;
 	oowcol = m_vram[0x3f0 + oowcol ] | ( m_vram[0x3f1 + oowcol ] << 8 );
 
 	if ( line < m_wba_v || line >= m_wba_v + m_wsi_v )
 	{
-		for( i = 0; i < 160; i++ )
+		for( int i = 0; i < 160; i++ )
 		{
 			p[i] = oowcol;
 		}
@@ -634,7 +628,7 @@ void k2ge_device::draw( int line )
 		col = m_vram[0x3e0 + col ] | ( m_vram[0x3e1 + col ] << 8 );
 
 		/* Set the bacground color */
-		for ( i = 0; i < 160; i++ )
+		for ( int i = 0; i < 160; i++ )
 		{
 			p[i] = col;
 		}
@@ -716,12 +710,12 @@ void k2ge_device::draw( int line )
 			}
 		}
 
-		for ( i = 0; i < m_wba_h; i++ )
+		for ( int i = 0; i < m_wba_h; i++ )
 		{
 			p[i] = oowcol;
 		}
 
-		for ( i = m_wba_h + m_wsi_h; i < 160; i++ )
+		for ( int i = m_wba_h + m_wsi_h; i < 160; i++ )
 		{
 			p[i] = oowcol;
 		}
@@ -806,7 +800,7 @@ void k1ge_device::device_start()
 	m_vram = make_unique_clear<uint8_t[]>(0x4000);
 	m_bitmap = std::make_unique<bitmap_ind16>(screen().width(), screen().height() );
 
-	save_pointer(NAME(m_vram.get()), 0x4000);
+	save_pointer(NAME(m_vram), 0x4000);
 	save_item(NAME(m_wba_h));
 	save_item(NAME(m_wba_v));
 	save_item(NAME(m_wsi_h));
@@ -882,10 +876,10 @@ k1ge_device::k1ge_device(const machine_config &mconfig, device_type type, const 
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(k1ge_device::device_add_mconfig)
-	MCFG_PALETTE_ADD("palette", 8 )
-	MCFG_PALETTE_INIT_OWNER(k1ge_device, k1ge)
-MACHINE_CONFIG_END
+void k1ge_device::device_add_mconfig(machine_config &config)
+{
+	PALETTE(config, "palette", FUNC(k1ge_device::k1ge_palette), 8);
+}
 
 
 DEFINE_DEVICE_TYPE(K2GE, k2ge_device, "k2ge", "K2GE Color Graphics + LCD")
@@ -899,7 +893,7 @@ k2ge_device::k2ge_device(const machine_config &mconfig, const char *tag, device_
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(k2ge_device::device_add_mconfig)
-	MCFG_PALETTE_ADD("palette", 4096 )
-	MCFG_PALETTE_INIT_OWNER(k2ge_device, k2ge)
-MACHINE_CONFIG_END
+void k2ge_device::device_add_mconfig(machine_config &config)
+{
+	PALETTE(config, "palette", FUNC(k2ge_device::k2ge_palette), 4096);
+}

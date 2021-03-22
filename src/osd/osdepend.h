@@ -7,15 +7,14 @@
     OS-dependent code interface.
 
 *******************************************************************c********/
-
-#pragma once
-
 #ifndef MAME_OSD_OSDEPEND_H
 #define MAME_OSD_OSDEPEND_H
 
+#pragma once
+
+
 #include "emucore.h"
 #include "osdcore.h"
-#include "unicode.h"
 #include "../frontend/mame/ui/menuitem.h"
 
 #include <memory>
@@ -64,6 +63,8 @@ public:
 	// general overridables
 	virtual void init(running_machine &machine) = 0;
 	virtual void update(bool skip_redraw) = 0;
+	virtual void input_update() = 0;
+	virtual void set_verbose(bool print_verbose) = 0;
 
 	// debugger overridables
 	virtual void init_debugger() = 0;
@@ -75,7 +76,7 @@ public:
 	virtual bool no_sound() = 0;
 
 	// input overridables
-	virtual void customize_input_type_list(simple_list<input_type_entry> &typelist) = 0;
+	virtual void customize_input_type_list(std::vector<input_type_entry> &typelist) = 0;
 
 	// video overridables
 	virtual void add_audio_to_recording(const int16_t *buffer, int samples_this_frame) = 0;
@@ -89,7 +90,7 @@ public:
 	virtual bool execute_command(const char *command) = 0;
 
 	// midi interface
-	virtual osd_midi_device *create_midi_device() = 0;
+	virtual std::unique_ptr<osd_midi_device> create_midi_device() = 0;
 
 protected:
 	virtual ~osd_interface() { }

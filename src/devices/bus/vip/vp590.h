@@ -37,9 +37,9 @@ protected:
 	virtual ioport_constructor device_input_ports() const override;
 
 	// device_vip_expansion_card_interface overrides
-	virtual void vip_program_w(address_space &space, offs_t offset, uint8_t data, int cdef, int *minh) override;
-	virtual void vip_io_w(address_space &space, offs_t offset, uint8_t data) override;
-	virtual void vip_dma_w(address_space &space, offs_t offset, uint8_t data) override;
+	virtual void vip_program_w(offs_t offset, uint8_t data, int cdef, int *minh) override;
+	virtual void vip_io_w(offs_t offset, uint8_t data) override;
+	virtual void vip_dma_w(offs_t offset, uint8_t data) override;
 	virtual uint32_t vip_screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect) override;
 	virtual int vip_ef3_r() override;
 	virtual int vip_ef4_r() override;
@@ -50,7 +50,7 @@ private:
 	DECLARE_READ_LINE_MEMBER( gd_r );
 
 	required_device<cdp1862_device> m_cgc;
-	optional_shared_ptr<uint8_t> m_color_ram;
+	memory_share_creator<uint8_t> m_color_ram;
 	required_ioport m_j1;
 	required_ioport m_j2;
 

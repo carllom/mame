@@ -39,13 +39,14 @@ DEFINE_DEVICE_TYPE(NUBUS_WSPORTRAIT, nubus_wsportrait_device, "nb_wspt", "Macint
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(nubus_wsportrait_device::device_add_mconfig)
-	MCFG_SCREEN_ADD( WSPORTRAIT_SCREEN_NAME, RASTER)
-	MCFG_SCREEN_UPDATE_DEVICE(DEVICE_SELF, nubus_wsportrait_device, screen_update)
-	MCFG_SCREEN_SIZE(1024,960)
-	MCFG_SCREEN_REFRESH_RATE(75.0)
-	MCFG_SCREEN_VISIBLE_AREA(0, 640-1, 0, 870-1)
-MACHINE_CONFIG_END
+void nubus_wsportrait_device::device_add_mconfig(machine_config &config)
+{
+	screen_device &screen(SCREEN(config, WSPORTRAIT_SCREEN_NAME, SCREEN_TYPE_RASTER));
+	screen.set_screen_update(FUNC(nubus_wsportrait_device::screen_update));
+	screen.set_size(1024, 960);
+	screen.set_refresh_hz(75.0);
+	screen.set_visarea(0, 640-1, 0, 870-1);
+}
 
 //-------------------------------------------------
 //  rom_region - device-specific ROM region
@@ -73,10 +74,9 @@ nubus_wsportrait_device::nubus_wsportrait_device(const machine_config &mconfig, 
 	device_t(mconfig, type, tag, owner, clock),
 	device_video_interface(mconfig, *this),
 	device_nubus_card_interface(mconfig, *this),
-	m_vram32(nullptr), m_mode(0), m_vbl_disable(0), m_toggle(0), m_count(0), m_clutoffs(0), m_timer(nullptr),
-	m_assembled_tag(util::string_format("%s:%s", tag, WSPORTRAIT_SCREEN_NAME))
+	m_vram32(nullptr), m_mode(0), m_vbl_disable(0), m_toggle(0), m_count(0), m_clutoffs(0), m_timer(nullptr)
 {
-	static_set_screen(*this, m_assembled_tag.c_str());
+	set_screen(*this, WSPORTRAIT_SCREEN_NAME);
 }
 
 //-------------------------------------------------
@@ -87,8 +87,6 @@ void nubus_wsportrait_device::device_start()
 {
 	uint32_t slotspace;
 
-	// set_nubus_device makes m_slot valid
-	set_nubus_device();
 	install_declaration_rom(this, WSPORTRAIT_ROM_REGION, true);
 
 	slotspace = get_slotspace();
@@ -98,9 +96,9 @@ void nubus_wsportrait_device::device_start()
 	m_vram.resize(VRAM_SIZE);
 	m_vram32 = (uint32_t *)&m_vram[0];
 
-	m_nubus->install_device(slotspace, slotspace+VRAM_SIZE-1, read32_delegate(FUNC(nubus_wsportrait_device::vram_r), this), write32_delegate(FUNC(nubus_wsportrait_device::vram_w), this));
-	m_nubus->install_device(slotspace+0x900000, slotspace+0x900000+VRAM_SIZE-1, read32_delegate(FUNC(nubus_wsportrait_device::vram_r), this), write32_delegate(FUNC(nubus_wsportrait_device::vram_w), this));
-	m_nubus->install_device(slotspace+0x80000, slotspace+0xeffff, read32_delegate(FUNC(nubus_wsportrait_device::wsportrait_r), this), write32_delegate(FUNC(nubus_wsportrait_device::wsportrait_w), this));
+	nubus().install_device(slotspace, slotspace+VRAM_SIZE-1, read32s_delegate(*this, FUNC(nubus_wsportrait_device::vram_r)), write32s_delegate(*this, FUNC(nubus_wsportrait_device::vram_w)));
+	nubus().install_device(slotspace+0x900000, slotspace+0x900000+VRAM_SIZE-1, read32s_delegate(*this, FUNC(nubus_wsportrait_device::vram_r)), write32s_delegate(*this, FUNC(nubus_wsportrait_device::vram_w)));
+	nubus().install_device(slotspace+0x80000, slotspace+0xeffff, read32s_delegate(*this, FUNC(nubus_wsportrait_device::wsportrait_r)), write32s_delegate(*this, FUNC(nubus_wsportrait_device::wsportrait_w)));
 
 	m_timer = timer_alloc(0, nullptr);
 	m_timer->adjust(screen().time_until_pos(869, 0), 0);
@@ -139,42 +137,38 @@ void nubus_wsportrait_device::device_timer(emu_timer &timer, device_timer_id tid
 
 uint32_t nubus_wsportrait_device::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	uint32_t *scanline;
-	int x, y;
-	uint8_t pixels, *vram;
-
 	// first time?  kick off the VBL timer
-	vram = &m_vram[0x80];
+	uint8_t const *const vram = &m_vram[0x80];
 
 	switch (m_mode)
 	{
 		case 0: // 1 bpp?
-			for (y = 0; y < 870; y++)
+			for (int y = 0; y < 870; y++)
 			{
-				scanline = &bitmap.pix32(y);
-				for (x = 0; x < 640/8; x++)
+				uint32_t *scanline = &bitmap.pix(y);
+				for (int x = 0; x < 640/8; x++)
 				{
-					pixels = vram[(y * 128) + (BYTE4_XOR_BE(x))];
+					uint8_t const pixels = vram[(y * 128) + (BYTE4_XOR_BE(x))];
 
-					*scanline++ = m_palette[((pixels>>7)&0x1)];
-					*scanline++ = m_palette[((pixels>>6)&0x1)];
-					*scanline++ = m_palette[((pixels>>5)&0x1)];
-					*scanline++ = m_palette[((pixels>>4)&0x1)];
-					*scanline++ = m_palette[((pixels>>3)&0x1)];
-					*scanline++ = m_palette[((pixels>>2)&0x1)];
-					*scanline++ = m_palette[((pixels>>1)&0x1)];
-					*scanline++ = m_palette[(pixels&1)];
+					*scanline++ = m_palette[BIT(pixels, 7)];
+					*scanline++ = m_palette[BIT(pixels, 6)];
+					*scanline++ = m_palette[BIT(pixels, 5)];
+					*scanline++ = m_palette[BIT(pixels, 4)];
+					*scanline++ = m_palette[BIT(pixels, 3)];
+					*scanline++ = m_palette[BIT(pixels, 2)];
+					*scanline++ = m_palette[BIT(pixels, 1)];
+					*scanline++ = m_palette[BIT(pixels, 0)];
 				}
 			}
 			break;
 
 		case 1: // 2 bpp
-			for (y = 0; y < 480; y++)
+			for (int y = 0; y < 480; y++)
 			{
-				scanline = &bitmap.pix32(y);
-				for (x = 0; x < 640/4; x++)
+				uint32_t *scanline = &bitmap.pix(y);
+				for (int x = 0; x < 640/4; x++)
 				{
-					pixels = vram[(y * 256) + (BYTE4_XOR_BE(x))];
+					uint8_t const pixels = vram[(y * 256) + (BYTE4_XOR_BE(x))];
 
 					*scanline++ = m_palette[((pixels>>6)&3)];
 					*scanline++ = m_palette[((pixels>>4)&3)];
@@ -185,13 +179,12 @@ uint32_t nubus_wsportrait_device::screen_update(screen_device &screen, bitmap_rg
 			break;
 
 		case 2: // 4 bpp
-			for (y = 0; y < 480; y++)
+			for (int y = 0; y < 480; y++)
 			{
-				scanline = &bitmap.pix32(y);
-
-				for (x = 0; x < 640/2; x++)
+				uint32_t *scanline = &bitmap.pix(y);
+				for (int x = 0; x < 640/2; x++)
 				{
-					pixels = vram[(y * 512) + (BYTE4_XOR_BE(x))];
+					uint8_t const pixels = vram[(y * 512) + (BYTE4_XOR_BE(x))];
 
 					*scanline++ = m_palette[((pixels&0xf0)>>4)];
 					*scanline++ = m_palette[(pixels&0xf)];
@@ -205,7 +198,7 @@ uint32_t nubus_wsportrait_device::screen_update(screen_device &screen, bitmap_rg
 	return 0;
 }
 
-WRITE32_MEMBER( nubus_wsportrait_device::wsportrait_w )
+void nubus_wsportrait_device::wsportrait_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	data ^= 0xffffffff;
 //  if (offset != 0x8000) printf("wsportrait: Write %08x @ %x, mask %08x\n", data, offset, mem_mask);
@@ -265,7 +258,7 @@ WRITE32_MEMBER( nubus_wsportrait_device::wsportrait_w )
 	}
 }
 
-READ32_MEMBER( nubus_wsportrait_device::wsportrait_r )
+uint32_t nubus_wsportrait_device::wsportrait_r(offs_t offset, uint32_t mem_mask)
 {
 //  printf("wsportrait: Read @ %x, mask %08x\n", offset, mem_mask);
 
@@ -291,13 +284,13 @@ READ32_MEMBER( nubus_wsportrait_device::wsportrait_r )
 	return 0;
 }
 
-WRITE32_MEMBER( nubus_wsportrait_device::vram_w )
+void nubus_wsportrait_device::vram_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	data ^= 0xffffffff;
 	COMBINE_DATA(&m_vram32[offset]);
 }
 
-READ32_MEMBER( nubus_wsportrait_device::vram_r )
+uint32_t nubus_wsportrait_device::vram_r(offs_t offset, uint32_t mem_mask)
 {
 	return m_vram32[offset] ^ 0xffffffff;
 }

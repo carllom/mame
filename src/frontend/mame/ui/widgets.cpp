@@ -14,6 +14,7 @@
 
 
 namespace ui {
+
 /***************************************************************************
     WIDGETS
 ***************************************************************************/
@@ -24,20 +25,20 @@ namespace ui {
 
 widgets_manager::widgets_manager(running_machine &machine)
 	: m_hilight_bitmap(std::make_unique<bitmap_argb32>(256, 1))
-	, m_hilight_texture()
+	, m_hilight_texture(nullptr, machine.render())
 	, m_hilight_main_bitmap(std::make_unique<bitmap_argb32>(1, 128))
-	, m_hilight_main_texture()
+	, m_hilight_main_texture(nullptr, machine.render())
+	, m_arrow_texture(nullptr, machine.render())
 {
 	render_manager &render(machine.render());
-	auto const texture_free([&render](render_texture *texture) { render.texture_free(texture); });
 
 	// create a texture for hilighting items
 	for (unsigned x = 0; x < 256; ++x)
 	{
 		unsigned const alpha((x < 25) ? (0xff * x / 25) : (x >(256 - 25)) ? (0xff * (255 - x) / 25) : 0xff);
-		m_hilight_bitmap->pix32(0, x) = rgb_t(alpha, 0xff, 0xff, 0xff);
+		m_hilight_bitmap->pix(0, x) = rgb_t(alpha, 0xff, 0xff, 0xff);
 	}
-	m_hilight_texture = texture_ptr(render.texture_alloc(), texture_free);
+	m_hilight_texture.reset(render.texture_alloc());
 	m_hilight_texture->set_bitmap(*m_hilight_bitmap, m_hilight_bitmap->cliprect(), TEXFORMAT_ARGB32);
 
 	// create a texture for hilighting items in main menu
@@ -48,13 +49,13 @@ widgets_manager::widgets_manager(running_machine &machine)
 		unsigned const r = r1 + (y * (r2 - r1) / 128);
 		unsigned const g = g1 + (y * (g2 - g1) / 128);
 		unsigned const b = b1 + (y * (b2 - b1) / 128);
-		m_hilight_main_bitmap->pix32(y, 0) = rgb_t(r, g, b);
+		m_hilight_main_bitmap->pix(y, 0) = rgb_t(r, g, b);
 	}
-	m_hilight_main_texture = texture_ptr(render.texture_alloc(), texture_free);
+	m_hilight_main_texture.reset(render.texture_alloc());
 	m_hilight_main_texture->set_bitmap(*m_hilight_main_bitmap, m_hilight_main_bitmap->cliprect(), TEXFORMAT_ARGB32);
 
 	// create a texture for arrow icons
-	m_arrow_texture = texture_ptr(render.texture_alloc(render_triangle), texture_free);
+	m_arrow_texture.reset(render.texture_alloc(render_triangle));
 }
 
 
@@ -66,18 +67,17 @@ widgets_manager::widgets_manager(running_machine &machine)
 
 void widgets_manager::render_triangle(bitmap_argb32 &dest, bitmap_argb32 &source, const rectangle &sbounds, void *param)
 {
-	int halfwidth = dest.width() / 2;
-	int height = dest.height();
-	int x, y;
+	int const halfwidth = dest.width() / 2;
+	int const height = dest.height();
 
 	// start with all-transparent
 	dest.fill(rgb_t(0x00, 0x00, 0x00, 0x00));
 
 	// render from the tip to the bottom
-	for (y = 0; y < height; y++)
+	for (int y = 0; y < height; y++)
 	{
 		int linewidth = (y * (halfwidth - 1) + (height / 2)) * 255 * 2 / height;
-		uint32_t *target = &dest.pix32(y, halfwidth);
+		uint32_t *const target = &dest.pix(y, halfwidth);
 
 		// don't antialias if height < 12
 		if (dest.height() < 12)
@@ -88,25 +88,23 @@ void widgets_manager::render_triangle(bitmap_argb32 &dest, bitmap_argb32 &source
 		}
 
 		// loop while we still have data to generate
-		for (x = 0; linewidth > 0; x++)
+		for (int x = 0; linewidth > 0; x++)
 		{
 			int dalpha;
-
-			// first column we only consume one pixel
 			if (x == 0)
 			{
+				// first column we only consume one pixel
 				dalpha = std::min(0xff, linewidth);
 				target[x] = rgb_t(dalpha, 0xff, 0xff, 0xff);
 			}
-
-			// remaining columns consume two pixels, one on each side
 			else
 			{
+				// remaining columns consume two pixels, one on each side
 				dalpha = std::min(0x1fe, linewidth);
 				target[x] = target[-x] = rgb_t(dalpha / 2, 0xff, 0xff, 0xff);
 			}
 
-			// account for the weight we consumed */
+			// account for the weight we consumed
 			linewidth -= dalpha;
 		}
 	}

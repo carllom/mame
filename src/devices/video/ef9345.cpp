@@ -33,9 +33,11 @@ DEFINE_DEVICE_TYPE(EF9345, ef9345_device, "ef9345", "EF9345")
 DEFINE_DEVICE_TYPE(TS9347, ts9347_device, "ts9347", "TS9347")
 
 // default address map
-ADDRESS_MAP_START(ef9345_device::ef9345)
-	AM_RANGE(0x0000, 0x3fff) AM_RAM
-ADDRESS_MAP_END
+void ef9345_device::ef9345(address_map &map)
+{
+	if (!has_configured_map(0))
+		map(0x0000, 0x3fff).ram();
+}
 
 //-------------------------------------------------
 //  memory_space_config - return a description of
@@ -112,7 +114,7 @@ ef9345_device::ef9345_device(const machine_config &mconfig, device_type type, co
 	device_t(mconfig, type, tag, owner, clock),
 	device_memory_interface(mconfig, *this),
 	device_video_interface(mconfig, *this),
-	m_space_config("videoram", ENDIANNESS_LITTLE, 8, 16, 0, address_map_constructor(), address_map_constructor(FUNC(ef9345_device::ef9345), this)),
+	m_space_config("videoram", ENDIANNESS_LITTLE, 8, 16, 0, address_map_constructor(FUNC(ef9345_device::ef9345), this)),
 	m_charset(*this, DEVICE_SELF),
 	m_variant(variant),
 	m_palette(*this, finder_base::DUMMY_TAG)
@@ -122,16 +124,6 @@ ef9345_device::ef9345_device(const machine_config &mconfig, device_type type, co
 ts9347_device::ts9347_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: ef9345_device(mconfig, TS9347, tag, owner, clock, EF9345_MODE::TYPE_TS9347)
 {
-}
-
-//-------------------------------------------------
-//  static_set_palette_tag: Set the tag of the
-//  palette device
-//-------------------------------------------------
-
-void ef9345_device::static_set_palette_tag(device_t &device, const char *tag)
-{
-	downcast<ef9345_device &>(device).m_palette.set_tag(tag);
 }
 
 //-------------------------------------------------
@@ -187,7 +179,7 @@ void ef9345_device::device_reset()
 	m_latchm = 0;
 	m_latchi = 0;
 	m_latchu = 0;
-	m_char_mode = 0;
+	m_char_mode = MODE24x40;
 
 	memset(m_last_dial, 0, sizeof(m_last_dial));
 	memset(m_registers, 0, sizeof(m_registers));
@@ -221,7 +213,7 @@ void ef9345_device::device_timer(emu_timer &timer, device_timer_id id, int param
 void ef9345_device::set_busy_flag(int period)
 {
 	m_bf = 1;
-	m_busy_timer->adjust(attotime::from_usec(period));
+	m_busy_timer->adjust(attotime::from_nsec(period));
 }
 
 // draw a char in 40 char line mode
@@ -233,7 +225,7 @@ void ef9345_device::draw_char_40(uint8_t *c, uint16_t x, uint16_t y)
 
 	for(int i = 0; i < scan_ysize; i++)
 		for(int j = 0; j < scan_xsize; j++)
-				m_screen_out.pix32(y * 10 + i, x * 8 + j)  = palette[c[8 * i + j] & 0x07];
+			m_screen_out.pix(y * 10 + i, x * 8 + j) = palette[c[8 * i + j] & 0x07];
 }
 
 // draw a char in 80 char line mode
@@ -245,7 +237,7 @@ void ef9345_device::draw_char_80(uint8_t *c, uint16_t x, uint16_t y)
 
 	for(int i = 0; i < scan_ysize; i++)
 		for(int j = 0; j < scan_xsize; j++)
-				m_screen_out.pix32(y * 10 + i, x * 6 + j)  = palette[c[6 * i + j] & 0x07];
+			m_screen_out.pix(y * 10 + i, x * 6 + j) = palette[c[6 * i + j] & 0x07];
 }
 
 
@@ -390,6 +382,7 @@ uint16_t ef9345_device::indexblock(uint16_t x, uint16_t y)
 {
 	uint16_t i = x, j;
 	j = (y == 0) ? ((m_tgs & 0x20) >> 5) : ((m_ror & 0x1f) + y - 1);
+	j = (j > 31) ? (j - 24) : j;
 
 	//right side of a double width character
 	if ((m_tgs & 0x80) == 0 && x > 0)
@@ -403,7 +396,7 @@ uint16_t ef9345_device::indexblock(uint16_t x, uint16_t y)
 }
 
 // draw bichrome character (40 columns)
-void ef9345_device::bichrome40(uint8_t type, uint16_t address, uint8_t dial, uint16_t iblock, uint16_t x, uint16_t y, uint8_t c0, uint8_t c1, uint8_t insert, uint8_t flash, uint8_t hided, uint8_t negative, uint8_t underline)
+void ef9345_device::bichrome40(uint8_t type, uint16_t address, uint8_t dial, uint16_t iblock, uint16_t x, uint16_t y, uint8_t c0, uint8_t c1, uint8_t insert, uint8_t flash, uint8_t conceal, uint8_t negative, uint8_t underline)
 {
 	uint16_t i;
 	uint8_t pix[80];
@@ -415,8 +408,8 @@ void ef9345_device::bichrome40(uint8_t type, uint16_t address, uint8_t dial, uin
 
 	if (flash && m_pat & 0x40 && m_blink)
 		c1 = c0;                    //flash
-	if (hided && m_pat & 0x08)
-		c1 = c0;                    //hided
+	if (conceal && m_pat & 0x08)
+		c1 = c0;                    //conceal
 	if (negative)                   //negative
 	{
 		i = c1;
@@ -542,7 +535,7 @@ void ef9345_device::quadrichrome40(uint8_t c, uint8_t b, uint8_t a, uint16_t x, 
 }
 
 // draw bichrome character (80 columns)
-void ef9345_device::bichrome80(uint8_t c, uint8_t a, uint16_t x, uint16_t y)
+void ef9345_device::bichrome80(uint8_t c, uint8_t a, uint16_t x, uint16_t y, uint8_t cursor)
 {
 	uint8_t c0, c1, pix[60];
 	uint16_t i, j, d;
@@ -568,6 +561,13 @@ void ef9345_device::bichrome80(uint8_t c, uint8_t a, uint16_t x, uint16_t y)
 			c0 = i;
 		}
 
+		if ((cursor == 0x40) || ((cursor == 0x60) && m_blink))
+		{
+			i = c1;
+			c1 = c0;
+			c0 = i;
+		}
+
 		d = ((c & 0x7f) >> 2) * 0x40 + (c & 0x03);  //char position
 
 		for(i=0, j=0; i < 10; i++)
@@ -578,7 +578,7 @@ void ef9345_device::bichrome80(uint8_t c, uint8_t a, uint16_t x, uint16_t y)
 		}
 
 		//draw the underline
-		if (a & 2)
+		if ((a & 2) || (cursor == 0x50) || ((cursor == 0x70) && m_blink))
 			memset(&pix[54], c1, 6);
 
 		break;
@@ -628,35 +628,36 @@ void ef9345_device::makechar_16x40(uint16_t x, uint16_t y)
 	type = ((b & 0x80) >> 4) | ((a & 0x80) >> 6);
 	address = ((b & 0x7f) >> 2) * 0x40 + (b & 0x03);
 
-		//negative space
-	if ((b & 0xe0) == 0x80)
-	{
-		address = 0;
-		type = 3;
-	}
-
 	//reset attributes latch
 	if (x == 0)
-		m_latchm = m_latchi = m_latchu = m_latchc0 = 0;
-
-	if (type == 4)
 	{
+		m_latchm = m_latchi = m_latchu = m_latchc0 = 0;
+	}
+
+	//delimiter
+	if ((b & 0xe0) == 0x80)
+	{
+		type = 0;
+		address = ((127) >> 2) * 0x40 + (127 & 0x03); // Force character 127 (negative space) of first type.
+
 		m_latchm = b & 1;
 		m_latchi = (b & 2) >> 1;
 		m_latchu = (b & 4) >> 2;
 	}
 
 	if (a & 0x80)
+	{
 		m_latchc0 = (a & 0x70) >> 4;
+	}
 
 	//char attributes
 	c0 = m_latchc0;                         //background
 	c1 = a & 0x07;                          //foreground
-	i = m_latchi;                               //insert mode
+	i = m_latchi;                           //insert mode
 	f  = (a & 0x08) >> 3;                   //flash
-	m = m_latchm;                               //hided
+	m = m_latchm;                           //conceal
 	n  = (a & 0x80) ? 0: ((a & 0x40) >> 6); //negative
-	u = m_latchu;                               //underline
+	u = m_latchu;                           //underline
 
 	bichrome40(type, address, dial, iblock, x, y, c0, c1, i, f, m, n, u);
 }
@@ -689,7 +690,7 @@ void ef9345_device::makechar_24x40(uint16_t x, uint16_t y)
 	c1 = (a & 0x70) >> 4;           //foreground
 	i = b & 0x01;                   //insert
 	f = (a & 0x08) >> 3;            //flash
-	m = (b & 0x04) >> 2;            //hided
+	m = (b & 0x04) >> 2;            //conceal
 	n = ((a & 0x80) >> 7);          //negative
 	u = (((b & 0x60) == 0) || ((b & 0xc0) == 0x40)) ? ((b & 0x10) >> 4) : 0; //underline
 
@@ -700,8 +701,19 @@ void ef9345_device::makechar_24x40(uint16_t x, uint16_t y)
 void ef9345_device::makechar_12x80(uint16_t x, uint16_t y)
 {
 	uint16_t iblock = indexblock(x, y);
-	bichrome80(m_videoram->read_byte(m_block + iblock), (m_videoram->read_byte(m_block + iblock + 0x1000) >> 4) & 0x0f, 2 * x + 1, y + 1);
-	bichrome80(m_videoram->read_byte(m_block + iblock + 0x0800), m_videoram->read_byte(m_block + iblock + 0x1000) & 0x0f, 2 * x + 2, y + 1);
+	//draw the cursor
+	uint8_t cursor = 0;
+	uint8_t b = BIT(m_registers[7], 7);
+
+	uint8_t i = (m_registers[6] & 0x1f);
+	if (i < 8)
+		i &= 1;
+
+	if (iblock == 0x40 * i + (m_registers[7] & 0x3f))   //cursor position
+		cursor = m_mat & 0x70;
+
+	bichrome80(m_videoram->read_byte(m_block + iblock), (m_videoram->read_byte(m_block + iblock + 0x1000) >> 4) & 0x0f, 2 * x + 1, y + 1, b ? 0 : cursor);
+	bichrome80(m_videoram->read_byte(m_block + iblock + 0x0800), m_videoram->read_byte(m_block + iblock + 0x1000) & 0x0f, 2 * x + 2, y + 1, b ? cursor : 0);
 }
 
 void ef9345_device::draw_border(uint16_t line)
@@ -727,6 +739,7 @@ void ef9345_device::makechar(uint16_t x, uint16_t y)
 				makechar_16x40(x, y);
 				break;
 			}
+			[[fallthrough]];
 		case MODE8x80:
 			logerror("Unemulated EF9345 mode: %02x\n", m_char_mode);
 			break;
@@ -762,7 +775,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 	{
 		case 0x00:  //KRF: R1,R2,R3->ram
 		case 0x01:  //KRF: R1,R2,R3->ram + increment
-			set_busy_flag(4);
+			set_busy_flag(4000);
 			m_videoram->write_byte(a, m_registers[1]);
 			m_videoram->write_byte(a + 0x0800, m_registers[2]);
 			m_videoram->write_byte(a + 0x1000, m_registers[3]);
@@ -770,14 +783,14 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			break;
 		case 0x02:  //KRG: R1,R2->ram
 		case 0x03:  //KRG: R1,R2->ram + increment
-			set_busy_flag(5.5);
+			set_busy_flag(5500);
 			m_videoram->write_byte(a, m_registers[1]);
 			m_videoram->write_byte(a + 0x0800, m_registers[2]);
 			if (cmd&1) inc_x(7);
 			break;
 		case 0x08:  //KRF: ram->R1,R2,R3
 		case 0x09:  //KRF: ram->R1,R2,R3 + increment
-			set_busy_flag(7.5);
+			set_busy_flag(7500);
 			m_registers[1] = m_videoram->read_byte(a);
 			m_registers[2] = m_videoram->read_byte(a + 0x0800);
 			m_registers[3] = m_videoram->read_byte(a + 0x1000);
@@ -785,14 +798,14 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			break;
 		case 0x0a:  //KRG: ram->R1,R2
 		case 0x0b:  //KRG: ram->R1,R2 + increment
-			set_busy_flag(7.5);
+			set_busy_flag(7500);
 			m_registers[1] = m_videoram->read_byte(a);
 			m_registers[2] = m_videoram->read_byte(a + 0x0800);
 			if (cmd&1) inc_x(7);
 			break;
 		case 0x30:  //OCT: R1->RAM, main pointer
 		case 0x31:  //OCT: R1->RAM, main pointer + inc
-			set_busy_flag(4);
+			set_busy_flag(4000);
 			m_videoram->write_byte(indexram(7), m_registers[1]);
 
 			if (cmd&1)
@@ -804,7 +817,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			break;
 		case 0x34:  //OCT: R1->RAM, aux pointer
 		case 0x35:  //OCT: R1->RAM, aux pointer + inc
-			set_busy_flag(4);
+			set_busy_flag(4000);
 			m_videoram->write_byte(indexram(5), m_registers[1]);
 
 			if (cmd&1)
@@ -812,7 +825,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			break;
 		case 0x38:  //OCT: RAM->R1, main pointer
 		case 0x39:  //OCT: RAM->R1, main pointer + inc
-			set_busy_flag(4.5);
+			set_busy_flag(4500);
 			m_registers[1] = m_videoram->read_byte(indexram(7));
 
 			if (cmd&1)
@@ -825,7 +838,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			break;
 		case 0x3c:  //OCT: RAM->R1, aux pointer
 		case 0x3d:  //OCT: RAM->R1, aux pointer + inc
-			set_busy_flag(4.5);
+			set_busy_flag(4500);
 			m_registers[1] = m_videoram->read_byte(indexram(5));
 
 			if (cmd&1)
@@ -833,7 +846,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			break;
 		case 0x50:  //KRL: 80 uint8_t - 12 bits write
 		case 0x51:  //KRL: 80 uint8_t - 12 bits write + inc
-			set_busy_flag(12.5);
+			set_busy_flag(12500);
 			m_videoram->write_byte(a, m_registers[1]);
 			switch((a / 0x0800) & 1)
 			{
@@ -853,13 +866,13 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			if (cmd&1)
 			{
 				if ((m_registers[7] & 0x80) == 0x00) { m_registers[7] |= 0x80; return; }
-				m_registers[7] &= 0x80;
+				m_registers[7] &= ~0x80;
 				inc_x(7);
 			}
 			break;
 		case 0x58:  //KRL: 80 uint8_t - 12 bits read
 		case 0x59:  //KRL: 80 uint8_t - 12 bits read + inc
-			set_busy_flag(11.5);
+			set_busy_flag(11500);
 			m_registers[1] = m_videoram->read_byte(a);
 			switch((a / 0x0800) & 1)
 			{
@@ -888,7 +901,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 		case 0x83:  //IND: R1->PAT
 		case 0x84:  //IND: R1->DOR
 		case 0x87:  //IND: R1->ROR
-			set_busy_flag(2);
+			set_busy_flag(2000);
 			switch(cmd&7)
 			{
 				case 1:     m_tgs = m_registers[1]; break;
@@ -906,7 +919,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 		case 0x8b:  //IND: PAT->R1
 		case 0x8c:  //IND: DOR->R1
 		case 0x8f:  //IND: ROR->R1
-			set_busy_flag(3.5);
+			set_busy_flag(3500);
 			switch(cmd&7)
 			{
 				case 0:     m_registers[1] = m_charset[indexrom(7) & 0x1fff]; break;
@@ -924,7 +937,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 		case 0x99:  //VSM: vertical sync mask set
 			break;
 		case 0xb0:  //INY: increment Y
-			set_busy_flag(2);
+			set_busy_flag(2000);
 			inc_y(6);
 			m_state &= 0x8f;  //reset S4(LXa), S5(LXm), S6(Al)
 			break;
@@ -945,7 +958,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 			uint8_t n = (cmd>>4) - 0x0c;
 			uint8_t r1 = (cmd&0x04) ? 7 : 5;
 			uint8_t r2 = (cmd&0x04) ? 5 : 7;
-			int busy = 2;
+			int busy = 2000;
 
 			for(i = 0; i < 1280; i++)
 			{
@@ -968,7 +981,7 @@ void ef9345_device::ef9345_exec(uint8_t cmd)
 					inc_y(6);
 				}
 
-				busy += 4 * n;
+				busy += 4000 * n;
 			}
 			m_state &= 0x8f;  //reset S4(LXa), S5(LXm), S6(Al)
 			set_busy_flag(busy);
@@ -1003,7 +1016,7 @@ void ef9345_device::update_scanline(uint16_t scanline)
 	if (scanline == 250)
 		m_state &= 0xfb;
 
-	set_busy_flag(104);
+	set_busy_flag(104000);
 
 	if (m_char_mode == MODE12x80 || m_char_mode == MODE8x80)
 	{
@@ -1056,7 +1069,7 @@ void ef9345_device::update_scanline(uint16_t scanline)
 	}
 }
 
-READ8_MEMBER( ef9345_device::data_r )
+uint8_t ef9345_device::data_r(offs_t offset)
 {
 	if (offset & 7)
 		return m_registers[offset & 7];
@@ -1069,7 +1082,7 @@ READ8_MEMBER( ef9345_device::data_r )
 	return m_state;
 }
 
-WRITE8_MEMBER( ef9345_device::data_w )
+void ef9345_device::data_w(offs_t offset, uint8_t data)
 {
 	m_registers[offset & 7] = data;
 

@@ -8,8 +8,9 @@
 #include "keyboard.h"
 #include "machine/keyboard.h"
 #include "sound/beep.h"
+#include "diserial.h"
 
-namespace bus { namespace interpro { namespace keyboard {
+namespace bus::interpro::keyboard {
 
 class hle_device_base
 	: public device_t
@@ -45,6 +46,12 @@ protected:
 	virtual u8 translate(u8 row, u8 column) = 0;
 
 private:
+	static constexpr int START_BIT_COUNT = 1;
+	static constexpr int DATA_BIT_COUNT = 8;
+	static constexpr device_serial_interface::parity_t PARITY = device_serial_interface::PARITY_EVEN;
+	static constexpr device_serial_interface::stop_bits_t STOP_BITS = device_serial_interface::STOP_BITS_1;
+	static constexpr int BAUD = 1'200;
+
 	enum {
 		CLICK_TIMER_ID = 30'000
 	};
@@ -106,7 +113,7 @@ public:
 	required_ioport m_modifiers;
 };
 
-} } } // namespace bus::interpro::keyboard
+} // namespace bus::interpro::keyboard
 
 DECLARE_DEVICE_TYPE_NS(INTERPRO_HLE_EN_US_KEYBOARD, bus::interpro::keyboard, hle_en_us_device)
 

@@ -12,7 +12,7 @@
 class channelf_sound_device : public device_t, public device_sound_interface
 {
 public:
-	channelf_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	channelf_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 0);
 
 	void sound_w(int mode);
 protected:
@@ -20,7 +20,7 @@ protected:
 	virtual void device_start() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 private:
 	// internal state
 	sound_stream *m_channel;

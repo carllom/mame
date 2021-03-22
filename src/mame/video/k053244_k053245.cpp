@@ -42,7 +42,7 @@ main ram and the buffer.
 *****************************************************************************/
 
 DEFINE_DEVICE_TYPE(K053244, k05324x_device, "k05324x", "K053244/053245 Sprite Generator")
-device_type const K053245 = K053244;
+decltype(K053244) K053245 = K053244;
 
 const gfx_layout k05324x_device::spritelayout =
 {
@@ -82,14 +82,15 @@ GFXDECODE_MEMBER( k05324x_device::gfxinfo_6bpp )
 GFXDECODE_END
 
 
-k05324x_device::k05324x_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, K053244, tag, owner, clock),
+k05324x_device::k05324x_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	device_t(mconfig, K053244, tag, owner, clock),
 	device_gfx_interface(mconfig, *this, gfxinfo),
 	m_ram(nullptr),
 	m_buffer(nullptr),
 	m_sprite_rom(*this, DEVICE_SELF),
 	m_dx(0),
 	m_dy(0),
+	m_k05324x_cb(*this),
 	m_rombank(0),
 	m_ramsize(0),
 	m_z_rejection(0)
@@ -101,10 +102,10 @@ void k05324x_device::set_bpp(int bpp)
 	switch(bpp)
 	{
 		case 4:
-			device_gfx_interface::static_set_info(*this, gfxinfo);
+			set_info(gfxinfo);
 			break;
 		case 6:
-			device_gfx_interface::static_set_info(*this, gfxinfo_6bpp);
+			set_info(gfxinfo_6bpp);
 			break;
 		default:
 			fatalerror("Unsupported bpp\n");
@@ -118,8 +119,14 @@ void k05324x_device::set_bpp(int bpp)
 
 void k05324x_device::device_start()
 {
+	// assumes it can make an address mask with m_sprite_rom.length() - 1
+	assert(!(m_sprite_rom.length() & (m_sprite_rom.length() - 1)));
+
 	if (!palette().device().started())
 		throw device_missing_dependencies();
+
+	// bind callbacks
+	m_k05324x_cb.resolve();
 
 	/* decode the graphics */
 	decode_gfx();
@@ -134,11 +141,8 @@ void k05324x_device::device_start()
 	m_ram = make_unique_clear<uint16_t[]>(m_ramsize / 2);
 	m_buffer = make_unique_clear<uint16_t[]>(m_ramsize / 2);
 
-	// bind callbacks
-	m_k05324x_cb.bind_relative_to(*owner());
-
-	save_pointer(NAME(m_ram.get()), m_ramsize / 2);
-	save_pointer(NAME(m_buffer.get()), m_ramsize / 2);
+	save_pointer(NAME(m_ram), m_ramsize / 2);
+	save_pointer(NAME(m_buffer), m_ramsize / 2);
 	save_item(NAME(m_rombank));
 	save_item(NAME(m_z_rejection));
 	save_item(NAME(m_regs));
@@ -160,17 +164,17 @@ void k05324x_device::device_reset()
     DEVICE HANDLERS
 *****************************************************************************/
 
-READ16_MEMBER( k05324x_device::k053245_word_r )
+u16 k05324x_device::k053245_word_r(offs_t offset)
 {
 	return m_ram[offset];
 }
 
-WRITE16_MEMBER( k05324x_device::k053245_word_w )
+void k05324x_device::k053245_word_w(offs_t offset, u16 data, u16 mem_mask)
 {
 	COMBINE_DATA(m_ram.get() + offset);
 }
 
-READ8_MEMBER( k05324x_device::k053245_r )
+u8 k05324x_device::k053245_r(offs_t offset)
 {
 	if(offset & 1)
 		return m_ram[offset >> 1] & 0xff;
@@ -179,7 +183,7 @@ READ8_MEMBER( k05324x_device::k053245_r )
 }
 
 
-WRITE8_MEMBER( k05324x_device::k053245_w )
+void k05324x_device::k053245_w(offs_t offset, u8 data)
 {
 	if(offset & 1)
 		m_ram[offset >> 1] = (m_ram[offset >> 1] & 0xff00) | data;
@@ -200,7 +204,7 @@ void k05324x_device::update_buffer()
 	memcpy(m_buffer.get(), m_ram.get(), m_ramsize);
 }
 
-READ8_MEMBER( k05324x_device::k053244_r )
+u8 k05324x_device::k053244_r(offs_t offset)
 {
 	if ((m_regs[5] & 0x10) && offset >= 0x0c && offset < 0x10)
 	{
@@ -209,7 +213,7 @@ READ8_MEMBER( k05324x_device::k053244_r )
 		addr = (m_rombank << 19) | ((m_regs[11] & 0x7) << 18)
 			| (m_regs[8] << 10) | (m_regs[9] << 2)
 			| ((offset & 3) ^ 1);
-		addr &= m_sprite_rom.mask();
+		addr &= m_sprite_rom.length() - 1;
 
 		//  popmessage("%s: offset %02x addr %06x", machine().describe_context(), offset & 3, addr);
 
@@ -227,7 +231,7 @@ READ8_MEMBER( k05324x_device::k053244_r )
 	}
 }
 
-WRITE8_MEMBER( k05324x_device::k053244_w )
+void k05324x_device::k053244_w(offs_t offset, u8 data)
 {
 	m_regs[offset] = data;
 
@@ -247,30 +251,6 @@ WRITE8_MEMBER( k05324x_device::k053244_w )
 	}
 }
 
-
-READ16_MEMBER( k05324x_device::k053244_lsb_r )
-{
-	return k053244_r(space, offset);
-}
-
-WRITE16_MEMBER( k05324x_device::k053244_lsb_w )
-{
-	if (ACCESSING_BITS_0_7)
-		k053244_w(space, offset, data & 0xff);
-}
-
-READ16_MEMBER( k05324x_device::k053244_word_r )
-{
-	return (k053244_r(space, offset * 2) << 8) | k053244_r(space, offset * 2 + 1);
-}
-
-WRITE16_MEMBER( k05324x_device::k053244_word_w )
-{
-	if (ACCESSING_BITS_8_15)
-		k053244_w(space, offset * 2, (data >> 8) & 0xff);
-	if (ACCESSING_BITS_0_7)
-		k053244_w(space, offset * 2 + 1, data & 0xff);
-}
 
 void k05324x_device::bankselect( int bank )
 {

@@ -35,8 +35,10 @@ Standard dm01 memorymap
 ***************************************************************************/
 
 #include "emu.h"
-#include "cpu/m6809/m6809.h"
 #include "bfm_dm01.h"
+
+#include "cpu/m6809/m6809.h"
+
 
 // local vars /////////////////////////////////////////////////////////////
 
@@ -49,28 +51,28 @@ Standard dm01 memorymap
 #define VERBOSE 0
 #endif
 
-#define LOG(x) do { if (VERBOSE) logerror x; } while (0)
+#include "logmacro.h"
+
 
 DEFINE_DEVICE_TYPE(BFM_DM01, bfm_dm01_device, "bfm_dm01", "BFM Dotmatrix 01")
 
 
-bfm_dm01_device::bfm_dm01_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, BFM_DM01, tag, owner, clock),
+bfm_dm01_device::bfm_dm01_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	device_t(mconfig, BFM_DM01, tag, owner, clock),
 	m_matrixcpu(*this, "matrix"),
-	m_screen(*this, "dmd"),
-	m_palette(*this, "palette_lcd"),
 	m_data_avail(0),
 	m_control(0),
 	m_xcounter(0),
 	m_busy(0),
 	m_comdata(0),
+	m_dotmatrix(*this, "dotmatrix%u", 0U),
 	m_busy_cb(*this)
 {
 	for (auto & elem : m_segbuffer)
-	elem = 0;
+		elem = 0;
 
 	for (auto & elem : m_scanline)
-	elem = 0;
+		elem = 0;
 }
 
 //-------------------------------------------------
@@ -79,12 +81,7 @@ bfm_dm01_device::bfm_dm01_device(const machine_config &mconfig, const char *tag,
 
 void bfm_dm01_device::device_start()
 {
-	if(!m_screen->started())
-		throw device_missing_dependencies();
-
-	if(!m_palette->started())
-		throw device_missing_dependencies();
-
+	m_dotmatrix.resolve();
 	m_busy_cb.resolve_safe();
 
 	save_item(NAME(m_data_avail));
@@ -93,16 +90,9 @@ void bfm_dm01_device::device_start()
 	save_item(NAME(m_busy));
 	save_item(NAME(m_comdata));
 
-	for (int i = 0; i < 65; i++)
-	save_item(NAME(m_segbuffer), i);
+	save_item(NAME(m_segbuffer));
 
-	for (int i = 0; i < BYTES_PER_ROW; i++)
-	save_item(NAME(m_scanline), i);
-
-	m_screen->register_screen_bitmap(m_tmpbitmap);
-	m_palette->set_pen_color(0, rgb_t(0, 0, 0));        // background
-	m_palette->set_pen_color(1, rgb_t(15, 1, 1));       // off dot
-	m_palette->set_pen_color(2, rgb_t(255, 31, 31));    // on dot
+	save_item(NAME(m_scanline));
 }
 
 
@@ -123,7 +113,7 @@ void bfm_dm01_device::device_reset()
 
 ///////////////////////////////////////////////////////////////////////////
 
-int bfm_dm01_device::read_data(void)
+int bfm_dm01_device::read_data()
 {
 	int data = m_comdata;
 
@@ -134,14 +124,14 @@ int bfm_dm01_device::read_data(void)
 
 ///////////////////////////////////////////////////////////////////////////
 
-READ8_MEMBER( bfm_dm01_device::control_r )
+uint8_t bfm_dm01_device::control_r()
 {
 	return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 
-WRITE8_MEMBER( bfm_dm01_device::control_w )
+void bfm_dm01_device::control_w(uint8_t data)
 {
 	int changed = m_control ^ data;
 
@@ -168,23 +158,23 @@ WRITE8_MEMBER( bfm_dm01_device::control_w )
 
 ///////////////////////////////////////////////////////////////////////////
 
-READ8_MEMBER( bfm_dm01_device::mux_r )
+uint8_t bfm_dm01_device::mux_r()
 {
 	return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 
-WRITE8_MEMBER( bfm_dm01_device::mux_w )
+void bfm_dm01_device::mux_w(uint8_t data)
 {
 	g_profiler.start(PROFILER_USER2);
 
-	if ( m_xcounter < BYTES_PER_ROW )
+	if (m_xcounter < BYTES_PER_ROW)
 	{
 		m_scanline[m_xcounter] = data;
 		m_xcounter++;
 	}
-	if ( m_xcounter == 9 )
+	if (m_xcounter == 9)
 	{
 		int row = ((0xFF^data) & 0x7C) >> 2;    // 7C = 000001111100
 		m_scanline[8] &= 0x80;//filter all other bits
@@ -207,14 +197,9 @@ WRITE8_MEMBER( bfm_dm01_device::mux_w )
 				p++;
 			}
 
-			uint16_t* pix = &m_tmpbitmap.pix16(row*2);
-			uint16_t* pix2 = &m_tmpbitmap.pix16((row*2)+1);
-			for (int pos=0;pos<65;pos++)
+			for (int pos = 0; pos < 65; pos++)
 			{
-				pix[0 + (pos * 2)] = m_segbuffer[(pos)]+1;
-				pix[1 + (pos * 2)] = 0;
-				pix2[0 + (pos * 2)] = 0;
-				pix2[1 + (pos * 2)] = 0;
+				m_dotmatrix[pos + (65 * row)] = m_segbuffer[pos];
 			}
 		}
 	}
@@ -224,7 +209,7 @@ WRITE8_MEMBER( bfm_dm01_device::mux_w )
 
 ///////////////////////////////////////////////////////////////////////////
 
-READ8_MEMBER( bfm_dm01_device::comm_r )
+uint8_t bfm_dm01_device::comm_r()
 {
 	int result = 0;
 
@@ -245,41 +230,34 @@ READ8_MEMBER( bfm_dm01_device::comm_r )
 
 ///////////////////////////////////////////////////////////////////////////
 
-WRITE8_MEMBER( bfm_dm01_device::comm_w )
+void bfm_dm01_device::comm_w(uint8_t data)
 {
 }
 ///////////////////////////////////////////////////////////////////////////
 
-READ8_MEMBER( bfm_dm01_device::unknown_r )
+uint8_t bfm_dm01_device::unknown_r()
 {
 	return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 
-WRITE8_MEMBER( bfm_dm01_device::unknown_w )
+void bfm_dm01_device::unknown_w(uint8_t data)
 {
-	m_matrixcpu->set_input_line(INPUT_LINE_NMI, CLEAR_LINE ); //?
+	m_matrixcpu->set_input_line(INPUT_LINE_NMI, CLEAR_LINE); //?
 }
 
 ///////////////////////////////////////////////////////////////////////////
 
-ADDRESS_MAP_START(bfm_dm01_device::bfm_dm01_memmap)
-	AM_RANGE(0x0000, 0x1fff) AM_RAM                             // 8k RAM
-	AM_RANGE(0x2000, 0x2000) AM_READWRITE(control_r, control_w)  // control reg
-	AM_RANGE(0x2800, 0x2800) AM_READWRITE(mux_r, mux_w)           // mux
-	AM_RANGE(0x3000, 0x3000) AM_READWRITE(comm_r, comm_w)     //
-	AM_RANGE(0x3800, 0x3800) AM_READWRITE(unknown_r, unknown_w)   // ???
-	AM_RANGE(0x4000, 0xFfff) AM_ROM                             // 48k  ROM
-ADDRESS_MAP_END
-
-
-uint32_t bfm_dm01_device::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+void bfm_dm01_device::bfm_dm01_memmap(address_map &map)
 {
-	copybitmap(bitmap, m_tmpbitmap, 0, 0, 0, 0,       cliprect);
-	return 0;
+	map(0x0000, 0x1fff).ram();                             // 8k RAM
+	map(0x2000, 0x2000).rw(FUNC(bfm_dm01_device::control_r), FUNC(bfm_dm01_device::control_w));  // control reg
+	map(0x2800, 0x2800).rw(FUNC(bfm_dm01_device::mux_r), FUNC(bfm_dm01_device::mux_w));           // mux
+	map(0x3000, 0x3000).rw(FUNC(bfm_dm01_device::comm_r), FUNC(bfm_dm01_device::comm_w));     //
+	map(0x3800, 0x3800).rw(FUNC(bfm_dm01_device::unknown_r), FUNC(bfm_dm01_device::unknown_w));   // ???
+	map(0x4000, 0xFfff).rom();                             // 48k  ROM
 }
-
 
 
 INTERRUPT_GEN_MEMBER( bfm_dm01_device::nmi_line_assert )
@@ -287,22 +265,12 @@ INTERRUPT_GEN_MEMBER( bfm_dm01_device::nmi_line_assert )
 	m_matrixcpu->set_input_line(INPUT_LINE_NMI, ASSERT_LINE);
 }
 
-MACHINE_CONFIG_START(bfm_dm01_device::device_add_mconfig)
-	MCFG_CPU_ADD("matrix", M6809, 2000000 )        /* matrix board 6809 CPU at 2 Mhz ?? I don't know the exact freq.*/
-	MCFG_CPU_PROGRAM_MAP(bfm_dm01_memmap)
-	MCFG_CPU_PERIODIC_INT_DRIVER(bfm_dm01_device, nmi_line_assert, 1500 )          /* generate 1500 NMI's per second ?? what is the exact freq?? */
-
-	MCFG_PALETTE_ADD("palette_lcd", 3)
-
-	MCFG_SCREEN_ADD("dmd", RASTER)
-	MCFG_SCREEN_REFRESH_RATE(60)
-	MCFG_SCREEN_VBLANK_TIME(ATTOSECONDS_IN_USEC(0))
-	MCFG_SCREEN_SIZE(65*2, 21*2)
-	MCFG_SCREEN_VISIBLE_AREA(0, 65*2-1, 0, 21*2-1)
-	MCFG_SCREEN_UPDATE_DRIVER(bfm_dm01_device, screen_update)
-
-	MCFG_SCREEN_PALETTE("palette_lcd")
-MACHINE_CONFIG_END
+void bfm_dm01_device::device_add_mconfig(machine_config &config)
+{
+	MC6809(config, m_matrixcpu, 8000000); // MC68B09CP (clock unknown)
+	m_matrixcpu->set_addrmap(AS_PROGRAM, &bfm_dm01_device::bfm_dm01_memmap);
+	m_matrixcpu->set_periodic_int(FUNC(bfm_dm01_device::nmi_line_assert), attotime::from_hz(1500));          /* generate 1500 NMI's per second ?? what is the exact freq?? */
+}
 
 ///////////////////////////////////////////////////////////////////////////
 

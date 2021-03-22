@@ -33,10 +33,10 @@ protected:
 	virtual void device_start() override;
 
 	// device_cbm2_expansion_card_interface overrides
-	virtual uint8_t cbm2_bd_r(address_space &space, offs_t offset, uint8_t data, int csbank1, int csbank2, int csbank3) override;
-	virtual void cbm2_bd_w(address_space &space, offs_t offset, uint8_t data, int csbank1, int csbank2, int csbank3) override;
+	virtual uint8_t cbm2_bd_r(offs_t offset, uint8_t data, int csbank1, int csbank2, int csbank3) override;
+	virtual void cbm2_bd_w(offs_t offset, uint8_t data, int csbank1, int csbank2, int csbank3) override;
 
-	optional_shared_ptr<uint8_t> m_ram;
+	memory_share_creator<uint8_t> m_ram;
 };
 
 

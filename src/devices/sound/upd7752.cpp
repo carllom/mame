@@ -29,10 +29,11 @@ DEFINE_DEVICE_TYPE(UPD7752, upd7752_device, "upd7752", "NEC uPD7752")
 
 
 /* TODO: unknown exact size */
-ADDRESS_MAP_START(upd7752_device::upd7752_ram)
-//  AM_RANGE(0x0000, 0x7fff) AM_ROM
-	AM_RANGE(0x0000, 0xffff) AM_RAM
-ADDRESS_MAP_END
+void upd7752_device::upd7752_ram(address_map &map)
+{
+	if (!has_configured_map(0))
+		map(0x0000, 0xffff).ram();
+}
 
 //**************************************************************************
 //  LIVE DEVICE
@@ -46,7 +47,7 @@ upd7752_device::upd7752_device(const machine_config &mconfig, const char *tag, d
 	: device_t(mconfig, UPD7752, tag, owner, clock),
 		device_sound_interface(mconfig, *this),
 		device_memory_interface(mconfig, *this), m_stream(nullptr),
-		m_space_config("ram", ENDIANNESS_LITTLE, 8, 16, 0, address_map_constructor(), address_map_constructor(FUNC(upd7752_device::upd7752_ram), this)), m_status(0), m_ram_addr(0), m_mode(0)
+		m_space_config("ram", ENDIANNESS_LITTLE, 8, 16, 0, address_map_constructor(FUNC(upd7752_device::upd7752_ram), this)), m_status(0), m_ram_addr(0), m_mode(0)
 {
 }
 
@@ -98,8 +99,9 @@ void upd7752_device::device_stop()
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void upd7752_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void upd7752_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
+	outputs[0].fill(0);
 }
 
 //**************************************************************************
@@ -132,7 +134,7 @@ void upd7752_device::status_change(uint8_t flag,bool type)
 		m_status &= ~flag;
 }
 
-READ8_MEMBER( upd7752_device::read )
+uint8_t upd7752_device::read(offs_t offset)
 {
 	switch(offset & 3)
 	{
@@ -150,7 +152,7 @@ READ8_MEMBER( upd7752_device::read )
 	return 0xff;
 }
 
-WRITE8_MEMBER( upd7752_device::write )
+void upd7752_device::write(offs_t offset, uint8_t data)
 {
 	switch(offset & 3)
 	{

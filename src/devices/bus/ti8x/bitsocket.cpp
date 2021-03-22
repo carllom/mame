@@ -8,7 +8,7 @@
 DEFINE_DEVICE_TYPE_NS(TI8X_BIT_SOCKET, bus::ti8x, bit_socket_device, "ti8x_bitsock", "TI-8x Bit Socket")
 
 
-namespace bus { namespace ti8x {
+namespace bus::ti8x {
 
 bit_socket_device::bit_socket_device(
 		machine_config const &mconfig,
@@ -25,9 +25,10 @@ bit_socket_device::bit_socket_device(
 }
 
 
-MACHINE_CONFIG_START(bit_socket_device::device_add_mconfig)
-	MCFG_DEVICE_ADD("stream", BITBANGER, 0)
-MACHINE_CONFIG_END
+void bit_socket_device::device_add_mconfig(machine_config &config)
+{
+	BITBANGER(config, m_stream, 0);
+}
 
 
 void bit_socket_device::device_start()
@@ -77,4 +78,4 @@ WRITE_LINE_MEMBER(bit_socket_device::input_ring)
 	m_stream->output((m_ring_in ? 0x01 : 0x00) | 0x04);
 }
 
-} } // namespace bus::ti8x
+} // namespace bus::ti8x

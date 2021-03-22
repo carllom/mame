@@ -72,7 +72,7 @@ public:
 	virtual void input_init(running_machine &machine) override
 	{
 		// Add a single win32 keyboard device that we'll monitor using Win32
-		win32_keyboard_device *devinfo = devicelist()->create_device<win32_keyboard_device>(machine, "Win32 Keyboard 1", "Win32 Keyboard 1", *this);
+		auto *devinfo = devicelist()->create_device<win32_keyboard_device>(machine, "Win32 Keyboard 1", "Win32 Keyboard 1", *this);
 
 		keyboard_trans_table &table = keyboard_trans_table::instance();
 
@@ -83,8 +83,8 @@ public:
 			TCHAR keyname[100];
 
 			// generate the name
-			if (GetKeyNameText(((keynum & 0x7f) << 16) | ((keynum & 0x80) << 17), keyname, ARRAY_LENGTH(keyname)) == 0)
-				_sntprintf(keyname, ARRAY_LENGTH(keyname), TEXT("Scan%03d"), keynum);
+			if (GetKeyNameText(((keynum & 0x7f) << 16) | ((keynum & 0x80) << 17), keyname, std::size(keyname)) == 0)
+				_sntprintf(keyname, std::size(keyname), TEXT("Scan%03d"), keynum);
 			std::string name = osd::text::from_tstring(keyname);
 
 			// add the item to the device

@@ -23,23 +23,21 @@ void starshp1_state::set_pens()
 }
 
 
-PALETTE_INIT_MEMBER(starshp1_state, starshp1)
+void starshp1_state::starshp1_palette(palette_device &palette) const
 {
-	int i;
-
-	static const uint16_t colortable_source[] =
+	static constexpr uint16_t colortable_source[] =
 	{
-		0, 3,       /* 0x00 - 0x01 - alpha numerics */
-		0, 2,       /* 0x02 - 0x03 - sprites (Z=0) */
-		0, 5,       /* 0x04 - 0x05 - sprites (Z=1) */
-		0, 2, 4, 6, /* 0x06 - 0x09 - spaceship (EXPLODE=0) */
-		0, 6, 6, 7, /* 0x0a - 0x0d - spaceship (EXPLODE=1) */
-		5, 2,       /* 0x0e - 0x0f - star field */
-		7,          /* 0x10        - phasor */
-		5, 7        /* 0x11        - circle */
+		0, 3,       // 0x00 - 0x01 - alpha numerics
+		0, 2,       // 0x02 - 0x03 - sprites (Z=0)
+		0, 5,       // 0x04 - 0x05 - sprites (Z=1)
+		0, 2, 4, 6, // 0x06 - 0x09 - spaceship (EXPLODE=0)
+		0, 6, 6, 7, // 0x0a - 0x0d - spaceship (EXPLODE=1)
+		5, 2,       // 0x0e - 0x0f - star field
+		7,          // 0x10        - phasor
+		5, 7        // 0x11        - circle
 	};
 
-	for (i = 0; i < ARRAY_LENGTH(colortable_source); i++)
+	for (unsigned i = 0; i < std::size(colortable_source); i++)
 		palette.set_pen_indirect(i, colortable_source[i]);
 }
 
@@ -48,7 +46,7 @@ TILE_GET_INFO_MEMBER(starshp1_state::get_tile_info)
 {
 	uint8_t code = m_playfield_ram[tile_index];
 
-	SET_TILE_INFO_MEMBER(0, code & 0x3f, 0, 0);
+	tileinfo.set(0, code & 0x3f, 0, 0);
 }
 
 
@@ -58,7 +56,7 @@ void starshp1_state::video_start()
 
 	int i;
 
-	m_bg_tilemap = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(FUNC(starshp1_state::get_tile_info),this), TILEMAP_SCAN_ROWS,  16, 8, 32, 32);
+	m_bg_tilemap = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(*this, FUNC(starshp1_state::get_tile_info)), TILEMAP_SCAN_ROWS, 16, 8, 32, 8);
 
 	m_bg_tilemap->set_transparent_pen(0);
 
@@ -82,7 +80,7 @@ void starshp1_state::video_start()
 }
 
 
-READ8_MEMBER(starshp1_state::starshp1_rng_r)
+uint8_t starshp1_state::starshp1_rng_r()
 {
 	int width = m_screen->width();
 	int height = m_screen->height();
@@ -100,7 +98,7 @@ READ8_MEMBER(starshp1_state::starshp1_rng_r)
 }
 
 
-WRITE8_MEMBER(starshp1_state::starshp1_ssadd_w)
+void starshp1_state::starshp1_ssadd_w(offs_t offset, uint8_t data)
 {
 	/*
 	 * The range of sprite position values doesn't suffice to
@@ -116,7 +114,7 @@ WRITE8_MEMBER(starshp1_state::starshp1_ssadd_w)
 }
 
 
-WRITE8_MEMBER(starshp1_state::starshp1_sspic_w)
+void starshp1_state::starshp1_sspic_w(uint8_t data)
 {
 	/*
 	 * Some mysterious game code at address $2CCE is causes
@@ -129,7 +127,7 @@ WRITE8_MEMBER(starshp1_state::starshp1_sspic_w)
 }
 
 
-WRITE8_MEMBER(starshp1_state::starshp1_playfield_w)
+void starshp1_state::starshp1_playfield_w(offs_t offset, uint8_t data)
 {
 	if (m_mux != 0)
 	{
@@ -148,16 +146,13 @@ void starshp1_state::draw_starfield(bitmap_ind16 &bitmap)
 	 * really needed by the game. Not emulated.
 	 */
 
-	int x;
-	int y;
-
-	for (y = 0; y < bitmap.height(); y++)
+	for (int y = 0; y < bitmap.height(); y++)
 	{
-		const uint16_t* p = m_LSFR.get() + (uint16_t) (512 * y);
+		uint16_t const *const p = m_LSFR.get() + (uint16_t) (512 * y);
 
-		uint16_t* pLine = &bitmap.pix16(y);
+		uint16_t *const pLine = &bitmap.pix(y);
 
-		for (x = 0; x < bitmap.width(); x++)
+		for (int x = 0; x < bitmap.width(); x++)
 			if ((p[x] & 0x5b56) == 0x5b44)
 				pLine[x] = (p[x] & 0x0400) ? 0x0e : 0x0f;
 	}
@@ -219,15 +214,13 @@ void starshp1_state::draw_spaceship(bitmap_ind16 &bitmap, const rectangle &clipr
 
 void starshp1_state::draw_phasor(bitmap_ind16 &bitmap)
 {
-	int i;
-
-	for (i = 128; i < 240; i++)
+	for (int i = 128; i < 240; i++)
 		if (i >= get_sprite_vpos(13))
 		{
-			bitmap.pix16(i, 2 * i + 0) = 0x10;
-			bitmap.pix16(i, 2 * i + 1) = 0x10;
-			bitmap.pix16(i, 2 * (255 - i) + 0) = 0x10;
-			bitmap.pix16(i, 2 * (255 - i) + 1) = 0x10;
+			bitmap.pix(i, 2 * i + 0) = 0x10;
+			bitmap.pix(i, 2 * i + 1) = 0x10;
+			bitmap.pix(i, 2 * (255 - i) + 0) = 0x10;
+			bitmap.pix(i, 2 * (255 - i) + 1) = 0x10;
 		}
 }
 
@@ -250,9 +243,9 @@ void starshp1_state::draw_circle_line(bitmap_ind16 &bitmap, int x, int y, int l)
 {
 	if (y >= 0 && y <= bitmap.height() - 1)
 	{
-		const uint16_t* p = m_LSFR.get() + (uint16_t) (512 * y);
+		uint16_t const *const p = m_LSFR.get() + uint16_t(512 * y);
 
-		uint16_t* pLine = &bitmap.pix16(y);
+		uint16_t *const pLine = &bitmap.pix(y);
 
 		int h1 = x - 2 * l;
 		int h2 = x + 2 * l;
@@ -305,14 +298,11 @@ void starshp1_state::draw_circle(bitmap_ind16 &bitmap)
 
 int starshp1_state::spaceship_collision(bitmap_ind16 &bitmap, const rectangle &rect)
 {
-	int x;
-	int y;
-
-	for (y = rect.min_y; y <= rect.max_y; y++)
+	for (int y = rect.top(); y <= rect.bottom(); y++)
 	{
-		const uint16_t* pLine = &m_helper.pix16(y);
+		uint16_t const *const pLine = &m_helper.pix(y);
 
-		for (x = rect.min_x; x <= rect.max_x; x++)
+		for (int x = rect.left(); x <= rect.right(); x++)
 			if (pLine[x] != 0)
 				return 1;
 	}
@@ -337,10 +327,10 @@ int starshp1_state::circle_collision(const rectangle &rect)
 
 	int r = get_radius();
 
-	return point_in_circle(rect.min_x, rect.min_y, center_x, center_y, r) ||
-			point_in_circle(rect.min_x, rect.max_y, center_x, center_y, r) ||
-			point_in_circle(rect.max_x, rect.min_y, center_x, center_y, r) ||
-			point_in_circle(rect.max_x, rect.max_y, center_x, center_y, r);
+	return point_in_circle(rect.left(), rect.top(), center_x, center_y, r) ||
+			point_in_circle(rect.left(), rect.bottom(), center_x, center_y, r) ||
+			point_in_circle(rect.right(), rect.top(), center_x, center_y, r) ||
+			point_in_circle(rect.right(), rect.bottom(), center_x, center_y, r);
 }
 
 
@@ -364,7 +354,9 @@ uint32_t starshp1_state::screen_update_starshp1(screen_device &screen, bitmap_in
 	if (m_circle_kill == 0 && m_circle_mod == 0)
 		draw_circle(bitmap);
 
-	m_bg_tilemap->draw(screen, bitmap, cliprect, 0, 0);
+	rectangle tilemaprect(0, m_bg_tilemap->width(), 0, m_bg_tilemap->height());
+	tilemaprect &= cliprect;
+	m_bg_tilemap->draw(screen, bitmap, tilemaprect, 0, 0);
 
 	if (m_phasor != 0)
 		draw_phasor(bitmap);
@@ -378,13 +370,10 @@ WRITE_LINE_MEMBER(starshp1_state::screen_vblank_starshp1)
 	// rising edge
 	if (state)
 	{
-		rectangle rect;
 		const rectangle &visarea = m_screen->visible_area();
 
-		rect.min_x = get_sprite_hpos(13);
-		rect.min_y = get_sprite_vpos(13);
-		rect.max_x = rect.min_x + m_gfxdecode->gfx(1)->width() - 1;
-		rect.max_y = rect.min_y + m_gfxdecode->gfx(1)->height() - 1;
+		rectangle rect(get_sprite_hpos(13), 0, get_sprite_vpos(13), 0);
+		rect.set_size(m_gfxdecode->gfx(1)->width(), m_gfxdecode->gfx(1)->height());
 
 		rect &= m_helper.cliprect();
 

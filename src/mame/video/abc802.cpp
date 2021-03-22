@@ -127,7 +127,7 @@ MC6845_UPDATE_ROW( abc802_state::abc802_update_row )
 					int x = hbp + ((column + 3) * ABC800_CHAR_WIDTH) + bit;
 					int color = (BIT(data, 7) ^ ri) && de;
 
-					bitmap.pix32(y, x) = pen[color];
+					bitmap.pix(y, x) = pen[color];
 
 					data <<= 1;
 				}
@@ -139,8 +139,8 @@ MC6845_UPDATE_ROW( abc802_state::abc802_update_row )
 					int x = hbp + ((column + 3) * ABC800_CHAR_WIDTH) + (bit << 1);
 					int color = (BIT(data, 7) ^ ri) && de;
 
-					bitmap.pix32(y, x) = pen[color];
-					bitmap.pix32(y, x + 1) = pen[color];
+					bitmap.pix(y, x) = pen[color];
+					bitmap.pix(y, x + 1) = pen[color];
 
 					data <<= 1;
 				}
@@ -171,9 +171,6 @@ WRITE_LINE_MEMBER( abc802_state::vs_w )
 			m_flshclk_ctr++;
 		}
 	}
-
-	// signal _DEW to DART
-	m_dart->rib_w(!state);
 }
 
 
@@ -187,32 +184,22 @@ void abc802_state::video_start()
 
 
 //-------------------------------------------------
-//  SCREEN_UPDATE( abc802 )
+//  machine_config( abc802_video )
 //-------------------------------------------------
 
-uint32_t abc802_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
+void abc802_state::abc802_video(machine_config &config)
 {
-	// draw text
-	m_crtc->screen_update(screen, bitmap, cliprect);
+	mc6845_device &mc6845(MC6845(config, MC6845_TAG, ABC800_CCLK));
+	mc6845.set_screen(SCREEN_TAG);
+	mc6845.set_show_border_area(true);
+	mc6845.set_char_width(ABC800_CHAR_WIDTH);
+	mc6845.set_update_row_callback(FUNC(abc802_state::abc802_update_row));
+	mc6845.out_vsync_callback().set(FUNC(abc802_state::vs_w));
+	mc6845.out_vsync_callback().append(m_dart, FUNC(z80dart_device::rib_w)).invert();
 
-	return 0;
+	screen_device &screen(SCREEN(config, SCREEN_TAG, SCREEN_TYPE_RASTER, rgb_t::amber()));
+	screen.set_screen_update(MC6845_TAG, FUNC(mc6845_device::screen_update));
+	screen.set_raw(XTAL(12'000'000), 0x300, 0, 0x1e0, 0x13a, 0, 0xf0);
+
+	PALETTE(config, m_palette, palette_device::MONOCHROME);
 }
-
-
-//-------------------------------------------------
-//  MACHINE_CONFIG_START( abc802_video )
-//-------------------------------------------------
-
-MACHINE_CONFIG_START(abc802_state::abc802_video)
-	MCFG_MC6845_ADD(MC6845_TAG, MC6845, SCREEN_TAG, ABC800_CCLK)
-	MCFG_MC6845_SHOW_BORDER_AREA(true)
-	MCFG_MC6845_CHAR_WIDTH(ABC800_CHAR_WIDTH)
-	MCFG_MC6845_UPDATE_ROW_CB(abc802_state, abc802_update_row)
-	MCFG_MC6845_OUT_VSYNC_CB(WRITELINE(abc802_state, vs_w))
-
-	MCFG_SCREEN_ADD_MONOCHROME(SCREEN_TAG, RASTER, rgb_t::amber())
-	MCFG_SCREEN_UPDATE_DRIVER(abc802_state, screen_update)
-	MCFG_SCREEN_RAW_PARAMS(XTAL(12'000'000), 0x300, 0, 0x1e0, 0x13a, 0, 0xf0)
-
-	MCFG_PALETTE_ADD_MONOCHROME("palette")
-MACHINE_CONFIG_END

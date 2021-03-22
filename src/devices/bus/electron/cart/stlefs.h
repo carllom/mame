@@ -12,7 +12,10 @@
 #define MAME_BUS_ELECTRON_CART_STLEFS_H
 
 #include "slot.h"
+#include "bus/bbc/1mhzbus/1mhzbus.h"
+#include "machine/input_merger.h"
 #include "machine/wd_fdc.h"
+#include "imagedev/floppy.h"
 #include "formats/acorn_dsk.h"
 
 //**************************************************************************
@@ -35,15 +38,15 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 
 	// electron_cart_interface overrides
-	virtual uint8_t read(address_space &space, offs_t offset, int infc, int infd, int romqa) override;
-	virtual void write(address_space &space, offs_t offset, uint8_t data, int infc, int infd, int romqa) override;
+	virtual uint8_t read(offs_t offset, int infc, int infd, int romqa, int oe, int oe2) override;
+	virtual void write(offs_t offset, uint8_t data, int infc, int infd, int romqa, int oe, int oe2) override;
 
 private:
-	DECLARE_WRITE8_MEMBER(wd1770_control_w);
-	DECLARE_WRITE_LINE_MEMBER(fdc_intrq_w);
-	DECLARE_WRITE_LINE_MEMBER(fdc_drq_w);
-	DECLARE_FLOPPY_FORMATS(floppy_formats);
+	void wd1770_control_w(uint8_t data);
+	static void floppy_formats(format_registration &fr);
 
+	required_device<input_merger_device> m_irqs;
+	required_device<bbc_1mhzbus_slot_device> m_1mhzbus;
 	required_device<wd1770_device> m_fdc;
 	required_device<floppy_connector> m_floppy0;
 	required_device<floppy_connector> m_floppy1;

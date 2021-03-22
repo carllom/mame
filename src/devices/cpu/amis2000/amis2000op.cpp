@@ -205,7 +205,7 @@ void amis2000_base_device::op_inp()
 void amis2000_base_device::op_out()
 {
 	// OUT: pulse output ACC and RAM to D-pins
-	logerror("%s unknown opcode $%02X at $%04X\n", tag(), m_op, m_pc);
+	logerror("unknown opcode $%02X at $%04X\n", m_op, m_pc);
 }
 
 void amis2000_base_device::op_disb()
@@ -220,11 +220,13 @@ void amis2000_base_device::op_disn()
 	// DISN: set D-latch to ACC+carry via on-die segment decoder
 	static const u8 lut_segment_decoder[0x10] =
 	{
-		// 0-F digits in bit order [DP]abcdefg
-		0x7e, 0x30, 0x6d, 0x79, 0x33, 0x5b, 0x5f, 0x70, 0x7f, 0x7b, 0x77, 0x1f, 0x4e, 0x3d, 0x4f, 0x47
+		0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, // 0-7
+		0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71  // 8-F
 	};
-	const u8 *ptr = (m_7seg_table != nullptr) ? m_7seg_table : lut_segment_decoder;
-	m_d = ptr[m_acc] | (m_carry ? 0x80 : 0x00);
+	const u8 *lut = (m_7seg_table != nullptr) ? m_7seg_table : lut_segment_decoder;
+
+	// segments are in order [DP]abcdefg
+	m_d = bitswap<7>(lut[m_acc],0,1,2,3,4,5,6) | (m_carry ? 0x80 : 0x00);
 	d_latch_out(true);
 }
 
@@ -357,7 +359,7 @@ void amis2000_base_device::op_nop()
 void amis2000_base_device::op_halt()
 {
 	// HALT: debugger breakpoint for devkit-use
-	logerror("%s unknown opcode $%02X at $%04X\n", tag(), m_op, m_pc);
+	logerror("unknown opcode $%02X at $%04X\n", m_op, m_pc);
 }
 
 
@@ -403,7 +405,7 @@ void amis2000_base_device::op_sam()
 void amis2000_base_device::op_sos()
 {
 	// SOS: skip next on SF(timer output), clear SF
-	logerror("%s unknown opcode $%02X at $%04X\n", tag(), m_op, m_pc);
+	logerror("unknown opcode $%02X at $%04X\n", m_op, m_pc);
 }
 
 void amis2000_base_device::op_tf1()
@@ -498,7 +500,6 @@ void amis2000_base_device::op_rf2()
 	// RF2: reset flag 2
 	m_f &= ~0x02;
 }
-
 
 
 // AMI S2152 specific handlers

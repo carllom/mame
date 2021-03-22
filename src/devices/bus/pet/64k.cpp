@@ -79,7 +79,7 @@ inline void pet_64k_expansion_device::write_ram(offs_t offset, uint8_t data)
 pet_64k_expansion_device::pet_64k_expansion_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, PET_64K, tag, owner, clock),
 	device_pet_expansion_card_interface(mconfig, *this),
-	m_ram(*this, "ram"),
+	m_ram(*this, "ram", 0x10000, ENDIANNESS_LITTLE),
 	m_ctrl(0)
 {
 }
@@ -91,9 +91,6 @@ pet_64k_expansion_device::pet_64k_expansion_device(const machine_config &mconfig
 
 void pet_64k_expansion_device::device_start()
 {
-	// allocate memory
-	m_ram.allocate(0x10000);
-
 	// state saving
 	save_item(NAME(m_ctrl));
 }
@@ -113,7 +110,7 @@ void pet_64k_expansion_device::device_reset()
 //  pet_norom_r - NO ROM read
 //-------------------------------------------------
 
-int pet_64k_expansion_device::pet_norom_r(address_space &space, offs_t offset, int sel)
+int pet_64k_expansion_device::pet_norom_r(offs_t offset, int sel)
 {
 	return !BIT(m_ctrl, 7);
 }
@@ -123,7 +120,7 @@ int pet_64k_expansion_device::pet_norom_r(address_space &space, offs_t offset, i
 //  pet_bd_r - buffered data read
 //-------------------------------------------------
 
-uint8_t pet_64k_expansion_device::pet_bd_r(address_space &space, offs_t offset, uint8_t data, int &sel)
+uint8_t pet_64k_expansion_device::pet_bd_r(offs_t offset, uint8_t data, int &sel)
 {
 	if (BIT(m_ctrl, 7))
 	{
@@ -164,7 +161,7 @@ uint8_t pet_64k_expansion_device::pet_bd_r(address_space &space, offs_t offset, 
 //  pet_bd_w - buffered data write
 //-------------------------------------------------
 
-void pet_64k_expansion_device::pet_bd_w(address_space &space, offs_t offset, uint8_t data, int &sel)
+void pet_64k_expansion_device::pet_bd_w(offs_t offset, uint8_t data, int &sel)
 {
 	if (BIT(m_ctrl, 7))
 	{

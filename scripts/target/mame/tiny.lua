@@ -46,6 +46,7 @@ MACHINES["NCR5380"] = true -- emuiii
 
 BUSES["SCSI"] = true
 
+
 --------------------------------------------------
 -- This is the list of files that are necessary
 -- for building all of the drivers referenced
@@ -58,7 +59,7 @@ function createProjects_mame_tiny(_target, _subtarget)
 	kind (LIBTYPE)
 	uuid (os.uuid("drv-mame-tiny"))
 	addprojectflags()
-	precompiledheaders()
+	precompiledheaders_novs()
 
 	includedirs {
 		MAME_DIR .. "src/osd",

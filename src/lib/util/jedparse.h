@@ -8,10 +8,13 @@
 
 ***************************************************************************/
 
-#ifndef __JEDPARSE_H__
-#define __JEDPARSE_H__
+#ifndef MAME_UTIL_JEDPARSE_H
+#define MAME_UTIL_JEDPARSE_H
 
-#include "osdcore.h"
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
 
 
 
@@ -84,4 +87,4 @@ static inline void jed_set_fuse(jed_data *data, uint32_t fusenum, uint8_t value)
 	}
 }
 
-#endif  /* __JEDPARSE_H__ */
+#endif // MAME_UTIL_JEDPARSE_H

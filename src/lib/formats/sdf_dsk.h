@@ -8,9 +8,10 @@
     his CoCoSDC floppy disk emulator.
 
 *********************************************************************/
+#ifndef MAME_FORMATS_SDF_DSK_H
+#define MAME_FORMATS_SDF_DSK_H
 
-#ifndef SDF_DSK_H
-#define SDF_DSK_H
+#pragma once
 
 #include "flopimg.h"
 
@@ -21,9 +22,9 @@ class sdf_format : public floppy_image_format_t
 public:
 	sdf_format();
 
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
-	virtual bool load(io_generic *io, uint32_t form_factor, floppy_image *image) override;
-	virtual bool save(io_generic *io, floppy_image *image) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
+	virtual bool load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image) override;
+	virtual bool save(io_generic *io, const std::vector<uint32_t> &variants, floppy_image *image) override;
 
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -42,4 +43,4 @@ protected:
 
 extern const floppy_format_type FLOPPY_SDF_FORMAT;
 
-#endif /* SDF_DSK_H */
+#endif // MAME_FORMATS_SDF_DSK_H

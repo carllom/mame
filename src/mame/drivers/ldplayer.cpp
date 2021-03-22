@@ -17,13 +17,15 @@
 #include "ui/uimain.h"
 
 #include "emuopts.h"
+#include "romload.h"
 #include "speaker.h"
+#include "screen.h"
 
 #include "chd.h"
 
 #include "pr8210.lh"
 
-#include <ctype.h>
+#include <cctype>
 
 
 class ldplayer_state : public driver_device
@@ -31,12 +33,10 @@ class ldplayer_state : public driver_device
 public:
 	// construction/destruction
 	ldplayer_state(const machine_config &mconfig, device_type type, const char *tag)
-		: driver_device(mconfig, type, tag),
-			m_last_controls(0),
-			m_playing(false) { }
-
-	// callback hook
-	static chd_file *get_disc_static(device_t *dummy, laserdisc_device &device) { return device.machine().driver_data<ldplayer_state>()->get_disc(); }
+		: driver_device(mconfig, type, tag)
+		, m_screen(*this, "screen")
+		, m_last_controls(0)
+		, m_playing(false) { }
 
 	void ldplayer_ntsc(machine_config &config);
 
@@ -46,8 +46,10 @@ protected:
 	virtual void machine_start() override;
 	virtual void machine_reset() override;
 
-	// internal helpers
+	// callback hook
 	chd_file *get_disc();
+
+	// internal helpers
 	void process_commands();
 
 	// derived classes
@@ -91,6 +93,7 @@ protected:
 	};
 
 	// internal state
+	required_device<screen_device> m_screen;
 	std::string m_filename;
 	ioport_value m_last_controls;
 	bool m_playing;
@@ -301,8 +304,8 @@ void ldplayer_state::device_timer(emu_timer &timer, device_timer_id id, int para
 				process_commands();
 
 			// set a timer to go off on the next VBLANK
-			int vblank_scanline = machine().first_screen()->visible_area().max_y + 1;
-			attotime target = machine().first_screen()->time_until_pos(vblank_scanline);
+			int vblank_scanline = m_screen->visible_area().max_y + 1;
+			attotime target = m_screen->time_until_pos(vblank_scanline);
 			timer_set(target, TIMER_ID_VSYNC_UPDATE);
 			break;
 		}
@@ -329,7 +332,7 @@ void ldplayer_state::machine_reset()
 	timer_set(attotime::zero, TIMER_ID_AUTOPLAY);
 
 	// indicate the name of the file we opened
-	popmessage("Opened %s\n", m_filename.c_str());
+	popmessage("Opened %s\n", m_filename);
 }
 
 
@@ -342,8 +345,8 @@ void ldplayer_state::machine_reset()
 
 void pr8210_state::add_command(uint8_t command)
 {
-	m_command_buffer[m_command_buffer_in++ % ARRAY_LENGTH(m_command_buffer)] = (command & 0x1f) | 0x20;
-	m_command_buffer[m_command_buffer_in++ % ARRAY_LENGTH(m_command_buffer)] = 0x00 | 0x20;
+	m_command_buffer[m_command_buffer_in++ % std::size(m_command_buffer)] = (command & 0x1f) | 0x20;
+	m_command_buffer[m_command_buffer_in++ % std::size(m_command_buffer)] = 0x00 | 0x20;
 }
 
 
@@ -373,7 +376,7 @@ void pr8210_state::device_timer(emu_timer &timer, device_timer_id id, int param,
 			// if we're out of bits, queue up the next command
 			else if (bitsleft == 0 && m_command_buffer_in != m_command_buffer_out)
 			{
-				data = m_command_buffer[m_command_buffer_out++ % ARRAY_LENGTH(m_command_buffer)];
+				data = m_command_buffer[m_command_buffer_out++ % std::size(m_command_buffer)];
 				bitsleft = 12;
 			}
 			m_bit_timer->adjust(duration, (bitsleft << 16) | data);
@@ -413,7 +416,7 @@ void pr8210_state::execute_command(int command)
 	{
 		case CMD_SCAN_REVERSE:
 			if (m_command_buffer_in == m_command_buffer_out ||
-				m_command_buffer_in == (m_command_buffer_out + 1) % ARRAY_LENGTH(m_command_buffer))
+				m_command_buffer_in == (m_command_buffer_out + 1) % std::size(m_command_buffer))
 			{
 				add_command(0x1c);
 				m_playing = true;
@@ -432,7 +435,7 @@ void pr8210_state::execute_command(int command)
 
 		case CMD_FAST_REVERSE:
 			if (m_command_buffer_in == m_command_buffer_out ||
-				m_command_buffer_in == (m_command_buffer_out + 1) % ARRAY_LENGTH(m_command_buffer))
+				m_command_buffer_in == (m_command_buffer_out + 1) % std::size(m_command_buffer))
 			{
 				add_command(0x0c);
 				m_playing = true;
@@ -441,7 +444,7 @@ void pr8210_state::execute_command(int command)
 
 		case CMD_SCAN_FORWARD:
 			if (m_command_buffer_in == m_command_buffer_out ||
-				m_command_buffer_in == (m_command_buffer_out + 1) % ARRAY_LENGTH(m_command_buffer))
+				m_command_buffer_in == (m_command_buffer_out + 1) % std::size(m_command_buffer))
 			{
 				add_command(0x08);
 				m_playing = true;
@@ -460,7 +463,7 @@ void pr8210_state::execute_command(int command)
 
 		case CMD_FAST_FORWARD:
 			if (m_command_buffer_in == m_command_buffer_out ||
-				m_command_buffer_in == (m_command_buffer_out + 1) % ARRAY_LENGTH(m_command_buffer))
+				m_command_buffer_in == (m_command_buffer_out + 1) % std::size(m_command_buffer))
 			{
 				add_command(0x10);
 				m_playing = true;
@@ -624,34 +627,37 @@ INPUT_PORTS_END
  *
  *************************************/
 
-MACHINE_CONFIG_START(ldplayer_state::ldplayer_ntsc)
-MACHINE_CONFIG_END
+void ldplayer_state::ldplayer_ntsc(machine_config &config)
+{
+}
 
 
-MACHINE_CONFIG_START(ldv1000_state::ldv1000)
+void ldv1000_state::ldv1000(machine_config &config)
+{
 	ldplayer_ntsc(config);
-	MCFG_LASERDISC_LDV1000_ADD("laserdisc")
-	MCFG_LASERDISC_GET_DISC(laserdisc_device::get_disc_delegate(&ldplayer_state::get_disc_static, device))
-	MCFG_LASERDISC_SCREEN_ADD_NTSC("screen", "laserdisc")
+	pioneer_ldv1000_device &laserdisc(PIONEER_LDV1000(config, "laserdisc"));
+	laserdisc.set_get_disc(FUNC(ldv1000_state::get_disc));
+	laserdisc.add_ntsc_screen(config, "screen");
 
-	MCFG_SPEAKER_STANDARD_STEREO("lspeaker", "rspeaker")
-	MCFG_SOUND_MODIFY("laserdisc")
-	MCFG_SOUND_ROUTE(0, "lspeaker", 1.0)
-	MCFG_SOUND_ROUTE(1, "rspeaker", 1.0)
-MACHINE_CONFIG_END
+	SPEAKER(config, "lspeaker").front_left();
+	SPEAKER(config, "rspeaker").front_right();
+	laserdisc.add_route(0, "lspeaker", 1.0);
+	laserdisc.add_route(1, "rspeaker", 1.0);
+}
 
 
-MACHINE_CONFIG_START(pr8210_state::pr8210)
+void pr8210_state::pr8210(machine_config &config)
+{
 	ldplayer_ntsc(config);
-	MCFG_LASERDISC_PR8210_ADD("laserdisc")
-	MCFG_LASERDISC_GET_DISC(laserdisc_device::get_disc_delegate(&ldplayer_state::get_disc_static, device))
-	MCFG_LASERDISC_SCREEN_ADD_NTSC("screen", "laserdisc")
+	pioneer_pr8210_device &laserdisc(PIONEER_PR8210(config, "laserdisc"));
+	laserdisc.set_get_disc(FUNC(pr8210_state::get_disc));
+	laserdisc.add_ntsc_screen(config, "screen");
 
-	MCFG_SPEAKER_STANDARD_STEREO("lspeaker", "rspeaker")
-	MCFG_SOUND_MODIFY("laserdisc")
-	MCFG_SOUND_ROUTE(0, "lspeaker", 1.0)
-	MCFG_SOUND_ROUTE(1, "rspeaker", 1.0)
-MACHINE_CONFIG_END
+	SPEAKER(config, "lspeaker").front_left();
+	SPEAKER(config, "rspeaker").front_right();
+	laserdisc.add_route(0, "lspeaker", 1.0);
+	laserdisc.add_route(1, "rspeaker", 1.0);
+}
 
 
 
@@ -678,5 +684,5 @@ ROM_END
  *
  *************************************/
 
-GAME( 2008, simldv1000, 0, ldv1000, ldplayer, ldv1000_state, 0, ROT0, "MAME", "Pioneer LDV-1000 Simulator", 0 )
-GAMEL(2008, simpr8210,  0, pr8210,  ldplayer, pr8210_state,  0, ROT0, "MAME", "Pioneer PR-8210 Simulator",  0, layout_pr8210 )
+GAME( 2008, simldv1000, 0, ldv1000, ldplayer, ldv1000_state, empty_init, ROT0, "MAME", "Pioneer LDV-1000 Simulator", 0 )
+GAMEL(2008, simpr8210,  0, pr8210,  ldplayer, pr8210_state,  empty_init, ROT0, "MAME", "Pioneer PR-8210 Simulator",  0, layout_pr8210 )

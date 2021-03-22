@@ -135,7 +135,7 @@
 #include "linenoise.h"
 #include "utf8.h"
 
-#define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
+#define LINENOISE_DEFAULT_HISTORY_MAX_LEN 200
 #define LINENOISE_MAX_LINE 4096
 
 #define ctrl(C) ((C) - '@')
@@ -856,6 +856,12 @@ static int fd_read(struct current *current)
                     return SPECIAL_PAGE_UP;
                  case VK_NEXT:
                     return SPECIAL_PAGE_DOWN;
+                 case VK_RETURN:
+#ifdef USE_UTF8
+                    return k->uChar.UnicodeChar;
+#else
+                    return k->uChar.AsciiChar;
+#endif
                 }
             }
             /* Note that control characters are already translated in AsciiChar */

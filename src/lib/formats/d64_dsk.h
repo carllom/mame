@@ -7,15 +7,18 @@
     Commodore 4040/1541/1551 sector disk image format
 
 *********************************************************************/
+#ifndef MAME_FORMATS_D64_DSK_H
+#define MAME_FORMATS_D64_DSK_H
 
-#ifndef D64_DSK_H_
-#define D64_DSK_H_
+#pragma once
 
 #include "flopimg.h"
 
-class d64_format : public floppy_image_format_t {
+class d64_format : public floppy_image_format_t
+{
 public:
-	struct format {
+	struct format
+	{
 		uint32_t form_factor;      // See floppy_image for possible values
 		uint32_t variant;          // See floppy_image for possible values
 
@@ -34,9 +37,9 @@ public:
 	virtual const char *description() const override;
 	virtual const char *extensions() const override;
 
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
-	virtual bool load(io_generic *io, uint32_t form_factor, floppy_image *image) override;
-	virtual bool save(io_generic *io, floppy_image *image) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
+	virtual bool load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image) override;
+	virtual bool save(io_generic *io, const std::vector<uint32_t> &variants, floppy_image *image) override;
 	virtual bool supports_save() const override { return true; }
 
 protected:
@@ -81,6 +84,4 @@ protected:
 
 extern const floppy_format_type FLOPPY_D64_FORMAT;
 
-
-
-#endif
+#endif // MAME_FORMATS_D64_DSK_H

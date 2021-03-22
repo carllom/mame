@@ -7,9 +7,10 @@
     Victor 9000 sector disk image format
 
 *********************************************************************/
+#ifndef MAME_FORMATS_VICTOR9K_DSK_H
+#define MAME_FORMATS_VICTOR9K_DSK_H
 
-#ifndef VICTOR9K_DSK_H_
-#define VICTOR9K_DSK_H_
+#pragma once
 
 #include "flopimg.h"
 
@@ -33,9 +34,9 @@ public:
 	virtual const char *description() const override;
 	virtual const char *extensions() const override;
 
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
-	virtual bool load(io_generic *io, uint32_t form_factor, floppy_image *image) override;
-	virtual bool save(io_generic *io, floppy_image *image) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
+	virtual bool load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image) override;
+	virtual bool save(io_generic *io, const std::vector<uint32_t> &variants, floppy_image *image) override;
 	virtual bool supports_save() const override { return true; }
 
 	static int get_rpm(int head, int track);
@@ -64,4 +65,4 @@ FLOPPY_IDENTIFY( victor9k_dsk_identify );
 
 FLOPPY_CONSTRUCT( victor9k_dsk_construct );
 
-#endif
+#endif // MAME_FORMATS_VICTOR9K_DSK_H

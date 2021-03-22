@@ -7,17 +7,6 @@
 
 
 //**************************************************************************
-//  INTERFACE CONFIGURATION MACROS
-//**************************************************************************
-
-#define MCFG_DIGITALKER_ADD(tag, clock) \
-		MCFG_DEVICE_ADD((tag), DIGITALKER, (clock))
-
-#define MCFG_DIGITALKER_REPLACE(tag, clock) \
-		MCFG_DEVICE_REPLACE((tag), DIGITALKER, (clock))
-
-
-//**************************************************************************
 //  TYPE DEFINITIONS
 //**************************************************************************
 
@@ -33,14 +22,14 @@ public:
 	void digitalker_0_wr_w(int line);
 	int digitalker_0_intr_r();
 
-	DECLARE_WRITE8_MEMBER(digitalker_data_w);
+	void digitalker_data_w(uint8_t data);
 
 protected:
 	// device-level overrides
 	virtual void device_start() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	void digitalker_write(uint8_t *adr, uint8_t vol, int8_t dac);

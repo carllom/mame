@@ -11,21 +11,12 @@
 void skns_state::draw_roz(bitmap_ind16 &bitmap, bitmap_ind8& bitmapflags, const rectangle &cliprect, tilemap_t *tmap, uint32_t startx, uint32_t starty, int incxx, int incxy, int incyx, int incyy, int wraparound, int columnscroll, uint32_t* scrollram)
 {
 	//bitmap_ind16 *destbitmap = bitmap;
-	bitmap_ind16 &srcbitmap = tmap->pixmap();
-	bitmap_ind8 &srcbitmapflags = tmap->flagsmap();
+	const bitmap_ind16 &srcbitmap = tmap->pixmap();
+	const bitmap_ind8 &srcbitmapflags = tmap->flagsmap();
 	const int xmask = srcbitmap.width()-1;
 	const int ymask = srcbitmap.height()-1;
 	const int widthshifted = srcbitmap.width() << 16;
 	const int heightshifted = srcbitmap.height() << 16;
-	uint32_t cx;
-	uint32_t cy;
-	int x;
-	int sx;
-	int sy;
-	int ex;
-	int ey;
-	uint16_t *dest;
-	uint8_t* destflags;
 //  uint8_t *pri;
 	//const uint16_t *src;
 	//const uint8_t *maskptr;
@@ -36,60 +27,58 @@ void skns_state::draw_roz(bitmap_ind16 &bitmap, bitmap_ind8& bitmapflags, const 
 	starty += cliprect.min_x * incxy + cliprect.min_y * incyy;
 
 	/* extract start/end points */
-	sx = cliprect.min_x;
-	sy = cliprect.min_y;
-	ex = cliprect.max_x;
-	ey = cliprect.max_y;
+	int sx = cliprect.min_x;
+	int sy = cliprect.min_y;
+	int ex = cliprect.max_x;
+	int ey = cliprect.max_y;
 
+	/* loop over rows */
+	while (sy <= ey)
 	{
-		/* loop over rows */
-		while (sy <= ey)
+		/* initialize X counters */
+		int x = sx;
+		uint32_t cx = startx;
+		uint32_t cy = starty;
+
+		/* get dest and priority pointers */
+		uint16_t *dest = &bitmap.pix(sy, sx);
+		uint8_t *destflags = &bitmapflags.pix(sy, sx);
+
+		/* loop over columns */
+		while (x <= ex)
 		{
-			/* initialize X counters */
-			x = sx;
-			cx = startx;
-			cy = starty;
-
-			/* get dest and priority pointers */
-			dest = &bitmap.pix16(sy, sx);
-			destflags = &bitmapflags.pix8(sy, sx);
-
-			/* loop over columns */
-			while (x <= ex)
+			if ((wraparound) || (cx < widthshifted && cy < heightshifted)) // not sure how this will cope with no wraparound, but row/col scroll..
 			{
-				if ((wraparound) || (cx < widthshifted && cy < heightshifted)) // not sure how this will cope with no wraparound, but row/col scroll..
+				if (columnscroll)
 				{
-					if (columnscroll)
-					{
-						dest[0] = srcbitmap.pix16(((cy >> 16) - scrollram[(cx>>16)&0x3ff]) & ymask, (cx >> 16) & xmask);
-						destflags[0] = srcbitmapflags.pix8(((cy >> 16) - scrollram[(cx>>16)&0x3ff]) & ymask, (cx >> 16) & xmask);
-					}
-					else
-					{
-						dest[0] = srcbitmap.pix16((cy >> 16) & ymask, ((cx >> 16) - scrollram[(cy>>16)&0x3ff]) & xmask);
-						destflags[0] = srcbitmapflags.pix8((cy >> 16) & ymask, ((cx >> 16) - scrollram[(cy>>16)&0x3ff]) & xmask);
-					}
+					dest[0] = srcbitmap.pix(((cy >> 16) - scrollram[(cx>>16)&0x3ff]) & ymask, (cx >> 16) & xmask);
+					destflags[0] = srcbitmapflags.pix(((cy >> 16) - scrollram[(cx>>16)&0x3ff]) & ymask, (cx >> 16) & xmask);
 				}
-
-				/* advance in X */
-				cx += incxx;
-				cy += incxy;
-				x++;
-				dest++;
-				destflags++;
-//              pri++;
+				else
+				{
+					dest[0] = srcbitmap.pix((cy >> 16) & ymask, ((cx >> 16) - scrollram[(cy>>16)&0x3ff]) & xmask);
+					destflags[0] = srcbitmapflags.pix((cy >> 16) & ymask, ((cx >> 16) - scrollram[(cy>>16)&0x3ff]) & xmask);
+				}
 			}
 
-			/* advance in Y */
-			startx += incyx;
-			starty += incyy;
-			sy++;
+			/* advance in X */
+			cx += incxx;
+			cy += incxy;
+			x++;
+			dest++;
+			destflags++;
+//          pri++;
 		}
+
+		/* advance in Y */
+		startx += incyx;
+		starty += incyy;
+		sy++;
 	}
 }
 
 
-WRITE32_MEMBER(skns_state::pal_regs_w)
+void skns_state::pal_regs_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	COMBINE_DATA(&m_pal_regs[offset]);
 	m_palette_updated =1;
@@ -176,7 +165,7 @@ WRITE32_MEMBER(skns_state::pal_regs_w)
 }
 
 
-WRITE32_MEMBER(skns_state::palette_ram_w)
+void skns_state::palette_ram_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	int r,g,b;
 	int brightness_r, brightness_g, brightness_b/*, alpha*/;
@@ -282,7 +271,7 @@ TILE_GET_INFO_MEMBER(skns_state::get_tilemap_A_tile_info)
 	if(m_tilemapA_ram[tile_index] & 0x80000000) flags |= TILE_FLIPX;
 	if(m_tilemapA_ram[tile_index] & 0x40000000) flags |= TILE_FLIPY;
 
-	SET_TILE_INFO_MEMBER(0+depth,
+	tileinfo.set(0+depth,
 			code,
 			0x40+colr,
 			flags);
@@ -291,7 +280,7 @@ TILE_GET_INFO_MEMBER(skns_state::get_tilemap_A_tile_info)
 	//if (pri) popmessage("pri A!! %02x\n", pri);
 }
 
-WRITE32_MEMBER(skns_state::tilemapA_w)
+void skns_state::tilemapA_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	COMBINE_DATA(&m_tilemapA_ram[offset]);
 	m_tilemap_A->mark_tile_dirty(offset);
@@ -308,7 +297,7 @@ TILE_GET_INFO_MEMBER(skns_state::get_tilemap_B_tile_info)
 	if(m_tilemapB_ram[tile_index] & 0x80000000) flags |= TILE_FLIPX;
 	if(m_tilemapB_ram[tile_index] & 0x40000000) flags |= TILE_FLIPY;
 
-	SET_TILE_INFO_MEMBER(1+depth,
+	tileinfo.set(1+depth,
 			code,
 			0x40+colr,
 			flags);
@@ -317,13 +306,13 @@ TILE_GET_INFO_MEMBER(skns_state::get_tilemap_B_tile_info)
 	//if (pri) popmessage("pri B!! %02x\n", pri); // 02 on cyvern
 }
 
-WRITE32_MEMBER(skns_state::tilemapB_w)
+void skns_state::tilemapB_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	COMBINE_DATA(&m_tilemapB_ram[offset]);
 	m_tilemap_B->mark_tile_dirty(offset);
 }
 
-WRITE32_MEMBER(skns_state::v3_regs_w)
+void skns_state::v3_regs_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	COMBINE_DATA(&m_v3_regs[offset]);
 
@@ -345,10 +334,10 @@ WRITE32_MEMBER(skns_state::v3_regs_w)
 
 void skns_state::video_start()
 {
-	m_tilemap_A = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(FUNC(skns_state::get_tilemap_A_tile_info),this),TILEMAP_SCAN_ROWS,16,16,64, 64);
+	m_tilemap_A = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(*this, FUNC(skns_state::get_tilemap_A_tile_info)), TILEMAP_SCAN_ROWS, 16,16, 64,64);
 	m_tilemap_A->set_transparent_pen(0);
 
-	m_tilemap_B = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(FUNC(skns_state::get_tilemap_B_tile_info),this),TILEMAP_SCAN_ROWS,16,16,64, 64);
+	m_tilemap_B = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(*this, FUNC(skns_state::get_tilemap_B_tile_info)), TILEMAP_SCAN_ROWS, 16,16, 64,64);
 	m_tilemap_B->set_transparent_pen(0);
 
 	m_sprite_bitmap.allocate(1024,1024);
@@ -361,7 +350,6 @@ void skns_state::video_start()
 
 	m_gfxdecode->gfx(2)->set_granularity(256);
 	m_gfxdecode->gfx(3)->set_granularity(256);
-
 
 	save_item(NAME(m_depthA));
 	save_item(NAME(m_depthB));
@@ -404,7 +392,6 @@ void skns_state::draw_a( bitmap_ind16 &bitmap, bitmap_ind8 &bitmap_flags, const 
 	int enable_a  = (m_v3_regs[0x10/4] >> 0) & 0x0001;
 	int nowrap_a = (m_v3_regs[0x10/4] >> 0) & 0x0004;
 
-
 	uint32_t startx,starty;
 	int incxx,incxy,incyx,incyy;
 	int columnscroll;
@@ -434,7 +421,6 @@ void skns_state::draw_b( bitmap_ind16 &bitmap, bitmap_ind8 &bitmap_flags, const 
 	int enable_b  = (m_v3_regs[0x34/4] >> 0) & 0x0001;
 	int nowrap_b = (m_v3_regs[0x34/4] >> 0) & 0x0004;
 
-
 	uint32_t startx,starty;
 	int incxx,incxy,incyx,incyy;
 	int columnscroll;
@@ -451,11 +437,11 @@ void skns_state::draw_b( bitmap_ind16 &bitmap, bitmap_ind8 &bitmap_flags, const 
 		incxy  = m_v3_regs[0x4c/4];
 		incxx  = m_v3_regs[0x48/4]&0x7ffff;
 		if (incxx&0x40000) incxx = incxx-0x80000;
+
 		columnscroll = (m_v3_regs[0x0c/4] >> 9) & 0x0001; // selects column scroll or rowscroll
+
 		draw_roz(bitmap,bitmap_flags, cliprect, m_tilemap_B, startx << 8,starty << 8,   incxx << 8,incxy << 8,incyx << 8,incyy << 8, !nowrap_b, columnscroll, &m_v3slc_ram[0x1000/4]);
-
 		//popmessage("%08x %08x %08x %08x %08x %08x", startx, starty, incxx, incyy, incxy, incyx);
-
 	}
 }
 
@@ -470,12 +456,10 @@ uint32_t skns_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, 
 	m_tilemap_bitmapflags_higher.fill(0);
 
 	{
-		int supernova_pri_a;
-		int supernova_pri_b;
 		int tran = 0;
 
-		supernova_pri_a = (m_v3_regs[0x10/4] & 0x0002)>>1;
-		supernova_pri_b = (m_v3_regs[0x34/4] & 0x0002)>>1;
+		int supernova_pri_a = (m_v3_regs[0x10/4] & 0x0002)>>1;
+		int supernova_pri_b = (m_v3_regs[0x34/4] & 0x0002)>>1;
 
 		//popmessage("pri %d %d\n", supernova_pri_a, supernova_pri_b);
 
@@ -484,41 +468,32 @@ uint32_t skns_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, 
 		draw_a(m_tilemap_bitmap_higher,m_tilemap_bitmapflags_higher,cliprect,tran);// tran = 1;
 
 		{
-			int x,y;
-			uint8_t* srcflags, *src2flags;
-			uint16_t* src, *src2, *src3;
-			uint32_t* dst;
-			uint16_t pri, pri2, pri3;
 			uint16_t bgpri;
-			const pen_t *clut = &m_palette->pen(0);
+			pen_t const *const clut = &m_palette->pen(0);
 //          int drawpri;
 
-
-			for (y=0;y<240;y++)
+			for (int y=cliprect.min_y;y<=cliprect.max_y;y++)
 			{
-				src = &m_tilemap_bitmap_lower.pix16(y);
-				srcflags = &m_tilemap_bitmapflags_lower.pix8(y);
+				uint16_t const *const src = &m_tilemap_bitmap_lower.pix(y);
+				uint8_t const *const srcflags = &m_tilemap_bitmapflags_lower.pix(y);
 
-				src2 = &m_tilemap_bitmap_higher.pix16(y);
-				src2flags = &m_tilemap_bitmapflags_higher.pix8(y);
+				uint16_t const *const src2 = &m_tilemap_bitmap_higher.pix(y);
+				uint8_t const *const src2flags = &m_tilemap_bitmapflags_higher.pix(y);
 
-				src3 = &m_sprite_bitmap.pix16(y);
+				uint16_t const *const src3 = &m_sprite_bitmap.pix(y);
 
-				dst = &bitmap.pix32(y);
+				uint32_t *const dst = &bitmap.pix(y);
 
-
-				for (x=0;x<320;x++)
+				for (int x=cliprect.min_x;x<=cliprect.max_x;x++)
 				{
 					uint16_t pendata  = src[x]&0x7fff;
 					uint16_t pendata2 = src2[x]&0x7fff;
 					uint16_t bgpendata;
-					uint16_t pendata3 = src3[x]&0x3fff;
+					uint16_t pendata3 = m_alt_enable_sprites ? src3[x]&0x3fff : 0;
 
-					uint32_t coldat;
-
-					pri = ((srcflags[x] & 0x07)<<1) | (supernova_pri_b);
-					pri2= ((src2flags[x] & 0x07)<<1) | (supernova_pri_a);
-					pri3 = ((src3[x]&0xc000)>>12)+3;
+					uint16_t pri = ((srcflags[x] & 0x07)<<1) | (supernova_pri_b);
+					uint16_t pri2= ((src2flags[x] & 0x07)<<1) | (supernova_pri_a);
+					uint16_t pri3 = ((src3[x]&0xc000)>>12)+3;
 
 					// work out which layers bg pixel has the higher priority
 					//  note, can the bg layers be blended?? sarukani uses an alpha pen for
@@ -542,7 +517,7 @@ uint32_t skns_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, 
 						else
 						{
 							bgpendata = pendata2&0x7fff;
-							bgpri = 0;;
+							bgpri = 0;
 						}
 					}
 					else
@@ -560,11 +535,12 @@ uint32_t skns_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, 
 						else
 						{
 							bgpendata = 0;
-							bgpri = 0;;
+							bgpri = 0;
 						}
 					}
 
 					// if the sprites are higher than the bg pixel
+					uint32_t coldat;
 					if (pri3 > bgpri)
 					{
 						if (pendata3&0xff)
@@ -603,10 +579,7 @@ uint32_t skns_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, 
 								if (b>255) b = 255;
 
 								dst[x] = (r << 0) | (g << 8) | (b << 16);
-
-
 							}
-
 							else
 							{
 								coldat = clut[pendata3];
@@ -624,17 +597,18 @@ uint32_t skns_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, 
 						coldat = clut[bgpendata];
 						dst[x] = coldat;
 					}
-
 				}
 			}
 		}
 	}
 
-	m_sprite_bitmap.fill(0x0000, cliprect);
-
-	if (m_alt_enable_sprites)
-		m_spritegen->skns_draw_sprites(m_sprite_bitmap, cliprect, m_spriteram, m_spriteram.bytes(), memregion("gfx1")->base(), memregion ("gfx1")->bytes(), m_spc_regs );
-
-
 	return 0;
+}
+
+WRITE_LINE_MEMBER(skns_state::screen_vblank)
+{
+	if (state)
+	{
+		m_spritegen->skns_draw_sprites(m_sprite_bitmap, m_screen->visible_area(), m_spriteram, m_spriteram.bytes(), m_spc_regs); // TODO: not all 0x4000 of the sprite RAM area can be displayed on real hardware
+	}
 }

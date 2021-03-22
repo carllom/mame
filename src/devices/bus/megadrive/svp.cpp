@@ -23,6 +23,8 @@
  * Depending on GPO bits in status register, PM0, PM1, PM2 and XST can act as
  * external status registers, os as programmable memory registers. PM4 always
  * acts as PM register (independent on GPO bits).
+ *
+ * TODO: internal ROM has been dumped but isn't used yet
  */
 
 
@@ -48,6 +50,16 @@ md_rom_svp_device::md_rom_svp_device(const machine_config &mconfig, device_type 
 md_rom_svp_device::md_rom_svp_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: md_rom_svp_device(mconfig, MD_ROM_SVP, tag, owner, clock)
 {
+}
+
+ROM_START( svp )
+	ROM_REGION(0x800, "internal_rom", 0)
+	ROM_LOAD("svp.bin", 0x000, 0x800, CRC(2421ec7e) SHA1(0b951ea9c6094b3c34e4f0b64d031c75c237564f))
+ROM_END
+
+tiny_rom_entry const *md_rom_svp_device::device_rom_region() const
+{
+	return ROM_NAME(svp);
 }
 
 
@@ -96,7 +108,7 @@ uint32_t md_rom_svp_device::pm_io(int reg, int write, uint32_t d)
 	if (m_emu_status & SSP_PMC_HAVE_ADDR)
 		m_emu_status &= ~SSP_PMC_HAVE_ADDR;
 
-	if (reg == 4 || (m_svp->state().state_int(SSP_ST) & 0x60))
+	if (reg == 4 || (m_svp->state_int(SSP_ST) & 0x60))
 	{
 #define CADDR ((((mode<<16)&0x7f0000)|addr)<<1)
 		uint16_t *dram = (uint16_t *)m_dram;
@@ -170,7 +182,7 @@ uint32_t md_rom_svp_device::pm_io(int reg, int write, uint32_t d)
 	return (uint32_t)-1;
 }
 
-READ16_MEMBER( md_rom_svp_device::read_pm0 )
+uint16_t md_rom_svp_device::read_pm0()
 {
 	uint32_t d = pm_io(0, 0, 0);
 	if (d != (uint32_t)-1)
@@ -180,7 +192,7 @@ READ16_MEMBER( md_rom_svp_device::read_pm0 )
 	return d;
 }
 
-WRITE16_MEMBER( md_rom_svp_device::write_pm0 )
+void md_rom_svp_device::write_pm0(uint16_t data)
 {
 	uint32_t r = pm_io(0, 1, data);
 	if (r != (uint32_t)-1)
@@ -188,7 +200,7 @@ WRITE16_MEMBER( md_rom_svp_device::write_pm0 )
 	m_xst2 = data; // ?
 }
 
-READ16_MEMBER( md_rom_svp_device::read_pm1 )
+uint16_t md_rom_svp_device::read_pm1()
 {
 	uint32_t r = pm_io(1, 0, 0);
 	if (r != (uint32_t)-1)
@@ -197,7 +209,7 @@ READ16_MEMBER( md_rom_svp_device::read_pm1 )
 	return 0;
 }
 
-WRITE16_MEMBER( md_rom_svp_device::write_pm1 )
+void md_rom_svp_device::write_pm1(uint16_t data)
 {
 	uint32_t r = pm_io(1, 1, data);
 	if (r != (uint32_t)-1)
@@ -205,7 +217,7 @@ WRITE16_MEMBER( md_rom_svp_device::write_pm1 )
 	logerror("svp: PM1 acces in non PM mode?\n");
 }
 
-READ16_MEMBER( md_rom_svp_device::read_pm2 )
+uint16_t md_rom_svp_device::read_pm2()
 {
 	uint32_t r = pm_io(2, 0, 0);
 	if (r != (uint32_t)-1)
@@ -214,7 +226,7 @@ READ16_MEMBER( md_rom_svp_device::read_pm2 )
 	return 0;
 }
 
-WRITE16_MEMBER( md_rom_svp_device::write_pm2 )
+void md_rom_svp_device::write_pm2(uint16_t data)
 {
 	uint32_t r = pm_io(2, 1, data);
 	if (r != (uint32_t)-1)
@@ -222,7 +234,7 @@ WRITE16_MEMBER( md_rom_svp_device::write_pm2 )
 	logerror("svp: PM2 acces in non PM mode?\n");
 }
 
-READ16_MEMBER( md_rom_svp_device::read_xst )
+uint16_t md_rom_svp_device::read_xst()
 {
 	uint32_t d = pm_io(3, 0, 0);
 	if (d != (uint32_t)-1)
@@ -230,7 +242,7 @@ READ16_MEMBER( md_rom_svp_device::read_xst )
 	return m_xst;
 }
 
-WRITE16_MEMBER( md_rom_svp_device::write_xst )
+void md_rom_svp_device::write_xst(uint16_t data)
 {
 	uint32_t r = pm_io(3, 1, data);
 	if (r != (uint32_t)-1)
@@ -239,17 +251,17 @@ WRITE16_MEMBER( md_rom_svp_device::write_xst )
 	m_xst = data;
 }
 
-READ16_MEMBER( md_rom_svp_device::read_pm4 )
+uint16_t md_rom_svp_device::read_pm4()
 {
 	return pm_io(4, 0, 0);
 }
 
-WRITE16_MEMBER( md_rom_svp_device::write_pm4 )
+void md_rom_svp_device::write_pm4(uint16_t data)
 {
 	pm_io(4, 1, data);
 }
 
-READ16_MEMBER( md_rom_svp_device::read_pmc )
+uint16_t md_rom_svp_device::read_pmc()
 {
 	if (m_emu_status & SSP_PMC_HAVE_ADDR)
 	{
@@ -264,7 +276,7 @@ READ16_MEMBER( md_rom_svp_device::read_pmc )
 	}
 }
 
-WRITE16_MEMBER( md_rom_svp_device::write_pmc )
+void md_rom_svp_device::write_pmc(uint16_t data)
 {
 	if (m_emu_status & SSP_PMC_HAVE_ADDR)
 	{
@@ -279,24 +291,24 @@ WRITE16_MEMBER( md_rom_svp_device::write_pmc )
 	}
 }
 
-READ16_MEMBER( md_rom_svp_device::read_al )
+uint16_t md_rom_svp_device::read_al()
 {
 	m_emu_status &= ~(SSP_PMC_SET | SSP_PMC_HAVE_ADDR);
 	return 0;
 }
 
-WRITE16_MEMBER( md_rom_svp_device::write_al )
+void md_rom_svp_device::write_al(uint16_t data)
 {
 }
 
 
-READ16_MEMBER( md_rom_svp_device::rom_read1 )
+uint16_t md_rom_svp_device::rom_read1(offs_t offset)
 {
 	uint16_t *IRAM = (uint16_t *)m_iram;
 	return IRAM[offset];
 }
 
-READ16_MEMBER( md_rom_svp_device::rom_read2 )
+uint16_t md_rom_svp_device::rom_read2(offs_t offset)
 {
 	return m_rom[offset + 0x800/2];
 }
@@ -318,38 +330,41 @@ INPUT_PORTS_END
 //  ADDRESS_MAP( svp_ssp_map )
 //-------------------------------------------------
 
-ADDRESS_MAP_START(md_rom_svp_device::md_svp_ssp_map)
-//  AM_RANGE(0x0000, 0x03ff) AM_READ(rom_read1)
-//  AM_RANGE(0x0400, 0xffff) AM_READ(rom_read2)
-	AM_RANGE(0x0000, 0x03ff) AM_ROMBANK("iram_svp")
-	AM_RANGE(0x0400, 0xffff) AM_ROMBANK("cart_svp")
-ADDRESS_MAP_END
+void md_rom_svp_device::md_svp_ssp_map(address_map &map)
+{
+//  map(0x0000, 0x03ff).r(FUNC(md_rom_svp_device::rom_read1));
+//  map(0x0400, 0xffff).r(FUNC(md_rom_svp_device::rom_read2));
+	map(0x0000, 0x03ff).bankr("iram_svp");
+	map(0x0400, 0xffff).bankr("cart_svp");
+}
 
 //-------------------------------------------------
 //  ADDRESS_MAP( svp_ext_map )
 //-------------------------------------------------
 
-ADDRESS_MAP_START(md_rom_svp_device::md_svp_ext_map)
-	ADDRESS_MAP_GLOBAL_MASK(0xf)
-	AM_RANGE(0*2, 0*2+1) AM_READWRITE(read_pm0, write_pm0)
-	AM_RANGE(1*2, 1*2+1) AM_READWRITE(read_pm1, write_pm1)
-	AM_RANGE(2*2, 2*2+1) AM_READWRITE(read_pm2, write_pm2)
-	AM_RANGE(3*2, 3*2+1) AM_READWRITE(read_xst, write_xst)
-	AM_RANGE(4*2, 4*2+1) AM_READWRITE(read_pm4, write_pm4)
-	AM_RANGE(6*2, 6*2+1) AM_READWRITE(read_pmc, write_pmc)
-	AM_RANGE(7*2, 7*2+1) AM_READWRITE(read_al, write_al)
-ADDRESS_MAP_END
+void md_rom_svp_device::md_svp_ext_map(address_map &map)
+{
+	map.global_mask(0xf);
+	map(0*2, 0*2+1).rw(FUNC(md_rom_svp_device::read_pm0), FUNC(md_rom_svp_device::write_pm0));
+	map(1*2, 1*2+1).rw(FUNC(md_rom_svp_device::read_pm1), FUNC(md_rom_svp_device::write_pm1));
+	map(2*2, 2*2+1).rw(FUNC(md_rom_svp_device::read_pm2), FUNC(md_rom_svp_device::write_pm2));
+	map(3*2, 3*2+1).rw(FUNC(md_rom_svp_device::read_xst), FUNC(md_rom_svp_device::write_xst));
+	map(4*2, 4*2+1).rw(FUNC(md_rom_svp_device::read_pm4), FUNC(md_rom_svp_device::write_pm4));
+	map(6*2, 6*2+1).rw(FUNC(md_rom_svp_device::read_pmc), FUNC(md_rom_svp_device::write_pmc));
+	map(7*2, 7*2+1).rw(FUNC(md_rom_svp_device::read_al), FUNC(md_rom_svp_device::write_al));
+}
 
 
 //-------------------------------------------------
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(md_rom_svp_device::device_add_mconfig)
-	MCFG_CPU_ADD("svp", SSP1601, MASTER_CLOCK_NTSC / 7 * 3) /* ~23 MHz (guessed) */
-	MCFG_CPU_PROGRAM_MAP(md_svp_ssp_map)
-	MCFG_CPU_IO_MAP(md_svp_ext_map)
-MACHINE_CONFIG_END
+void md_rom_svp_device::device_add_mconfig(machine_config &config)
+{
+	SSP1601(config, m_svp, MASTER_CLOCK_NTSC / 7 * 3); /* ~23 MHz (guessed) */
+	m_svp->set_addrmap(AS_PROGRAM, &md_rom_svp_device::md_svp_ssp_map);
+	m_svp->set_addrmap(AS_IO, &md_rom_svp_device::md_svp_ext_map);
+}
 
 ioport_constructor md_rom_svp_device::device_input_ports() const
 {
@@ -366,8 +381,8 @@ void md_rom_svp_device::set_bank_to_rom(const char *banktag, uint32_t offset)
 
 void md_rom_svp_device::device_start()
 {
-	memset(m_pmac_read, 0, ARRAY_LENGTH(m_pmac_read));
-	memset(m_pmac_write, 0, ARRAY_LENGTH(m_pmac_write));
+	std::fill(std::begin(m_pmac_read), std::end(m_pmac_read), 0);
+	std::fill(std::begin(m_pmac_write), std::end(m_pmac_write), 0);
 	m_pmc.d = 0;
 	m_pmc.w.l = 0;
 	m_pmc.w.h = 0;
@@ -391,7 +406,7 @@ void md_rom_svp_device::device_start()
 	save_item(NAME(m_iram));
 }
 
-READ16_MEMBER(md_rom_svp_device::read)
+uint16_t md_rom_svp_device::read(offs_t offset)
 {
 	uint16_t *DRAM = (uint16_t *)m_dram;
 
@@ -422,7 +437,7 @@ READ16_MEMBER(md_rom_svp_device::read)
 	}
 }
 
-WRITE16_MEMBER(md_rom_svp_device::write)
+void md_rom_svp_device::write(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	if (offset >= 0x300000/2 && offset < 0x320000/2)
 	{
@@ -432,7 +447,7 @@ WRITE16_MEMBER(md_rom_svp_device::write)
 	}
 }
 
-READ16_MEMBER(md_rom_svp_device::read_a15)
+uint16_t md_rom_svp_device::read_a15(offs_t offset)
 {
 	uint32_t d;
 	switch (offset)
@@ -447,7 +462,7 @@ READ16_MEMBER(md_rom_svp_device::read_a15)
 	return 0;
 }
 
-WRITE16_MEMBER(md_rom_svp_device::write_a15)
+void md_rom_svp_device::write_a15(offs_t offset, uint16_t data)
 {
 	switch (offset)
 	{

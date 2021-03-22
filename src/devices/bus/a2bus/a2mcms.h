@@ -33,7 +33,7 @@ public:
 
 	void set_bus_device(a2bus_mcms1_device *pDev) { m_pBusDevice = pDev; }
 
-	template<class _Object> static devcb_base &set_irq_cb(device_t &device, _Object wr) { return downcast<mcms_device &>(device).m_write_irq.set_callback(wr); }
+	auto irq_cb() { return m_write_irq.bind(); }
 	devcb_write_line m_write_irq;
 
 protected:
@@ -42,7 +42,7 @@ protected:
 	virtual void device_reset() override;
 	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	sound_stream *m_stream;

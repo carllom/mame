@@ -50,6 +50,7 @@ okim6258_device::okim6258_device(const machine_config &mconfig, const char *tag,
 	: device_t(mconfig, OKIM6258, tag, owner, clock),
 		device_sound_interface(mconfig, *this),
 		m_status(0),
+		m_start_divider(0),
 		m_divider(512),
 		m_adpcm_type(0),
 		m_data_in(0),
@@ -140,17 +141,15 @@ void okim6258_device::device_reset()
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void okim6258_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void okim6258_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
-	stream_sample_t *buffer = outputs[0];
-
-	memset(outputs[0], 0, samples * sizeof(*outputs[0]));
+	auto &buffer = outputs[0];
 
 	if (m_status & STATUS_PLAYING)
 	{
 		int nibble_shift = m_nibble_shift;
 
-		while (samples)
+		for (int sampindex = 0; sampindex < buffer.samples(); sampindex++)
 		{
 			/* Compute the new amplitude and update the current step */
 			int nibble = (m_data_in >> nibble_shift) & 0xf;
@@ -160,8 +159,7 @@ void okim6258_device::sound_stream_update(sound_stream &stream, stream_sample_t 
 
 			nibble_shift ^= 4;
 
-			*buffer++ = sample;
-			samples--;
+			buffer.put_int(sampindex, sample, 32768);
 		}
 
 		/* Update the parameters */
@@ -169,9 +167,7 @@ void okim6258_device::sound_stream_update(sound_stream &stream, stream_sample_t 
 	}
 	else
 	{
-		/* Fill with 0 */
-		while (samples--)
-			*buffer++ = 0;
+		buffer.fill(0);
 	}
 }
 
@@ -262,7 +258,7 @@ int okim6258_device::get_vclk()
 
 ***********************************************************************************************/
 
-READ8_MEMBER( okim6258_device::status_r )
+uint8_t okim6258_device::status_r()
 {
 	m_stream->update();
 
@@ -275,7 +271,7 @@ READ8_MEMBER( okim6258_device::status_r )
      okim6258_data_w -- write to the control port of an OKIM6258-compatible chip
 
 ***********************************************************************************************/
-WRITE8_MEMBER( okim6258_device::data_w )
+void okim6258_device::data_w(uint8_t data)
 {
 	/* update the stream */
 	m_stream->update();
@@ -291,7 +287,7 @@ WRITE8_MEMBER( okim6258_device::data_w )
 
 ***********************************************************************************************/
 
-WRITE8_MEMBER( okim6258_device::ctrl_w )
+void okim6258_device::ctrl_w(uint8_t data)
 {
 	m_stream->update();
 

@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Dirk Best, Nigel Barnes
 /***************************************************************************
 
@@ -7,11 +7,10 @@
     Disk image formats
 
 ***************************************************************************/
+#ifndef MAME_FORMATS_ACORN_DSK_H
+#define MAME_FORMATS_ACORN_DSK_H
 
 #pragma once
-
-#ifndef ACORN_DSK_H
-#define ACORN_DSK_H
 
 #include "flopimg.h"
 #include "wd177x_dsk.h"
@@ -22,7 +21,7 @@ public:
 	acorn_ssd_format();
 
 	virtual int find_size(io_generic *io, uint32_t form_factor) override;
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	virtual int get_image_offset(const format &f, int head, int track) override;
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -38,7 +37,7 @@ public:
 	acorn_dsd_format();
 
 	virtual int find_size(io_generic *io, uint32_t form_factor) override;
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	virtual int get_image_offset(const format &f, int head, int track) override;
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -54,7 +53,7 @@ public:
 	opus_ddos_format();
 
 	virtual int find_size(io_generic *io, uint32_t form_factor) override;
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	virtual int get_image_offset(const format &f, int head, int track) override;
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -70,7 +69,7 @@ public:
 	acorn_adfs_old_format();
 
 	virtual int find_size(io_generic *io, uint32_t form_factor) override;
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	virtual int get_image_offset(const format &f, int head, int track) override;
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -86,7 +85,7 @@ public:
 	acorn_adfs_new_format();
 
 	virtual int find_size(io_generic *io, uint32_t form_factor) override;
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	virtual int get_image_offset(const format &f, int head, int track) override;
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -102,7 +101,7 @@ public:
 	acorn_dos_format();
 
 	virtual int find_size(io_generic *io, uint32_t form_factor) override;
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	virtual int get_image_offset(const format &f, int head, int track) override;
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -117,9 +116,9 @@ class opus_ddcpm_format : public floppy_image_format_t
 public:
 	opus_ddcpm_format();
 
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
-	virtual bool load(io_generic *io, uint32_t form_factor, floppy_image *image) override;
-	virtual bool save(io_generic *io, floppy_image *image) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
+	virtual bool load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image) override;
+	virtual bool save(io_generic *io, const std::vector<uint32_t> &variants, floppy_image *image) override;
 
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -136,4 +135,4 @@ extern const floppy_format_type FLOPPY_ACORN_ADFS_NEW_FORMAT;
 extern const floppy_format_type FLOPPY_OPUS_DDOS_FORMAT;
 extern const floppy_format_type FLOPPY_OPUS_DDCPM_FORMAT;
 
-#endif // ACORN_DSK_H
+#endif // MAME_FORMATS_ACORN_DSK_H

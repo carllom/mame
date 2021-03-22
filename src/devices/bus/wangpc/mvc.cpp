@@ -73,15 +73,15 @@ MC6845_UPDATE_ROW( wangpc_mvc_device::crtc_update_row )
 {
 	for (int sx = 0; sx < 50; sx++)
 	{
-		offs_t addr = (y * 50) + sx;
+		offs_t const addr = (y * 50) + sx;
 		uint16_t data = m_bitmap_ram[addr];
 
 		for (int bit = 0; bit < 16; bit++)
 		{
-			int x = (sx * 16) + bit;
-			int color = BIT(data, 15) && de;
+			int const x = (sx * 16) + bit;
+			int const color = BIT(data, 15) && de;
 
-			bitmap.pix32(vbp + y, hbp + x) = PALETTE_MVC[color];
+			bitmap.pix(vbp + y, hbp + x) = PALETTE_MVC[color];
 
 			data <<= 1;
 		}
@@ -89,8 +89,8 @@ MC6845_UPDATE_ROW( wangpc_mvc_device::crtc_update_row )
 
 	for (int column = 0; column < x_count; column++)
 	{
-		uint16_t code = m_video_ram[((ma + column) & 0x7ff)];
-		uint8_t attr = code & 0xff;
+		uint16_t const code = m_video_ram[((ma + column) & 0x7ff)];
+		uint8_t const attr = code & 0xff;
 
 		uint8_t new_ra = ra + 1;
 
@@ -103,7 +103,7 @@ MC6845_UPDATE_ROW( wangpc_mvc_device::crtc_update_row )
 			new_ra = ra;
 		}
 
-		offs_t addr = ((code >> 8) << 4) | (new_ra & 0x0f);
+		offs_t const addr = ((code >> 8) << 4) | (new_ra & 0x0f);
 		uint16_t data = m_char_ram[addr & 0xfff];
 
 		if ((column == cursor_x) || (!ra && ATTR_OVERSCORE) || ((ra == 9) && ATTR_UNDERSCORE))
@@ -113,11 +113,13 @@ MC6845_UPDATE_ROW( wangpc_mvc_device::crtc_update_row )
 
 		for (int bit = 0; bit < 10; bit++)
 		{
-			int x = (column * 10) + bit;
+			int const x = (column * 10) + bit;
 			int color = ((BIT(data, 9) & ~ATTR_BLANK) ^ ATTR_REVERSE);
 
-			if ((color | bitmap.pix32(vbp + y, hbp + x)) & ATTR_BOLD) color = 2;
-			if (color) bitmap.pix32(vbp + y, hbp + x) = de ? PALETTE_MVC[color] : rgb_t::black();
+			if ((color | bitmap.pix(vbp + y, hbp + x)) & ATTR_BOLD)
+				color = 2;
+			if (color)
+				bitmap.pix(vbp + y, hbp + x) = de ? PALETTE_MVC[color] : rgb_t::black();
 
 			data <<= 1;
 		}
@@ -133,23 +135,25 @@ WRITE_LINE_MEMBER( wangpc_mvc_device::vsync_w )
 }
 
 //-------------------------------------------------
-//  MACHINE_CONFIG_START( wangpc_mvc )
+//  machine_config( wangpc_mvc )
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(wangpc_mvc_device::device_add_mconfig)
-	MCFG_SCREEN_ADD(SCREEN_TAG, RASTER)
-	MCFG_SCREEN_UPDATE_DEVICE(MC6845_TAG, mc6845_device, screen_update)
-	MCFG_SCREEN_SIZE(80*10, 25*12)
-	MCFG_SCREEN_VISIBLE_AREA(0, 80*10-1, 0, 25*12-1)
-	MCFG_SCREEN_VBLANK_TIME(ATTOSECONDS_IN_USEC(2500))
-	MCFG_SCREEN_REFRESH_RATE(60)
+void wangpc_mvc_device::device_add_mconfig(machine_config &config)
+{
+	screen_device &screen(SCREEN(config, SCREEN_TAG, SCREEN_TYPE_RASTER));
+	screen.set_screen_update(MC6845_TAG, FUNC(mc6845_device::screen_update));
+	screen.set_size(80*10, 25*12);
+	screen.set_visarea(0, 80*10-1, 0, 25*12-1);
+	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500));
+	screen.set_refresh_hz(60);
 
-	MCFG_MC6845_ADD(MC6845_TAG, MC6845_1, SCREEN_TAG, XTAL(14'318'181)/16)
-	MCFG_MC6845_SHOW_BORDER_AREA(true)
-	MCFG_MC6845_CHAR_WIDTH(10)
-	MCFG_MC6845_UPDATE_ROW_CB(wangpc_mvc_device, crtc_update_row)
-	MCFG_MC6845_OUT_VSYNC_CB(WRITELINE(wangpc_mvc_device, vsync_w))
-MACHINE_CONFIG_END
+	MC6845_1(config, m_crtc, XTAL(14'318'181)/16);
+	m_crtc->set_screen(SCREEN_TAG);
+	m_crtc->set_show_border_area(true);
+	m_crtc->set_char_width(10);
+	m_crtc->set_update_row_callback(FUNC(wangpc_mvc_device::crtc_update_row));
+	m_crtc->out_vsync_callback().set(FUNC(wangpc_mvc_device::vsync_w));
+}
 
 
 
@@ -182,9 +186,9 @@ wangpc_mvc_device::wangpc_mvc_device(const machine_config &mconfig, const char *
 	device_t(mconfig, WANGPC_MVC, tag, owner, clock),
 	device_wangpcbus_card_interface(mconfig, *this),
 	m_crtc(*this, MC6845_TAG),
-	m_video_ram(*this, "video_ram"),
-	m_char_ram(*this, "char_ram"),
-	m_bitmap_ram(*this, "bitmap_ram"),
+	m_video_ram(*this, "video_ram", VIDEO_RAM_SIZE*2, ENDIANNESS_LITTLE),
+	m_char_ram(*this, "char_ram", CHAR_RAM_SIZE*2, ENDIANNESS_LITTLE),
+	m_bitmap_ram(*this, "bitmap_ram", BITMAP_RAM_SIZE*2, ENDIANNESS_LITTLE),
 	m_option(0),
 	m_irq(CLEAR_LINE)
 {
@@ -197,11 +201,6 @@ wangpc_mvc_device::wangpc_mvc_device(const machine_config &mconfig, const char *
 
 void wangpc_mvc_device::device_start()
 {
-	// allocate memory
-	m_video_ram.allocate(VIDEO_RAM_SIZE);
-	m_char_ram.allocate(CHAR_RAM_SIZE);
-	m_bitmap_ram.allocate(BITMAP_RAM_SIZE);
-
 	// state saving
 	save_item(NAME(m_option));
 	save_item(NAME(m_irq));
@@ -224,7 +223,7 @@ void wangpc_mvc_device::device_reset()
 //  wangpcbus_mrdc_r - memory read
 //-------------------------------------------------
 
-uint16_t wangpc_mvc_device::wangpcbus_mrdc_r(address_space &space, offs_t offset, uint16_t mem_mask)
+uint16_t wangpc_mvc_device::wangpcbus_mrdc_r(offs_t offset, uint16_t mem_mask)
 {
 	uint16_t data = 0xffff;
 
@@ -252,7 +251,7 @@ uint16_t wangpc_mvc_device::wangpcbus_mrdc_r(address_space &space, offs_t offset
 //  wangpcbus_amwc_w - memory write
 //-------------------------------------------------
 
-void wangpc_mvc_device::wangpcbus_amwc_w(address_space &space, offs_t offset, uint16_t mem_mask, uint16_t data)
+void wangpc_mvc_device::wangpcbus_amwc_w(offs_t offset, uint16_t mem_mask, uint16_t data)
 {
 	if (OPTION_VRAM)
 	{
@@ -276,7 +275,7 @@ void wangpc_mvc_device::wangpcbus_amwc_w(address_space &space, offs_t offset, ui
 //  wangpcbus_iorc_r - I/O read
 //-------------------------------------------------
 
-uint16_t wangpc_mvc_device::wangpcbus_iorc_r(address_space &space, offs_t offset, uint16_t mem_mask)
+uint16_t wangpc_mvc_device::wangpcbus_iorc_r(offs_t offset, uint16_t mem_mask)
 {
 	uint16_t data = 0xffff;
 
@@ -300,18 +299,18 @@ uint16_t wangpc_mvc_device::wangpcbus_iorc_r(address_space &space, offs_t offset
 //  wangpcbus_aiowc_w - I/O write
 //-------------------------------------------------
 
-void wangpc_mvc_device::wangpcbus_aiowc_w(address_space &space, offs_t offset, uint16_t mem_mask, uint16_t data)
+void wangpc_mvc_device::wangpcbus_aiowc_w(offs_t offset, uint16_t mem_mask, uint16_t data)
 {
 	if (sad(offset) && ACCESSING_BITS_0_7)
 	{
 		switch (offset & 0x7f)
 		{
 		case 0x00/2:
-			m_crtc->address_w(space, 0, data & 0xff);
+			m_crtc->address_w(data & 0xff);
 			break;
 
 		case 0x02/2:
-			m_crtc->register_w(space, 0, data & 0xff);
+			m_crtc->register_w(data & 0xff);
 			break;
 
 		case 0x10/2:

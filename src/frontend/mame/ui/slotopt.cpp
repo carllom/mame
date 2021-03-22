@@ -61,7 +61,7 @@ menu_slot_devices::~menu_slot_devices()
 //  slot option
 //-------------------------------------------------
 
-device_slot_option *menu_slot_devices::get_current_option(device_slot_interface &slot) const
+device_slot_interface::slot_option const *menu_slot_devices::get_current_option(device_slot_interface &slot) const
 {
 	std::string current;
 
@@ -85,7 +85,7 @@ device_slot_option *menu_slot_devices::get_current_option(device_slot_interface 
 //  set_slot_device
 //-------------------------------------------------
 
-void menu_slot_devices::set_slot_device(device_slot_interface &slot, const char *val)
+void menu_slot_devices::set_slot_device(device_slot_interface &slot, std::string_view val)
 {
 	// we might change slot options; in the spirit of user friendliness, we should record all current
 	// options
@@ -115,7 +115,7 @@ void menu_slot_devices::set_slot_device(device_slot_interface &slot, const char 
 
 void menu_slot_devices::record_current_options()
 {
-	for (device_slot_interface &slot : slot_interface_iterator(m_config->root_device()))
+	for (device_slot_interface &slot : slot_interface_enumerator(m_config->root_device()))
 	{
 		// we're doing this out of a desire to honor user-selectable options; therefore it only
 		// makes sense to record values for selectable options
@@ -177,14 +177,14 @@ void menu_slot_devices::populate(float &customtop, float &custombottom)
 	m_config = std::make_unique<machine_config>(machine().system(), machine().options());
 
 	// cycle through all devices for this system
-	for (device_slot_interface &slot : slot_interface_iterator(m_config->root_device()))
+	for (device_slot_interface &slot : slot_interface_enumerator(m_config->root_device()))
 	{
 		// does this slot have any selectable options?
 		bool has_selectable_options = slot.has_selectable_options();
 
 		// name this option
 		std::string opt_name(DIVIDER);
-		const device_slot_option *option = get_current_option(slot);
+		device_slot_interface::slot_option const *option = get_current_option(slot);
 		if (option)
 		{
 			opt_name = has_selectable_options
@@ -200,10 +200,10 @@ void menu_slot_devices::populate(float &customtop, float &custombottom)
 		item_append(slot.slot_name(), opt_name, item_flags, (void *)&slot);
 	}
 	item_append(menu_item_type::SEPARATOR);
-	item_append(_("Reset"), "", 0, ITEMREF_RESET);
+	item_append(_("Reset"), 0, ITEMREF_RESET);
 
 	// leave space for the name of the current option at the bottom
-	custombottom = ui().get_line_height() + 3.0f * UI_BOX_TB_BORDER;
+	custombottom = ui().get_line_height() + 3.0f * ui().box_tb_border();
 }
 
 
@@ -216,13 +216,13 @@ void menu_slot_devices::custom_render(void *selectedref, float top, float bottom
 	if (selectedref && (ITEMREF_RESET != selectedref))
 	{
 		device_slot_interface *const slot(reinterpret_cast<device_slot_interface *>(selectedref));
-		device_slot_option const *const option(get_current_option(*slot));
+		device_slot_interface::slot_option const *const option(get_current_option(*slot));
 		char const *const text[] = { option ? option->devtype().fullname() : _("[empty slot]") };
 		draw_text_box(
 				std::begin(text), std::end(text),
-				origx1, origx2, origy2 + UI_BOX_TB_BORDER, origy2 + bottom,
+				origx1, origx2, origy2 + ui().box_tb_border(), origy2 + bottom,
 				ui::text_layout::CENTER, ui::text_layout::TRUNCATE, false,
-				UI_TEXT_COLOR, UI_BACKGROUND_COLOR, 1.0f);
+				ui().colors().text_color(), ui().colors().background_color(), 1.0f);
 	}
 }
 
@@ -251,7 +251,7 @@ void menu_slot_devices::handle()
 		else if (menu_event->iptkey == IPT_UI_SELECT)
 		{
 			device_slot_interface *slot = (device_slot_interface *)menu_event->itemref;
-			device_slot_option *option = get_current_option(*slot);
+			device_slot_interface::slot_option const *const option = get_current_option(*slot);
 			if (option)
 				menu::stack_push<menu_device_config>(ui(), container(), slot, option);
 		}
@@ -268,7 +268,7 @@ void menu_slot_devices::rotate_slot_device(device_slot_interface &slot, menu_slo
 	// first, we need to make sure our cache of options is up to date
 	if (m_current_option_list_slot_tag != slot.device().tag())
 	{
-		device_slot_option *current = get_current_option(slot);
+		device_slot_interface::slot_option const *current = get_current_option(slot);
 
 		// build the option list, including the blank option
 		m_current_option_list.clear();
@@ -320,7 +320,7 @@ void menu_slot_devices::rotate_slot_device(device_slot_interface &slot, menu_slo
 		throw false;
 	}
 
-	set_slot_device(slot, m_current_option_list_iter->c_str());
+	set_slot_device(slot, *m_current_option_list_iter);
 }
 
 } // namespace ui

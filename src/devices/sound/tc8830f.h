@@ -13,17 +13,6 @@
 
 
 //**************************************************************************
-//  INTERFACE CONFIGURATION MACROS
-//**************************************************************************
-
-#define MCFG_TC8830F_ADD(_tag, _clock) \
-	MCFG_DEVICE_ADD(_tag, TC8830F, _clock)
-
-#define MCFG_TC8830F_REPLACE(_tag, _clock) \
-	MCFG_DEVICE_REPLACE(_tag, TC8830F, _clock)
-
-
-//**************************************************************************
 //  TYPE DEFINITIONS
 //**************************************************************************
 
@@ -43,7 +32,7 @@ protected:
 	virtual void device_post_load() override;
 	virtual void device_clock_changed() override;
 
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	sound_stream *m_stream;

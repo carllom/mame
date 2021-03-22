@@ -85,27 +85,6 @@
 
 
 
-//***************************************************************************
-// DEVICE CONFIGURATION MACROS
-//***************************************************************************
-
-#define MCFG_MOS6566_CPU(_tag) \
-	mos6566_device::static_set_cpu_tag(*device, "^" _tag);
-
-#define MCFG_MOS6566_IRQ_CALLBACK(_write) \
-	devcb = &mos6566_device::set_irq_wr_callback(*device, DEVCB_##_write);
-
-#define MCFG_MOS6566_BA_CALLBACK(_write) \
-	devcb = &mos6566_device::set_ba_wr_callback(*device, DEVCB_##_write);
-
-#define MCFG_MOS6566_AEC_CALLBACK(_write) \
-	devcb = &mos6566_device::set_aec_wr_callback(*device, DEVCB_##_write);
-
-#define MCFG_MOS8564_K_CALLBACK(_write) \
-	devcb = &mos6566_device::set_k_wr_callback(*device, DEVCB_##_write);
-
-
-
 //**************************************************************************
 //  MACROS / CONSTANTS
 //**************************************************************************
@@ -212,16 +191,16 @@ public:
 	// construction/destruction
 	mos6566_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
-	static void static_set_cpu_tag(device_t &device, const char *tag) { downcast<mos6566_device &>(device).m_cpu.set_tag(tag); }
-	template <class Object> static devcb_base &set_irq_wr_callback(device_t &device, Object &&cb) { return downcast<mos6566_device &>(device).m_write_irq.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_ba_wr_callback(device_t &device, Object &&cb) { return downcast<mos6566_device &>(device).m_write_ba.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_aec_wr_callback(device_t &device, Object &&cb) { return downcast<mos6566_device &>(device).m_write_aec.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_k_wr_callback(device_t &device, Object &&cb) { return downcast<mos6566_device &>(device).m_write_k.set_callback(std::forward<Object>(cb)); }
+	template <class T> void set_cpu(T &&tag) { m_cpu.set_tag(tag); }
+	auto irq_callback() { return m_write_irq.bind(); }
+	auto ba_callback() { return m_write_ba.bind(); }
+	auto aec_callback() { return m_write_aec.bind(); }
+	auto k_callback() { return m_write_k.bind(); }
 
 	virtual space_config_vector memory_space_config() const override;
 
-	DECLARE_READ8_MEMBER( read );
-	DECLARE_WRITE8_MEMBER( write );
+	uint8_t read(offs_t offset);
+	void write(offs_t offset, uint8_t data);
 
 	DECLARE_WRITE_LINE_MEMBER( lp_w );
 
@@ -404,8 +383,8 @@ public:
 
 protected:
 	// device_execute_interface overrides
-	virtual uint64_t execute_clocks_to_cycles(uint64_t clocks) const override { return (clocks / 8); }
-	virtual uint64_t execute_cycles_to_clocks(uint64_t cycles) const override { return (cycles * 8); }
+	virtual uint64_t execute_clocks_to_cycles(uint64_t clocks) const noexcept override { return (clocks / 8); }
+	virtual uint64_t execute_cycles_to_clocks(uint64_t cycles) const noexcept override { return (cycles * 8); }
 };
 
 
@@ -445,8 +424,8 @@ public:
 
 protected:
 	// device_execute_interface overrides
-	virtual uint64_t execute_clocks_to_cycles(uint64_t clocks) const override { return (clocks / 8); }
-	virtual uint64_t execute_cycles_to_clocks(uint64_t cycles) const override { return (cycles * 8); }
+	virtual uint64_t execute_clocks_to_cycles(uint64_t clocks) const noexcept override { return (clocks / 8); }
+	virtual uint64_t execute_cycles_to_clocks(uint64_t cycles) const noexcept override { return (cycles * 8); }
 };
 
 

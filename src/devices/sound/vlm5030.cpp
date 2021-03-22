@@ -162,7 +162,7 @@ DEFINE_DEVICE_TYPE(VLM5030, vlm5030_device, "vlm5030", "Sanyo VLM5030")
 vlm5030_device::vlm5030_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, VLM5030, tag, owner, clock),
 		device_sound_interface(mconfig, *this),
-		device_rom_interface(mconfig, *this, 16),
+		device_rom_interface(mconfig, *this),
 		m_channel(nullptr),
 		m_coeff(nullptr),
 		m_address(0),
@@ -214,7 +214,7 @@ void vlm5030_device::device_start()
 	device_reset();
 	m_phase = PH_IDLE;
 
-	m_channel = machine().sound().stream_alloc(*this, 0, 1, clock() / 440);
+	m_channel = stream_alloc(0, 1, clock() / 440);
 
 	save_item(NAME(m_address));
 	save_item(NAME(m_pin_BSY));
@@ -235,7 +235,6 @@ void vlm5030_device::device_start()
 	save_item(NAME(m_target_pitch));
 	save_item(NAME(m_target_k));
 	save_item(NAME(m_x));
-	machine().save().register_postload(save_prepost_delegate(FUNC(vlm5030_device::restore_state), this));
 }
 
 //-------------------------------------------------
@@ -261,6 +260,11 @@ void vlm5030_device::device_reset()
 	memset(m_x, 0, sizeof(m_x));
 	/* reset parameters */
 	setup_parameter( 0x00);
+}
+
+void vlm5030_device::device_post_load()
+{
+	restore_state();
 }
 
 void vlm5030_device::rom_bank_updated()
@@ -393,9 +397,9 @@ READ_LINE_MEMBER( vlm5030_device::bsy )
 }
 
 /* latch contoll data */
-WRITE8_MEMBER( vlm5030_device::data_w )
+void vlm5030_device::data_w(uint8_t data)
 {
-	m_latch_data = (uint8_t)data;
+	m_latch_data = data;
 }
 
 /* set RST pin level : reset / set table address A8-A15 */
@@ -490,19 +494,19 @@ if( m_interp_step != 1)
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void vlm5030_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void vlm5030_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
-	int buf_count=0;
 	int interp_effect;
 	int i;
 	int u[11];
-	stream_sample_t *buffer = outputs[0];
+	auto &buffer = outputs[0];
 
 	/* running */
+	int sampindex = 0;
 	if( m_phase == PH_RUN || m_phase == PH_STOP )
 	{
 		/* playing speech */
-		while (samples > 0)
+		for ( ; sampindex < buffer.samples(); sampindex++)
 		{
 			int current_val;
 
@@ -588,13 +592,7 @@ void vlm5030_device::sound_stream_update(sound_stream &stream, stream_sample_t *
 			m_x[0] = u[0];
 
 			/* clipping, buffering */
-			if (u[0] > 511)
-				buffer[buf_count] = 511<<6;
-			else if (u[0] < -511)
-				buffer[buf_count] = uint32_t(-511)<<6;
-			else
-				buffer[buf_count] = (u[0] << 6);
-			buf_count++;
+			buffer.put_int_clamp(sampindex, u[0], 512);
 
 			/* sample count */
 			m_sample_count--;
@@ -603,7 +601,6 @@ void vlm5030_device::sound_stream_update(sound_stream &stream, stream_sample_t *
 			if (m_pitch_count >= m_current_pitch )
 				m_pitch_count = 0;
 			/* size */
-			samples--;
 		}
 /*      return;*/
 	}
@@ -612,7 +609,7 @@ phase_stop:
 	switch( m_phase )
 	{
 	case PH_SETUP:
-		if( m_sample_count <= samples)
+		if( m_sample_count <= buffer.samples())
 		{
 			m_sample_count = 0;
 			/* logerror("VLM5030 BSY=H\n" ); */
@@ -621,11 +618,11 @@ phase_stop:
 		}
 		else
 		{
-			m_sample_count -= samples;
+			m_sample_count -= buffer.samples();
 		}
 		break;
 	case PH_END:
-		if( m_sample_count <= samples)
+		if( m_sample_count <= buffer.samples())
 		{
 			m_sample_count = 0;
 			/* logerror("VLM5030 BSY=L\n" ); */
@@ -634,13 +631,9 @@ phase_stop:
 		}
 		else
 		{
-			m_sample_count -= samples;
+			m_sample_count -= buffer.samples();
 		}
 	}
 	/* silent buffering */
-	while (samples > 0)
-	{
-		buffer[buf_count++] = 0x00;
-		samples--;
-	}
+	buffer.fill(0, sampindex);
 }
