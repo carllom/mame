@@ -17,7 +17,10 @@
 --------------------------------------------------
 
 CPUS["M680X0"] = true -- e6400
-CPUS["NS32016"] = true -- eiii
+CPUS["NS32000"] = true -- emu3
+
+CPUS["M6800"] = true -- SWTPC8212 (terminal)
+CPUS["IE15"] = true -- IE15 (terminal)
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
@@ -25,27 +28,43 @@ CPUS["NS32016"] = true -- eiii
 --------------------------------------------------
 
 SOUNDS["DAC"] = true
+SOUNDS["BEEP"] = true -- ???
 
 --------------------------------------------------
 -- specify available video cores
 --------------------------------------------------
 
-VIDEOS["T6963"] = true -- e6400
+VIDEOS["T6963C"] = true -- e6400
+VIDEOS["HD44780"] = true -- emu3
+VIDEOS["MC6845"] = true -- SWTPC8212
 
 --------------------------------------------------
 -- specify available machine cores
 --------------------------------------------------
-
-MACHINES["WD_FDC"] = true -- emuiii
 MACHINES["UPD765"] = true -- e6400
-MACHINES["NCR5380"] = true -- emuiii
+
+MACHINES["WD_FDC"] = true -- emu3
+MACHINES["NCR5380N"] = true -- emu3
+MACHINES["ACIA6850"] = true -- emu3
+MACHINES["PIT8253"] = true -- emu3
+MACHINES["NSCSI"] = true -- emu3
+MACHINES["Z80SCC"] = true -- emu3
+MACHINES["SWTPC8212"] = true -- ??? terminal machine
+MACHINES["6821PIA"] = true -- SWTPC8212
+MACHINES["INS8250"] = true -- SWTPC8212
+MACHINES["INPUT_MERGER"] = true -- SWTPC8212
+MACHINES["IE15"] = true -- ??? terminal machine
+MACHINES["Z80DAISY"] = true -- Z80SCC
+MACHINES["FDC_PLL"] = true -- UPD765
 
 --------------------------------------------------
 -- specify available bus cores
 --------------------------------------------------
 
-BUSES["SCSI"] = true
-
+BUSES["NSCSI"] = true -- emu3
+BUSES["SCSI"] = true -- e6400?
+BUSES["RS232"] = true -- emu3
+BUSES["SUNKBD"] = true -- ???
 
 --------------------------------------------------
 -- This is the list of files that are necessary
@@ -75,11 +94,9 @@ function createProjects_mame_tiny(_target, _subtarget)
 files{
 	-- e6400
 	MAME_DIR .. "src/mame/drivers/e6400.cpp",
-	MAME_DIR .. "src/mame/video/t6963.cpp",
-	MAME_DIR .. "src/mame/video/t6963.h",
-
 	-- eiii
-	MAME_DIR .. "src/mame/drivers/emuiii.cpp",	
+	-- MAME_DIR .. "src/mame/drivers/emuiii.cpp",	
+	MAME_DIR .. "src/mame/drivers/emu3.cpp",	
 }
 end
 
