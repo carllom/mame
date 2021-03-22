@@ -106,7 +106,7 @@ public:
 	auto out_portb_callback() { return m_out_portb_cb.bind(); }
 	auto in_irq_callback() { return m_in_irq_cb.bind(); }
 
-	virtual void device_config_complete();
+	virtual void device_config_complete() override;
 
 	uint8_t portx_r();
 	void portx_w(uint8_t data);
@@ -118,12 +118,12 @@ public:
 
 protected:
 	// device_t
-	virtual void device_start();
-	virtual void device_reset();
+	virtual void device_start() override;
+	virtual void device_reset() override;
 	virtual void device_resolve_objects() override;
 
 	// device_execute_interface
-	virtual void execute_run();
+	virtual void execute_run() override;
 	int m_icount;
 
 	// device_memory_interface
