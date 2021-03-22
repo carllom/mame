@@ -122,7 +122,7 @@
 
 DEFINE_DEVICE_TYPE_NS(INTERPRO_HLE_EN_US_KEYBOARD, bus::interpro::keyboard, hle_en_us_device, "kbd_hle_en_us", "InterPro Keyboard (HLE, US English)")
 
-namespace bus { namespace interpro { namespace keyboard {
+namespace bus::interpro::keyboard {
 
 namespace {
 
@@ -277,11 +277,11 @@ WRITE_LINE_MEMBER(hle_device_base::input_txd)
 	device_buffered_serial_interface::rx_w(state);
 }
 
-MACHINE_CONFIG_START(hle_device_base::device_add_mconfig)
-	MCFG_SPEAKER_STANDARD_MONO("bell")
-	MCFG_SOUND_ADD("beeper", BEEP, ATTOSECONDS_TO_HZ(480 * ATTOSECONDS_PER_MICROSECOND))
-	MCFG_SOUND_ROUTE(ALL_OUTPUTS, "bell", 1.0)
-MACHINE_CONFIG_END
+void hle_device_base::device_add_mconfig(machine_config &config)
+{
+	SPEAKER(config, "bell").front_center();
+	BEEP(config, m_beeper, ATTOSECONDS_TO_HZ(480 * ATTOSECONDS_PER_MICROSECOND)).add_route(ALL_OUTPUTS, "bell", 1.0);
+}
 
 void hle_device_base::device_start()
 {
@@ -307,15 +307,6 @@ void hle_device_base::device_reset()
 	set_rate(BAUD);
 	receive_register_reset();
 	transmit_register_reset();
-
-	// start with keyboard LEDs off
-	machine().output().set_led_value(LED_DISK, 0);
-	machine().output().set_led_value(LED_LOCK, 0);
-	machine().output().set_led_value(LED_UNKNOWN, 0);
-	machine().output().set_led_value(LED_L1, 0);
-	machine().output().set_led_value(LED_L2, 0);
-	machine().output().set_led_value(LED_L3, 0);
-	machine().output().set_led_value(LED_L4, 0);
 
 	// no beep
 	m_click_timer->reset();
@@ -470,4 +461,4 @@ u8 hle_en_us_device::translate(u8 row, u8 column)
 	return TRANSLATION_TABLE[map][row][column];
 }
 
-} } } // namespace bus::interpro::keyboard
+} // namespace bus::interpro::keyboard

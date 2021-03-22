@@ -38,6 +38,7 @@
 #define OPTION_UI_PATH                "ui_path"
 
 // core misc options
+#define OPTION_SKIP_WARNINGS          "skip_warnings"
 #define OPTION_REMEMBER_LAST          "remember_last"
 #define OPTION_ENLARGE_SNAPS          "enlarge_snaps"
 #define OPTION_FORCED4X3              "forced4x3"
@@ -102,6 +103,7 @@ public:
 	const char *ui_path() const { return value(OPTION_UI_PATH); }
 
 	// Misc options
+	bool skip_warnings() const { return bool_value(OPTION_SKIP_WARNINGS); }
 	bool remember_last() const { return bool_value(OPTION_REMEMBER_LAST); }
 	bool enlarge_snaps() const { return bool_value(OPTION_ENLARGE_SNAPS); }
 	bool forced_4x3_snapshot() const { return bool_value(OPTION_FORCED4X3); }
@@ -119,22 +121,25 @@ public:
 	int font_rows() const { return int_value(OPTION_FONT_ROWS); }
 	int hide_panels() const { return int_value(OPTION_HIDE_PANELS); }
 
-	const char *ui_border_color() const { return value(OPTION_UI_BORDER_COLOR); }
-	const char *ui_bg_color() const { return value(OPTION_UI_BACKGROUND_COLOR); }
-	const char *ui_gfx_bg_color() const { return value(OPTION_UI_GFXVIEWER_BG_COLOR); }
-	const char *ui_unavail_color() const { return value(OPTION_UI_UNAVAILABLE_COLOR); }
-	const char *ui_text_color() const { return value(OPTION_UI_TEXT_COLOR); }
-	const char *ui_text_bg_color() const { return value(OPTION_UI_TEXT_BG_COLOR); }
-	const char *ui_subitem_color() const { return value(OPTION_UI_SUBITEM_COLOR); }
-	const char *ui_clone_color() const { return value(OPTION_UI_CLONE_COLOR); }
-	const char *ui_selected_color() const { return value(OPTION_UI_SELECTED_COLOR); }
-	const char *ui_selected_bg_color() const { return value(OPTION_UI_SELECTED_BG_COLOR); }
-	const char *ui_mouseover_color() const { return value(OPTION_UI_MOUSEOVER_COLOR); }
-	const char *ui_mouseover_bg_color() const { return value(OPTION_UI_MOUSEOVER_BG_COLOR); }
-	const char *ui_mousedown_color() const { return value(OPTION_UI_MOUSEDOWN_COLOR); }
-	const char *ui_mousedown_bg_color() const { return value(OPTION_UI_MOUSEDOWN_BG_COLOR); }
-	const char *ui_dipsw_color() const { return value(OPTION_UI_DIPSW_COLOR); }
-	const char *ui_slider_color() const { return value(OPTION_UI_SLIDER_COLOR); }
+	rgb_t border_color() const { return rgb_value(OPTION_UI_BORDER_COLOR); }
+	rgb_t background_color() const { return rgb_value(OPTION_UI_BACKGROUND_COLOR); }
+	rgb_t gfxviewer_bg_color() const { return rgb_value(OPTION_UI_GFXVIEWER_BG_COLOR); }
+	rgb_t unavailable_color() const { return rgb_value(OPTION_UI_UNAVAILABLE_COLOR); }
+	rgb_t text_color() const { return rgb_value(OPTION_UI_TEXT_COLOR); }
+	rgb_t text_bg_color() const { return rgb_value(OPTION_UI_TEXT_BG_COLOR); }
+	rgb_t subitem_color() const { return rgb_value(OPTION_UI_SUBITEM_COLOR); }
+	rgb_t clone_color() const { return rgb_value(OPTION_UI_CLONE_COLOR); }
+	rgb_t selected_color() const { return rgb_value(OPTION_UI_SELECTED_COLOR); }
+	rgb_t selected_bg_color() const { return rgb_value(OPTION_UI_SELECTED_BG_COLOR); }
+	rgb_t mouseover_color() const { return rgb_value(OPTION_UI_MOUSEOVER_COLOR); }
+	rgb_t mouseover_bg_color() const { return rgb_value(OPTION_UI_MOUSEOVER_BG_COLOR); }
+	rgb_t mousedown_color() const { return rgb_value(OPTION_UI_MOUSEDOWN_COLOR); }
+	rgb_t mousedown_bg_color() const { return rgb_value(OPTION_UI_MOUSEDOWN_BG_COLOR); }
+	rgb_t dipsw_color() const { return rgb_value(OPTION_UI_DIPSW_COLOR); }
+	rgb_t slider_color() const { return rgb_value(OPTION_UI_SLIDER_COLOR); }
+
+	rgb_t rgb_value(const char *option) const;
+
 private:
 	static const options_entry s_option_entries[];
 };

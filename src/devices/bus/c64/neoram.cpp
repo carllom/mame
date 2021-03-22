@@ -43,7 +43,7 @@ c64_neoram_cartridge_device::c64_neoram_cartridge_device(const machine_config &m
 void c64_neoram_cartridge_device::device_start()
 {
 	// allocate memory
-	m_nvram.allocate(0x200000);
+	m_nvram = std::make_unique<uint8_t[]>(0x200000);
 
 	// state saving
 	save_item(NAME(m_bank));
@@ -64,7 +64,7 @@ void c64_neoram_cartridge_device::device_reset()
 //  c64_cd_r - cartridge data read
 //-------------------------------------------------
 
-uint8_t c64_neoram_cartridge_device::c64_cd_r(address_space &space, offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
+uint8_t c64_neoram_cartridge_device::c64_cd_r(offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
 {
 	if (!io1)
 	{
@@ -80,7 +80,7 @@ uint8_t c64_neoram_cartridge_device::c64_cd_r(address_space &space, offs_t offse
 //  c64_cd_w - cartridge data write
 //-------------------------------------------------
 
-void c64_neoram_cartridge_device::c64_cd_w(address_space &space, offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
+void c64_neoram_cartridge_device::c64_cd_w(offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
 {
 	if (!io1)
 	{

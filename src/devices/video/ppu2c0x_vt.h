@@ -16,55 +16,42 @@
 
 #include "video/ppu2c0x.h"
 
-#define MCFG_PPU_VT03_ADD(_tag)   \
-	MCFG_PPU2C0X_ADD(_tag, PPU_VT03)
-
-#define MCFG_PPU_VT03_READ_BG_CB(_devcb) \
-	devcb = &ppu_vt03_device::set_read_bg_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_PPU_VT03_READ_SP_CB(_devcb) \
-	devcb = &ppu_vt03_device::set_read_sp_callback(*device, DEVCB_##_devcb);
-
-#define MCFG_PPU_VT03_MODIFY MCFG_DEVICE_MODIFY
-
-#define MCFG_PPU_VT03_SET_PAL_MODE(pmode) \
-	ppu_vt03_device::set_palette_mode(*device, pmode);
-
-#define MCFG_PPU_VT03_SET_DESCRAMBLE(dsc) \
-	ppu_vt03_device::set_201x_descramble(*device, dsc);
-
-
 enum vtxx_pal_mode {
 	PAL_MODE_VT0x,
 	PAL_MODE_NEW_RGB,
-	PAL_MODE_NEW_VG,
 	PAL_MODE_NEW_RGB12,
 };
 
 class ppu_vt03_device : public ppu2c0x_device {
 public:
 	ppu_vt03_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	ppu_vt03_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock);
 
-	template <class Object> static devcb_base &set_read_bg_callback(device_t &device, Object &&cb) { return downcast<ppu_vt03_device &>(device).m_read_bg.set_callback(std::forward<Object>(cb)); }
-	template <class Object> static devcb_base &set_read_sp_callback(device_t &device, Object &&cb) { return downcast<ppu_vt03_device &>(device).m_read_sp.set_callback(std::forward<Object>(cb)); }
+	auto read_bg() { return m_read_bg.bind(); }
+	auto read_sp() { return m_read_sp.bind(); }
 
-	static void set_palette_mode(device_t &device, vtxx_pal_mode pmode) { downcast<ppu_vt03_device &>(device).m_pal_mode = pmode; }
-	static void set_201x_descramble(device_t &device, const uint8_t descramble[6]) { for (int i = 0; i < 6; i++) downcast<ppu_vt03_device &>(device).m_2012_2017_descramble[i] = descramble[i]; }
+	void set_palette_mode(vtxx_pal_mode pmode) { m_pal_mode = pmode; }
+	void set_201x_descramble(uint8_t reg0, uint8_t reg1, uint8_t reg2, uint8_t reg3, uint8_t reg4, uint8_t reg5);
 
-	virtual DECLARE_READ8_MEMBER(read) override;
-	virtual DECLARE_WRITE8_MEMBER(write) override;
-	virtual DECLARE_READ8_MEMBER(palette_read) override;
-	virtual DECLARE_WRITE8_MEMBER(palette_write) override;
+	uint8_t read_extended(offs_t offset);
+	void write_extended(offs_t offset, uint8_t data);
 
-	virtual void init_palette( palette_device &palette, int first_entry ) override;
+	virtual uint8_t palette_read(offs_t offset) override;
+	virtual void palette_write(offs_t offset, uint8_t data) override;
+
+	void init_vt03_palette_tables(int palmode);
+	void init_vtxx_rgb555_palette_tables();
+	void init_vtxx_rgb444_palette_tables();
 
 	virtual void read_tile_plane_data(int address, int color) override;
 	virtual void shift_tile_plane_data(uint8_t &pix) override;
-	virtual void draw_tile_pixel(uint8_t pix, int color, uint16_t back_pen, uint16_t *&dest, const pen_t *color_table) override;
+	virtual void draw_tile_pixel(uint8_t pix, int color, uint32_t back_pen, uint32_t *&dest) override;
+	inline void draw_tile_pixel_inner(uint8_t pen, uint32_t *dest);
+	virtual void draw_back_pen(uint32_t* dst, int back_pen) override;
 
 	virtual void read_sprite_plane_data(int address) override;
 	virtual void make_sprite_pixel_data(uint8_t &pixel_data, int flipx) override;
-	virtual void draw_sprite_pixel(int sprite_xpos, int color, int pixel, uint8_t pixel_data, bitmap_ind16& bitmap) override;
+	virtual void draw_sprite_pixel(int sprite_xpos, int color, int pixel, uint8_t pixel_data, bitmap_rgb32 &bitmap) override;
 	virtual void read_extra_sprite_bits(int sprite_index) override;
 
 	virtual void device_start() override;
@@ -77,19 +64,26 @@ public:
 	uint8_t get_m_read_bg4_bg3();
 	uint8_t get_speva2_speva0();
 
+	bool get_is_pal() { return m_is_pal; }
+	bool get_is_50hz() { return m_is_50hz; }
+
+protected:
+	bool m_is_pal;
+	bool m_is_50hz;
+
+	uint32_t m_vtpens[0x1000*8];
+	uint32_t m_vtpens_rgb555[0x8000*8];
+	uint32_t m_vtpens_rgb444[0x1000*8];
+
 private:
 	devcb_read8 m_read_bg;
 	devcb_read8 m_read_sp;
-
-	std::unique_ptr<uint8_t[]> m_newpal;
 
 	int m_read_bg4_bg3;
 	int m_va34;
 
 	uint8_t m_extplanebuf[2];
 	uint8_t m_extra_sprite_bits;
-
-	palette_device *m_palette;
 
 	uint8_t m_201x_regs[0x20];
 
@@ -98,10 +92,14 @@ private:
 	vtxx_pal_mode m_pal_mode = PAL_MODE_VT0x;
 
 	void set_2010_reg(uint8_t data);
+};
 
-	void set_new_pen(int i);
+class ppu_vt03pal_device : public ppu_vt03_device {
+public:
+	ppu_vt03pal_device(const machine_config& mconfig, const char* tag, device_t* owner, uint32_t clock);
 };
 
 DECLARE_DEVICE_TYPE(PPU_VT03,    ppu_vt03_device)
+DECLARE_DEVICE_TYPE(PPU_VT03PAL,    ppu_vt03pal_device)
 
 #endif // MAME_VIDEO_PPU_VT03_H

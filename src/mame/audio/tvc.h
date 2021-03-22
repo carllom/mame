@@ -11,8 +11,6 @@
 
 #pragma once
 
-#define MCFG_TVC_SOUND_SNDINT_CALLBACK(_write) \
-	devcb = &downcast<tvc_sound_device &>(*device).set_sndint_wr_callback(DEVCB_##_write);
 
 //**************************************************************************
 //  TYPE DEFINITIONS
@@ -26,9 +24,9 @@ public:
 	// construction/destruction
 	tvc_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
-	template <class Object> devcb_base &set_sndint_wr_callback(Object &&cb) { return m_write_sndint.set_callback(std::forward<Object>(cb)); }
+	auto sndint_wr_callback() { return m_write_sndint.bind(); }
 
-	DECLARE_WRITE8_MEMBER(write);
+	void write(offs_t offset, uint8_t data);
 	void reset_divider();
 
 protected:
@@ -36,7 +34,7 @@ protected:
 	virtual void device_start() override;
 	virtual void device_reset() override;
 	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	static const device_timer_id TIMER_SNDINT = 0;

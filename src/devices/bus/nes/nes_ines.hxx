@@ -291,9 +291,7 @@ static const nes_mmc mmc_list[] =
 
 const nes_mmc *nes_mapper_lookup( int mapper )
 {
-	int i;
-
-	for (i = 0; i < ARRAY_LENGTH(mmc_list); i++)
+	for (int i = 0; i < std::size(mmc_list); i++)
 	{
 		if (mmc_list[i].iNesMapper == mapper)
 			return &mmc_list[i];
@@ -372,6 +370,7 @@ void nes_cart_slot_device::call_load_ines()
 
 		case 0x8:   // it's iNES 2.0 format
 			ines20 = true;
+			[[fallthrough]];
 		case 0x0:
 		default:
 			mapper |= header[7] & 0xf0;
@@ -407,7 +406,7 @@ void nes_cart_slot_device::call_load_ines()
 	{
 		mapper |= (header[8] & 0x0f) << 8;
 		// read submappers (based on 20140116 specs)
-		submapper = (header[8] & 0xf0 >> 8);
+		submapper = (header[8] & 0xf0) >> 4;
 		prg_size += ((header[9] & 0x0f) << 8) * 0x4000;
 		vrom_size += ((header[9] & 0xf0) << 4) * 0x2000;
 	}
@@ -428,6 +427,16 @@ void nes_cart_slot_device::call_load_ines()
 			bus_conflict = true;
 		else if (mapper == 7 && submapper == 2)
 			bus_conflict = true;
+		// 019: Namcot N163
+		else if (mapper == 19)
+		{
+			int vol = submapper & 0x07;
+			if (vol >= 0 && vol <= 5)
+			{
+				pcb_id = NAMCOT_163;
+				m_cart->set_n163_vol(vol);
+			}
+		}
 		// 021, 023, 025: VRC4 / VRC2
 		else if (mapper == 21 || mapper == 23 || mapper == 25)
 		{
@@ -830,6 +839,7 @@ const char * nes_cart_slot_device::get_default_card_ines(get_default_card_softwa
 
 		case 0x8:   // it's iNES 2.0 format
 			ines20 = true;
+			[[fallthrough]];
 		case 0x0:
 		default:
 			mapper |= ROM[7] & 0xf0;
@@ -852,7 +862,7 @@ const char * nes_cart_slot_device::get_default_card_ines(get_default_card_softwa
 	{
 		mapper |= (ROM[8] & 0x0f) << 8;
 		// read submappers (based on 20140116 specs)
-		submapper = (ROM[8] & 0xf0 >> 8);
+		submapper = (ROM[8] & 0xf0) >> 4;
 	}
 
 	ines_mapr_setup(mapper, &pcb_id);

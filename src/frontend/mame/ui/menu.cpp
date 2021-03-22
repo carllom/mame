@@ -9,7 +9,6 @@
 *********************************************************************/
 
 #include "emu.h"
-
 #include "ui/menu.h"
 
 #include "ui/ui.h"
@@ -20,6 +19,7 @@
 #include "cheat.h"
 #include "mame.h"
 
+#include "corestr.h"
 #include "drivenum.h"
 #include "rendutil.h"
 #include "uiinput.h"
@@ -31,11 +31,6 @@
 
 
 namespace ui {
-/***************************************************************************
-    CONSTANTS
-***************************************************************************/
-
-#define UI_MENU_POOL_SIZE  65536
 
 /***************************************************************************
     GLOBAL VARIABLES
@@ -85,22 +80,29 @@ menu::global_state::global_state(running_machine &machine, ui_options const &opt
 	, m_machine(machine)
 	, m_cleanup_callbacks()
 	, m_bgrnd_bitmap()
+	, m_bgrnd_texture(nullptr, machine.render())
 	, m_stack()
 	, m_free()
 {
 	render_manager &render(machine.render());
-	auto const texture_free([&render](render_texture *texture) { render.texture_free(texture); });
 
 	// create a texture for main menu background
-	m_bgrnd_texture = texture_ptr(render.texture_alloc(render_texture::hq_scale), texture_free);
+	m_bgrnd_texture.reset(render.texture_alloc(render_texture::hq_scale));
 	if (options.use_background_image() && (&machine.system() == &GAME_NAME(___empty)))
 	{
 		m_bgrnd_bitmap = std::make_unique<bitmap_argb32>(0, 0);
 		emu_file backgroundfile(".", OPEN_FLAG_READ);
-		render_load_jpeg(*m_bgrnd_bitmap, backgroundfile, nullptr, "background.jpg");
+		if (backgroundfile.open("background.jpg") == osd_file::error::NONE)
+		{
+			render_load_jpeg(*m_bgrnd_bitmap, backgroundfile);
+			backgroundfile.close();
+		}
 
-		if (!m_bgrnd_bitmap->valid())
-			render_load_png(*m_bgrnd_bitmap, backgroundfile, nullptr, "background.png");
+		if (!m_bgrnd_bitmap->valid() && (backgroundfile.open("background.png") == osd_file::error::NONE))
+		{
+			render_load_png(*m_bgrnd_bitmap, backgroundfile);
+			backgroundfile.close();
+		}
 
 		if (m_bgrnd_bitmap->valid())
 			m_bgrnd_texture->set_bitmap(*m_bgrnd_bitmap, m_bgrnd_bitmap->cliprect(), TEXFORMAT_ARGB32);
@@ -134,7 +136,6 @@ void menu::global_state::stack_push(std::unique_ptr<menu> &&menu)
 {
 	menu->m_parent = std::move(m_stack);
 	m_stack = std::move(menu);
-	m_stack->reset(reset_options::SELECT_FIRST);
 	m_stack->machine().ui_input().reset();
 }
 
@@ -161,8 +162,17 @@ void menu::global_state::stack_reset()
 
 void menu::global_state::clear_free_list()
 {
+	// free stack is in reverse order - unwind it properly
+	std::unique_ptr<menu> reversed;
 	while (m_free)
-		m_free = std::move(m_free->m_parent);
+	{
+		std::unique_ptr<menu> menu(std::move(m_free));
+		m_free = std::move(menu->m_parent);
+		menu->m_parent = std::move(reversed);
+		reversed = std::move(menu);
+	}
+	while (reversed)
+		reversed = std::move(reversed->m_parent);
 }
 
 
@@ -224,7 +234,9 @@ void menu::exit(running_machine &machine)
 //-------------------------------------------------
 
 menu::menu(mame_ui_manager &mui, render_container &container)
-	: m_visible_lines(0)
+	: m_selected(0)
+	, m_items()
+	, m_visible_lines(0)
 	, m_visible_items(0)
 	, m_global_state(get_global_state(mui.machine()))
 	, m_special_main_menu(false)
@@ -232,7 +244,6 @@ menu::menu(mame_ui_manager &mui, render_container &container)
 	, m_container(container)
 	, m_parent()
 	, m_event()
-	, m_pool(nullptr)
 	, m_customtop(0.0f)
 	, m_custombottom(0.0f)
 	, m_resetpos(0)
@@ -256,19 +267,11 @@ menu::menu(mame_ui_manager &mui, render_container &container)
 
 menu::~menu()
 {
-	// free the pools
-	while (m_pool)
-	{
-		pool *const ppool = m_pool;
-		m_pool = m_pool->next;
-		global_free_array(ppool);
-	}
 }
 
 
 //-------------------------------------------------
-//  reset - free all items in the menu,
-//  and all memory allocated from the memory pool
+//  reset - free all items in the menu
 //-------------------------------------------------
 
 void menu::reset(reset_options options)
@@ -277,37 +280,14 @@ void menu::reset(reset_options options)
 	m_resetpos = 0;
 	m_resetref = nullptr;
 	if (options == reset_options::REMEMBER_POSITION)
-		m_resetpos = selected;
+		m_resetpos = m_selected;
 	else if (options == reset_options::REMEMBER_REF)
 		m_resetref = get_selection_ref();
 
-	// reset all the pools and the item.size() back to 0
-	for (pool *ppool = m_pool; ppool != nullptr; ppool = ppool->next)
-		ppool->top = (uint8_t *)(ppool + 1);
-	item.clear();
+	// reset the item count back to 0
+	m_items.clear();
 	m_visible_items = 0;
-	selected = 0;
-
-	// add an item to return
-	if (!m_parent)
-	{
-		item_append(_("Return to Machine"), "", 0, nullptr);
-	}
-	else if (m_parent->is_special_main_menu())
-	{
-		if (machine().options().ui() == emu_options::UI_SIMPLE)
-			item_append(_("Exit"), "", 0, nullptr);
-		else
-			item_append(_("Exit"), "", FLAG_LEFT_ARROW | FLAG_RIGHT_ARROW, nullptr);
-	}
-	else
-	{
-		if (machine().options().ui() != emu_options::UI_SIMPLE && stack_has_special_main_menu())
-			item_append(_("Return to Previous Menu"), "", FLAG_LEFT_ARROW | FLAG_RIGHT_ARROW, nullptr);
-		else
-			item_append(_("Return to Previous Menu"), "", 0, nullptr);
-	}
-
+	m_selected = 0;
 }
 
 
@@ -338,30 +318,10 @@ void menu::set_special_main_menu(bool special)
 //  end of the menu
 //-------------------------------------------------
 
-void menu::item_append(menu_item item)
-{
-	item_append(item.text, item.subtext, item.flags, item.ref, item.type);
-}
-
-//-------------------------------------------------
-//  item_append - append a new item to the
-//  end of the menu
-//-------------------------------------------------
-
 void menu::item_append(menu_item_type type, uint32_t flags)
 {
 	if (type == menu_item_type::SEPARATOR)
-		item_append(MENU_SEPARATOR_ITEM, "", flags, nullptr, menu_item_type::SEPARATOR);
-}
-
-//-------------------------------------------------
-//  item_append - append a new item to the
-//  end of the menu
-//-------------------------------------------------
-
-void menu::item_append(const std::string &text, const std::string &subtext, uint32_t flags, void *ref, menu_item_type type)
-{
-	item_append(std::string(text), std::string(subtext), flags, ref, type);
+		item_append(MENU_SEPARATOR_ITEM, flags, nullptr, menu_item_type::SEPARATOR);
 }
 
 //-------------------------------------------------
@@ -373,11 +333,11 @@ void menu::item_append(std::string &&text, std::string &&subtext, uint32_t flags
 {
 	// only allow multiline as the first item
 	if ((flags & FLAG_MULTILINE) != 0)
-		assert(item.size() == 1);
+		assert(m_items.size() == 1);
 
 	// only allow a single multi-line item
-	else if (item.size() >= 2)
-		assert((item[0].flags & FLAG_MULTILINE) == 0);
+	else if (m_items.size() >= 2)
+		assert((m_items[0].flags & FLAG_MULTILINE) == 0);
 
 	// allocate a new item and populate it
 	menu_item pitem;
@@ -388,31 +348,36 @@ void menu::item_append(std::string &&text, std::string &&subtext, uint32_t flags
 	pitem.type = type;
 
 	// append to array
-	auto index = item.size();
-	if (!item.empty())
+	auto index = m_items.size();
+	if (!m_items.empty())
 	{
-		item.emplace(item.end() - 1, std::move(pitem));
+		m_items.emplace(m_items.end() - 1, std::move(pitem));
 		--index;
 	}
 	else
-		item.emplace_back(std::move(pitem));
+		m_items.emplace_back(std::move(pitem));
 
 	// update the selection if we need to
 	if (m_resetpos == index || (m_resetref != nullptr && m_resetref == ref))
-		selected = index;
-	if (m_resetpos == (item.size() - 1))
-		selected = item.size() - 1;
+		m_selected = index;
+	if (m_resetpos == (m_items.size() - 1))
+		m_selected = m_items.size() - 1;
 }
 
 
 //-------------------------------------------------
-//  repopulate - repopulate menu items
+//  item_append_on_off - append a new "On"/"Off"
+//  item to the end of the menu
 //-------------------------------------------------
 
-void menu::repopulate(reset_options options)
+void menu::item_append_on_off(const std::string &text, bool state, uint32_t flags, void *ref, menu_item_type type)
 {
-	reset(options);
-	populate(m_customtop, m_custombottom);
+	if (flags & FLAG_DISABLE)
+		ref = nullptr;
+	else
+		flags |= state ? FLAG_LEFT_ARROW : FLAG_RIGHT_ARROW;
+
+	item_append(std::string(text), state ? _("On") : _("Off"), flags, ref, type);
 }
 
 
@@ -430,7 +395,7 @@ const menu::event *menu::process(uint32_t flags, float x0, float y0)
 	validate_selection(1);
 
 	// draw the menu
-	if (item.size() > 1 && (item[0].flags & FLAG_MULTILINE) != 0)
+	if (m_items.size() > 1 && (m_items[0].flags & FLAG_MULTILINE) != 0)
 		draw_text_box();
 	else
 		draw(flags);
@@ -450,7 +415,7 @@ const menu::event *menu::process(uint32_t flags, float x0, float y0)
 	if ((m_event.iptkey != IPT_INVALID) && selection_valid())
 	{
 		m_event.itemref = get_selection_ref();
-		m_event.type = item[selected].type;
+		m_event.type = m_items[m_selected].type;
 		return &m_event;
 	}
 	else
@@ -461,50 +426,18 @@ const menu::event *menu::process(uint32_t flags, float x0, float y0)
 
 
 //-------------------------------------------------
-//  m_pool_alloc - allocate temporary memory
-//  from the menu's memory pool
-//-------------------------------------------------
-
-void *menu::m_pool_alloc(size_t size)
-{
-	assert(size < UI_MENU_POOL_SIZE);
-
-	// find a pool with enough room
-	for (pool *ppool = m_pool; ppool != nullptr; ppool = ppool->next)
-	{
-		if (ppool->end - ppool->top >= size)
-		{
-			void *result = ppool->top;
-			ppool->top += size;
-			return result;
-		}
-	}
-
-	// allocate a new pool
-	pool *ppool = (pool *)global_alloc_array_clear<uint8_t>(sizeof(*ppool) + UI_MENU_POOL_SIZE);
-
-	// wire it up
-	ppool->next = m_pool;
-	m_pool = ppool;
-	ppool->top = (uint8_t *)(ppool + 1);
-	ppool->end = ppool->top + UI_MENU_POOL_SIZE;
-	return m_pool_alloc(size);
-}
-
-
-//-------------------------------------------------
 //  set_selection - changes the index
 //  of the currently selected menu item
 //-------------------------------------------------
 
 void menu::set_selection(void *selected_itemref)
 {
-	selected = -1;
-	for (int itemnum = 0; itemnum < item.size(); itemnum++)
+	m_selected = -1;
+	for (int itemnum = 0; itemnum < m_items.size(); itemnum++)
 	{
-		if (item[itemnum].ref == selected_itemref)
+		if (m_items[itemnum].ref == selected_itemref)
 		{
-			selected = itemnum;
+			m_selected = itemnum;
 			break;
 		}
 	}
@@ -525,17 +458,19 @@ void menu::draw(uint32_t flags)
 	// first draw the FPS counter
 	if (ui().show_fps_counter())
 	{
-		ui().draw_text_full(container(), machine().video().speed_text().c_str(), 0.0f, 0.0f, 1.0f,
+		ui().draw_text_full(container(), machine().video().speed_text(), 0.0f, 0.0f, 1.0f,
 				ui::text_layout::RIGHT, ui::text_layout::WORD, mame_ui_manager::OPAQUE_, rgb_t::white(), rgb_t::black(), nullptr, nullptr);
 	}
 
 	bool const customonly = (flags & PROCESS_CUSTOM_ONLY);
 	bool const noimage = (flags & PROCESS_NOIMAGE);
 	bool const noinput = (flags & PROCESS_NOINPUT);
+	float const aspect = machine().render().ui_aspect(&container());
 	float const line_height = ui().get_line_height();
-	float const lr_arrow_width = 0.4f * line_height * machine().render().ui_aspect();
-	float const ud_arrow_width = line_height * machine().render().ui_aspect();
+	float const lr_arrow_width = 0.4f * line_height * aspect;
+	float const ud_arrow_width = line_height * aspect;
 	float const gutter_width = lr_arrow_width * 1.3f;
+	float const lr_border = ui().box_lr_border() * aspect;
 
 	if (&machine().system() == &GAME_NAME(___empty) && !noimage)
 		draw_background();
@@ -543,14 +478,14 @@ void menu::draw(uint32_t flags)
 	// compute the width and height of the full menu
 	float visible_width = 0;
 	float visible_main_menu_height = 0;
-	for (auto const &pitem : item)
+	for (auto const &pitem : m_items)
 	{
 		// compute width of left hand side
-		float total_width = gutter_width + ui().get_string_width(pitem.text.c_str()) + gutter_width;
+		float total_width = gutter_width + ui().get_string_width(pitem.text) + gutter_width;
 
 		// add in width of right hand side
 		if (!pitem.subtext.empty())
-			total_width += 2.0f * gutter_width + ui().get_string_width(pitem.subtext.c_str());
+			total_width += 2.0f * gutter_width + ui().get_string_width(pitem.subtext);
 
 		// track the maximum
 		if (total_width > visible_width)
@@ -568,14 +503,14 @@ void menu::draw(uint32_t flags)
 	visible_main_menu_height += 0.01f;
 
 	// if we are too wide or too tall, clamp it down
-	if (visible_width + 2.0f * UI_BOX_LR_BORDER > 1.0f)
-		visible_width = 1.0f - 2.0f * UI_BOX_LR_BORDER;
+	if (visible_width + 2.0f * lr_border > 1.0f)
+		visible_width = 1.0f - 2.0f * lr_border;
 
 	// if the menu and extra menu won't fit, take away part of the regular menu, it will scroll
-	if (visible_main_menu_height + visible_extra_menu_height + 2.0f * UI_BOX_TB_BORDER > 1.0f)
-		visible_main_menu_height = 1.0f - 2.0f * UI_BOX_TB_BORDER - visible_extra_menu_height;
+	if (visible_main_menu_height + visible_extra_menu_height + 2.0f * ui().box_tb_border() > 1.0f)
+		visible_main_menu_height = 1.0f - 2.0f * ui().box_tb_border() - visible_extra_menu_height;
 
-	m_visible_lines = std::min(int(std::floor(visible_main_menu_height / line_height)), int(unsigned(item.size())));
+	m_visible_lines = std::min(int(std::floor(visible_main_menu_height / line_height)), int(unsigned(m_items.size())));
 	visible_main_menu_height = float(m_visible_lines) * line_height;
 
 	// compute top/left of inner menu area by centering
@@ -583,23 +518,23 @@ void menu::draw(uint32_t flags)
 	float const visible_top = ((1.0f - visible_main_menu_height - visible_extra_menu_height) * 0.5f) + m_customtop;
 
 	// first add us a box
-	float const x1 = visible_left - UI_BOX_LR_BORDER;
-	float const y1 = visible_top - UI_BOX_TB_BORDER;
-	float const x2 = visible_left + visible_width + UI_BOX_LR_BORDER;
-	float const y2 = visible_top + visible_main_menu_height + UI_BOX_TB_BORDER;
+	float const x1 = visible_left - lr_border;
+	float const y1 = visible_top - ui().box_tb_border();
+	float const x2 = visible_left + visible_width + lr_border;
+	float const y2 = visible_top + visible_main_menu_height + ui().box_tb_border();
 	if (!customonly)
-		ui().draw_outlined_box(container(), x1, y1, x2, y2, UI_BACKGROUND_COLOR);
+		ui().draw_outlined_box(container(), x1, y1, x2, y2, ui().colors().background_color());
 
 	if (top_line < 0 || is_first_selected())
 		top_line = 0;
-	if (selected >= (top_line + m_visible_lines))
-		top_line = selected - (m_visible_lines / 2);
-	if ((top_line > (item.size() - m_visible_lines)) || is_last_selected())
-		top_line = item.size() - m_visible_lines;
+	if (m_selected >= (top_line + m_visible_lines))
+		top_line = m_selected - (m_visible_lines / 2);
+	if ((top_line > (m_items.size() - m_visible_lines)) || is_last_selected())
+		top_line = m_items.size() - m_visible_lines;
 
 	// if scrolling, show arrows
-	bool const show_top_arrow((item.size() > m_visible_lines) && !first_item_visible());
-	bool const show_bottom_arrow((item.size() > m_visible_lines) && !last_item_visible());
+	bool const show_top_arrow((m_items.size() > m_visible_lines) && !first_item_visible());
+	bool const show_bottom_arrow((m_items.size() > m_visible_lines) && !last_item_visible());
 
 	// set the number of visible lines, minus 1 for top arrow and 1 for bottom arrow
 	m_visible_items = m_visible_lines - (show_top_arrow ? 1 : 0) - (show_bottom_arrow ? 1 : 0);
@@ -615,7 +550,7 @@ void menu::draw(uint32_t flags)
 		ignore_mouse();
 
 	// loop over visible lines
-	hover = item.size() + 1;
+	m_hover = m_items.size() + 1;
 	bool selected_subitem_too_big = false;
 	float const line_x0 = x1 + 0.5f * UI_LINE_WIDTH;
 	float const line_x1 = x2 - 0.5f * UI_LINE_WIDTH;
@@ -624,35 +559,35 @@ void menu::draw(uint32_t flags)
 		for (int linenum = 0; linenum < m_visible_lines; linenum++)
 		{
 			auto const itemnum = top_line + linenum;
-			menu_item const &pitem = item[itemnum];
-			char const *const itemtext = pitem.text.c_str();
-			rgb_t fgcolor = UI_TEXT_COLOR;
-			rgb_t bgcolor = UI_TEXT_BG_COLOR;
-			rgb_t fgcolor2 = UI_SUBITEM_COLOR;
-			rgb_t fgcolor3 = UI_CLONE_COLOR;
+			menu_item const &pitem = m_items[itemnum];
+			std::string_view const itemtext = pitem.text;
+			rgb_t fgcolor = ui().colors().text_color();
+			rgb_t bgcolor = ui().colors().text_bg_color();
+			rgb_t fgcolor2 = ui().colors().subitem_color();
+			rgb_t fgcolor3 = ui().colors().clone_color();
 			float const line_y0 = visible_top + (float)linenum * line_height;
 			float const line_y1 = line_y0 + line_height;
 
 			// set the hover if this is our item
 			if (mouse_in_rect(line_x0, line_y0, line_x1, line_y1) && is_selectable(pitem))
-				hover = itemnum;
+				m_hover = itemnum;
 
 			// if we're selected, draw with a different background
 			if (is_selected(itemnum))
 			{
-				fgcolor = fgcolor2 = fgcolor3 = UI_SELECTED_COLOR;
-				bgcolor = UI_SELECTED_BG_COLOR;
+				fgcolor = fgcolor2 = fgcolor3 = ui().colors().selected_color();
+				bgcolor = ui().colors().selected_bg_color();
 			}
 
 			// else if the mouse is over this item, draw with a different background
-			else if (itemnum == hover)
+			else if (itemnum == m_hover)
 			{
-				fgcolor = fgcolor2 = fgcolor3 = UI_MOUSEOVER_COLOR;
-				bgcolor = UI_MOUSEOVER_BG_COLOR;
+				fgcolor = fgcolor2 = fgcolor3 = ui().colors().mouseover_color();
+				bgcolor = ui().colors().mouseover_bg_color();
 			}
 
 			// if we have some background hilighting to do, add a quad behind everything else
-			if (bgcolor != UI_TEXT_BG_COLOR)
+			if (bgcolor != ui().colors().text_bg_color())
 				highlight(line_x0, line_y0, line_x1, line_y1, bgcolor);
 
 			if (linenum == 0 && show_top_arrow)
@@ -665,8 +600,8 @@ void menu::draw(uint32_t flags)
 							line_y0 + 0.75f * line_height,
 							fgcolor,
 							ROT0);
-				if (hover == itemnum)
-					hover = HOVER_ARROW_UP;
+				if (m_hover == itemnum)
+					m_hover = HOVER_ARROW_UP;
 			}
 			else if (linenum == m_visible_lines - 1 && show_bottom_arrow)
 			{
@@ -678,13 +613,13 @@ void menu::draw(uint32_t flags)
 							line_y0 + 0.75f * line_height,
 							fgcolor,
 							ROT0 ^ ORIENTATION_FLIP_Y);
-				if (hover == itemnum)
-					hover = HOVER_ARROW_DOWN;
+				if (m_hover == itemnum)
+					m_hover = HOVER_ARROW_DOWN;
 			}
 			else if (pitem.type == menu_item_type::SEPARATOR)
 			{
 				// if we're just a divider, draw a line
-				container().add_line(visible_left, line_y0 + 0.5f * line_height, visible_left + visible_width, line_y0 + 0.5f * line_height, UI_LINE_WIDTH, UI_BORDER_COLOR, PRIMFLAG_BLENDMODE(BLENDMODE_ALPHA));
+				container().add_line(visible_left, line_y0 + 0.5f * line_height, visible_left + visible_width, line_y0 + 0.5f * line_height, UI_LINE_WIDTH, ui().colors().border_color(), PRIMFLAG_BLENDMODE(BLENDMODE_ALPHA));
 			}
 			else if (pitem.subtext.empty())
 			{
@@ -692,8 +627,8 @@ void menu::draw(uint32_t flags)
 				if (pitem.flags & FLAG_UI_HEADING)
 				{
 					float heading_width = ui().get_string_width(itemtext);
-					container().add_line(visible_left, line_y0 + 0.5f * line_height, visible_left + ((visible_width - heading_width) / 2) - UI_BOX_LR_BORDER, line_y0 + 0.5f * line_height, UI_LINE_WIDTH, UI_BORDER_COLOR, PRIMFLAG_BLENDMODE(BLENDMODE_ALPHA));
-					container().add_line(visible_left + visible_width - ((visible_width - heading_width) / 2) + UI_BOX_LR_BORDER, line_y0 + 0.5f * line_height, visible_left + visible_width, line_y0 + 0.5f * line_height, UI_LINE_WIDTH, UI_BORDER_COLOR, PRIMFLAG_BLENDMODE(BLENDMODE_ALPHA));
+					container().add_line(visible_left, line_y0 + 0.5f * line_height, visible_left + ((visible_width - heading_width) / 2) - lr_border, line_y0 + 0.5f * line_height, UI_LINE_WIDTH, ui().colors().border_color(), PRIMFLAG_BLENDMODE(BLENDMODE_ALPHA));
+					container().add_line(visible_left + visible_width - ((visible_width - heading_width) / 2) + lr_border, line_y0 + 0.5f * line_height, visible_left + visible_width, line_y0 + 0.5f * line_height, UI_LINE_WIDTH, ui().colors().border_color(), PRIMFLAG_BLENDMODE(BLENDMODE_ALPHA));
 				}
 				ui().draw_text_full(container(), itemtext, effective_left, line_y0, effective_width,
 					ui::text_layout::CENTER, ui::text_layout::TRUNCATE, mame_ui_manager::NORMAL, fgcolor, bgcolor, nullptr, nullptr);
@@ -702,7 +637,6 @@ void menu::draw(uint32_t flags)
 			{
 				// otherwise, draw the item on the left and the subitem text on the right
 				bool const subitem_invert(pitem.flags & FLAG_INVERT);
-				char const *subitem_text(pitem.subtext.c_str());
 				float item_width, subitem_width;
 
 				// draw the left-side text
@@ -711,7 +645,7 @@ void menu::draw(uint32_t flags)
 
 				if (pitem.flags & FLAG_COLOR_BOX)
 				{
-					rgb_t color = rgb_t((uint32_t)strtoul(subitem_text, nullptr, 16));
+					rgb_t color = rgb_t((uint32_t)strtoul(pitem.subtext.c_str(), nullptr, 16));
 
 					// give 2 spaces worth of padding
 					subitem_width = ui().get_string_width("FF00FF00");
@@ -721,6 +655,8 @@ void menu::draw(uint32_t flags)
 				}
 				else
 				{
+					std::string_view subitem_text(pitem.subtext);
+
 					// give 2 spaces worth of padding
 					item_width += 2.0f * gutter_width;
 
@@ -733,13 +669,13 @@ void menu::draw(uint32_t flags)
 					}
 
 					// customize subitem text color
-					if (!core_stricmp(subitem_text, _("On")))
+					if (!core_stricmp(pitem.subtext.c_str(), _("On")))
 						fgcolor2 = rgb_t(0x00,0xff,0x00);
 
-					if (!core_stricmp(subitem_text, _("Off")))
+					if (!core_stricmp(pitem.subtext.c_str(), _("Off")))
 						fgcolor2 = rgb_t(0xff,0x00,0x00);
 
-					if (!core_stricmp(subitem_text, _("Auto")))
+					if (!core_stricmp(pitem.subtext.c_str(), _("Auto")))
 						fgcolor2 = rgb_t(0xff,0xff,0x00);
 
 					// draw the subitem right-justified
@@ -777,29 +713,29 @@ void menu::draw(uint32_t flags)
 	{
 		menu_item const &pitem = selected_item();
 		bool const subitem_invert(pitem.flags & FLAG_INVERT);
-		auto const linenum = selected - top_line;
+		auto const linenum = m_selected - top_line;
 		float const line_y = visible_top + (float)linenum * line_height;
 		float target_width, target_height;
 
 		// compute the multi-line target width/height
-		ui().draw_text_full(container(), pitem.subtext.c_str(), 0, 0, visible_width * 0.75f,
+		ui().draw_text_full(container(), pitem.subtext, 0, 0, visible_width * 0.75f,
 			ui::text_layout::RIGHT, ui::text_layout::WORD, mame_ui_manager::NONE, rgb_t::white(), rgb_t::black(), &target_width, &target_height);
 
 		// determine the target location
-		float const target_x = visible_left + visible_width - target_width - UI_BOX_LR_BORDER;
-		float target_y = line_y + line_height + UI_BOX_TB_BORDER;
-		if (target_y + target_height + UI_BOX_TB_BORDER > visible_main_menu_height)
-			target_y = line_y - target_height - UI_BOX_TB_BORDER;
+		float const target_x = visible_left + visible_width - target_width - lr_border;
+		float target_y = line_y + line_height + ui().box_tb_border();
+		if (target_y + target_height + ui().box_tb_border() > visible_main_menu_height)
+			target_y = line_y - target_height - ui().box_tb_border();
 
 		// add a box around that
-		ui().draw_outlined_box(container(), target_x - UI_BOX_LR_BORDER,
-				target_y - UI_BOX_TB_BORDER,
-				target_x + target_width + UI_BOX_LR_BORDER,
-				target_y + target_height + UI_BOX_TB_BORDER,
-				subitem_invert ? UI_SELECTED_BG_COLOR : UI_BACKGROUND_COLOR);
+		ui().draw_outlined_box(container(), target_x - lr_border,
+				target_y - ui().box_tb_border(),
+				target_x + target_width + lr_border,
+				target_y + target_height + ui().box_tb_border(),
+				subitem_invert ? ui().colors().selected_bg_color() : ui().colors().background_color());
 
-		ui().draw_text_full(container(), pitem.subtext.c_str(), target_x, target_y, target_width,
-				ui::text_layout::RIGHT, ui::text_layout::WORD, mame_ui_manager::NORMAL, UI_SELECTED_COLOR, UI_SELECTED_BG_COLOR, nullptr, nullptr);
+		ui().draw_text_full(container(), pitem.subtext, target_x, target_y, target_width,
+				ui::text_layout::RIGHT, ui::text_layout::WORD, mame_ui_manager::NORMAL, ui().colors().selected_color(), ui().colors().selected_bg_color(), nullptr, nullptr);
 	}
 
 	// if there is something special to add, do it by calling the virtual method
@@ -818,20 +754,22 @@ void menu::custom_render(void *selectedref, float top, float bottom, float x, fl
 
 void menu::draw_text_box()
 {
-	const char *text = item[0].text.c_str();
-	const char *backtext = item[1].text.c_str();
+	std::string_view const text = m_items[0].text;
+	std::string_view const backtext = m_items[1].text;
+	float const aspect = machine().render().ui_aspect(&container());
 	float line_height = ui().get_line_height();
-	float lr_arrow_width = 0.4f * line_height * machine().render().ui_aspect();
+	float lr_arrow_width = 0.4f * line_height * aspect;
 	float gutter_width = lr_arrow_width;
+	float const lr_border = ui().box_lr_border() * aspect;
 	float target_width, target_height, prior_width;
 	float target_x, target_y;
 
 	// compute the multi-line target width/height
-	ui().draw_text_full(container(), text, 0, 0, 1.0f - 2.0f * UI_BOX_LR_BORDER - 2.0f * gutter_width,
+	ui().draw_text_full(container(), text, 0, 0, 1.0f - 2.0f * lr_border - 2.0f * gutter_width,
 		ui::text_layout::LEFT, ui::text_layout::WORD, mame_ui_manager::NONE, rgb_t::white(), rgb_t::black(), &target_width, &target_height);
 	target_height += 2.0f * line_height;
-	if (target_height > 1.0f - 2.0f * UI_BOX_TB_BORDER)
-		target_height = floorf((1.0f - 2.0f * UI_BOX_TB_BORDER) / line_height) * line_height;
+	if (target_height > 1.0f - 2.0f * ui().box_tb_border())
+		target_height = floorf((1.0f - 2.0f * ui().box_tb_border()) / line_height) * line_height;
 
 	// maximum against "return to prior menu" text
 	prior_width = ui().get_string_width(backtext) + 2.0f * gutter_width;
@@ -842,23 +780,23 @@ void menu::draw_text_box()
 	target_y = 0.5f - 0.5f * target_height;
 
 	// make sure we stay on-screen
-	if (target_x < UI_BOX_LR_BORDER + gutter_width)
-		target_x = UI_BOX_LR_BORDER + gutter_width;
-	if (target_x + target_width + gutter_width + UI_BOX_LR_BORDER > 1.0f)
-		target_x = 1.0f - UI_BOX_LR_BORDER - gutter_width - target_width;
-	if (target_y < UI_BOX_TB_BORDER)
-		target_y = UI_BOX_TB_BORDER;
-	if (target_y + target_height + UI_BOX_TB_BORDER > 1.0f)
-		target_y = 1.0f - UI_BOX_TB_BORDER - target_height;
+	if (target_x < lr_border + gutter_width)
+		target_x = lr_border + gutter_width;
+	if (target_x + target_width + gutter_width + lr_border > 1.0f)
+		target_x = 1.0f - lr_border - gutter_width - target_width;
+	if (target_y < ui().box_tb_border())
+		target_y = ui().box_tb_border();
+	if (target_y + target_height + ui().box_tb_border() > 1.0f)
+		target_y = 1.0f - ui().box_tb_border() - target_height;
 
 	// add a box around that
-	ui().draw_outlined_box(container(), target_x - UI_BOX_LR_BORDER - gutter_width,
-							target_y - UI_BOX_TB_BORDER,
-							target_x + target_width + gutter_width + UI_BOX_LR_BORDER,
-							target_y + target_height + UI_BOX_TB_BORDER,
-							(item[0].flags & FLAG_REDTEXT) ?  UI_RED_COLOR : UI_BACKGROUND_COLOR);
+	ui().draw_outlined_box(container(), target_x - lr_border - gutter_width,
+							target_y - ui().box_tb_border(),
+							target_x + target_width + gutter_width + lr_border,
+							target_y + target_height + ui().box_tb_border(),
+							(m_items[0].flags & FLAG_REDTEXT) ?  UI_RED_COLOR : ui().colors().background_color());
 	ui().draw_text_full(container(), text, target_x, target_y, target_width,
-			ui::text_layout::LEFT, ui::text_layout::WORD, mame_ui_manager::NORMAL, UI_TEXT_COLOR, UI_TEXT_BG_COLOR, nullptr, nullptr);
+			ui::text_layout::LEFT, ui::text_layout::WORD, mame_ui_manager::NORMAL, ui().colors().text_color(), ui().colors().text_bg_color(), nullptr, nullptr);
 
 	// draw the "return to prior menu" text with a hilight behind it
 	highlight(
@@ -866,12 +804,12 @@ void menu::draw_text_box()
 				target_y + target_height - line_height,
 				target_x + target_width - 0.5f * UI_LINE_WIDTH,
 				target_y + target_height,
-				UI_SELECTED_BG_COLOR);
+				ui().colors().selected_bg_color());
 	ui().draw_text_full(container(), backtext, target_x, target_y + target_height - line_height, target_width,
-		ui::text_layout::CENTER, ui::text_layout::TRUNCATE, mame_ui_manager::NORMAL, UI_SELECTED_COLOR, UI_SELECTED_BG_COLOR, nullptr, nullptr);
+		ui::text_layout::CENTER, ui::text_layout::TRUNCATE, mame_ui_manager::NORMAL, ui().colors().selected_color(), ui().colors().selected_bg_color(), nullptr, nullptr);
 
 	// artificially set the hover to the last item so a double-click exits
-	hover = item.size() - 1;
+	m_hover = m_items.size() - 1;
 }
 
 
@@ -922,100 +860,110 @@ void menu::handle_events(uint32_t flags, event &ev)
 	{
 		switch (local_menu_event.event_type)
 		{
-			// if we are hovering over a valid item, select it with a single click
-			case ui_event::MOUSE_DOWN:
-				if (custom_mouse_down())
-					return;
+		// if we are hovering over a valid item, select it with a single click
+		case ui_event::type::MOUSE_DOWN:
+			if (custom_mouse_down())
+				return;
 
-				if ((flags & PROCESS_ONLYCHAR) == 0)
+			if ((flags & PROCESS_ONLYCHAR) == 0)
+			{
+				if (m_hover >= 0 && m_hover < m_items.size())
+					m_selected = m_hover;
+				else if (m_hover == HOVER_ARROW_UP)
 				{
-					if (hover >= 0 && hover < item.size())
-						selected = hover;
-					else if (hover == HOVER_ARROW_UP)
+					if ((flags & FLAG_UI_DATS) != 0)
 					{
-						if ((flags & FLAG_UI_DATS) != 0)
-						{
-							top_line -= m_visible_items - (last_item_visible() ? 1 : 0);
-							return;
-						}
-						selected -= m_visible_items;
-						if (selected < 0)
-							selected = 0;
 						top_line -= m_visible_items - (last_item_visible() ? 1 : 0);
+						return;
 					}
-					else if (hover == HOVER_ARROW_DOWN)
+					m_selected -= m_visible_items;
+					if (m_selected < 0)
+						m_selected = 0;
+					top_line -= m_visible_items - (last_item_visible() ? 1 : 0);
+				}
+				else if (m_hover == HOVER_ARROW_DOWN)
+				{
+					if ((flags & FLAG_UI_DATS) != 0)
 					{
-						if ((flags & FLAG_UI_DATS) != 0)
-						{
-							top_line += m_visible_lines - 2;
-							return;
-						}
-						selected += m_visible_lines - 2 + is_first_selected();
-						if (selected > item.size() - 1)
-							selected = item.size() - 1;
 						top_line += m_visible_lines - 2;
+						return;
 					}
+					m_selected += m_visible_lines - 2 + is_first_selected();
+					if (m_selected > m_items.size() - 1)
+						m_selected = m_items.size() - 1;
+					top_line += m_visible_lines - 2;
 				}
-				break;
+			}
+			break;
 
-			// if we are hovering over a valid item, fake a UI_SELECT with a double-click
-			case ui_event::MOUSE_DOUBLE_CLICK:
-				if (!(flags & PROCESS_ONLYCHAR) && hover >= 0 && hover < item.size())
+		// if we are hovering over a valid item, fake a UI_SELECT with a double-click
+		case ui_event::type::MOUSE_DOUBLE_CLICK:
+			if (!(flags & PROCESS_ONLYCHAR) && m_hover >= 0 && m_hover < m_items.size())
+			{
+				m_selected = m_hover;
+				ev.iptkey = IPT_UI_SELECT;
+				if (is_last_selected())
 				{
-					selected = hover;
-					ev.iptkey = IPT_UI_SELECT;
-					if (is_last_selected())
-					{
-						ev.iptkey = IPT_UI_CANCEL;
-						stack_pop();
-					}
-					stop = true;
+					ev.iptkey = IPT_UI_CANCEL;
+					stack_pop();
 				}
-				break;
+				stop = true;
+			}
+			break;
 
-			// caught scroll event
-			case ui_event::MOUSE_WHEEL:
-				if (!(flags & PROCESS_ONLYCHAR))
+		// caught scroll event
+		case ui_event::type::MOUSE_WHEEL:
+			if (!(flags & PROCESS_ONLYCHAR))
+			{
+				if (local_menu_event.zdelta > 0)
 				{
-					if (local_menu_event.zdelta > 0)
+					if ((flags & FLAG_UI_DATS) != 0)
 					{
-						if ((flags & FLAG_UI_DATS) != 0)
-						{
-							top_line -= local_menu_event.num_lines;
-							return;
-						}
-						is_first_selected() ? selected = top_line = item.size() - 1 : selected -= local_menu_event.num_lines;
-						validate_selection(-1);
-						top_line -= (selected <= top_line && top_line != 0);
-						if (selected <= top_line && m_visible_items != m_visible_lines)
-							top_line -= local_menu_event.num_lines;
+						top_line -= local_menu_event.num_lines;
+						return;
 					}
+					if (is_first_selected())
+						select_last_item();
 					else
 					{
-						if ((flags & FLAG_UI_DATS))
-						{
-							top_line += local_menu_event.num_lines;
-							return;
-						}
-						is_last_selected() ? selected = top_line = 0 : selected += local_menu_event.num_lines;
-						validate_selection(1);
-						top_line += (selected >= top_line + m_visible_items + (top_line != 0));
-						if (selected >= (top_line + m_visible_items + (top_line != 0)))
-							top_line += local_menu_event.num_lines;
+						m_selected -= local_menu_event.num_lines;
+						validate_selection(-1);
 					}
+					top_line -= (m_selected <= top_line && top_line != 0);
+					if (m_selected <= top_line && m_visible_items != m_visible_lines)
+						top_line -= local_menu_event.num_lines;
 				}
-				break;
+				else
+				{
+					if ((flags & FLAG_UI_DATS))
+					{
+						top_line += local_menu_event.num_lines;
+						return;
+					}
+					if (is_last_selected())
+						select_first_item();
+					else
+					{
+						m_selected += local_menu_event.num_lines;
+						validate_selection(1);
+					}
+					top_line += (m_selected >= top_line + m_visible_items + (top_line != 0));
+					if (m_selected >= (top_line + m_visible_items + (top_line != 0)))
+						top_line += local_menu_event.num_lines;
+				}
+			}
+			break;
 
-			// translate CHAR events into specials
-			case ui_event::IME_CHAR:
-				ev.iptkey = IPT_SPECIAL;
-				ev.unichar = local_menu_event.ch;
-				stop = true;
-				break;
+		// translate CHAR events into specials
+		case ui_event::type::IME_CHAR:
+			ev.iptkey = IPT_SPECIAL;
+			ev.unichar = local_menu_event.ch;
+			stop = true;
+			break;
 
-			// ignore everything else
-			default:
-				break;
+		// ignore everything else
+		default:
+			break;
 		}
 	}
 }
@@ -1032,7 +980,7 @@ void menu::handle_keys(uint32_t flags, int &iptkey)
 	int code;
 
 	// bail if no items
-	if (item.empty())
+	if (m_items.empty())
 		return;
 
 	// if we hit select, return true or pop the stack, depending on the item
@@ -1065,7 +1013,7 @@ void menu::handle_keys(uint32_t flags, int &iptkey)
 	bool ignoreleft = ((selected_item().flags & FLAG_LEFT_ARROW) == 0);
 	bool ignoreright = ((selected_item().flags & FLAG_RIGHT_ARROW) == 0);
 
-	if ((item[0].flags & FLAG_UI_DATS))
+	if ((m_items[0].flags & FLAG_UI_DATS))
 		ignoreleft = ignoreright = false;
 
 	// accept left/right keys as-is with repeat
@@ -1077,67 +1025,71 @@ void menu::handle_keys(uint32_t flags, int &iptkey)
 	// up backs up by one item
 	if (exclusive_input_pressed(iptkey, IPT_UI_UP, 6))
 	{
-		if ((item[0].flags & FLAG_UI_DATS))
+		if ((m_items[0].flags & FLAG_UI_DATS))
 		{
 			top_line--;
 			return;
 		}
-		is_first_selected() ? selected = top_line = item.size() - 1 : --selected;
-		validate_selection(-1);
-		top_line -= (selected <= top_line && top_line != 0);
-		if (selected <= top_line && m_visible_items != m_visible_lines)
+		if (is_first_selected())
+			select_last_item();
+		else
+		{
+			--m_selected;
+			validate_selection(-1);
+		}
+		top_line -= (m_selected <= top_line && top_line != 0);
+		if (m_selected <= top_line && m_visible_items != m_visible_lines)
 			top_line--;
 	}
 
 	// down advances by one item
 	if (exclusive_input_pressed(iptkey, IPT_UI_DOWN, 6))
 	{
-		if ((item[0].flags & FLAG_UI_DATS))
+		if ((m_items[0].flags & FLAG_UI_DATS))
 		{
 			top_line++;
 			return;
 		}
-		is_last_selected() ? selected = top_line = 0 : ++selected;
-		validate_selection(1);
-		top_line += (selected >= top_line + m_visible_items + (top_line != 0));
-		if (selected >= (top_line + m_visible_items + (top_line != 0)))
+		if (is_last_selected())
+			select_first_item();
+		else
+		{
+			++m_selected;
+			validate_selection(1);
+		}
+		top_line += (m_selected >= top_line + m_visible_items + (top_line != 0));
+		if (m_selected >= (top_line + m_visible_items + (top_line != 0)))
 			top_line++;
 	}
 
 	// page up backs up by m_visible_items
 	if (exclusive_input_pressed(iptkey, IPT_UI_PAGE_UP, 6))
 	{
-		selected -= m_visible_items;
+		m_selected -= m_visible_items;
 		top_line -= m_visible_items - (last_item_visible() ? 1 : 0);
-		if (selected < 0)
-			selected = 0;
+		if (m_selected < 0)
+			m_selected = 0;
 		validate_selection(1);
 	}
 
 	// page down advances by m_visible_items
 	if (exclusive_input_pressed(iptkey, IPT_UI_PAGE_DOWN, 6))
 	{
-		selected += m_visible_lines - 2 + is_first_selected();
+		m_selected += m_visible_lines - 2 + is_first_selected();
 		top_line += m_visible_lines - 2;
 
-		if (selected > item.size() - 1)
-			selected = item.size() - 1;
+		if (m_selected > m_items.size() - 1)
+			m_selected = m_items.size() - 1;
 		validate_selection(-1);
 	}
 
 	// home goes to the start
 	if (exclusive_input_pressed(iptkey, IPT_UI_HOME, 0))
-	{
-		selected = top_line = 0;
-		validate_selection(1);
-	}
+		select_first_item();
 
 	// end goes to the last
 	if (exclusive_input_pressed(iptkey, IPT_UI_END, 0))
-	{
-		selected = top_line = item.size() - 1;
-		validate_selection(-1);
-	}
+		select_last_item();
 
 	// pause enables/disables pause
 	if (!ignorepause && exclusive_input_pressed(iptkey, IPT_UI_PAUSE, 0))
@@ -1167,6 +1119,30 @@ void menu::handle_keys(uint32_t flags, int &iptkey)
 
 
 //-------------------------------------------------
+//  select_first_item - select the first item in
+//  the menu
+//-------------------------------------------------
+
+void menu::select_first_item()
+{
+	m_selected = top_line = 0;
+	validate_selection(1);
+}
+
+
+//-------------------------------------------------
+//  select_last_item - select the last item in the
+//  menu
+//-------------------------------------------------
+
+void menu::select_last_item()
+{
+	m_selected = top_line = m_items.size() - 1;
+	validate_selection(-1);
+}
+
+
+//-------------------------------------------------
 //  validate_selection - validate the
 //  current selection and ensure it is on a
 //  correct item
@@ -1175,14 +1151,14 @@ void menu::handle_keys(uint32_t flags, int &iptkey)
 void menu::validate_selection(int scandir)
 {
 	// clamp to be in range
-	if (selected < 0)
-		selected = 0;
-	else if (selected >= item.size())
-		selected = item.size() - 1;
+	if (m_selected < 0)
+		m_selected = 0;
+	else if (m_selected >= m_items.size())
+		m_selected = m_items.size() - 1;
 
 	// skip past unselectable items
-	while (!is_selectable(item[selected]))
-		selected = (selected + item.size() + scandir) % item.size();
+	while (!is_selectable(m_items[m_selected]))
+		m_selected = (m_selected + m_items.size() + scandir) % m_items.size();
 }
 
 
@@ -1193,8 +1169,31 @@ void menu::validate_selection(int scandir)
 
 void menu::do_handle()
 {
-	if (item.size() < 2)
+	if (m_items.empty())
+	{
+		// add an item to return - this is a really hacky way of doing this
+		if (!m_parent)
+		{
+			item_append(_("Return to Machine"), 0, nullptr);
+		}
+		else if (m_parent->is_special_main_menu())
+		{
+			if (machine().options().ui() == emu_options::UI_SIMPLE)
+				item_append(_("Exit"), 0, nullptr);
+			else
+				item_append(_("Exit"), FLAG_LEFT_ARROW | FLAG_RIGHT_ARROW, nullptr);
+		}
+		else
+		{
+			if (machine().options().ui() != emu_options::UI_SIMPLE && stack_has_special_main_menu())
+				item_append(_("Return to Previous Menu"), FLAG_LEFT_ARROW | FLAG_RIGHT_ARROW, nullptr);
+			else
+				item_append(_("Return to Previous Menu"), 0, nullptr);
+		}
+
+		// let implementation add other items
 		populate(m_customtop, m_custombottom);
+	}
 	handle();
 }
 
@@ -1214,7 +1213,7 @@ uint32_t menu::ui_handler(render_container &container, mame_ui_manager &mui)
 
 	// if we have no menus stacked up, start with the main menu
 	if (!state->topmost_menu<menu>())
-		state->stack_push(std::unique_ptr<menu>(global_alloc_clear<menu_main>(mui, container)));
+		state->stack_push(std::unique_ptr<menu>(make_unique_clear<menu_main>(mui, container)));
 
 	// update the menu state
 	if (state->topmost_menu<menu>())
@@ -1259,7 +1258,7 @@ void menu::draw_arrow(float x0, float y0, float x1, float y1, rgb_t fgcolor, uin
 //  or footer text
 //-------------------------------------------------
 
-void menu::extra_text_draw_box(float origx1, float origx2, float origy, float yspan, const char *text, int direction)
+void menu::extra_text_draw_box(float origx1, float origx2, float origy, float yspan, std::string_view text, int direction)
 {
 	// get the size of the text
 	auto layout = ui().create_layout(container());
@@ -1270,11 +1269,11 @@ void menu::extra_text_draw_box(float origx1, float origx2, float origy, float ys
 	extra_text_position(origx1, origx2, origy, yspan, layout, direction, x1, y1, x2, y2);
 
 	// draw a box
-	ui().draw_outlined_box(container(), x1, y1, x2, y2, UI_BACKGROUND_COLOR);
+	ui().draw_outlined_box(container(), x1, y1, x2, y2, ui().colors().background_color());
 
 	// take off the borders
-	x1 += UI_BOX_LR_BORDER;
-	y1 += UI_BOX_TB_BORDER;
+	x1 += ui().box_lr_border() * machine().render().ui_aspect(&container());
+	y1 += ui().box_tb_border();
 
 	// draw the text within it
 	layout.emit(container(), x1, y1);
@@ -1297,14 +1296,14 @@ void menu::draw_background()
 void menu::extra_text_position(float origx1, float origx2, float origy, float yspan, text_layout &layout,
 	int direction, float &x1, float &y1, float &x2, float &y2)
 {
-	float width = layout.actual_width() + (2 * UI_BOX_LR_BORDER);
+	float width = layout.actual_width() + (2 * ui().box_lr_border() * machine().render().ui_aspect(&container()));
 	float maxwidth = std::max(width, origx2 - origx1);
 
 	// compute our bounds
 	x1 = 0.5f - 0.5f * maxwidth;
 	x2 = x1 + maxwidth;
 	y1 = origy + (yspan * direction);
-	y2 = origy + (UI_BOX_TB_BORDER * direction);
+	y2 = origy + (ui().box_tb_border() * direction);
 
 	if (y1 > y2)
 		std::swap(y1, y2);
@@ -1316,14 +1315,11 @@ void menu::extra_text_position(float origx1, float origx2, float origy, float ys
 //  and footer text
 //-------------------------------------------------
 
-void menu::extra_text_render(float top, float bottom, float origx1, float origy1, float origx2, float origy2, const char *header, const char *footer)
+void menu::extra_text_render(float top, float bottom, float origx1, float origy1, float origx2, float origy2, std::string_view header, std::string_view footer)
 {
-	header = (header && *header) ? header : nullptr;
-	footer = (footer && *footer) ? footer : nullptr;
-
-	if (header != nullptr)
+	if (!header.empty())
 		extra_text_draw_box(origx1, origx2, origy1, top, header, -1);
-	if (footer != nullptr)
+	if (!footer.empty())
 		extra_text_draw_box(origx1, origx2, origy2, bottom, footer, +1);
 }
 

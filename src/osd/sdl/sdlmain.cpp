@@ -18,6 +18,7 @@
 #endif
 #endif
 #ifdef SDLMAME_MACOSX
+#define __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES 0
 #include <Carbon/Carbon.h>
 #endif
 #endif
@@ -35,6 +36,7 @@
 #include <SDL2/SDL.h>
 
 // MAME headers
+#include "corestr.h"
 #include "osdepend.h"
 #include "emu.h"
 #include "emuopts.h"
@@ -108,7 +110,7 @@ const options_entry sdl_options::s_option_entries[] =
 	{ SDLOPTION_JOYINDEX "6",                OSDOPTVAL_AUTO, OPTION_STRING,         "name of joystick mapped to joystick #6" },
 	{ SDLOPTION_JOYINDEX "7",                OSDOPTVAL_AUTO, OPTION_STRING,         "name of joystick mapped to joystick #7" },
 	{ SDLOPTION_JOYINDEX "8",                OSDOPTVAL_AUTO, OPTION_STRING,         "name of joystick mapped to joystick #8" },
-	{ SDLOPTION_SIXAXIS,                     "0",    OPTION_BOOLEAN,    "Use special handling for PS3 Sixaxis controllers" },
+	{ SDLOPTION_SIXAXIS,                     "0",    OPTION_BOOLEAN,    "use special handling for PS3 Sixaxis controllers" },
 
 #if (USE_XINPUT)
 	// lightgun mapping
@@ -144,10 +146,10 @@ const options_entry sdl_options::s_option_entries[] =
 	{ SDLOPTION_KEYBINDEX "8",               OSDOPTVAL_AUTO, OPTION_STRING,         "name of keyboard mapped to keyboard #8" },
 
 	// SDL low level driver options
-	{ nullptr,                               nullptr,   OPTION_HEADER,     "SDL LOWLEVEL DRIVER OPTIONS" },
-	{ SDLOPTION_VIDEODRIVER ";vd",           OSDOPTVAL_AUTO,  OPTION_STRING,        "sdl video driver to use ('x11', 'directfb', ... or 'auto' for SDL default" },
-	{ SDLOPTION_RENDERDRIVER ";rd",          OSDOPTVAL_AUTO,  OPTION_STRING,        "sdl render driver to use ('software', 'opengl', 'directfb' ... or 'auto' for SDL default" },
-	{ SDLOPTION_AUDIODRIVER ";ad",           OSDOPTVAL_AUTO,  OPTION_STRING,        "sdl audio driver to use ('alsa', 'arts', ... or 'auto' for SDL default" },
+	{ nullptr,                               nullptr,   OPTION_HEADER,     "SDL LOW-LEVEL DRIVER OPTIONS" },
+	{ SDLOPTION_VIDEODRIVER ";vd",           OSDOPTVAL_AUTO,  OPTION_STRING,        "SDL video driver to use ('x11', 'directfb', ... or 'auto' for SDL default" },
+	{ SDLOPTION_RENDERDRIVER ";rd",          OSDOPTVAL_AUTO,  OPTION_STRING,        "SDL render driver to use ('software', 'opengl', 'directfb' ... or 'auto' for SDL default" },
+	{ SDLOPTION_AUDIODRIVER ";ad",           OSDOPTVAL_AUTO,  OPTION_STRING,        "SDL audio driver to use ('alsa', 'arts', ... or 'auto' for SDL default" },
 #if USE_OPENGL
 	{ SDLOPTION_GL_LIB,                      SDLOPTVAL_GLLIB, OPTION_STRING,        "alternative libGL.so to use; 'auto' for system default" },
 #endif
@@ -169,7 +171,7 @@ sdl_options::sdl_options()
 	std::string ini_path(INI_PATH);
 	add_entries(sdl_options::s_option_entries);
 	strreplace(ini_path,"APP_NAME", emulator_info::get_appname_lower());
-	set_default_value(SDLOPTION_INIPATH, ini_path.c_str());
+	set_default_value(SDLOPTION_INIPATH, std::move(ini_path));
 }
 
 //============================================================
@@ -374,6 +376,7 @@ static void osd_sdl_info(void)
 void sdl_osd_interface::video_register()
 {
 	video_options_add("soft", nullptr);
+	video_options_add("accel", nullptr);
 #if USE_OPENGL
 	video_options_add("opengl", nullptr);
 #endif
@@ -438,25 +441,25 @@ void sdl_osd_interface::init(running_machine &machine)
 		osd_setenv(SDLENV_VIDEODRIVER, stemp, 1);
 	}
 
-		stemp = options().render_driver();
-		if (stemp != nullptr)
+	stemp = options().render_driver();
+	if (stemp != nullptr)
+	{
+		if (strcmp(stemp, OSDOPTVAL_AUTO) != 0)
 		{
-			if (strcmp(stemp, OSDOPTVAL_AUTO) != 0)
-			{
-				osd_printf_verbose("Setting SDL renderdriver '%s' ...\n", stemp);
-				//osd_setenv(SDLENV_RENDERDRIVER, stemp, 1);
-				SDL_SetHint(SDL_HINT_RENDER_DRIVER, stemp);
-			}
-			else
-			{
-#if defined(SDLMAME_WIN32)
-				// OpenGL renderer has less issues with mode switching on windows
-				osd_printf_verbose("Setting SDL renderdriver '%s' ...\n", "opengl");
-				//osd_setenv(SDLENV_RENDERDRIVER, stemp, 1);
-				SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
-#endif
-			}
+			osd_printf_verbose("Setting SDL renderdriver '%s' ...\n", stemp);
+			//osd_setenv(SDLENV_RENDERDRIVER, stemp, 1);
+			SDL_SetHint(SDL_HINT_RENDER_DRIVER, stemp);
 		}
+		else
+		{
+#if defined(SDLMAME_WIN32)
+			// OpenGL renderer has less issues with mode switching on windows
+			osd_printf_verbose("Setting SDL renderdriver '%s' ...\n", "opengl");
+			//osd_setenv(SDLENV_RENDERDRIVER, stemp, 1);
+			SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+#endif
+		}
+	}
 
 	/* Set the SDL environment variable for drivers wanting to load the
 	 * lib at startup.
@@ -489,7 +492,8 @@ void sdl_osd_interface::init(running_machine &machine)
 
 	/* Initialize SDL */
 
-	if (SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+	if (SDL_InitSubSystem(SDL_INIT_VIDEO))
+	{
 		osd_printf_error("Could not initialize SDL %s\n", SDL_GetError());
 		exit(-1);
 	}

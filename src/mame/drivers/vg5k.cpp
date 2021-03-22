@@ -12,9 +12,9 @@
     05/2009 Skeleton driver.
 
     Known issues:
-     - 1200 bauds cassette don't works
+     - Support the K7 filetype for ease of usage, but as read only.
 
-    Informations ( see the very informative http://vg5k.free.fr/ ):
+    Information ( see the very informative http://vg5k.free.fr/ ):
      - Variants: Radiola VG5000 and Schneider VG5000
      - CPU: Zilog Z80 running at 4MHz
      - ROM: 18KB (16 KB BASIC + 2 KB charset )
@@ -27,7 +27,7 @@
             - Colors: 8
      - Sound: Synthesizer, 4 Octaves
      - Keyboard: 63 keys AZERTY, Caps Lock, CTRL key to access 33 BASIC instructions
-     - I/O: Tape recorder connector (1200/2400 bauds), Scart connector to TV (RGB),
+     - I/O: Tape recorder connector (1200/2400 bauds), SCART connector to TV (RGB),
        External PSU (VU0022) connector, Bus connector (2x25 pins)
      - There are 2 versions of the VG5000 ROM, one with Basic v1.0,
        contained in two 8 KB ROMs, and one with Basic 1.1, contained in
@@ -55,8 +55,6 @@
 #include "machine/ram.h"
 #include "machine/timer.h"
 #include "sound/dac.h"
-#include "sound/volt_reg.h"
-#include "sound/wave.h"
 #include "video/ef9345.h"
 
 #include "screen.h"
@@ -79,7 +77,14 @@ public:
 		, m_ram(*this, RAM_TAG)
 	{ }
 
-	required_device<cpu_device> m_maincpu;
+	void vg5k(machine_config &config);
+
+	void init_vg5k();
+
+	DECLARE_INPUT_CHANGED_MEMBER(delta_button);
+
+private:
+	required_device<z80_device> m_maincpu;
 	required_device<ef9345_device> m_ef9345;
 	required_device<dac_bit_interface> m_dac;
 	required_device<printer_image_device> m_printer;
@@ -87,58 +92,78 @@ public:
 	required_device<ram_device> m_ram;
 
 	offs_t m_ef9345_offset;
+	uint8_t m_printer_latch;
+	uint8_t m_printer_signal;
 
 	virtual void machine_start() override;
 	virtual void machine_reset() override;
 
-	DECLARE_READ8_MEMBER( printer_r );
-	DECLARE_WRITE8_MEMBER( printer_w );
-	DECLARE_WRITE8_MEMBER ( ef9345_offset_w );
-	DECLARE_READ8_MEMBER ( ef9345_io_r );
-	DECLARE_WRITE8_MEMBER ( ef9345_io_w );
-	DECLARE_READ8_MEMBER ( cassette_r );
-	DECLARE_WRITE8_MEMBER ( cassette_w );
-	DECLARE_DRIVER_INIT(vg5k);
+	void z80_m1_w(uint8_t data);
+	uint8_t printer_state_r();
+	void printer_state_w(uint8_t data);
+	void printer_data_w(uint8_t data);
+	void ef9345_offset_w(uint8_t data);
+	uint8_t ef9345_io_r();
+	void ef9345_io_w(uint8_t data);
+	uint8_t cassette_r();
+	void cassette_w(uint8_t data);
 	TIMER_CALLBACK_MEMBER(z80_irq_clear);
 	TIMER_DEVICE_CALLBACK_MEMBER(z80_irq);
 	TIMER_DEVICE_CALLBACK_MEMBER(vg5k_scanline);
-	void vg5k(machine_config &config);
 	void vg5k_io(address_map &map);
 	void vg5k_mem(address_map &map);
 };
 
+void vg5k_state::z80_m1_w(uint8_t data)
+{
+	// Leverage the refresh callback of the Z80 emulator to pretend
+	// the second T state of the M1 cycle didn't happen.
+	// This simulates the WAIT line asserted at that moment, as
+	// the current implementation of the Z80 doesn't handle the WAIT
+	// line at that moment.
+	m_maincpu->adjust_icount(-1);
+}
 
-READ8_MEMBER( vg5k_state::printer_r )
+uint8_t vg5k_state::printer_state_r()
 {
 	return (m_printer->is_ready() ? 0x00 : 0xff);
 }
 
-
-WRITE8_MEMBER( vg5k_state::printer_w )
+void vg5k_state::printer_state_w(uint8_t data)
 {
-	m_printer->output(data);
+	// Character is emitted on a rising edge.
+	if (!BIT(m_printer_signal, 0) && BIT(data, 0)) {
+		m_printer->output(m_printer_latch);
+	}
+	m_printer_signal = data;
 }
 
 
-WRITE8_MEMBER ( vg5k_state::ef9345_offset_w )
+void vg5k_state::printer_data_w(uint8_t data)
+{
+	m_printer_latch = data;
+}
+
+
+void vg5k_state::ef9345_offset_w(uint8_t data)
 {
 	m_ef9345_offset = data;
 }
 
 
-READ8_MEMBER ( vg5k_state::ef9345_io_r )
+uint8_t vg5k_state::ef9345_io_r()
 {
-	return m_ef9345->data_r(space, m_ef9345_offset, 0xff);
+	return m_ef9345->data_r(m_ef9345_offset);
 }
 
 
-WRITE8_MEMBER ( vg5k_state::ef9345_io_w )
+void vg5k_state::ef9345_io_w(uint8_t data)
 {
-	m_ef9345->data_w(space, m_ef9345_offset, data, 0xff);
+	m_ef9345->data_w(m_ef9345_offset, data);
 }
 
 
-READ8_MEMBER ( vg5k_state::cassette_r )
+uint8_t vg5k_state::cassette_r()
 {
 	double level = m_cassette->input();
 
@@ -146,55 +171,61 @@ READ8_MEMBER ( vg5k_state::cassette_r )
 }
 
 
-WRITE8_MEMBER ( vg5k_state::cassette_w )
+void vg5k_state::cassette_w(uint8_t data)
 {
 	m_dac->write(BIT(data, 3));
+	m_cassette->change_state(BIT(data, 1) ? CASSETTE_MOTOR_ENABLED : CASSETTE_MOTOR_DISABLED , CASSETTE_MASK_MOTOR);
 
-	if (data == 0x03)
-		m_cassette->output(+1);
-	else if (data == 0x02)
-		m_cassette->output(-1);
-	else
+	if (BIT(data, 1)) {
+		if (BIT(data, 0)) {
+			m_cassette->output(+1);
+		} else {
+			m_cassette->output(-1);
+		}
+	} else {
 		m_cassette->output(0);
+	}
 }
 
 
-ADDRESS_MAP_START(vg5k_state::vg5k_mem)
-	ADDRESS_MAP_UNMAP_HIGH
-	AM_RANGE( 0x0000, 0x3fff ) AM_ROM
-	AM_RANGE( 0x4000, 0x7fff ) AM_RAM
-	AM_RANGE( 0x8000, 0xffff ) AM_NOP /* messram expansion memory */
-ADDRESS_MAP_END
+void vg5k_state::vg5k_mem(address_map &map)
+{
+	map.unmap_value_high();
+	map(0x0000, 0x3fff).rom();
+	map(0x4000, 0x7fff).ram();
+	map(0x8000, 0xffff).noprw(); /* messram expansion memory */
+}
 
-ADDRESS_MAP_START(vg5k_state::vg5k_io)
-	ADDRESS_MAP_UNMAP_HIGH
-	ADDRESS_MAP_GLOBAL_MASK (0xff)
+void vg5k_state::vg5k_io(address_map &map)
+{
+	map.unmap_value_high();
+	map.global_mask(0xff);
 
 	/* joystick */
-	AM_RANGE( 0x07, 0x07 ) AM_READ_PORT("JOY0")
-	AM_RANGE( 0x08, 0x08 ) AM_READ_PORT("JOY1")
+	map(0x07, 0x07).portr("JOY0");
+	map(0x08, 0x08).portr("JOY1");
 
 	/* printer */
-	AM_RANGE( 0x10, 0x10 ) AM_READ(printer_r)
-	AM_RANGE( 0x11, 0x11 ) AM_WRITE(printer_w)
+	map(0x10, 0x10).rw(FUNC(vg5k_state::printer_state_r), FUNC(vg5k_state::printer_state_w));
+	map(0x11, 0x11).w(FUNC(vg5k_state::printer_data_w));
 
 	/* keyboard */
-	AM_RANGE( 0x80, 0x80 ) AM_READ_PORT("ROW1")
-	AM_RANGE( 0x81, 0x81 ) AM_READ_PORT("ROW2")
-	AM_RANGE( 0x82, 0x82 ) AM_READ_PORT("ROW3")
-	AM_RANGE( 0x83, 0x83 ) AM_READ_PORT("ROW4")
-	AM_RANGE( 0x84, 0x84 ) AM_READ_PORT("ROW5")
-	AM_RANGE( 0x85, 0x85 ) AM_READ_PORT("ROW6")
-	AM_RANGE( 0x86, 0x86 ) AM_READ_PORT("ROW7")
-	AM_RANGE( 0x87, 0x87 ) AM_READ_PORT("ROW8")
+	map(0x80, 0x80).portr("ROW1");
+	map(0x81, 0x81).portr("ROW2");
+	map(0x82, 0x82).portr("ROW3");
+	map(0x83, 0x83).portr("ROW4");
+	map(0x84, 0x84).portr("ROW5");
+	map(0x85, 0x85).portr("ROW6");
+	map(0x86, 0x86).portr("ROW7");
+	map(0x87, 0x87).portr("ROW8");
 
 	/* EF9345 */
-	AM_RANGE( 0x8f, 0x8f ) AM_WRITE(ef9345_offset_w)
-	AM_RANGE( 0xcf, 0xcf ) AM_READWRITE(ef9345_io_r, ef9345_io_w)
+	map(0x8f, 0x8f).w(FUNC(vg5k_state::ef9345_offset_w));
+	map(0xcf, 0xcf).rw(FUNC(vg5k_state::ef9345_io_r), FUNC(vg5k_state::ef9345_io_w));
 
 	/* cassette */
-	AM_RANGE( 0xaf,0xaf ) AM_READWRITE(cassette_r, cassette_w)
-ADDRESS_MAP_END
+	map(0xaf, 0xaf).rw(FUNC(vg5k_state::cassette_r), FUNC(vg5k_state::cassette_w));
+}
 
 /* Input ports */
 static INPUT_PORTS_START( vg5k )
@@ -288,6 +319,8 @@ static INPUT_PORTS_START( vg5k )
 		PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_UNUSED )
 		PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_UNUSED )
 		PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_START("direct")
+		PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_KEYBOARD)        PORT_CODE(KEYCODE_END)                              PORT_NAME("DELTA")          PORT_CHANGED_MEMBER(DEVICE_SELF, vg5k_state, delta_button, 0)
 INPUT_PORTS_END
 
 
@@ -309,16 +342,29 @@ TIMER_DEVICE_CALLBACK_MEMBER(vg5k_state::vg5k_scanline)
 	m_ef9345->update_scanline((uint16_t)param);
 }
 
+INPUT_CHANGED_MEMBER(vg5k_state::delta_button)
+{
+	// The yellow Delta key on the keyboard is wired so that it asserts directly the NMI line of the Z80.
+	if (!newval) {
+		m_maincpu->pulse_input_line(INPUT_LINE_NMI, attotime::zero);
+	}
+}
+
 
 void vg5k_state::machine_start()
 {
 	save_item(NAME(m_ef9345_offset));
+	save_item(NAME(m_printer_latch));
+	save_item(NAME(m_printer_signal));
 }
 
 void vg5k_state::machine_reset()
 {
 	m_ef9345_offset = 0;
+	m_printer_latch = 0;
+	m_printer_signal = 0;
 }
+
 
 /* F4 Character Displayer */
 static const gfx_layout vg5k_charlayout =
@@ -334,20 +380,20 @@ static const gfx_layout vg5k_charlayout =
 	8*16                    /* every char takes 16 bytes */
 };
 
-static GFXDECODE_START( vg5k )
+static GFXDECODE_START( gfx_vg5k )
 	GFXDECODE_ENTRY( "ef9345", 0x2000, vg5k_charlayout, 0, 4 )
 GFXDECODE_END
 
-DRIVER_INIT_MEMBER(vg5k_state,vg5k)
+void vg5k_state::init_vg5k()
 {
 	uint8_t *FNT = memregion("ef9345")->base();
-	uint16_t a,b,c,d,dest=0x2000;
+	uint16_t dest = 0x2000;
 
 	/* Unscramble the chargen rom as the format is too complex for gfxdecode to handle unaided */
-	for (a = 0; a < 8192; a+=4096)
-		for (b = 0; b < 2048; b+=64)
-			for (c = 0; c < 4; c++)
-				for (d = 0; d < 64; d+=4)
+	for (uint16_t a = 0; a < 8192; a+=4096)
+		for (uint16_t b = 0; b < 2048; b+=64)
+			for (uint16_t c = 0; c < 4; c++)
+				for (uint16_t d = 0; d < 64; d+=4)
 					FNT[dest++]=FNT[a|b|c|d];
 
 
@@ -361,70 +407,65 @@ DRIVER_INIT_MEMBER(vg5k_state,vg5k)
 }
 
 
-MACHINE_CONFIG_START(vg5k_state::vg5k)
-
+void vg5k_state::vg5k(machine_config &config)
+{
 	/* basic machine hardware */
-	MCFG_CPU_ADD("maincpu",Z80, XTAL(4'000'000))
-	MCFG_CPU_PROGRAM_MAP(vg5k_mem)
-	MCFG_CPU_IO_MAP(vg5k_io)
+	Z80(config, m_maincpu, XTAL(4'000'000));
+	m_maincpu->set_addrmap(AS_PROGRAM, &vg5k_state::vg5k_mem);
+	m_maincpu->set_addrmap(AS_IO, &vg5k_state::vg5k_io);
+	m_maincpu->refresh_cb().set(FUNC(vg5k_state::z80_m1_w));
 
-	MCFG_TIMER_DRIVER_ADD_SCANLINE("vg5k_scanline", vg5k_state, vg5k_scanline, "screen", 0, 10)
+	TIMER(config, "vg5k_scanline").configure_scanline(FUNC(vg5k_state::vg5k_scanline), "screen", 0, 10);
 
-	MCFG_TIMER_DRIVER_ADD_PERIODIC("irq_timer", vg5k_state, z80_irq, attotime::from_msec(20))
+	TIMER(config, "irq_timer").configure_periodic(FUNC(vg5k_state::z80_irq), attotime::from_msec(20));
 
-	MCFG_DEVICE_ADD("ef9345", EF9345, 0)
-	MCFG_EF9345_PALETTE("palette")
+	EF9345(config, m_ef9345, 0);
+	m_ef9345->set_palette_tag("palette");
 
 	/* video hardware */
-	MCFG_SCREEN_ADD("screen", RASTER)
-	MCFG_SCREEN_REFRESH_RATE(50)
-	MCFG_SCREEN_VBLANK_TIME(ATTOSECONDS_IN_USEC(2500)) /* not accurate */
-	MCFG_SCREEN_UPDATE_DEVICE("ef9345", ef9345_device, screen_update)
-	MCFG_SCREEN_SIZE(336, 300)
-	MCFG_SCREEN_VISIBLE_AREA(00, 336-1, 00, 270-1)
+	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
+	screen.set_refresh_hz(50);
+	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); /* not accurate */
+	screen.set_screen_update("ef9345", FUNC(ef9345_device::screen_update));
+	screen.set_size(336, 300);
+	screen.set_visarea(00, 336-1, 00, 270-1);
 
-	MCFG_GFXDECODE_ADD("gfxdecode", "palette", vg5k)
-	MCFG_PALETTE_ADD("palette", 8)
+	GFXDECODE(config, "gfxdecode", "palette", gfx_vg5k);
+	PALETTE(config, "palette").set_entries(8);
 
 	/* sound hardware */
-	MCFG_SPEAKER_STANDARD_MONO("speaker")
-	MCFG_SOUND_ADD("dac", DAC_1BIT, 0) MCFG_SOUND_ROUTE(ALL_OUTPUTS, "speaker", 0.125)
-	MCFG_DEVICE_ADD("vref", VOLTAGE_REGULATOR, 0) MCFG_VOLTAGE_REGULATOR_OUTPUT(5.0)
-	MCFG_SOUND_ROUTE_EX(0, "dac", 1.0, DAC_VREF_POS_INPUT)
+	SPEAKER(config, "speaker").front_center();
+	DAC_1BIT(config, "dac", 0).add_route(ALL_OUTPUTS, "speaker", 0.125);
 
 	/* cassette */
-	MCFG_SOUND_WAVE_ADD(WAVE_TAG, "cassette")
-	MCFG_SOUND_ROUTE(0, "speaker", 0.25)
-
-	MCFG_CASSETTE_ADD( "cassette" )
-	MCFG_CASSETTE_FORMATS(vg5k_cassette_formats)
-	MCFG_CASSETTE_DEFAULT_STATE(CASSETTE_STOPPED | CASSETTE_MASK_SPEAKER)
-	MCFG_CASSETTE_INTERFACE("vg5k_cass")
+	CASSETTE(config, m_cassette);
+	m_cassette->set_formats(vg5k_cassette_formats);
+	m_cassette->set_default_state(CASSETTE_STOPPED | CASSETTE_SPEAKER_ENABLED);
+	m_cassette->add_route(0, "speaker", 0.05);
+	m_cassette->set_interface("vg5k_cass");
 
 	/* printer */
-	MCFG_DEVICE_ADD("printer", PRINTER, 0)
+	PRINTER(config, m_printer, 0);
 
 	/* internal ram */
-	MCFG_RAM_ADD(RAM_TAG)
-	MCFG_RAM_DEFAULT_SIZE("16K")
-	MCFG_RAM_EXTRA_OPTIONS("32K,48k")
+	RAM(config, RAM_TAG).set_default_size("16K").set_extra_options("32K,48K");
 
 	/* Software lists */
-	MCFG_SOFTWARE_LIST_ADD("cass_list", "vg5k")
-MACHINE_CONFIG_END
+	SOFTWARE_LIST(config, "cass_list").set_original("vg5k");
+}
 
 /* ROM definition */
 ROM_START( vg5k )
 	ROM_REGION( 0x10000, "maincpu", ROMREGION_ERASEFF )
 	ROM_SYSTEM_BIOS(0, "v11", "BASIC v1.1")
-	ROMX_LOAD( "vg5k11.bin", 0x0000, 0x4000, CRC(a6f4a0ea) SHA1(58eccce33cc21fc17bc83921018f531b8001eda3), ROM_BIOS(1) )  // dumped from a Philips VG-5000.
+	ROMX_LOAD( "vg5k11.bin", 0x0000, 0x4000, CRC(a6f4a0ea) SHA1(58eccce33cc21fc17bc83921018f531b8001eda3), ROM_BIOS(0) )  // dumped from a Philips VG-5000.
 	ROM_SYSTEM_BIOS(1, "v10", "BASIC v1.0")
-	ROMX_LOAD( "vg5k10.bin", 0x0000, 0x4000, BAD_DUMP CRC(57983260) SHA1(5ad1787a6a597b5c3eedb7c3704b649faa9be4ca), ROM_BIOS(2) )
+	ROMX_LOAD( "vg5k10.bin", 0x0000, 0x4000, BAD_DUMP CRC(57983260) SHA1(5ad1787a6a597b5c3eedb7c3704b649faa9be4ca), ROM_BIOS(1) )
 
 	ROM_REGION( 0x4000, "ef9345", 0 )
 	ROM_LOAD( "charset.rom", 0x0000, 0x2000, BAD_DUMP CRC(b2f49eb3) SHA1(d0ef530be33bfc296314e7152302d95fdf9520fc) )                // from dcvg5k
 ROM_END
 
 /* Driver */
-//    YEAR  NAME    PARENT  COMPAT  MACHINE  INPUT  STATE        INIT  COMPANY     FULLNAME   FLAGS
-COMP( 1984, vg5k,   0,      0,      vg5k,    vg5k,  vg5k_state,  vg5k, "Philips",  "VG-5000", MACHINE_SUPPORTS_SAVE | MACHINE_NOT_WORKING )
+//    YEAR  NAME  PARENT  COMPAT  MACHINE  INPUT  CLASS       INIT       COMPANY    FULLNAME   FLAGS
+COMP( 1984, vg5k, 0,      0,      vg5k,    vg5k,  vg5k_state, init_vg5k, "Philips", "VG-5000", MACHINE_SUPPORTS_SAVE | MACHINE_NOT_WORKING )

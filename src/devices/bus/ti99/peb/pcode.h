@@ -21,17 +21,17 @@
 #include "machine/74259.h"
 #include "machine/tmc0430.h"
 
-namespace bus { namespace ti99 { namespace peb {
+namespace bus::ti99::peb {
 
 class ti_pcode_card_device : public device_t, public device_ti99_peribox_card_interface
 {
 public:
 	ti_pcode_card_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
-	DECLARE_READ8Z_MEMBER(readz) override;
-	DECLARE_WRITE8_MEMBER(write) override;
-	DECLARE_READ8Z_MEMBER(crureadz) override;
-	DECLARE_WRITE8_MEMBER(cruwrite) override;
-	DECLARE_SETADDRESS_DBIN_MEMBER(setaddress_dbin) override;
+	void readz(offs_t offset, uint8_t *value) override;
+	void write(offs_t offset, uint8_t data) override;
+	void crureadz(offs_t offset, uint8_t *value) override;
+	void cruwrite(offs_t offset, uint8_t data) override;
+	void setaddress_dbin(offs_t offset, int state) override;
 
 	DECLARE_WRITE_LINE_MEMBER(clock_in) override;
 
@@ -51,14 +51,17 @@ private:
 	DECLARE_WRITE_LINE_MEMBER(pcpage_w);
 	DECLARE_WRITE_LINE_MEMBER(ekrpg_w);
 
-	void                debugger_read(address_space& space, uint16_t addr, uint8_t& value);
-	tmc0430_device*     m_grom[8];
-	uint8_t*              m_rom;
+	void debugger_read(uint16_t addr, uint8_t& value);
+
+	required_device_array<tmc0430_device, 8> m_groms;
+
 	required_device<ls259_device> m_crulatch;
-	int                 m_bank_select;
-	bool                m_active;
-	int                 m_clock_count;
-	bool                m_clockhigh;
+
+	uint8_t* m_rom;
+	int      m_bank_select;
+	bool     m_active;
+	int      m_clock_count;
+	bool     m_clockhigh;
 
 	// Address in card area
 	bool    m_inDsrArea;
@@ -70,7 +73,7 @@ private:
 	int m_address;
 };
 
-} } } // end namespace bus::ti99::peb
+} // end namespace bus::ti99::peb
 
 DECLARE_DEVICE_TYPE_NS(TI99_P_CODE,  bus::ti99::peb, ti_pcode_card_device)
 

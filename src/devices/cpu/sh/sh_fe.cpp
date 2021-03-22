@@ -31,7 +31,7 @@ sh_frontend::sh_frontend(sh_common_execution *device, uint32_t window_start, uin
 
 inline uint16_t sh_frontend::read_word(opcode_desc &desc)
 {
-	return m_sh->m_direct->read_word(desc.physpc, SH2_CODE_XOR(0));
+	return m_sh->m_pr16(desc.physpc);
 }
 
 bool sh_frontend::describe(opcode_desc &desc, const opcode_desc *prev)
@@ -88,7 +88,7 @@ bool sh_frontend::describe(opcode_desc &desc, const opcode_desc *prev)
 
 		case 11:    // BSR
 			desc.regout[1] |= REGFLAG_PR;
-			// (intentional fallthrough - BSR is BRA with the addition of PR = the return address)
+			[[fallthrough]]; // BSR is BRA with the addition of PR = the return address
 		case 10:    // BRA
 			{
 				int32_t disp = ((int32_t)opcode << 20) >> 20;

@@ -74,16 +74,16 @@
     and sprites is right, judging from gameplay.  I'm not sure about
     alignment with the effect layers.
 
-    There are definitely alignment problems with the PVI opjects, but
+    There are definitely alignment problems with the PVI objects, but
     that may be a bug in the S2636 implementation.  I need to check it
-    more detail
+    in more detail.
 */
 
 #include "emu.h"
 #include "includes/laserbat.h"
 
 
-WRITE8_MEMBER(laserbat_state_base::videoram_w)
+void laserbat_state_base::videoram_w(offs_t offset, uint8_t data)
 {
 	if (!m_mpx_bkeff)
 		m_bg_ram[offset] = data;
@@ -91,19 +91,19 @@ WRITE8_MEMBER(laserbat_state_base::videoram_w)
 		m_eff_ram[offset & 0x1ff] = data; // A9 is not connected, only half the chip is used
 }
 
-WRITE8_MEMBER(laserbat_state_base::wcoh_w)
+void laserbat_state_base::wcoh_w(uint8_t data)
 {
 	// sprite horizontal offset
 	m_wcoh = data;
 }
 
-WRITE8_MEMBER(laserbat_state_base::wcov_w)
+void laserbat_state_base::wcov_w(uint8_t data)
 {
 	// sprite vertical offset
 	m_wcov = data;
 }
 
-WRITE8_MEMBER(laserbat_state_base::cnt_eff_w)
+void laserbat_state_base::cnt_eff_w(uint8_t data)
 {
 	/*
 	    +-----+-------------+-----------------------------------------------+
@@ -131,7 +131,7 @@ WRITE8_MEMBER(laserbat_state_base::cnt_eff_w)
 //  popmessage("effect: 0x%02X", data);
 }
 
-WRITE8_MEMBER(laserbat_state_base::cnt_nav_w)
+void laserbat_state_base::cnt_nav_w(uint8_t data)
 {
 	/*
 	    +-----+-----------+--------------------------------------+
@@ -164,8 +164,8 @@ void laserbat_state_base::video_start()
 	m_gfx2 = memregion("gfx2")->base();
 
 	// start rendering scanlines
-	machine().first_screen()->register_screen_bitmap(m_bitmap);
-	m_scanline_timer->adjust(machine().first_screen()->time_until_pos(1, 0));
+	m_screen->register_screen_bitmap(m_bitmap);
+	m_scanline_timer->adjust(m_screen->time_until_pos(1, 0));
 }
 
 
@@ -177,8 +177,8 @@ uint32_t laserbat_state_base::screen_update_laserbat(screen_device &screen, bitm
 
 	for (int y = cliprect.min_y; cliprect.max_y >= y; y++)
 	{
-		uint16_t const *const src = &m_bitmap.pix16(flip_y ? (offs_y - y) : y);
-		uint16_t *dst = &bitmap.pix16(y);
+		uint16_t const *const src = &m_bitmap.pix(flip_y ? (offs_y - y) : y);
+		uint16_t *dst = &bitmap.pix(y);
 		for (int x = cliprect.min_x; cliprect.max_x >= x; x++)
 		{
 			dst[x] = uint16_t(m_gfxmix->read(src[flip_x ? (offs_x - x) : x]));
@@ -223,27 +223,27 @@ TIMER_CALLBACK_MEMBER(laserbat_state_base::video_line)
 	int const max_x = m_screen->visible_area().max_x;
 	int const x_offset = min_x - (8 * 3);
 	int const y_offset = m_screen->visible_area().min_y - 8;
-	uint16_t *const row = &m_bitmap.pix16(y);
+	uint16_t *const row = &m_bitmap.pix(y);
 
 	// wait for next scanline
-	m_scanline_timer->adjust(machine().first_screen()->time_until_pos(y + 1, 0));
+	m_scanline_timer->adjust(m_screen->time_until_pos(y + 1, 0));
 
 	// update the PVIs
 	if (!y)
 	{
-		m_pvi1->render_first_line();
-		m_pvi2->render_first_line();
-		m_pvi3->render_first_line();
+		m_pvi[0]->render_first_line();
+		m_pvi[1]->render_first_line();
+		m_pvi[2]->render_first_line();
 	}
 	else
 	{
-		m_pvi1->render_next_line();
-		m_pvi2->render_next_line();
-		m_pvi3->render_next_line();
+		m_pvi[0]->render_next_line();
+		m_pvi[1]->render_next_line();
+		m_pvi[2]->render_next_line();
 	}
-	uint16_t const *const pvi1_row = &m_pvi1->bitmap().pix16(y);
-	uint16_t const *const pvi2_row = &m_pvi2->bitmap().pix16(y);
-	uint16_t const *const pvi3_row = &m_pvi3->bitmap().pix16(y);
+	uint16_t const *const pvi1_row = &m_pvi[0]->bitmap().pix(y);
+	uint16_t const *const pvi2_row = &m_pvi[1]->bitmap().pix(y);
+	uint16_t const *const pvi3_row = &m_pvi[2]->bitmap().pix(y);
 
 	// don't draw outside the visible area
 	m_bitmap.plot_box(0, y, m_bitmap.width(), 1, 0);
@@ -326,7 +326,7 @@ TIMER_CALLBACK_MEMBER(laserbat_state_base::video_line)
 }
 
 
-PALETTE_INIT_MEMBER(laserbat_state, laserbat)
+void laserbat_state::laserbat_palette(palette_device &palette) const
 {
 	/*
 	    Uses GRBGRBGR pixel format.  The two topmost bist are the LSBs
@@ -378,7 +378,7 @@ PALETTE_INIT_MEMBER(laserbat_state, laserbat)
 }
 
 
-PALETTE_INIT_MEMBER(catnmous_state, catnmous)
+void catnmous_state::catnmous_palette(palette_device &palette) const
 {
 	/*
 	    Uses GRBGRBGR pixel format.  The two topmost bist are the LSBs

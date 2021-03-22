@@ -145,10 +145,7 @@ void itech8_state::video_start()
 
 	/* reset statics */
 	m_page_select = 0xc0;
-
-	/* fetch the GROM base */
-	m_grom_base = memregion("grom")->base();
-	m_grom_size = memregion("grom")->bytes();
+	m_blit_in_progress = 0;
 
 	save_item(NAME(m_blitter_data));
 	save_item(NAME(m_blit_in_progress));
@@ -167,9 +164,9 @@ void itech8_state::video_start()
  *
  *************************************/
 
-WRITE8_MEMBER(itech8_state::palette_w)
+void itech8_state::palette_w(offs_t offset, uint8_t data)
 {
-	m_tlc34076->write(space, offset/2, data);
+	m_tlc34076->write(offset/2, data);
 }
 
 
@@ -180,7 +177,7 @@ WRITE8_MEMBER(itech8_state::palette_w)
  *
  *************************************/
 
-WRITE8_MEMBER(itech8_state::page_w)
+void itech8_state::page_w(u8 data)
 {
 	m_screen->update_partial(m_screen->vpos());
 	logerror("%04x:display_page = %02X (%d)\n", m_maincpu->pc(), data, m_screen->vpos());
@@ -198,7 +195,7 @@ WRITE8_MEMBER(itech8_state::page_w)
 
 inline uint8_t itech8_state::fetch_next_raw()
 {
-	return m_grom_base[m_fetch_offset++ % m_grom_size];
+	return m_grom[m_fetch_offset++ % m_grom.length()];
 }
 
 
@@ -212,17 +209,17 @@ inline uint8_t itech8_state::fetch_next_rle()
 {
 	if (m_fetch_rle_count == 0)
 	{
-		m_fetch_rle_count = m_grom_base[m_fetch_offset++ % m_grom_size];
+		m_fetch_rle_count = m_grom[m_fetch_offset++ % m_grom.length()];
 		m_fetch_rle_literal = m_fetch_rle_count & 0x80;
 		m_fetch_rle_count &= 0x7f;
 
 		if (!m_fetch_rle_literal)
-			m_fetch_rle_value = m_grom_base[m_fetch_offset++ % m_grom_size];
+			m_fetch_rle_value = m_grom[m_fetch_offset++ % m_grom.length()];
 	}
 
 	m_fetch_rle_count--;
 	if (m_fetch_rle_literal)
-		m_fetch_rle_value = m_grom_base[m_fetch_offset++ % m_grom_size];
+		m_fetch_rle_value = m_grom[m_fetch_offset++ % m_grom.length()];
 
 	return m_fetch_rle_value;
 }
@@ -236,12 +233,12 @@ inline void itech8_state::consume_rle(int count)
 
 		if (m_fetch_rle_count == 0)
 		{
-			m_fetch_rle_count = m_grom_base[m_fetch_offset++ % m_grom_size];
+			m_fetch_rle_count = m_grom[m_fetch_offset++ % m_grom.length()];
 			m_fetch_rle_literal = m_fetch_rle_count & 0x80;
 			m_fetch_rle_count &= 0x7f;
 
 			if (!m_fetch_rle_literal)
-				m_fetch_rle_value = m_grom_base[m_fetch_offset++ % m_grom_size];
+				m_fetch_rle_value = m_grom[m_fetch_offset++ % m_grom.length()];
 		}
 
 		num_to_consume = (count < m_fetch_rle_count) ? count : m_fetch_rle_count;
@@ -261,7 +258,7 @@ inline void itech8_state::consume_rle(int count)
  *
  *************************************/
 
-void itech8_state::perform_blit(address_space &space)
+void itech8_state::perform_blit()
 {
 	offs_t addr = m_tms34061->xyaddress() | ((m_tms34061->xyoffset() & 0x300) << 8);
 	uint8_t shift = (BLITTER_FLAGS & BLITFLAG_SHIFT) ? 4 : 0;
@@ -270,7 +267,7 @@ void itech8_state::perform_blit(address_space &space)
 	int xdir = (BLITTER_FLAGS & BLITFLAG_XFLIP) ? -1 : 1;
 	int xflip = (BLITTER_FLAGS & BLITFLAG_XFLIP);
 	int rle = (BLITTER_FLAGS & BLITFLAG_RLE);
-	int color = m_tms34061->latch_r(space, 0);
+	int color = m_tms34061->latch_r();
 	int width = BLITTER_WIDTH;
 	int height = BLITTER_HEIGHT;
 	uint8_t transmaskhi, transmasklo;
@@ -415,12 +412,12 @@ TIMER_CALLBACK_MEMBER(itech8_state::blitter_done)
  *
  *************************************/
 
-READ8_MEMBER(itech8_state::blitter_r)
+uint8_t itech8_state::blitter_r(offs_t offset)
 {
 	int result = m_blitter_data[offset / 2];
 
 	/* debugging */
-	if (FULL_LOGGING) logerror("%04x:blitter_r(%02x)\n", space.device().safe_pcbase(), offset / 2);
+	if (FULL_LOGGING) logerror("%s:blitter_r(%02x)\n", machine().describe_context(), offset / 2);
 
 	/* low bit seems to be ignored */
 	offset /= 2;
@@ -443,7 +440,7 @@ READ8_MEMBER(itech8_state::blitter_r)
 }
 
 
-WRITE8_MEMBER(itech8_state::blitter_w)
+void itech8_state::blitter_w(offs_t offset, uint8_t data)
 {
 	/* low bit seems to be ignored */
 	offset /= 2;
@@ -472,7 +469,7 @@ WRITE8_MEMBER(itech8_state::blitter_w)
 		}
 
 		/* perform the blit */
-		perform_blit(space);
+		perform_blit();
 		m_blit_in_progress = 1;
 
 		/* set a timer to go off when we're done */
@@ -491,7 +488,7 @@ WRITE8_MEMBER(itech8_state::blitter_w)
  *
  *************************************/
 
-WRITE8_MEMBER(itech8_state::tms34061_w)
+void itech8_state::tms34061_w(offs_t offset, uint8_t data)
 {
 	int func = (offset >> 9) & 7;
 	int col = offset & 0xff;
@@ -502,11 +499,11 @@ WRITE8_MEMBER(itech8_state::tms34061_w)
 		col ^= 2;
 
 	/* Row address (RA0-RA8) is not dependent on the offset */
-	m_tms34061->write(space, col, 0xff, func, data);
+	m_tms34061->write(col, 0xff, func, data);
 }
 
 
-READ8_MEMBER(itech8_state::tms34061_r)
+uint8_t itech8_state::tms34061_r(offs_t offset)
 {
 	int func = (offset >> 9) & 7;
 	int col = offset & 0xff;
@@ -517,7 +514,7 @@ READ8_MEMBER(itech8_state::tms34061_r)
 		col ^= 2;
 
 	/* Row address (RA0-RA8) is not dependent on the offset */
-	return m_tms34061->read(space, col, 0xff, func);
+	return m_tms34061->read(col, 0xff, func);
 }
 
 
@@ -528,43 +525,57 @@ READ8_MEMBER(itech8_state::tms34061_r)
  *
  *************************************/
 
-WRITE8_MEMBER(itech8_state::grmatch_palette_w)
+void grmatch_state::palette_w(uint8_t data)
 {
 	/* set the palette control; examined in the scanline callback */
-	m_grmatch_palcontrol = data;
+	m_palcontrol = data;
 }
 
 
-WRITE8_MEMBER(itech8_state::grmatch_xscroll_w)
+void grmatch_state::xscroll_w(uint8_t data)
 {
 	/* update the X scroll value */
 	//m_screen->update_now();
 	m_screen->update_partial(m_screen->vpos());
-	m_grmatch_xscroll = data;
+	m_xscroll = data;
 }
 
 
-TIMER_DEVICE_CALLBACK_MEMBER(itech8_state::grmatch_palette_update)
+void grmatch_state::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+{
+	switch (id)
+	{
+	case TIMER_PALETTE:
+		palette_update();
+		break;
+	default:
+		itech8_state::device_timer(timer, id, param, ptr);
+		break;
+	}
+}
+
+void grmatch_state::palette_update()
 {
 	/* if the high bit is set, we are supposed to latch the palette values */
-	if (m_grmatch_palcontrol & 0x80)
+	if (m_palcontrol & 0x80)
 	{
 		/* the TMS34070s latch at the start of the frame, based on the first few bytes */
-		uint32_t page_offset = (m_tms34061->m_display.dispstart & 0x0ffff) | m_grmatch_xscroll;
-		int page, x;
+		uint32_t page_offset = (m_tms34061->m_display.dispstart & 0x0ffff) | m_xscroll;
 
 		/* iterate over both pages */
-		for (page = 0; page < 2; page++)
+		for (int page = 0; page < 2; page++)
 		{
 			const uint8_t *base = &m_tms34061->m_display.vram[(page * 0x20000 + page_offset) & VRAM_MASK];
-			for (x = 0; x < 16; x++)
+			for (int x = 0; x < 16; x++)
 			{
 				uint8_t data0 = base[x * 2 + 0];
 				uint8_t data1 = base[x * 2 + 1];
-				m_grmatch_palette[page][x] = rgb_t(pal4bit(data0 >> 0), pal4bit(data1 >> 4), pal4bit(data1 >> 0));
+				m_palette[page][x] = rgb_t(pal4bit(data0 >> 0), pal4bit(data1 >> 4), pal4bit(data1 >> 0));
 			}
 		}
 	}
+
+	m_palette_timer->adjust(m_screen->time_until_pos(m_screen->vpos()+1));
 }
 
 
@@ -577,9 +588,7 @@ TIMER_DEVICE_CALLBACK_MEMBER(itech8_state::grmatch_palette_update)
 
 uint32_t itech8_state::screen_update_2layer(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	uint32_t page_offset;
-	int x, y;
-	const rgb_t *pens = m_tlc34076->get_pens();
+	pen_t const *const pens = m_tlc34076->pens();
 
 	/* first get the current display state */
 	m_tms34061->get_display_state();
@@ -591,19 +600,19 @@ uint32_t itech8_state::screen_update_2layer(screen_device &screen, bitmap_rgb32 
 		return 0;
 	}
 
-	/* there are two layers: */
-	/*    top layer @ 0x00000 is only 4bpp, colors come from the first 16 palettes */
-	/* bottom layer @ 0x20000 is full 8bpp */
-	page_offset = m_tms34061->m_display.dispstart & 0x0ffff;
-	for (y = cliprect.min_y; y <= cliprect.max_y; y++)
+	// there are two layers:
+	//    top layer @ 0x00000 is only 4bpp, colors come from the first 16 palettes
+	// bottom layer @ 0x20000 is full 8bpp
+	uint32_t const page_offset = m_tms34061->m_display.dispstart & 0x0ffff;
+	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
 	{
-		uint8_t *base0 = &m_tms34061->m_display.vram[(0x00000 + page_offset + y * 256) & VRAM_MASK];
-		uint8_t *base2 = &m_tms34061->m_display.vram[(0x20000 + page_offset + y * 256) & VRAM_MASK];
-		uint32_t *dest = &bitmap.pix32(y);
+		uint8_t const *const base0 = &m_tms34061->m_display.vram[(0x00000 + page_offset + y * 256) & VRAM_MASK];
+		uint8_t const *const base2 = &m_tms34061->m_display.vram[(0x20000 + page_offset + y * 256) & VRAM_MASK];
+		uint32_t *const dest = &bitmap.pix(y);
 
-		for (x = cliprect.min_x; x <= cliprect.max_x; x++)
+		for (int x = cliprect.min_x; x <= cliprect.max_x; x++)
 		{
-			int pix0 = base0[x] & 0x0f;
+			int const pix0 = base0[x] & 0x0f;
 			dest[x] = pens[pix0 ? pix0 : base2[x]];
 		}
 	}
@@ -611,11 +620,8 @@ uint32_t itech8_state::screen_update_2layer(screen_device &screen, bitmap_rgb32 
 }
 
 
-uint32_t itech8_state::screen_update_grmatch(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
+uint32_t grmatch_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	uint32_t page_offset;
-	int x, y;
-
 	/* first get the current display state */
 	m_tms34061->get_display_state();
 
@@ -626,32 +632,32 @@ uint32_t itech8_state::screen_update_grmatch(screen_device &screen, bitmap_rgb32
 		return 0;
 	}
 
-	/* there are two layers: */
-	/*    top layer @ 0x00000 is 4bpp, colors come from TMS34070, enabled via palette control */
-	/* bottom layer @ 0x20000 is 4bpp, colors come from TMS34070, enabled via palette control */
-	/* 4bpp pixels are packed 2 to a byte */
-	/* xscroll is set via a separate register */
-	page_offset = (m_tms34061->m_display.dispstart & 0x0ffff) | m_grmatch_xscroll;
-	for (y = cliprect.min_y; y <= cliprect.max_y; y++)
+	// there are two layers:
+	//    top layer @ 0x00000 is 4bpp, colors come from TMS34070, enabled via palette control
+	// bottom layer @ 0x20000 is 4bpp, colors come from TMS34070, enabled via palette control
+	// 4bpp pixels are packed 2 to a byte
+	// xscroll is set via a separate register
+	uint32_t const page_offset = (m_tms34061->m_display.dispstart & 0x0ffff) | m_xscroll;
+	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
 	{
-		uint8_t *base0 = &m_tms34061->m_display.vram[0x00000 + ((page_offset + y * 256) & 0xffff)];
-		uint8_t *base2 = &m_tms34061->m_display.vram[0x20000 + ((page_offset + y * 256) & 0xffff)];
-		uint32_t *dest = &bitmap.pix32(y);
+		uint8_t const *const base0 = &m_tms34061->m_display.vram[0x00000 + ((page_offset + y * 256) & 0xffff)];
+		uint8_t const *const base2 = &m_tms34061->m_display.vram[0x20000 + ((page_offset + y * 256) & 0xffff)];
+		uint32_t *const dest = &bitmap.pix(y);
 
-		for (x = cliprect.min_x & ~1; x <= cliprect.max_x; x += 2)
+		for (int x = cliprect.min_x & ~1; x <= cliprect.max_x; x += 2)
 		{
-			uint8_t pix0 = base0[x / 2];
-			uint8_t pix2 = base2[x / 2];
+			uint8_t const pix0 = base0[x / 2];
+			uint8_t const pix2 = base2[x / 2];
 
 			if ((pix0 & 0xf0) != 0)
-				dest[x] = m_grmatch_palette[0][pix0 >> 4];
+				dest[x] = m_palette[0][pix0 >> 4];
 			else
-				dest[x] = m_grmatch_palette[1][pix2 >> 4];
+				dest[x] = m_palette[1][pix2 >> 4];
 
 			if ((pix0 & 0x0f) != 0)
-				dest[x + 1] = m_grmatch_palette[0][pix0 & 0x0f];
+				dest[x + 1] = m_palette[0][pix0 & 0x0f];
 			else
-				dest[x + 1] = m_grmatch_palette[1][pix2 & 0x0f];
+				dest[x + 1] = m_palette[1][pix2 & 0x0f];
 		}
 	}
 	return 0;
@@ -660,9 +666,7 @@ uint32_t itech8_state::screen_update_grmatch(screen_device &screen, bitmap_rgb32
 
 uint32_t itech8_state::screen_update_2page(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	uint32_t page_offset;
-	int x, y;
-	const rgb_t *pens = m_tlc34076->get_pens();
+	pen_t const *const pens = m_tlc34076->pens();
 
 	/* first get the current display state */
 	m_tms34061->get_display_state();
@@ -674,15 +678,15 @@ uint32_t itech8_state::screen_update_2page(screen_device &screen, bitmap_rgb32 &
 		return 0;
 	}
 
-	/* there are two pages, each of which is a full 8bpp */
-	/* page index is selected by the top bit of the page_select register */
-	page_offset = ((m_page_select & 0x80) << 10) | (m_tms34061->m_display.dispstart & 0x0ffff);
-	for (y = cliprect.min_y; y <= cliprect.max_y; y++)
+	// there are two pages, each of which is a full 8bpp
+	// page index is selected by the top bit of the page_select register
+	uint32_t const page_offset = ((m_page_select & 0x80) << 10) | (m_tms34061->m_display.dispstart & 0x0ffff);
+	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
 	{
-		uint8_t *base = &m_tms34061->m_display.vram[(page_offset + y * 256) & VRAM_MASK];
-		uint32_t *dest = &bitmap.pix32(y);
+		uint8_t const *const base = &m_tms34061->m_display.vram[(page_offset + y * 256) & VRAM_MASK];
+		uint32_t *const dest = &bitmap.pix(y);
 
-		for (x = cliprect.min_x; x <= cliprect.max_x; x++)
+		for (int x = cliprect.min_x; x <= cliprect.max_x; x++)
 			dest[x] = pens[base[x]];
 	}
 	return 0;
@@ -691,9 +695,7 @@ uint32_t itech8_state::screen_update_2page(screen_device &screen, bitmap_rgb32 &
 
 uint32_t itech8_state::screen_update_2page_large(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	uint32_t page_offset;
-	int x, y;
-	const rgb_t *pens = m_tlc34076->get_pens();
+	pen_t const *const pens = m_tlc34076->pens();
 
 	/* first get the current display state */
 	m_tms34061->get_display_state();
@@ -705,18 +707,18 @@ uint32_t itech8_state::screen_update_2page_large(screen_device &screen, bitmap_r
 		return 0;
 	}
 
-	/* there are two pages, each of which is a full 8bpp */
-	/* the low 4 bits come from the bitmap directly */
-	/* the upper 4 bits were latched on each write into a separate bitmap */
-	/* page index is selected by the top bit of the page_select register */
-	page_offset = ((~m_page_select & 0x80) << 10) | (m_tms34061->m_display.dispstart & 0x0ffff);
-	for (y = cliprect.min_y; y <= cliprect.max_y; y++)
+	// there are two pages, each of which is a full 8bpp
+	// the low 4 bits come from the bitmap directly
+	// the upper 4 bits were latched on each write into a separate bitmap
+	// page index is selected by the top bit of the page_select register
+	uint32_t const page_offset = ((~m_page_select & 0x80) << 10) | (m_tms34061->m_display.dispstart & 0x0ffff);
+	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
 	{
-		uint8_t *base = &m_tms34061->m_display.vram[(page_offset + y * 256) & VRAM_MASK];
-		uint8_t *latch = &m_tms34061->m_display.latchram[(page_offset + y * 256) & VRAM_MASK];
-		uint32_t *dest = &bitmap.pix32(y);
+		uint8_t const *const base = &m_tms34061->m_display.vram[(page_offset + y * 256) & VRAM_MASK];
+		uint8_t const *const latch = &m_tms34061->m_display.latchram[(page_offset + y * 256) & VRAM_MASK];
+		uint32_t *const dest = &bitmap.pix(y);
 
-		for (x = cliprect.min_x & ~1; x <= cliprect.max_x; x += 2)
+		for (int x = cliprect.min_x & ~1; x <= cliprect.max_x; x += 2)
 		{
 			dest[x + 0] = pens[(latch[x/2] & 0xf0) | (base[x/2] >> 4)];
 			dest[x + 1] = pens[((latch[x/2] << 4) & 0xf0) | (base[x/2] & 0x0f)];

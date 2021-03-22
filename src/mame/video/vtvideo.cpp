@@ -1,4 +1,4 @@
-// license:GPL-2.0+
+// license:BSD-3-Clause
 // copyright-holders:Miodrag Milanovic,Karl-Ludwig Deisenhofer
 /**********************************************************************
 DEC VT Terminal video emulation
@@ -78,6 +78,7 @@ vt100_video_device::vt100_video_device(const machine_config &mconfig, device_typ
 	, device_video_interface(mconfig, *this)
 	, m_read_ram(*this)
 	, m_write_vert_freq_intr(*this)
+	, m_write_lba3_lba4(*this)
 	, m_write_lba7(*this)
 	, m_char_rom(*this, finder_base::DUMMY_TAG)
 	, m_palette(*this, "palette")
@@ -106,11 +107,15 @@ void vt100_video_device::device_start()
 	/* resolve callbacks */
 	m_read_ram.resolve_safe(0);
 	m_write_vert_freq_intr.resolve_safe();
+	m_write_lba3_lba4.resolve();
 	m_write_lba7.resolve_safe();
 
 	// LBA7 is scan line frequency update
 	m_lba7_change_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(vt100_video_device::lba7_change), this));
 	m_lba7_change_timer->adjust(clocks_to_attotime(765), 0, clocks_to_attotime(765));
+
+	// LBA3 and LBA4 are first two stages of divide-by-17 counter
+	m_lba3_change_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(vt100_video_device::lba3_change), this));
 
 	screen().register_vblank_callback(vblank_state_delegate(&vt100_video_device::vblank_callback, this));
 
@@ -134,7 +139,9 @@ void vt100_video_device::device_start()
 void vt100_video_device::device_reset()
 {
 	m_palette->set_pen_color(0, 0x00, 0x00, 0x00); // black
-	m_palette->set_pen_color(1, 0xff, 0xff, 0xff); // white
+	m_palette->set_pen_color(1, 0xff - 100, 0xff - 100, 0xff - 100);  // WHITE (dim)
+	m_palette->set_pen_color(2, 0xff - 50, 0xff - 50, 0xff - 50);     // WHITE NORMAL
+	m_palette->set_pen_color(3, 0xff, 0xff, 0xff);              // WHITE (brighter)
 
 	m_height = 25;
 	m_height_MAX = 25;
@@ -203,7 +210,7 @@ void vt100_video_device::recompute_parameters()
 
 	int vert_pix_visible = m_height * (m_linedoubler ? 20 : 10);
 	int vert_pix_total = m_is_50hz ? (m_interlaced ? 629 : 630/2) : (m_interlaced ? 525 : 524/2);
-	attoseconds_t frame_period = clocks_to_attotime(vert_pix_total * 1530).as_attoseconds();
+	attotime frame_period = clocks_to_attotime(vert_pix_total * 1530);
 
 	// display 1 less filler pixel in 132 char. mode
 	int horiz_pix_visible = m_columns * (m_columns == 132 ? 9 : 10);
@@ -212,10 +219,10 @@ void vt100_video_device::recompute_parameters()
 	// dot clock is divided by 1.5 in 80 column mode
 	screen().set_unscaled_clock(m_columns == 132 ? clock() : clock() * 2 / 3);
 	rectangle visarea(0, horiz_pix_visible - 1, 0, vert_pix_visible - 1);
-	screen().configure(horiz_pix_total, vert_pix_total, visarea, frame_period);
+	screen().configure(horiz_pix_total, vert_pix_total, visarea, frame_period.as_attoseconds());
 
 	LOG("(RECOMPUTE) HPIX: %d (%d) - VPIX: %d (%d)\n", horiz_pix_visible, horiz_pix_total, vert_pix_visible, vert_pix_total);
-	LOG("(RECOMPUTE) FREQUENCY: %f\n", ATTOSECONDS_TO_HZ(frame_period));
+	LOG("(RECOMPUTE) FREQUENCY: %f\n", frame_period.as_hz());
 	if (m_interlaced)
 		LOG("(RECOMPUTE) * INTERLACED *\n");
 	if (m_linedoubler)
@@ -237,7 +244,7 @@ void vt100_video_device::vblank_callback(screen_device &screen, bool state)
 }
 
 // Also used by Rainbow-100 ************
-WRITE8_MEMBER(vt100_video_device::dc012_w)
+void vt100_video_device::dc012_w(offs_t offset, uint8_t data)
 {
 	// Writes to [10C] and [0C] are treated differently
 	// - see 3.1.3.9.5 DC012 Programming Information (PC-100 spec)
@@ -330,7 +337,7 @@ WRITE8_MEMBER(vt100_video_device::dc012_w)
 }
 
 // Writing to DC011 resets internal counters (& disturbs display) on real hardware.
-WRITE8_MEMBER(vt100_video_device::dc011_w)
+void vt100_video_device::dc011_w(uint8_t data)
 {
 	if (!BIT(data, 5))
 	{
@@ -351,79 +358,12 @@ WRITE8_MEMBER(vt100_video_device::dc011_w)
 	recompute_parameters();
 }
 
-WRITE8_MEMBER(vt100_video_device::brightness_w)
+void vt100_video_device::brightness_w(uint8_t data)
 {
 	//m_palette->set_pen_color(1, data, data, data);
 }
 
 
-
-void vt100_video_device::display_char(bitmap_ind16 &bitmap, uint8_t code, int x, int y, uint8_t scroll_region, uint8_t display_type)
-{
-	uint8_t line = 0;
-	int bit = 0, prevbit, invert = 0, j;
-	int double_width = (display_type == 2) ? 1 : 0;
-
-	int char_lines = m_linedoubler ? 20 : 10;
-	for (int i = 0; i < char_lines; i++)
-	{
-		int yy = y * char_lines + i;
-		assert(yy < bitmap.height());
-
-		switch (display_type)
-		{
-		case 0: // bottom half, double height
-			j = (i >> (m_linedoubler ? 2 : 1)) + 5; break;
-		case 1: // top half, double height
-			j = i >> (m_linedoubler ? 2 : 1); break;
-		case 2: // double width
-		case 3: // normal
-			j = i >> (m_linedoubler ? 1 : 0);  break;
-		default: j = 0; break;
-		}
-		// modify line since that is how it is stored in rom
-		if (j == 0) j = 15; else j = j - 1;
-
-		line = m_char_rom[(code & 0x7f) * 16 + j];
-
-		if (m_basic_attribute == 1)
-		{
-			if ((code & 0x80) == 0x80)
-				invert = 1;
-			else
-				invert = 0;
-		}
-
-		for (int b = 0; b < 8; b++)
-		{
-			prevbit = bit;
-			bit = BIT((line << b), 7);
-			if (double_width)
-			{
-				bitmap.pix16(yy, x * 20 + b * 2) = (bit | prevbit) ^ invert;
-				bitmap.pix16(yy, x * 20 + b * 2 + 1) = bit ^ invert;
-			}
-			else
-			{
-				bitmap.pix16(yy, x * 10 + b) = (bit | prevbit) ^ invert;
-			}
-		}
-		prevbit = bit;
-		// char interleave is filled with last bit
-		if (double_width)
-		{
-			bitmap.pix16(yy, x * 20 + 16) = (bit | prevbit) ^ invert;
-			bitmap.pix16(yy, x * 20 + 17) = bit ^ invert;
-			bitmap.pix16(yy, x * 20 + 18) = bit ^ invert;
-			bitmap.pix16(yy, x * 20 + 19) = bit ^ invert;
-		}
-		else
-		{
-			bitmap.pix16(yy, x * 10 + 8) = (bit | prevbit) ^ invert;
-			bitmap.pix16(yy, x * 10 + 9) = bit ^ invert;
-		}
-	}
-}
 
 void vt100_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
@@ -431,7 +371,6 @@ void vt100_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &cli
 	int line = 0;
 	int xpos = 0;
 	int ypos = 0;
-	uint8_t code;
 	int x = 0;
 	uint8_t scroll_region = 1; // binary 1
 	uint8_t display_type = 3;  // binary 11
@@ -440,8 +379,8 @@ void vt100_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &cli
 	if (m_read_ram(0) != 0x7f)
 		return;
 
-	int vert_charlines_MAX = m_height;
 	int fill_lines = m_fill_lines;
+	int vert_charlines_MAX = m_height + fill_lines;
 	if (m_linedoubler)
 	{
 		vert_charlines_MAX *= 2;
@@ -449,24 +388,24 @@ void vt100_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &cli
 	}
 	while (line < vert_charlines_MAX)
 	{
-		code = m_read_ram(addr + xpos);
+		uint8_t code = m_read_ram(addr + xpos);
 		if (code == 0x7f)
 		{
 			// end of line, fill empty till end of line
 			if (line >= fill_lines)
 			{
-				for (x = xpos; x < ((display_type == 2) ? (m_columns / 2) : m_columns); x++)
+				for (x = xpos; x < ((display_type != 3) ? (m_columns / 2) : m_columns); x++)
 				{
-					display_char(bitmap, code, x, ypos, scroll_region, display_type);
+					display_char(bitmap, code, x, ypos, scroll_region, display_type, false, false, false, false, false);
 				}
 			}
 			// move to new data
 			temp = m_read_ram(addr + xpos + 1) * 256 + m_read_ram(addr + xpos + 2);
 			addr = (temp)& 0x1fff;
-			// if A12 is 1 then it is 0x2000 block, if 0 then 0x4000 (AVO)
-			if (addr & 0x1000) addr &= 0xfff; else addr |= 0x2000;
+			// if A12 is 1 then it is 0x2000 block, if 0 then 0x4000 (AVO - not actually implemented?)
+			/*if (addr & 0x1000)*/ addr &= 0xfff; /*else addr |= 0x2000;*/
 			scroll_region = (temp >> 15) & 1;
-			display_type = (temp >> 13) & 3;
+			display_type = bitswap<2>((temp >> 13) & 3, 0, 1);
 			if (line >= fill_lines)
 				ypos++;
 			xpos = 0;
@@ -479,7 +418,8 @@ void vt100_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &cli
 			// display regular char
 			if (line >= fill_lines)
 			{
-				display_char(bitmap, code, xpos, ypos, scroll_region, display_type);
+				uint8_t attr = m_read_ram(0x1000 + addr + xpos);
+				display_char(bitmap, code & 0x7f, xpos, ypos, scroll_region, display_type, BIT(code, 7), !BIT(attr, 2), !BIT(attr, 0), !BIT(attr, 1), false);
 			}
 			xpos++;
 			if (xpos > m_columns)
@@ -489,7 +429,6 @@ void vt100_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &cli
 			}
 		}
 	}
-
 }
 
 // ****** RAINBOW ******
@@ -511,11 +450,11 @@ void vt100_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &cli
 // LINE ATTRIBUTE 'double_height' always is interpreted as 'double width + double height'
 
 // ATTRIBUTES:   No attributes = 0x0E
-// 1 = display char. in REVERSE   (encoded as 8 in display_type)  HIGH ACTIVE
-// 0 = display char. in BOLD      (encoded as 16 in display_type) LOW ACTIVE
-// 0 = display char. w. BLINK     (encoded as 32 in display_type) LOW ACTIVE
-// 0 = display char. w. UNDERLINE (encoded as 64 in display_type) LOW ACTIVE
-void rainbow_video_device::display_char(bitmap_ind16 &bitmap, uint8_t code, int x, int y, uint8_t scroll_region, uint8_t display_type)
+// 1 = display char. in REVERSE   (encoded as 1 in attribute) HIGH ACTIVE
+// 0 = display char. in BOLD      (encoded as 2 in attribute) LOW ACTIVE
+// 0 = display char. w. BLINK     (encoded as 4 in attribute) LOW ACTIVE
+// 0 = display char. w. UNDERLINE (encoded as 8 in attribute) LOW ACTIVE
+void vt100_video_device::display_char(bitmap_ind16 &bitmap, uint8_t code, int x, int y, uint8_t scroll_region, uint8_t display_type, bool invert, bool bold, bool blink, bool underline, bool blank)
 {
 	uint16_t x_preset = x << 3; // x_preset = x * 9 (= 132 column mode)
 	x_preset += x;
@@ -535,12 +474,6 @@ void rainbow_video_device::display_char(bitmap_ind16 &bitmap, uint8_t code, int 
 	int bit = 0, j = 0;
 	int fg_intensity;
 	int back_intensity, back_default_intensity;
-
-	int invert = (display_type & 8) ? 1 : 0; // REVERSE
-	int bold  = (display_type & 16) ? 0 : 1; // BIT 4
-	int blink = (display_type & 32) ? 0 : 1; // BIT 5
-	int underline = (display_type & 64) ? 0 : 1; // BIT 6
-	bool blank = (display_type & 128) ? true : false; // BIT 7
 
 	display_type = display_type & 3;
 
@@ -662,18 +595,18 @@ void rainbow_video_device::display_char(bitmap_ind16 &bitmap, uint8_t code, int 
 			// Double, 'double_height + double_width', then normal.
 			if (double_width)
 			{
-				bitmap.pix16(y_preset, DOUBLE_x_preset + (b << 1) + 1) = bit;
-				bitmap.pix16(y_preset, DOUBLE_x_preset + (b << 1)) = bit;
+				bitmap.pix(y_preset, DOUBLE_x_preset + (b << 1) + 1) = bit;
+				bitmap.pix(y_preset, DOUBLE_x_preset + (b << 1)) = bit;
 
 				if (double_height)
 				{
-					bitmap.pix16(1 + y_preset, DOUBLE_x_preset + (b << 1) + 1) = bit;
-					bitmap.pix16(1 + y_preset, DOUBLE_x_preset + (b << 1)) = bit;
+					bitmap.pix(1 + y_preset, DOUBLE_x_preset + (b << 1) + 1) = bit;
+					bitmap.pix(1 + y_preset, DOUBLE_x_preset + (b << 1)) = bit;
 				}
 			}
 			else
 			{
-				bitmap.pix16(y_preset, x_preset + b) = bit;
+				bitmap.pix(y_preset, x_preset + b) = bit;
 			}
 		} // for (8 bit)
 
@@ -681,21 +614,68 @@ void rainbow_video_device::display_char(bitmap_ind16 &bitmap, uint8_t code, int 
 		if (double_width)
 		{
 			// double chars: 18 or 20 bits
-			bitmap.pix16(y_preset, DOUBLE_x_preset + 16) = bit;
-			bitmap.pix16(y_preset, DOUBLE_x_preset + 17) = bit;
+			bitmap.pix(y_preset, DOUBLE_x_preset + 16) = bit;
+			bitmap.pix(y_preset, DOUBLE_x_preset + 17) = bit;
 
 			if (m_columns == 80)
 			{
-				bitmap.pix16(y_preset, DOUBLE_x_preset + 18) = bit;
-				bitmap.pix16(y_preset, DOUBLE_x_preset + 19) = bit;
+				bitmap.pix(y_preset, DOUBLE_x_preset + 18) = bit;
+				bitmap.pix(y_preset, DOUBLE_x_preset + 19) = bit;
 			}
 		}
 		else
 		{   // normal chars: 9 or 10 bits
-			bitmap.pix16(y_preset, x_preset + 8) = bit;
+			bitmap.pix(y_preset, x_preset + 8) = bit;
 
 			if (m_columns == 80)
-				bitmap.pix16(y_preset, x_preset + 9) = bit;
+				bitmap.pix(y_preset, x_preset + 9) = bit;
+		}
+
+		/* The DEC terminals use a single ROM bitmap font and
+		 * dot-stretching to synthesize multiple variants that are not
+		 * just nearest neighbor resampled. The result is the same
+		 * as one would get by fake-bolding; the already doubled raster image;
+		 * by rendering twice with 1px horizontal offset.
+		 *
+		 * For details see: https://vt100.net/dec/vt220/glyphs
+		 */
+		int prev_bit = back_intensity;
+		int bits_width = 21;
+		if (!double_width)
+		{
+			if (m_columns == 80)
+				bits_width = 11;
+			else
+				bits_width = 10;
+		}
+		for (int b = 0; b < bits_width; b++)
+		{
+			if (double_width)
+			{
+				if (bitmap.pix(y_preset, DOUBLE_x_preset + b) == fg_intensity)
+				{
+					prev_bit = fg_intensity;
+				}
+				else
+				{
+					if (prev_bit == fg_intensity)
+						bitmap.pix(y_preset, DOUBLE_x_preset + b) = fg_intensity;
+					prev_bit = back_intensity;
+				}
+			}
+			else
+			{
+				if (bitmap.pix(y_preset, x_preset + b) == fg_intensity)
+				{
+					prev_bit = fg_intensity;
+				}
+				else
+				{
+					if (prev_bit == fg_intensity)
+						bitmap.pix(y_preset, x_preset + b) = fg_intensity;
+					prev_bit = back_intensity;
+				}
+			}
 		}
 	} // for (scan_line)
 
@@ -742,17 +722,18 @@ void rainbow_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &c
 	{
 		code = m_read_ram(addr + xpos);
 
+		bool force_blank;
 		if (code == 0x00)        // TODO: investigate side effect on regular zero character!
-			display_type |= 0x80; // DEFAULT: filler chars (till end of line) and empty lines (00) will be blanked
+			force_blank = true; // DEFAULT: filler chars (till end of line) and empty lines (00) will be blanked
 		else
-			display_type &= 0x7f; // else activate display.
+			force_blank = false; // else activate display.
 
 		if (code == 0xff) // end of line, fill empty till end of line
 		{
-			// HINT: display_type is already shifted! All except 3 is DOUBLE WIDTH 40 or 66 chars per line
+			// All except 3 is DOUBLE WIDTH 40 or 66 chars per line
 			for (x = xpos; x < ((display_type != 3) ? (m_columns / 2) : m_columns); x++)
 			{
-					display_char(bitmap, code, x, ypos, scroll_region, display_type | 0x80);
+					display_char(bitmap, code, x, ypos, scroll_region, display_type, false, false, false, false, true);
 			}
 
 			//  LINE ATTRIBUTE - valid for all chars on next line  ** DO NOT SHUFFLE **
@@ -779,10 +760,10 @@ void rainbow_video_device::video_update(bitmap_ind16 &bitmap, const rectangle &c
 		else
 		{
 			attr_addr = 0x1000 | ((addr + xpos) & 0x0fff);
-			temp = (m_read_ram(attr_addr) & 15) << 3; // get character attributes
+			temp = (m_read_ram(attr_addr) & 15); // get character attributes
 
 			// see 'display_char' for an explanation of attribute encoding -
-			display_char(bitmap, code, xpos, ypos, scroll_region, display_type | temp);
+			display_char(bitmap, code, xpos, ypos, scroll_region, display_type, BIT(temp, 0), !BIT(temp, 1), !BIT(temp, 2), !BIT(temp, 3), force_blank);
 
 			xpos++;
 			if (xpos > m_columns)
@@ -862,7 +843,7 @@ int rainbow_video_device::MHFU(int ASK)
 		if (MHFU_FLAG == true)
 			if (MHFU_counter < 254)
 				MHFU_counter++;
-
+		[[fallthrough]];
 	case MHFU_VALUE:
 		return MHFU_counter;
 
@@ -892,6 +873,20 @@ TIMER_CALLBACK_MEMBER(vt100_video_device::lba7_change)
 {
 	m_lba7 = (m_lba7) ? 0 : 1;
 	m_write_lba7(m_lba7);
+
+	if (!m_write_lba3_lba4.isnull())
+	{
+		// The first of every eight low periods of LBA 3 is twice as long
+		m_write_lba3_lba4(2);
+		m_lba3_change_timer->adjust(clocks_to_attotime(90), 3);
+	}
+}
+
+TIMER_CALLBACK_MEMBER(vt100_video_device::lba3_change)
+{
+	m_write_lba3_lba4(param & 3);
+	if (param <= 16)
+		m_lba3_change_timer->adjust(clocks_to_attotime(45), param + 1);
 }
 
 
@@ -899,10 +894,7 @@ TIMER_CALLBACK_MEMBER(vt100_video_device::lba7_change)
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(vt100_video_device::device_add_mconfig)
-	MCFG_PALETTE_ADD_MONOCHROME("palette")
-MACHINE_CONFIG_END
-
-MACHINE_CONFIG_START(rainbow_video_device::device_add_mconfig)
-	MCFG_PALETTE_ADD("palette", 4)
-MACHINE_CONFIG_END
+void vt100_video_device::device_add_mconfig(machine_config &config)
+{
+	PALETTE(config, m_palette).set_entries(4);
+}

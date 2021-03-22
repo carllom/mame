@@ -86,6 +86,7 @@
 
 
 
+
 //**************************************************************************
 //  CONSTANTS
 //**************************************************************************
@@ -97,6 +98,7 @@
 #define LOG_INT_MASKING         0
 #define LOG_GIME                0
 #define LOG_TIMER               0
+#define LOG_PALETTE             0
 
 
 
@@ -114,9 +116,11 @@ gime_device::gime_device(const machine_config &mconfig, device_type type, const 
 	, m_write_irq(*this)
 	, m_write_firq(*this)
 	, m_read_floating_bus(*this)
-	, m_maincpu_tag(nullptr)
-	, m_ram_tag(nullptr)
-	, m_ext_tag(nullptr)
+	, m_maincpu(*this, finder_base::DUMMY_TAG)
+	, m_ram(*this, finder_base::DUMMY_TAG)
+	, m_cart_device(*this, finder_base::DUMMY_TAG)
+	, m_rom(nullptr)
+	, m_rom_region(*this, finder_base::DUMMY_TAG)
 {
 }
 
@@ -128,18 +132,12 @@ gime_device::gime_device(const machine_config &mconfig, device_type type, const 
 
 void gime_device::device_start(void)
 {
-	// find the RAM device - make sure that it is started
-	m_ram = machine().device<ram_device>(m_ram_tag);
 	if (!m_ram->started())
 		throw device_missing_dependencies();
 
-	// find the CART device - make sure that it is started
-	m_cart_device = machine().device<cococart_slot_device>(m_ext_tag);
 	if (!m_cart_device->started())
 		throw device_missing_dependencies();
 
-	// find the CPU device - make sure that it is started
-	m_cpu = machine().device<cpu_device>(m_maincpu_tag);
 	if (!m_cpu->started())
 		throw device_missing_dependencies();
 
@@ -156,13 +154,13 @@ void gime_device::device_start(void)
 	m_gime_clock_timer = timer_alloc(TIMER_GIME_CLOCK);
 
 	// setup banks
-	assert(ARRAY_LENGTH(m_read_banks) == ARRAY_LENGTH(m_write_banks));
-	for (int i = 0; i < ARRAY_LENGTH(m_read_banks); i++)
+	assert(std::size(m_read_banks) == std::size(m_write_banks));
+	for (int i = 0; i < std::size(m_read_banks); i++)
 	{
 		char buffer[8];
-		snprintf(buffer, ARRAY_LENGTH(buffer), "rbank%d", i);
+		snprintf(buffer, std::size(buffer), "rbank%d", i);
 		m_read_banks[i] = machine().root_device().membank(buffer);
-		snprintf(buffer, ARRAY_LENGTH(buffer), "wbank%d", i);
+		snprintf(buffer, std::size(buffer), "wbank%d", i);
 		m_write_banks[i] = machine().root_device().membank(buffer);
 	}
 
@@ -172,7 +170,7 @@ void gime_device::device_start(void)
 	m_read_floating_bus.resolve_safe(0);
 
 	// set up ROM/RAM pointers
-	m_rom = machine().root_device().memregion(m_maincpu_tag)->base();
+	m_rom = m_rom_region->base();
 	m_cart_rom = m_cart_device->get_cart_base();
 	m_cart_size = m_cart_device->get_cart_size();
 
@@ -182,8 +180,8 @@ void gime_device::device_start(void)
 	update_composite_palette();
 
 	// set up save states
-	save_pointer(NAME(m_gime_registers), ARRAY_LENGTH(m_gime_registers));
-	save_pointer(NAME(m_mmu), ARRAY_LENGTH(m_mmu));
+	save_item(NAME(m_gime_registers));
+	save_item(NAME(m_mmu));
 	save_item(NAME(m_sam_state));
 	save_item(NAME(m_ff22_value));
 	save_item(NAME(m_interrupt_value));
@@ -302,6 +300,8 @@ void gime_device::device_reset(void)
 	m_legacy_video = false;
 
 	m_displayed_rgb = false;
+
+	m_ff22_value = 0;
 
 	update_memory();
 	reset_timer();
@@ -456,7 +456,7 @@ void gime_device::reset_timer(void)
 	/* value is from 0-4095 */
 	m_timer_value = ((m_gime_registers[0x04] & 0x0F) * 0x100) | m_gime_registers[0x05];
 
-	/* depending on the GIME type, cannonicalize the value */
+	/* depending on the GIME type, canonicalize the value */
 	if (m_timer_value > 0)
 	{
 		if (GIME_TYPE_1987)
@@ -508,7 +508,7 @@ inline void gime_device::update_memory(void)
 void gime_device::update_memory(int bank)
 {
 	// choose bank
-	assert((bank >= 0) && (bank < ARRAY_LENGTH(m_read_banks)) && (bank < ARRAY_LENGTH(m_write_banks)));
+	assert((bank >= 0) && (bank < std::size(m_read_banks)) && (bank < std::size(m_write_banks)));
 	memory_bank *read_bank = m_read_banks[bank];
 	memory_bank *write_bank = m_write_banks[bank];
 
@@ -520,7 +520,7 @@ void gime_device::update_memory(int bank)
 	{
 		bank = 7;
 		offset = 0x1E00;
-		force_ram = true;
+		force_ram = (m_gime_registers[0] & 0x08);
 		enable_mmu = enable_mmu && !(m_gime_registers[0] & 0x08);
 	}
 	else
@@ -554,26 +554,24 @@ void gime_device::update_memory(int bank)
 	if (((block & 0x3F) >= 0x3C) && !(m_sam_state & SAM_STATE_TY) && !force_ram)
 	{
 		// we're in ROM
-		static const uint8_t rom_map[4][4] =
-		{
-			{ 0, 1, 6, 7 },
-			{ 0, 1, 6, 7 },
-			{ 0, 1, 2, 3 },
-			{ 4, 5, 6, 7 }
-		};
-
-		// look up the block in the ROM map
-		block = rom_map[m_gime_registers[0] & 3][(block & 0x3F) - 0x3C];
+		const uint8_t rom_mode = m_gime_registers[0] & 3;
 
 		// are we in onboard ROM or cart ROM?
-		if (BIT(block, 2) && m_cart_rom != nullptr)
+		if (rom_mode == 3 || (rom_mode < 2 && (block & 0x3F) >= 0x3E))
 		{
-			// perform the look up
-			memory = &m_cart_rom[((block & 3) * 0x2000) % m_cart_size];
+			if (m_cart_rom)
+			{
+				// perform the look up (ROM page is pinned to MMU slot)
+				memory = &m_cart_rom[(((bank & 3) ^ 2) * 0x2000) % m_cart_size];
+			}
+			else
+			{
+				memory = 0;
+			}
 		}
 		else
 		{
-			memory = &m_rom[(block & 3) * 0x2000];
+			memory = &m_rom[(bank & 3) * 0x2000];
 		}
 		is_read_only = true;
 	}
@@ -588,8 +586,16 @@ void gime_device::update_memory(int bank)
 	memory += offset;
 
 	// set the banks
-	read_bank->set_base(memory);
-	write_bank->set_base(is_read_only ? m_dummy_bank : memory);
+	if (memory)
+	{
+		read_bank->set_base(memory);
+		write_bank->set_base(is_read_only ? m_dummy_bank : memory);
+	}
+	else
+	{
+		read_bank->set_base(m_dummy_bank);
+		write_bank->set_base(m_dummy_bank);
+	}
 }
 
 
@@ -1009,6 +1015,10 @@ inline void gime_device::write_palette_register(offs_t offset, uint8_t data)
 {
 	offset &= 0x0F;
 
+	// perform logging
+	if (LOG_PALETTE)
+		logerror("%s: CoCo3 Palette: $%04x <== $%02x\n", describe_context(), offset + 0xffB0, data);
+
 	/* has this entry changed? */
 	if (m_palette_rotated[m_palette_rotated_position][offset] != data)
 	{
@@ -1016,10 +1026,10 @@ inline void gime_device::write_palette_register(offs_t offset, uint8_t data)
 		if (m_palette_rotated_position_used)
 		{
 			/* identify the new position */
-			uint16_t new_palette_rotated_position = (m_palette_rotated_position + 1) % ARRAY_LENGTH(m_palette_rotated);
+			uint16_t new_palette_rotated_position = (m_palette_rotated_position + 1) % std::size(m_palette_rotated);
 
 			/* copy the palette */
-			for (int i = 0; i < ARRAY_LENGTH(m_palette_rotated[0]); i++)
+			for (int i = 0; i < std::size(m_palette_rotated[0]); i++)
 				m_palette_rotated[new_palette_rotated_position][i] = m_palette_rotated[m_palette_rotated_position][i];
 
 			/* and advance */
@@ -1254,16 +1264,9 @@ inline uint16_t gime_device::get_lines_per_row(void)
 	uint16_t lines_per_row;
 	if (m_legacy_video)
 	{
-		switch(m_ff22_value & (MODE_AG|MODE_GM2|MODE_GM1|MODE_GM0))
+		switch(m_ff22_value & MODE_AG)
 		{
 			case 0:
-			case MODE_GM0:
-			case MODE_GM1:
-			case MODE_GM1|MODE_GM0:
-			case MODE_GM2:
-			case MODE_GM2|MODE_GM0:
-			case MODE_GM2|MODE_GM1:
-			case MODE_GM2|MODE_GM1|MODE_GM0:
 			{
 				// http://cocogamedev.mxf.yuku.com/topic/4299238#.VyC6ozArI-U
 				static int ff9c_lines_per_row[16] =
@@ -1278,20 +1281,21 @@ inline uint16_t gime_device::get_lines_per_row(void)
 			}
 
 			case MODE_AG:
-			case MODE_AG|MODE_GM0:
-			case MODE_AG|MODE_GM1:
-				lines_per_row = 3;
-				break;
-
-			case MODE_AG|MODE_GM1|MODE_GM0:
-			case MODE_AG|MODE_GM2:
-				lines_per_row = 2;
-				break;
-
-			case MODE_AG|MODE_GM2|MODE_GM0:
-			case MODE_AG|MODE_GM2|MODE_GM1:
-			case MODE_AG|MODE_GM2|MODE_GM1|MODE_GM0:
-				lines_per_row = 1;
+				switch (m_sam_state & (SAM_STATE_V0|SAM_STATE_V1|SAM_STATE_V2))
+				{
+				case 0:
+					lines_per_row = 12;
+					break;
+				case SAM_STATE_V1:
+					lines_per_row = 3;
+					break;
+				case SAM_STATE_V2:
+				case SAM_STATE_V1|SAM_STATE_V0:
+					lines_per_row = 2;
+					break;
+				default:
+					lines_per_row = 1;
+				}
 				break;
 
 			default:
@@ -2028,26 +2032,14 @@ const uint8_t gime_device::hires_font[128][12] =
 //  VARIATIONS
 //**************************************************************************
 
-namespace
-{
-	class gime_ntsc_device : public gime_device
-	{
-	public:
-		gime_ntsc_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-			: gime_device(mconfig, GIME_NTSC, tag, owner, clock, ntsc_round_fontdata8x12)
-		{
-		}
-	};
-
-	class gime_pal_device : public gime_device
-	{
-	public:
-		gime_pal_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-			: gime_device(mconfig, GIME_PAL, tag, owner, clock, pal_round_fontdata8x12)
-		{
-		}
-	};
-};
-
 DEFINE_DEVICE_TYPE(GIME_NTSC, gime_ntsc_device, "gime_ntsc", "TCC1014 (VC2645QC) GIME (NTSC)")
 DEFINE_DEVICE_TYPE(GIME_PAL,  gime_pal_device,  "gime_pal",  "TCC1014 (VC2645QC) GIME (PAL)")
+
+gime_ntsc_device::gime_ntsc_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: gime_device(mconfig, GIME_NTSC, tag, owner, clock, ntsc_round_fontdata8x12) { }
+
+gime_pal_device::gime_pal_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: gime_device(mconfig, GIME_PAL, tag, owner, clock, pal_round_fontdata8x12) { }
+
+template class device_finder<gime_device, false>;
+template class device_finder<gime_device, true>;

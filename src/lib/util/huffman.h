@@ -8,13 +8,13 @@
 
 ***************************************************************************/
 
+#ifndef MAME_UTIL_HUFFMAN_H
+#define MAME_UTIL_HUFFMAN_H
+
 #pragma once
 
-#ifndef __HUFFMAN_H__
-#define __HUFFMAN_H__
-
-#include "osdcore.h"
 #include "bitstream.h"
+#include "osdcomm.h"
 
 
 //**************************************************************************
@@ -219,5 +219,4 @@ inline uint32_t huffman_decoder<_NumCodes, _MaxBits>::decode_one(bitstream_in &b
 	return lookup >> 5;
 }
 
-
-#endif
+#endif // MAME_UTIL_HUFFMAN_H

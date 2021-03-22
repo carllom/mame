@@ -11,9 +11,10 @@
 based on lib/formats/esq16_dsk.h
 
 *********************************************************************/
+#ifndef MAME_FORMATS_RX50_DSK_H
+#define MAME_FORMATS_RX50_DSK_H
 
-#ifndef RX50_DSK_H_
-#define RX50_DSK_H_
+#pragma once
 
 #include "flopimg.h"
 
@@ -22,9 +23,9 @@ class rx50img_format : public floppy_image_format_t
 public:
 	rx50img_format();
 
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
-	virtual bool load(io_generic *io, uint32_t form_factor, floppy_image *image) override;
-	virtual bool save(io_generic *io, floppy_image *image) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
+	virtual bool load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image) override;
+	virtual bool save(io_generic *io, const std::vector<uint32_t> &variants, floppy_image *image) override;
 
 	virtual const char *name() const override;
 	virtual const char *description() const override;
@@ -39,4 +40,4 @@ private:
 
 extern const floppy_format_type FLOPPY_RX50IMG_FORMAT;
 
-#endif /* RX50_DSK_H_ */
+#endif // MAME_FORMATS_RX50_DSK_H

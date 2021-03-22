@@ -16,6 +16,7 @@
 #include "bus/arcadia/slot.h"
 #include "bus/arcadia/rom.h"
 
+#include "emupal.h"
 #include "screen.h"
 
 // space vultures sprites above
@@ -51,25 +52,12 @@ public:
 		m_screen(*this, "screen")
 	{ }
 
-	DECLARE_DRIVER_INIT(arcadia);
+	void init_arcadia();
 	void arcadia(machine_config &config);
 
 protected:
-	DECLARE_READ_LINE_MEMBER(vsync_r);
-	DECLARE_READ8_MEMBER(video_r);
-	DECLARE_WRITE8_MEMBER(video_w);
-
 	virtual void machine_start() override;
 	virtual void video_start() override;
-	DECLARE_PALETTE_INIT(arcadia);
-	uint32_t screen_update_arcadia(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
-	INTERRUPT_GEN_MEMBER(video_line);
-	void arcadia_mem(address_map &map);
-
-	void draw_char(uint8_t *ch, int charcode, int y, int x);
-	void vh_draw_line(int y, uint8_t chars1[16]);
-	int sprite_collision(int n1, int n2);
-	void draw_sprites();
 
 private:
 	int m_line;
@@ -129,11 +117,24 @@ private:
 	required_ioport m_controller2_extra;
 	required_ioport m_joysticks;
 
-	required_device<cpu_device> m_maincpu;
+	required_device<s2650_device> m_maincpu;
 	required_device<arcadia_cart_slot_device> m_cart;
 	required_device<gfxdecode_device> m_gfxdecode;
 	required_device<palette_device> m_palette;
 	required_device<screen_device> m_screen;
+
+	DECLARE_READ_LINE_MEMBER(vsync_r);
+	uint8_t video_r(offs_t offset);
+	void video_w(offs_t offset, uint8_t data);
+	void palette_init(palette_device &palette) const;
+	uint32_t screen_update_arcadia(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+	INTERRUPT_GEN_MEMBER(video_line);
+	void arcadia_mem(address_map &map);
+
+	void draw_char(uint8_t *ch, int charcode, int y, int x);
+	void vh_draw_line(int y, uint8_t chars1[16]);
+	int sprite_collision(int n1, int n2);
+	void draw_sprites();
 };
 
 #endif // MAME_INCLUDES_ARCADIA_H

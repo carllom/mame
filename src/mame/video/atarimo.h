@@ -15,19 +15,6 @@
 
 
 //**************************************************************************
-//  DEVICE CONFIGURATION MACROS
-//**************************************************************************
-
-#define MCFG_ATARI_MOTION_OBJECTS_ADD(_tag, _screen, _config) \
-	MCFG_DEVICE_ADD(_tag, ATARI_MOTION_OBJECTS, 0) \
-	MCFG_VIDEO_SET_SCREEN(_screen) \
-	downcast<atari_motion_objects_device &>(*device).set_config(_config);
-
-#define MCFG_ATARI_MOTION_OBJECTS_GFXDECODE(_gfxtag) \
-	downcast<atari_motion_objects_device &>(*device).set_gfxdecode_tag("^" _gfxtag);
-
-
-//**************************************************************************
 //  TYPE DEFINITIONS
 //**************************************************************************
 
@@ -83,10 +70,18 @@ class atari_motion_objects_device : public sprite16_device_ind16,
 
 public:
 	// construction/destruction
+	template <typename T>
+	atari_motion_objects_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, T &&screen_tag, const atari_motion_objects_config &config)
+		: atari_motion_objects_device(mconfig, tag, owner, clock)
+	{
+		set_screen(std::forward<T>(screen_tag));
+		set_config(config);
+	}
+
 	atari_motion_objects_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
 	// configuration
-	void set_gfxdecode_tag(const char *tag) { m_gfxdecode.set_tag(tag); }
+	template <typename T> void set_gfxdecode(T &&tag) { m_gfxdecode.set_tag(std::forward<T>(tag)); }
 	void set_config(const atari_motion_objects_config &config) { static_cast<atari_motion_objects_config &>(*this) = config; }
 
 	// getters
@@ -102,11 +97,11 @@ public:
 	void set_xscroll(int xscroll) { m_xscroll = xscroll & m_bitmapxmask; }
 	void set_yscroll(int yscroll) { m_yscroll = yscroll & m_bitmapymask; }
 	void set_scroll(int xscroll, int yscroll) { set_xscroll(xscroll); set_yscroll(yscroll); }
-	void set_slipram(uint16_t *ram) { m_slipram.set_target(ram, 2); }
+	void set_slipram(uint16_t *ram) { m_slipram = ram; }
 
 	// rendering
 	virtual void draw(bitmap_ind16 &bitmap, const rectangle &cliprect) override;
-	void apply_stain(bitmap_ind16 &bitmap, uint16_t *pf, uint16_t *mo, int x, int y);
+	void apply_stain(bitmap_ind16 &bitmap, uint16_t *pf, uint16_t const *mo, int x, int y);
 
 	// memory access
 	uint16_t &slipram(int offset) { return m_slipram[offset]; }
@@ -206,21 +201,22 @@ private:
 
 	// live state
 	emu_timer *             m_force_update_timer;   // timer for forced updating
-	uint32_t                  m_bank;               // current bank number
-	uint32_t                  m_xscroll;            // xscroll offset
-	uint32_t                  m_yscroll;            // yscroll offset
+	uint32_t                m_bank;               // current bank number
+	uint32_t                m_xscroll;            // xscroll offset
+	uint32_t                m_yscroll;            // yscroll offset
 
 	// arrays
-	optional_shared_ptr<uint16_t> m_slipram;    // pointer to the SLIP RAM
+	uint16_t *              m_slipram;    // pointer to the SLIP RAM
+	optional_shared_ptr<u16> m_slipramshare;
 	std::vector<uint32_t>   m_codelookup;       // lookup table for codes
 	std::vector<uint8_t>    m_colorlookup;       // lookup table for colors
 	std::vector<uint8_t>    m_gfxlookup;         // lookup table for graphics
 
-	uint16_t                  m_activelist[MAX_PER_BANK*4]; // active list
-	uint16_t *                m_activelast;           // last entry in the active list
+	uint16_t                m_activelist[MAX_PER_BANK*4]; // active list
+	uint16_t *              m_activelast;           // last entry in the active list
 
-	uint32_t                  m_last_xpos;          // (during processing) the previous X position
-	uint32_t                  m_next_xpos;          // (during processing) the next X position
+	uint32_t                m_last_xpos;          // (during processing) the previous X position
+	uint32_t                m_next_xpos;          // (during processing) the next X position
 	required_device<gfxdecode_device> m_gfxdecode;
 };
 

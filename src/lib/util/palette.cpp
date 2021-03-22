@@ -8,11 +8,11 @@
 
 ******************************************************************************/
 
-#include <assert.h>
+#include <cassert>
 
 #include "palette.h"
-#include <stdlib.h>
-#include <math.h>
+#include <cstdlib>
+#include <cmath>
 #include <algorithm>
 
 
@@ -77,7 +77,7 @@ void palette_client::dirty_state::resize(uint32_t colors)
 	// resize to the correct number of dwords and mark all entries dirty
 	uint32_t dirty_dwords = (colors + 31) / 32;
 	m_dirty.resize(dirty_dwords);
-	memset(&m_dirty[0], 0xff, dirty_dwords*4);
+	std::fill(m_dirty.begin(), m_dirty.end(), ~uint32_t(0));
 
 	// mark all entries dirty
 	m_dirty[dirty_dwords - 1] &= (1 << (colors % 32)) - 1;
@@ -108,7 +108,8 @@ void palette_client::dirty_state::mark_dirty(uint32_t index)
 void palette_client::dirty_state::reset()
 {
 	// erase relevant entries in the new live one
-	memset(&m_dirty[m_mindirty / 32], 0, ((m_maxdirty / 32) + 1 - (m_mindirty / 32)) * sizeof(uint32_t));
+	if (m_mindirty <= m_maxdirty)
+		std::fill(&m_dirty[m_mindirty / 32], &m_dirty[m_maxdirty / 32] + 1, 0);
 	m_mindirty = m_dirty.size() * 32 - 1;
 	m_maxdirty = 0;
 }
@@ -348,9 +349,11 @@ void palette_t::set_gamma(float gamma)
 
 void palette_t::entry_set_color(uint32_t index, rgb_t rgb)
 {
-	// if out of range, or unchanged, ignore
-	if (index >= m_numcolors || m_entry_color[index] == rgb)
+	// if unchanged, ignore
+	if (m_entry_color[index] == rgb)
 		return;
+
+	assert(index < m_numcolors);
 
 	// set the color
 	m_entry_color[index] = rgb;
@@ -368,9 +371,11 @@ void palette_t::entry_set_color(uint32_t index, rgb_t rgb)
 
 void palette_t::entry_set_red_level(uint32_t index, uint8_t level)
 {
-	// if out of range, or unchanged, ignore
-	if (index >= m_numcolors || m_entry_color[index].r() == level)
+	// if unchanged, ignore
+	if (m_entry_color[index].r() == level)
 		return;
+
+	assert(index < m_numcolors);
 
 	// set the level
 	m_entry_color[index].set_r(level);
@@ -388,9 +393,11 @@ void palette_t::entry_set_red_level(uint32_t index, uint8_t level)
 
 void palette_t::entry_set_green_level(uint32_t index, uint8_t level)
 {
-	// if out of range, or unchanged, ignore
-	if (index >= m_numcolors || m_entry_color[index].g() == level)
+	// if unchanged, ignore
+	if (m_entry_color[index].g() == level)
 		return;
+
+	assert(index < m_numcolors);
 
 	// set the level
 	m_entry_color[index].set_g(level);
@@ -408,9 +415,11 @@ void palette_t::entry_set_green_level(uint32_t index, uint8_t level)
 
 void palette_t::entry_set_blue_level(uint32_t index, uint8_t level)
 {
-	// if out of range, or unchanged, ignore
-	if (index >= m_numcolors || m_entry_color[index].b() == level)
+	// if unchanged, ignore
+	if (m_entry_color[index].b() == level)
 		return;
+
+	assert(index < m_numcolors);
 
 	// set the level
 	m_entry_color[index].set_b(level);
@@ -428,9 +437,11 @@ void palette_t::entry_set_blue_level(uint32_t index, uint8_t level)
 
 void palette_t::entry_set_contrast(uint32_t index, float contrast)
 {
-	// if out of range, or unchanged, ignore
-	if (index >= m_numcolors || m_entry_contrast[index] == contrast)
+	// if unchanged, ignore
+	if (m_entry_contrast[index] == contrast)
 		return;
+
+	assert(index < m_numcolors);
 
 	// set the contrast
 	m_entry_contrast[index] = contrast;
@@ -451,8 +462,10 @@ void palette_t::group_set_brightness(uint32_t group, float brightness)
 	// convert incoming value to normalized result
 	brightness = (brightness - 1.0f) * 256.0f;
 
-	// if out of range, or unchanged, ignore
-	if (group >= m_numgroups || m_group_bright[group] == brightness)
+	assert(group < m_numgroups);
+
+	// if unchanged, ignore
+	if (m_group_bright[group] == brightness)
 		return;
 
 	// set the contrast
@@ -471,9 +484,11 @@ void palette_t::group_set_brightness(uint32_t group, float brightness)
 
 void palette_t::group_set_contrast(uint32_t group, float contrast)
 {
-	// if out of range, or unchanged, ignore
-	if (group >= m_numgroups || m_group_contrast[group] == contrast)
+	// if unchanged, ignore
+	if (m_group_contrast[group] == contrast)
 		return;
+
+	assert(group < m_numgroups);
 
 	// set the contrast
 	m_group_contrast[group] = contrast;

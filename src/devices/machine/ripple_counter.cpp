@@ -35,7 +35,7 @@ DEFINE_DEVICE_TYPE(RIPPLE_COUNTER, ripple_counter_device, "ripple_counter", "Gen
 
 ripple_counter_device::ripple_counter_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock)
 	: device_t(mconfig, RIPPLE_COUNTER, tag, owner, clock),
-		device_rom_interface(mconfig, *this, 0, ENDIANNESS_LITTLE, 8),
+		device_rom_interface(mconfig, *this),
 		m_count_out_cb(*this),
 		m_rom_out_cb(*this),
 		m_count_timer(nullptr),
@@ -44,19 +44,6 @@ ripple_counter_device::ripple_counter_device(const machine_config &mconfig, cons
 		m_clk(false),
 		m_reset(false)
 {
-}
-
-
-//-------------------------------------------------
-//  static_set_stages - configure the number of
-//  stages used to count
-//-------------------------------------------------
-
-void ripple_counter_device::static_set_stages(device_t &device, u8 stages)
-{
-	auto &dev = downcast<ripple_counter_device &>(device);
-	dev.m_count_mask = (1U << stages) - 1;
-	dev.set_rom_addr_width(stages);
 }
 
 

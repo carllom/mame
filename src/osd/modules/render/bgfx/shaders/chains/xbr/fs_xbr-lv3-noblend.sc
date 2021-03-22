@@ -5,7 +5,7 @@ $input v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_texcoo
 
 /*
    Hyllian's xBR-lv3-noblend - Shader
-   
+
    Copyright (C) 2011/2016 Hyllian - sergiogdb@gmail.com
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -166,16 +166,16 @@ void main()
 	// It uses CORNER_C if none of the others are defined.
 #ifdef CORNER_A
 	vec4 interp_restriction_lv1 = interp_restriction_lv0;
-#elif CORNER_B
+#elif defined(CORNER_B)
 	vec4 interp_restriction_lv1 = (interp_restriction_lv0 * (neq(f,b) * neq(h,d) + eq(e,i) * neq(f,i4) * neq(h,i5) + eq(e,g) + eq(e,c)));
-#elif CORNER_D
+#elif defined(CORNER_D)
 	vec4 interp_restriction_lv1 = (interp_restriction_lv0 * (neq(f,b) * neq(h,d) + eq(e,i) * neq(f,i4) * neq(h,i5) + eq(e,g) + eq(e,c)) * (vec4(notEqual(f,f4)) * vec4(notEqual(f,i)) + vec4(notEqual(h,h5)) * vec4(notEqual(h,i)) + vec4(notEqual(h,g)) + vec4(notEqual(f,c)) + eq(b,c1) * eq(d,g0)));
-#elif CORNER_C
+#elif defined(CORNER_C)
 	vec4 interp_restriction_lv1 = (interp_restriction_lv0 * (neq(f,b) * neq(f,c) + neq(h,d) * neq(h,g) + eq(e,i) * (neq(f,f4) * neq(f,i4) + neq(h,h5) * neq(h,i5)) + eq(e,g) + eq(e,c)));
 #endif
 
 	interp_restriction_lv1 = clamp(interp_restriction_lv1, 0.0, 1.0);
-	
+
 	vec4 interp_restriction_lv2_left = vec4(notEqual(e,g)) * vec4(notEqual(d,g));
 	vec4 interp_restriction_lv2_up   = vec4(notEqual(e,c)) * vec4(notEqual(b,c));
 	vec4 interp_restriction_lv3_left = eq2(g,g0) * vec4(notEqual(d0,g0));
@@ -186,11 +186,11 @@ void main()
 
 	vec4 one      = vec4(1.0, 1.0, 1.0, 1.0);
 	vec4 zero     = vec4(0.0, 0.0, 0.0, 0.0);
-	
+
 	vec4 edri     = vec4(lessThanEqual(wd1,wd2)) * interp_restriction_lv1;
 	vec4 edr      = vec4(lessThan(wd1,wd2)) * interp_restriction_lv1 * ((1.0 - edri.yzwx) + (1.0 - edri.wxyz));
 	edr = clamp(edr, 0.0, 1.0);
-	
+
 	vec4 hcDiff = df(h,c);
 	vec4 fgDiff = df(f,g);
 	vec4 edr_left = vec4(lessThanEqual(XBR_LV2_COEFFICIENT.xxxx * fgDiff, hcDiff)) * interp_restriction_lv2_left * edr * (1.0 - edri.yzwx) * eq(e,c);

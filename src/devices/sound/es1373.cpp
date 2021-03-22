@@ -71,28 +71,31 @@
 #define ES_PCI_READ 0
 #define ES_PCI_WRITE 1
 
-MACHINE_CONFIG_START(es1373_device::device_add_mconfig)
-	MCFG_SPEAKER_STANDARD_STEREO("lspeaker", "rspeaker")
-MACHINE_CONFIG_END
+void es1373_device::device_add_mconfig(machine_config &config)
+{
+	SPEAKER(config, "lspeaker").front_left();
+	SPEAKER(config, "rspeaker").front_right();
+}
 
 DEFINE_DEVICE_TYPE(ES1373, es1373_device, "es1373", "Creative Labs Ensoniq AudioPCI97 ES1373")
 
-ADDRESS_MAP_START(es1373_device::map)
-	AM_RANGE(0x00, 0x3f) AM_READWRITE  (reg_r,  reg_w)
-ADDRESS_MAP_END
-
-es1373_device::es1373_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: pci_device(mconfig, ES1373, tag, owner, clock),
-		device_sound_interface(mconfig, *this), m_stream(nullptr),
-		m_eslog(nullptr), m_tempCount(0), m_timer(nullptr), m_memory_space(nullptr), m_cpu_tag(nullptr), m_cpu(nullptr),
-		m_irq_num(-1)
+void es1373_device::map(address_map &map)
 {
+	map(0x00, 0x3f).rw(FUNC(es1373_device::reg_r), FUNC(es1373_device::reg_w));
 }
 
-void es1373_device::set_irq_info(const char *tag, const int irq_num)
+es1373_device::es1373_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: pci_device(mconfig, ES1373, tag, owner, clock)
+	, device_sound_interface(mconfig, *this), m_stream(nullptr)
+	, m_eslog(nullptr), m_tempCount(0), m_timer(nullptr), m_memory_space(nullptr), m_irq_handler(*this)
 {
-	m_cpu_tag = tag;
-	m_irq_num = irq_num;
+	set_ids(0x12741371, 0x04, 0x040100, 0x12741371);
+}
+
+void es1373_device::device_resolve_objects()
+{
+	pci_device::device_resolve_objects();
+	m_irq_handler.resolve_safe();
 }
 
 //-------------------------------------------------
@@ -113,12 +116,11 @@ void es1373_device::device_stop()
 //-------------------------------------------------
 void es1373_device::device_start()
 {
-	m_cpu = machine().device<cpu_device>(m_cpu_tag);
 	pci_device::device_start();
 	add_map(0x40, M_IO, FUNC(es1373_device::map));
 
 	// create the stream
-	m_stream = machine().sound().stream_alloc(*this, 0, 2, 44100/2);
+	m_stream = stream_alloc(0, 2, 44100/2);
 
 	m_timer = timer_alloc(0, nullptr);
 	m_timer->adjust(attotime::zero, 0, attotime::from_hz(44100/2/16));
@@ -167,11 +169,11 @@ void es1373_device::device_start()
 	save_item(NAME(m_adc.pci_addr));
 	save_item(NAME(m_adc.pci_count));
 	save_item(NAME(m_adc.pci_size));
-	machine().save().register_postload(save_prepost_delegate(FUNC(es1373_device::postload), this));
 }
 
-void es1373_device::postload()
+void es1373_device::device_post_load()
 {
+	pci_device::device_post_load();
 	remap_cb();
 }
 
@@ -231,21 +233,24 @@ void es1373_device::device_timer(emu_timer &timer, device_timer_id tid, int para
 //  sound_stream_update - handle update requests for
 //  our sound stream
 //-------------------------------------------------
-void es1373_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void es1373_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
 	if (m_dac1.enable) {
 		logerror("%s: sound_stream_update DAC1 not implemented yet\n", tag());
 	}
 
 	if (m_dac2.enable) {
-		send_audio_out(m_dac2, ICSTATUS_DAC2_INT_MASK, outputs[0], outputs[1], samples);
+		send_audio_out(m_dac2, ICSTATUS_DAC2_INT_MASK, outputs[0], outputs[1]);
+	} else {
+		outputs[0].fill(0);
+		outputs[1].fill(0);
 	}
 
 	if (m_adc.enable) {
 		if (m_adc.format!=SCTRL_16BIT_MONO) {
 			logerror("%s: sound_stream_update Only SCTRL_16BIT_MONO recorded supported\n", tag());
 		} else {
-			for (int i=0; i<samples; i++) {
+			for (int i=0; i<outputs[0].samples(); i++) {
 				if (m_adc.buf_count<=m_adc.buf_size) {
 					if (LOG_ES)
 						logerror("%s: ADC buf_count: %i buf_size: %i buf_rptr: %i buf_wptr: %i\n", machine().describe_context(),
@@ -259,12 +264,12 @@ void es1373_device::sound_stream_update(sound_stream &stream, stream_sample_t **
 							// Keep playing
 							m_adc.buf_count = 0;
 							if (LOG_ES)
-								logerror("%X: send_audio_out ADC clearing buf_count\n", machine().device("maincpu")->safe_pc());
+								logerror("%s: send_audio_out ADC clearing buf_count\n", machine().describe_context());
 						}
 						if (m_adc.int_en) {
 							m_es_regs[ES_INT_CS_STATUS] |= ICSTATUS_ADC_INT_MASK;
 							if (LOG_ES)
-								logerror("%X: send_audio_out Setting ADC interrupt\n", machine().device("maincpu")->safe_pc());
+								logerror("%s: send_audio_out Setting ADC interrupt\n", machine().describe_context());
 						}
 					}
 					if (!(m_adc.buf_count&1) && !(m_adc.buf_wptr&0xf)) {
@@ -283,17 +288,14 @@ void es1373_device::sound_stream_update(sound_stream &stream, stream_sample_t **
 	if (m_es_regs[ES_INT_CS_STATUS]&(ICSTATUS_DAC1_INT_MASK|ICSTATUS_DAC2_INT_MASK|ICSTATUS_ADC_INT_MASK)) {
 		m_es_regs[ES_INT_CS_STATUS] |= ICSTATUS_INTR_MASK;
 		// Assert interrupt
-		//m_cpu->set_input_line(ES_IRQ_NUM, ASSERT_LINE);
-		if (m_irq_num!=-1) {
-			m_cpu->set_input_line(m_irq_num, ASSERT_LINE);
-		}
+		m_irq_handler(1);
 	}
 }
 
 //-------------------------------------------------
 //  send_audio_out - Sends channel audio output data
 //-------------------------------------------------
-void es1373_device::send_audio_out(chan_info& chan, uint32_t intr_mask, stream_sample_t *outL, stream_sample_t *outR, int samples)
+void es1373_device::send_audio_out(chan_info& chan, uint32_t intr_mask, write_stream_view &outL, write_stream_view &outR)
 {
 	// Only transfer PCI data if bus mastering is enabled
 	// Fill initial half buffer
@@ -304,8 +306,9 @@ void es1373_device::send_audio_out(chan_info& chan, uint32_t intr_mask, stream_s
 	//uint32_t sample_size = calc_size(chan.format);
 	// Send data to sound stream
 	bool buf_row_done;
-	for (int i=0; i<samples; i++) {
+	for (int i=0; i<outL.samples(); i++) {
 		buf_row_done = false;
+		int16_t lsamp = 0, rsamp = 0;
 		if (chan.buf_count<=chan.buf_size) {
 			// Only transfer PCI data if bus mastering is enabled
 			// Fill half-buffer when read pointer is at start of next half
@@ -314,8 +317,8 @@ void es1373_device::send_audio_out(chan_info& chan, uint32_t intr_mask, stream_s
 				transfer_pci_audio(chan, ES_PCI_READ);
 			}
 			if (LOG_ES && i==0)
-				logerror("%X: chan: %X samples: %i buf_count: %X buf_size: %X buf_rptr: %X buf_wptr: %X\n",
-					machine().device("maincpu")->safe_pc(), chan.number, samples, chan.buf_count, chan.buf_size, chan.buf_rptr, chan.buf_wptr);
+				logerror("%s: chan: %X samples: %i buf_count: %X buf_size: %X buf_rptr: %X buf_wptr: %X\n",
+					machine().describe_context(), chan.number, outL.samples(), chan.buf_count, chan.buf_size, chan.buf_rptr, chan.buf_wptr);
 			// Buffer is 4 bytes per location, need to switch on sample mode
 			switch (chan.format) {
 				case SCTRL_8BIT_MONO:
@@ -325,23 +328,23 @@ void es1373_device::send_audio_out(chan_info& chan, uint32_t intr_mask, stream_s
 					logerror("es1373_device::send_audio_out SCTRL_8BIT_STEREO not implemented yet\n");
 					break;
 				case SCTRL_16BIT_MONO:
-						// The sound cache is 32 bit wide fifo, so each entry is two mono 16 bit samples
-						if ((chan.buf_count&0x1)) {
-							// Read high 16 bits
-							outL[i] = outR[i] = (int16_t)(m_sound_cache[chan.buf_rptr]>>16);
-							chan.buf_rptr++;
-							buf_row_done = true;
-						} else {
-							// Read low 16 bits
-							outL[i] = outR[i] = (int16_t)(m_sound_cache[chan.buf_rptr]&0xffff);
-						}
-					break;
-				case SCTRL_16BIT_STEREO:
-						// The sound cache is 32 bit wide fifo, so each entry is one stereo 16 bit sample
-						outL[i] = (int16_t) m_sound_cache[chan.buf_rptr]&0xffff;
-						outR[i] = (int16_t) m_sound_cache[chan.buf_rptr]>>16;
+					// The sound cache is 32 bit wide fifo, so each entry is two mono 16 bit samples
+					if ((chan.buf_count&0x1)) {
+						// Read high 16 bits
+						lsamp = rsamp = m_sound_cache[chan.buf_rptr]>>16;
 						chan.buf_rptr++;
 						buf_row_done = true;
+					} else {
+						// Read low 16 bits
+						lsamp = rsamp = m_sound_cache[chan.buf_rptr]&0xffff;
+					}
+					break;
+				case SCTRL_16BIT_STEREO:
+					// The sound cache is 32 bit wide fifo, so each entry is one stereo 16 bit sample
+					lsamp = m_sound_cache[chan.buf_rptr]&0xffff;
+					rsamp = m_sound_cache[chan.buf_rptr]>>16;
+					chan.buf_rptr++;
+					buf_row_done = true;
 					break;
 			}
 			if (LOG_ES_FILE && m_tempCount<1000000) {
@@ -358,21 +361,20 @@ void es1373_device::send_audio_out(chan_info& chan, uint32_t intr_mask, stream_s
 					chan.buf_count = 0;
 					//chan.buf_rptr -= 1;
 					if (LOG_ES)
-						logerror("%X: send_audio_out DAC2 clearing buf_count\n", machine().device("maincpu")->safe_pc());
+						logerror("%s: send_audio_out DAC2 clearing buf_count\n", machine().describe_context());
 				}
 				if (chan.int_en) {
 					m_es_regs[ES_INT_CS_STATUS] |= intr_mask;
 					if (LOG_ES)
-						logerror("%X: send_audio_out Setting DAC2 interrupt\n", machine().device("maincpu")->safe_pc());
+						logerror("%s: send_audio_out Setting DAC2 interrupt\n", machine().describe_context());
 				}
 			}
 			if (buf_row_done && !(chan.buf_rptr&0xf)) {
 				chan.buf_rptr -= 0x10;
 			}
-		} else {
-			// Send zeros?
-			outL[i] = outR[i] = 0;
 		}
+		outL.put_int(i, lsamp, 32768);
+		outR.put_int(i, rsamp, 32768);
 	}
 }
 
@@ -427,7 +429,7 @@ uint32_t es1373_device::calc_size(const uint8_t &format)
 	return 0;
 }
 
-READ32_MEMBER (es1373_device::reg_r)
+uint32_t es1373_device::reg_r(offs_t offset, uint32_t mem_mask)
 {
 	uint32_t result = m_es_regs[offset];
 	switch (offset) {
@@ -486,11 +488,11 @@ READ32_MEMBER (es1373_device::reg_r)
 			break;
 	}
 	if (LOG_ES_REG)
-		logerror("%08X:ES1373 read from offset %02X = %08X & %08X\n", machine().device("maincpu")->safe_pc(), offset*4, result, mem_mask);
+		logerror("%s:ES1373 read from offset %02X = %08X & %08X\n", machine().describe_context(), offset*4, result, mem_mask);
 	return result;
 }
 
-WRITE32_MEMBER(es1373_device::reg_w)
+void es1373_device::reg_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	COMBINE_DATA(&m_es_regs[offset]);
 	switch (offset) {
@@ -534,10 +536,10 @@ WRITE32_MEMBER(es1373_device::reg_w)
 				if (!(m_es_regs[ES_INT_CS_STATUS]&(ICSTATUS_DAC1_INT_MASK|ICSTATUS_DAC2_INT_MASK|ICSTATUS_ADC_INT_MASK))) {
 					// Deassert interrupt
 					if (m_es_regs[ES_INT_CS_STATUS]&ICSTATUS_INTR_MASK && m_irq_num!=-1) {
-						m_cpu->set_input_line(m_irq_num, CLEAR_LINE);
+						m_irq_handler(0);
 						m_es_regs[ES_INT_CS_STATUS] &= ~ICSTATUS_INTR_MASK;
 						if (0 && LOG_ES_REG)
-							logerror("%X: es1373_device::reg_w Clearing interrupt\n", machine().device("maincpu")->safe_pc());
+							logerror("%s: es1373_device::reg_w Clearing interrupt\n", machine().describe_context());
 					}
 				}
 				if (0 && LOG_ES_REG)
@@ -592,7 +594,7 @@ WRITE32_MEMBER(es1373_device::reg_w)
 					m_dac2.pci_count = (data>>16)&0xffff;
 					m_dac2.pci_size = data&0xffff;
 					if (LOG_ES_REG)
-						logerror("%08X:ES1373 write to offset %02X = %08X & %08X\n", machine().device("maincpu")->safe_pc(), offset*4, data, mem_mask);
+						logerror("%s:ES1373 write to offset %02X = %08X & %08X\n", machine().describe_context(), offset*4, data, mem_mask);
 					break;
 				default:
 					break;
@@ -603,6 +605,6 @@ WRITE32_MEMBER(es1373_device::reg_w)
 	}
 
 	if (LOG_ES_REG)
-		logerror("%08X:ES1373 write to offset %02X = %08X & %08X\n", machine().device("maincpu")->safe_pc(), offset*4, data, mem_mask);
+		logerror("%s:ES1373 write to offset %02X = %08X & %08X\n", machine().describe_context(), offset*4, data, mem_mask);
 
 }

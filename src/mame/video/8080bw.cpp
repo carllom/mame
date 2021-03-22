@@ -26,7 +26,7 @@ MACHINE_START_MEMBER(_8080bw_state,extra_8080bw_vh)
 }
 
 
-PALETTE_INIT_MEMBER(_8080bw_state,rollingc)
+void _8080bw_state::rollingc_palette(palette_device &palette) const
 {
 	// palette is 3bpp + intensity
 	for (int i = 0; i < 8; i++)
@@ -42,13 +42,12 @@ PALETTE_INIT_MEMBER(_8080bw_state,rollingc)
 }
 
 
-PALETTE_INIT_MEMBER( _8080bw_state, sflush )
+void _8080bw_state::sflush_palette(palette_device &palette) const
 {
-	// standard 3-bit rbg palette
-	palette.palette_init_3bit_rbg(palette);
-
-	// but background color is bright blue
+	// standard 3-bit rbg palette, but background color is bright blue
 	palette.set_pen_color(0, 0x80, 0x80, 0xff);
+	for (int i = 1; i < 8; i++)
+		palette.set_pen_color(i, rgb_t(pal1bit(i >> 0), pal1bit(i >> 2), pal1bit(i >> 1)));
 }
 
 
@@ -57,9 +56,9 @@ inline void _8080bw_state::set_pixel( bitmap_rgb32 &bitmap, uint8_t y, uint8_t x
 	if (y >= MW8080BW_VCOUNTER_START_NO_VBLANK)
 	{
 		if (m_flip_screen)
-			bitmap.pix32(MW8080BW_VBSTART - 1 - (y - MW8080BW_VCOUNTER_START_NO_VBLANK), MW8080BW_HPIXCOUNT - 1 - x) = m_palette->pen_color(color);
+			bitmap.pix(MW8080BW_VBSTART - 1 - (y - MW8080BW_VCOUNTER_START_NO_VBLANK), MW8080BW_HPIXCOUNT - 1 - x) = m_palette->pen_color(color);
 		else
-			bitmap.pix32(y - MW8080BW_VCOUNTER_START_NO_VBLANK, x) = m_palette->pen_color(color);
+			bitmap.pix(y - MW8080BW_VCOUNTER_START_NO_VBLANK, x) = m_palette->pen_color(color);
 	}
 }
 
@@ -81,18 +80,16 @@ inline void _8080bw_state::set_8_pixels( bitmap_rgb32 &bitmap, uint8_t y, uint8_
 /* this is needed as this driver doesn't emulate the shift register like mw8080bw does */
 void _8080bw_state::clear_extra_columns( bitmap_rgb32 &bitmap, int color )
 {
-	uint8_t x;
-
-	for (x = 0; x < 4; x++)
+	for (uint8_t x = 0; x < 4; x++)
 	{
 		uint8_t y;
 
 		for (y = MW8080BW_VCOUNTER_START_NO_VBLANK; y != 0; y++)
 		{
 			if (m_flip_screen)
-				bitmap.pix32(MW8080BW_VBSTART - 1 - (y - MW8080BW_VCOUNTER_START_NO_VBLANK), MW8080BW_HPIXCOUNT - 1 - (256 + x)) =  m_palette->pen_color(color);
+				bitmap.pix(MW8080BW_VBSTART - 1 - (y - MW8080BW_VCOUNTER_START_NO_VBLANK), MW8080BW_HPIXCOUNT - 1 - (256 + x)) =  m_palette->pen_color(color);
 			else
-				bitmap.pix32(y - MW8080BW_VCOUNTER_START_NO_VBLANK, 256 + x) =  m_palette->pen_color(color);
+				bitmap.pix(y - MW8080BW_VCOUNTER_START_NO_VBLANK, 256 + x) =  m_palette->pen_color(color);
 		}
 	}
 }
@@ -380,9 +377,9 @@ uint32_t _8080bw_state::screen_update_shuttlei(screen_device &screen, bitmap_rgb
 		for (int i = 0; i < 8; i++)
 		{
 			if (m_flip_screen)
-				bitmap.pix32(191-y, 255-(x|i)) = m_palette->pen_color(BIT(data, 7));
+				bitmap.pix(191-y, 255-(x|i)) = m_palette->pen_color(BIT(data, 7));
 			else
-				bitmap.pix32(y, x|i) = m_palette->pen_color(BIT(data, 7));
+				bitmap.pix(y, x|i) = m_palette->pen_color(BIT(data, 7));
 			data <<= 1;
 		}
 	}
@@ -403,10 +400,35 @@ uint32_t _8080bw_state::screen_update_spacecom(screen_device &screen, bitmap_rgb
 
 		for (int i = 0; i < 8; i++)
 		{
-			bitmap.pix32(y, x | (i^flipx)) = m_palette->pen_color(BIT(data, 0));
+			bitmap.pix(y, x | (i^flipx)) = m_palette->pen_color(BIT(data, 0));
 			data >>= 1;
 		}
 	}
+
+	return 0;
+}
+
+/*******************************************************/
+/*                                                     */
+/* Model Racing "Orbite"                               */
+/*                                                     */
+/*******************************************************/
+uint32_t orbite_state::screen_update_orbite(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
+{
+	for (offs_t offs = 0; offs < m_main_ram.bytes(); offs++)
+	{
+		uint8_t back_color = 0;
+
+		uint8_t y = offs >> 5;
+		uint8_t x = offs << 3;
+
+		uint8_t data = m_main_ram[offs];
+		uint8_t fore_color = m_scattered_colorram[(offs & 0x1f) | ((offs & 0x1f80) >> 2)] & 0x07;
+
+		set_8_pixels(bitmap, y, x, data, fore_color, back_color);
+	}
+
+	clear_extra_columns(bitmap, 0);
 
 	return 0;
 }

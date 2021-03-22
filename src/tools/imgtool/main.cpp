@@ -13,11 +13,11 @@
 #include "modules.h"
 #include "strformat.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <time.h>
+#include <cstdio>
+#include <cstring>
+#include <cctype>
+#include <cstdlib>
+#include <ctime>
 #include <iostream>
 
 #ifdef _WIN32
@@ -29,7 +29,7 @@
 
 static void writeusage(std::wostream &output, bool write_word_usage, const struct command *c, char *argv[])
 {
-	std::string cmdname = core_filename_extract_base(argv[0]);
+	std::string cmdname(core_filename_extract_base(argv[0]));
 
 	util::stream_format(output,
 		L"%s %s %s %s\n",
@@ -97,7 +97,7 @@ static int parse_options(int argc, char *argv[], int minunnamed, int maxunnamed,
 				if (*fork)
 					goto optionalreadyspecified;
 
-				snprintf(buf, ARRAY_LENGTH(buf), "%s", value);
+				snprintf(buf, std::size(buf), "%s", value);
 				*fork = buf;
 			}
 			else
@@ -106,7 +106,23 @@ static int parse_options(int argc, char *argv[], int minunnamed, int maxunnamed,
 				if (i < minunnamed)
 					goto error; /* Too few unnamed */
 
-				resolution->find(name)->set_value(value);
+				util::option_resolution::entry *entry = resolution->find(name);
+				if (entry->option_type() == util::option_guide::entry::option_type::ENUM_BEGIN)
+				{
+					const util::option_guide::entry *enum_value;
+					for (enum_value = entry->enum_value_begin(); enum_value != entry->enum_value_end(); enum_value++)
+					{
+						if (!strcmp (enum_value->identifier(), value))
+						{
+							entry->set_value(enum_value->parameter());
+							break;
+						}
+					}
+					if (enum_value ==  entry->enum_value_end())
+						goto error;
+				}
+				else
+					entry->set_value(value);
 			}
 		}
 	}
@@ -232,7 +248,7 @@ static int cmd_dir(const struct command *c, int argc, char *argv[])
 	{
 		std::string filesize_string = ent.directory
 			? "<DIR>"
-			: string_format("%u", (unsigned int) ent.filesize);
+			: util::string_format("%u", (unsigned int) ent.filesize);
 
 		if (!ent.lastmodified_time.empty())
 		{
@@ -250,10 +266,10 @@ static int cmd_dir(const struct command *c, int argc, char *argv[])
 			columnwidth_attributes, wstring_from_utf8(ent.attr),
 			columnwidth_lastmodified, wstring_from_utf8(last_modified));
 
-		if (ent.softlink && ent.softlink[0] != '\0')
+		if (ent.softlink[0] != '\0')
 			util::stream_format(std::wcout, L"-> %s\n", wstring_from_utf8(ent.softlink));
 
-		if (ent.comment && ent.comment[0] != '\0')
+		if (ent.comment[0] != '\0')
 			util::stream_format(std::wcout, L": %s\n", wstring_from_utf8(ent.comment));
 
 		total_count++;
@@ -271,6 +287,8 @@ static int cmd_dir(const struct command *c, int argc, char *argv[])
 	util::stream_format(std::wcout, L"%8i File(s)        %8i bytes", total_count, total_size);
 	if (!freespace_err)
 		util::stream_format(std::wcout, L"                        %8u bytes free\n", (unsigned int)freespace);
+	else
+		util::stream_format(std::wcout, L"\n");
 
 done:
 	if (err)
@@ -546,7 +564,7 @@ static int cmd_identify(const struct command *c, int argc, char *argv[])
 	imgtoolerr_t err;
 	int i;
 
-	err = imgtool::image::identify_file(argv[0], modules, ARRAY_LENGTH(modules));
+	err = imgtool::image::identify_file(argv[0], modules, std::size(modules));
 	if (err)
 	{
 		reporterror(err, c, nullptr, argv[0], nullptr, nullptr, nullptr);
@@ -730,7 +748,7 @@ static void listoptions(const util::option_guide &opt_guide, const char *opt_spe
 		const util::option_resolution::entry &entry = *iter;
 				std::stringstream description_buffer;
 
-		std::string opt_name = string_format("--%s", entry.identifier());
+		std::string opt_name = util::string_format("--%s", entry.identifier());
 		const char *opt_desc = entry.display_name();
 
 		// is this option relevant?
@@ -832,7 +850,7 @@ static const struct command cmds[] =
 {
 	{ "create",             cmd_create,             "<format> <imagename> [--(createoption)=value]", 2, 8, 0},
 	{ "dir",                cmd_dir,                "<format> <imagename> [path]", 2, 3, 0 },
-	{ "get",                cmd_get,                "<format> <imagename> <filename> [newname] [--filter=filter] [--fork=fork]", 3, 4, 0 },
+	{ "get",                cmd_get,                "<format> <imagename> <filename> [newname] [--filter=filter] [--fork=fork]", 3, 6, 0 },
 	{ "put",                cmd_put,                "<format> <imagename> <filename>... <destname> [--(fileoption)==value] [--filter=filter] [--fork=fork]", 3, 0xffff, 0 },
 	{ "getall",             cmd_getall,             "<format> <imagename> [path] [--filter=filter]", 2, 3, 0 },
 	{ "del",                cmd_del,                "<format> <imagename> <filename>...", 3, 3, 1 },
@@ -855,7 +873,7 @@ int main(int argc, char *argv[])
 	int result;
 	const struct command *c;
 	const char *sample_format = "coco_jvc_rsdos";
-	std::string cmdname = core_filename_extract_base(argv[0]);
+	std::string cmdname(core_filename_extract_base(argv[0]));
 
 #ifdef _WIN32
 	_setmode(_fileno(stdout), _O_U8TEXT);
@@ -877,7 +895,7 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 	{
 		/* figure out what command they are running, and run it */
-		for (i = 0; i < ARRAY_LENGTH(cmds); i++)
+		for (i = 0; i < std::size(cmds); i++)
 		{
 			c = &cmds[i];
 			if (!core_stricmp(c->name, argv[1]))
@@ -916,7 +934,7 @@ int main(int argc, char *argv[])
 
 	// Usage
 	util::stream_format(std::wcerr, L"imgtool - Generic image manipulation tool for use with MAME\n\n");
-	for (i = 0; i < ARRAY_LENGTH(cmds); i++)
+	for (i = 0; i < std::size(cmds); i++)
 	{
 		writeusage(std::wcerr, (i == 0), &cmds[i], argv);
 	}

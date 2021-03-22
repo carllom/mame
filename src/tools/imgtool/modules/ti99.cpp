@@ -18,11 +18,11 @@
     - check allocation bitmap against corruption when an image is opened
 */
 
-#include <limits.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
+#include <climits>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+#include <ctime>
 #include "imgtool.h"
 #include "harddisk.h"
 #include "imghd.h"
@@ -166,7 +166,7 @@
 
     The DSK disk structure is used for floppy disks, and a few RAMDISKs as
     well.  It supports 1600 AUs and 16 MBytes at most (the 16 MByte value is a
-    theorical maximum, as I doubt anyone has ever created so big a DSK volume).
+    theoretical maximum, as I doubt anyone has ever created so big a DSK volume).
 
     The disk sector size is always 256 bytes (the only potential exceptions are
     the SCSI floppy disk units and the TI-99 simulator on TI-990, but I don't
@@ -524,7 +524,7 @@ struct dsk_vib
 								/* the allocation unit associated with that */
 								/* bit has been allocated. */
 								/* Bits corresponding to system reserved AUs, */
-								/* non-existant AUs, and bad AUs, are set to one, too. */
+								/* non-existent AUs, and bad AUs, are set to one, too. */
 								/* (AU 0 is associated to LSBit of byte 0, */
 								/* AU 7 to MSBit of byte 0, AU 8 to LSBit */
 								/* of byte 1, etc.) */
@@ -1563,7 +1563,7 @@ struct dsk_fdr
 	UINT16BE xreclen;       /* extended record len: if record len is >= 256, */
 								/* reclen is set to 0 and the actual reclen is */
 								/* stored here (Myarc HFDC only).  TI reserved */
-								/* this  field for data chain pointer extension, */
+								/* this field for data chain pointer extension, */
 								/* but this was never implemented. */
 	uint8_t flags;            /* file status flags (see enum above) */
 	uint8_t recsperphysrec;   /* logical records per physrec */
@@ -1579,9 +1579,9 @@ struct dsk_fdr
 								/* implementation is regarded as a bug because */
 								/* program files do not define the fixrecs field */
 								/* field, so program field saved by the HFDC */
-								/* DSR may be larger whan they should. */
+								/* DSR may be larger than they should. */
 	uint8_t eof;              /* EOF offset in last physrec for variable length */
-								/* record files and program files (0->256)*/
+								/* record files and program files (0->256) */
 	uint8_t reclen;           /* logical record size in bytes ([1,255] 0->256) */
 								/* Maximum allowable record size for variable */
 								/* length record files.  Reserved for program */
@@ -1625,7 +1625,7 @@ struct win_fdr
 								/* implementation is regarded as a bug because */
 								/* program files do not define the fixrecs field */
 								/* field, so program field saved by the HFDC */
-								/* DSR may be larger whan they should. */
+								/* DSR may be larger than they should. */
 							/* other sibling FDRs: index of the first file */
 								/* physrec in this particular sibling FDR */
 	uint8_t eof;              /* EOF offset in last physrec for variable length */
@@ -1837,7 +1837,7 @@ static int dsk_read_catalog(struct ti99_lvl2_imgref *l2_img, int aphysrec, ti99_
 			|| ((dest->files[i].fdr_ptr && dest->files[i+1].fdr_ptr) && (memcmp(dest->files[i].name, dest->files[i+1].name, 10) >= 0)))
 		{
 			/* if the catalog is not sorted, we repair it */
-			qsort(dest->files, ARRAY_LENGTH(dest->files), sizeof(dest->files[0]),
+			qsort(dest->files, std::size(dest->files), sizeof(dest->files[0]),
 					cat_file_compare_qsort);
 			break;
 		}
@@ -4275,10 +4275,10 @@ static imgtoolerr_t dsk_image_nextenum(imgtool::directory &enumeration, imgtool_
 	{
 		if (iter->listing_subdirs)
 		{
-			fname_to_str(ent.filename, iter->image->dsk.catalogs[0].subdirs[iter->index[iter->level]].name, ARRAY_LENGTH(ent.filename));
+			fname_to_str(ent.filename, iter->image->dsk.catalogs[0].subdirs[iter->index[iter->level]].name, std::size(ent.filename));
 
 			/* set type of DIR */
-			snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "DIR");
+			snprintf(ent.attr, std::size(ent.attr), "DIR");
 
 			/* len in physrecs */
 			/* @BN@ return length in bytes */
@@ -4299,7 +4299,7 @@ static imgtoolerr_t dsk_image_nextenum(imgtool::directory &enumeration, imgtool_
 			if (reply)
 				return IMGTOOLERR_READERROR;
 #if 0
-			fname_to_str(ent.filename, fdr.name, ARRAY_LENGTH(ent.filename));
+			fname_to_str(ent.filename, fdr.name, std::size(ent.filename));
 #else
 			{
 				char buf[11];
@@ -4307,19 +4307,19 @@ static imgtoolerr_t dsk_image_nextenum(imgtool::directory &enumeration, imgtool_
 				ent.filename[0] = '\0';
 				if (iter->level)
 				{
-					fname_to_str(ent.filename, iter->image->dsk.catalogs[0].subdirs[iter->index[0]].name, ARRAY_LENGTH(ent.filename));
-					strncat(ent.filename, ".", ARRAY_LENGTH(ent.filename) - 1);
+					fname_to_str(ent.filename, iter->image->dsk.catalogs[0].subdirs[iter->index[0]].name, std::size(ent.filename));
+					strncat(ent.filename, ".", std::size(ent.filename) - 1);
 				}
 				fname_to_str(buf, fdr.name, 11);
-				strncat(ent.filename, buf, ARRAY_LENGTH(ent.filename) - 1);
+				strncat(ent.filename, buf, std::size(ent.filename) - 1);
 			}
 #endif
 			/* parse flags */
 			if (fdr.flags & fdr99_f_program)
-				snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "PGM%s",
+				snprintf(ent.attr, std::size(ent.attr), "PGM%s",
 							(fdr.flags & fdr99_f_wp) ? " R/O" : "");
 			else
-				snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "%c/%c %d%s",
+				snprintf(ent.attr, std::size(ent.attr), "%c/%c %d%s",
 							(fdr.flags & fdr99_f_int) ? 'I' : 'D',
 							(fdr.flags & fdr99_f_var) ? 'V' : 'F',
 							fdr.reclen,
@@ -4399,7 +4399,7 @@ static imgtoolerr_t win_image_nextenum(imgtool::directory &enumeration, imgtool_
 		if (iter->listing_subdirs)
 		{
 #if 0
-			fname_to_str(ent.filename, iter->catalog[iter->level].subdirs[iter->index[iter->level]].name, ARRAY_LENGTH(ent.filename));
+			fname_to_str(ent.filename, iter->catalog[iter->level].subdirs[iter->index[iter->level]].name, std::size(ent.filename));
 #else
 			{
 				char buf[11];
@@ -4408,16 +4408,16 @@ static imgtoolerr_t win_image_nextenum(imgtool::directory &enumeration, imgtool_
 				for (i=0; i<iter->level; i++)
 				{
 					fname_to_str(buf, iter->catalog[i].subdirs[iter->index[i]].name, 11);
-					strncat(ent.filename, buf, ARRAY_LENGTH(ent.filename) - 1);
-					strncat(ent.filename, ".", ARRAY_LENGTH(ent.filename) - 1);
+					strncat(ent.filename, buf, std::size(ent.filename) - 1);
+					strncat(ent.filename, ".", std::size(ent.filename) - 1);
 				}
 				fname_to_str(buf, iter->catalog[iter->level].subdirs[iter->index[iter->level]].name, 11);
-				strncat(ent.filename, buf, ARRAY_LENGTH(ent.filename) - 1);
+				strncat(ent.filename, buf, std::size(ent.filename) - 1);
 			}
 #endif
 
 			/* set type of DIR */
-			snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "DIR");
+			snprintf(ent.attr, std::size(ent.attr), "DIR");
 
 			/* len in physrecs */
 			/* @BN@ return length in bytes */
@@ -4442,7 +4442,7 @@ static imgtoolerr_t win_image_nextenum(imgtool::directory &enumeration, imgtool_
 			if (reply)
 				return IMGTOOLERR_READERROR;
 #if 0
-			fname_to_str(ent.filename, iter->catalog[iter->level].files[iter->index[iter->level]].name, ARRAY_LENGTH(ent.filename));
+			fname_to_str(ent.filename, iter->catalog[iter->level].files[iter->index[iter->level]].name, std::size(ent.filename));
 #else
 			{
 				char buf[11];
@@ -4451,19 +4451,19 @@ static imgtoolerr_t win_image_nextenum(imgtool::directory &enumeration, imgtool_
 				for (i=0; i<iter->level; i++)
 				{
 					fname_to_str(buf, iter->catalog[i].subdirs[iter->index[i]].name, 11);
-					strncat(ent.filename, buf, ARRAY_LENGTH(ent.filename) - 1);
-					strncat(ent.filename, ".", ARRAY_LENGTH(ent.filename) - 1);
+					strncat(ent.filename, buf, std::size(ent.filename) - 1);
+					strncat(ent.filename, ".", std::size(ent.filename) - 1);
 				}
 				fname_to_str(buf, iter->catalog[iter->level].files[iter->index[iter->level]].name, 11);
-				strncat(ent.filename, buf, ARRAY_LENGTH(ent.filename) - 1);
+				strncat(ent.filename, buf, std::size(ent.filename) - 1);
 			}
 #endif
 			/* parse flags */
 			if (fdr.flags & fdr99_f_program)
-				snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "PGM%s",
+				snprintf(ent.attr, std::size(ent.attr), "PGM%s",
 							(fdr.flags & fdr99_f_wp) ? " R/O" : "");
 			else
-				snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "%c/%c %d%s",
+				snprintf(ent.attr, std::size(ent.attr), "%c/%c %d%s",
 							(fdr.flags & fdr99_f_int) ? 'I' : 'D',
 							(fdr.flags & fdr99_f_var) ? 'V' : 'F',
 							fdr.reclen,
@@ -4948,7 +4948,7 @@ static imgtoolerr_t dsk_image_deletefile(imgtool::partition &partition, const ch
 
 		/* free data AUs */
 //      fphysrecs =
-			get_UINT16BE(fdr.fphysrecs);
+		get_UINT16BE(fdr.fphysrecs);
 
 		i = 0;
 		cluster_index = 0;
@@ -5090,7 +5090,7 @@ static imgtoolerr_t win_image_deletefile(imgtool::partition &partition, const ch
 		/* check integrity of FDR sibling chain, and go to last sibling */
 		/* note that as we check that the back chain is consistent with the forward
 		chain, we will also detect any cycle in the sibling chain, so we do not
-		need to check against them explicitely */
+		need to check against them explicitly */
 		{
 			int pastendoflist_flag;
 			unsigned prevfdr_aphysrec;

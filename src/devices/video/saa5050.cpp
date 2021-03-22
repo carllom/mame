@@ -42,7 +42,7 @@ DEFINE_DEVICE_TYPE(SAA5057, saa5057_device, "saa5057", "SAA5057 Teletext Charact
 
 ROM_START( saa5050 )
 	ROM_REGION( 0x500, "chargen", 0 )
-	ROM_LOAD("saa5050", 0x0140, 0x03c0, BAD_DUMP CRC(6298fc0b) SHA1(ae38e7f51dd33733bacfa896425ca105682b31d6))
+	ROM_LOAD("saa5050", 0x0140, 0x03c0, CRC(201490f3) SHA1(6c8daba70374e5aa3a6402f24cdc5f8677d58a0f)) // verified both from datasheet listing and decap
 ROM_END
 
 
@@ -52,7 +52,7 @@ ROM_END
 
 ROM_START( saa5051 )
 	ROM_REGION( 0x500, "chargen", 0 )
-	ROM_LOAD("saa5051", 0x0140, 0x03c0, BAD_DUMP CRC(a770611c) SHA1(9ab9d24b845fe2964fba2f4770d54025d2c8026a))
+	ROM_LOAD("saa5051", 0x0140, 0x03c0, BAD_DUMP CRC(0e55088b) SHA1(07cd9b7edbed6ef7b527622533d6957f5d56aa91)) // verified from datasheet listing
 ROM_END
 
 
@@ -571,6 +571,16 @@ WRITE_LINE_MEMBER( saa5050_device::lose_w )
 
 
 //-------------------------------------------------
+//  tlc_r - transmitted large character
+//-------------------------------------------------
+
+READ_LINE_MEMBER( saa5050_device::tlc_r )
+{
+	return !m_double_height_bottom_row;
+}
+
+
+//-------------------------------------------------
 //  write - character data write
 //-------------------------------------------------
 
@@ -636,7 +646,7 @@ uint32_t saa5050_device::screen_update(screen_device &screen, bitmap_rgb32 &bitm
 		lose_w(1);
 		lose_w(0);
 
-		int ssy = m_double_height_bottom_row ? sy - 1 : sy;
+		int ssy = tlc_r() ? sy : sy - 1;
 		offs_t video_ram_addr = ssy * m_size;
 
 		for (int sx = 0; sx < m_cols; sx++)
@@ -661,9 +671,7 @@ uint32_t saa5050_device::screen_update(screen_device &screen, bitmap_rgb32 &bitm
 				int g = BIT(color, 1) * 0xff;
 				int b = BIT(color, 2) * 0xff;
 
-				rgb_t rgb = rgb_t(r, g, b);
-
-				bitmap.pix32(y, x++) = rgb;
+				bitmap.pix(y, x++) = rgb_t(r, g, b);
 			}
 		}
 	}

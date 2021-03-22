@@ -18,9 +18,9 @@
    -   (used with MP-1802 floppy disk controller card)
 */
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
 #include "imgtool.h"
 #include "iflopimg.h"
 
@@ -604,8 +604,8 @@ eof:
 
 		get_dirent_fname(fname, &rsent);
 
-		snprintf(ent.filename, ARRAY_LENGTH(ent.filename), "%s", fname);
-		snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "%d %c", (int) rsent.ftype, (char) (rsent.asciiflag + 'B'));
+		snprintf(ent.filename, std::size(ent.filename), "%s", fname);
+		snprintf(ent.attr, std::size(ent.attr), "%d %c", (int) rsent.ftype, (char) (rsent.asciiflag + 'B'));
 	}
 	return IMGTOOLERR_SUCCESS;
 }

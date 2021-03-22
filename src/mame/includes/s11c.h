@@ -18,16 +18,12 @@ public:
 		: s11b_state(mconfig, type, tag)
 	{ }
 
-	DECLARE_MACHINE_RESET(s11c);
-	DECLARE_DRIVER_INIT(s11c);
-
 	void s11c(machine_config &config);
-	void s11c_main_map(address_map &map);
+
+	void init_s11c();
+
 protected:
-
-private:
-
-
+	virtual void machine_reset() override;
 };
 
 

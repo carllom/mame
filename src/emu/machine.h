@@ -19,7 +19,7 @@
 
 #include <functional>
 
-#include <time.h>
+#include <ctime>
 
 //**************************************************************************
 //  CONSTANTS
@@ -119,8 +119,8 @@ class dummy_space_device : public device_t,
 public:
 	dummy_space_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
 
-	DECLARE_READ8_MEMBER(read);
-	DECLARE_WRITE8_MEMBER(write);
+	u8 read(offs_t offset);
+	void write(offs_t offset, u8 data);
 
 	void dummy(address_map &map);
 protected:
@@ -150,7 +150,7 @@ class running_machine
 	friend class sound_manager;
 	friend class memory_manager;
 
-	typedef std::function<void(const char*)> logerror_callback;
+	typedef std::function<void (const char*)> logerror_callback;
 
 	// must be at top of member variables
 	resource_pool           m_respool;              // pool of resources for this machine
@@ -166,7 +166,7 @@ public:
 	const game_driver &system() const { return m_system; }
 	osd_interface &osd() const;
 	machine_manager &manager() const { return m_manager; }
-	resource_pool &respool() { return m_respool; }
+	[[deprecated("use smart pointers to manage object lifecycles")]] resource_pool &respool() { return m_respool; }
 	device_scheduler &scheduler() { return m_scheduler; }
 	save_manager &save() { return m_save; }
 	memory_manager &memory() { return m_memory; }
@@ -188,16 +188,16 @@ public:
 	tilemap_manager &tilemap() const { assert(m_tilemap != nullptr); return *m_tilemap; }
 	debug_view_manager &debug_view() const { assert(m_debug_view != nullptr); return *m_debug_view; }
 	debugger_manager &debugger() const { assert(m_debugger != nullptr); return *m_debugger; }
-	driver_device *driver_data() const { return &downcast<driver_device &>(root_device()); }
-	template<class _DriverClass> _DriverClass *driver_data() const { return &downcast<_DriverClass &>(root_device()); }
+	natural_keyboard &natkeyboard() noexcept { assert(m_natkeyboard != nullptr); return *m_natkeyboard; }
+	template <class DriverClass> DriverClass *driver_data() const { return &downcast<DriverClass &>(root_device()); }
 	machine_phase phase() const { return m_current_phase; }
 	bool paused() const { return m_paused || (m_current_phase != machine_phase::RUNNING); }
 	bool exit_pending() const { return m_exit_pending; }
+	bool hard_reset_pending() const { return m_hard_reset_pending; }
 	bool ui_active() const { return m_ui_active; }
-	const char *basename() const { return m_basename.c_str(); }
+	const std::string &basename() const { return m_basename; }
 	int sample_rate() const { return m_sample_rate; }
 	bool save_or_load_pending() const { return !m_saveload_pending_file.empty(); }
-	screen_device *first_screen() const { return primary_screen; }
 
 	// RAII-based side effect disable
 	// NOP-ed when passed false, to make it more easily conditional
@@ -206,13 +206,13 @@ public:
 
 	// additional helpers
 	emu_options &options() const { return m_config.options(); }
-	attotime time() const { return m_scheduler.time(); }
+	attotime time() const noexcept { return m_scheduler.time(); }
 	bool scheduled_event_pending() const { return m_exit_pending || m_hard_reset_pending; }
 	bool allow_logging() const { return !m_logerror_list.empty(); }
 
 	// fetch items by name
-	inline device_t *device(const char *tag) const { return root_device().subdevice(tag); }
-	template<class _DeviceClass> inline _DeviceClass *device(const char *tag) { return downcast<_DeviceClass *>(device(tag)); }
+	[[deprecated("absolute tag lookup; use subdevice or finder instead")]] inline device_t *device(const char *tag) const { return root_device().subdevice(tag); }
+	template <class DeviceClass> [[deprecated("absolute tag lookup; use subdevice or finder instead")]] inline DeviceClass *device(const char *tag) { return downcast<DeviceClass *>(device(tag)); }
 
 	// immediate operations
 	int run(bool quiet);
@@ -259,15 +259,16 @@ public:
 	std::string get_statename(const char *statename_opt) const;
 
 private:
-	// video-related information
-	screen_device *         primary_screen;     // the primary screen device, or nullptr if screenless
-
 	// side effect disable counter
 	u32                     m_side_effects_disabled;
 
 public:
 	// debugger-related information
 	u32                     debug_flags;        // the current debug flags
+	bool debug_enabled() { return (debug_flags & DEBUG_FLAG_ENABLED) != 0; }
+
+	// used by debug_console to take ownership of the debug.log file
+	std::unique_ptr<emu_file> steal_debuglogfile() { return std::move(m_debuglogfile); }
 
 private:
 	class side_effects_disabler {
@@ -336,6 +337,7 @@ private:
 	std::unique_ptr<image_manager> m_image;            // internal data from image.cpp
 	std::unique_ptr<rom_load_manager> m_rom_load;      // internal data from romload.cpp
 	std::unique_ptr<debugger_manager> m_debugger;      // internal data from debugger.cpp
+	std::unique_ptr<natural_keyboard> m_natkeyboard;   // internal data from natkeyboard.cpp
 
 	// system state
 	machine_phase           m_current_phase;        // current execution phase
@@ -350,7 +352,8 @@ private:
 	time_t                  m_base_time;            // real time at initial emulation time
 	std::string             m_basename;             // basename used for game-related paths
 	int                     m_sample_rate;          // the digital audio sample rate
-	std::unique_ptr<emu_file>  m_logfile;              // pointer to the active log file
+	std::unique_ptr<emu_file>  m_logfile;           // pointer to the active error.log file
+	std::unique_ptr<emu_file>  m_debuglogfile;      // pointer to the active debug.log file
 
 	// load/save management
 	enum class saveload_schedule
@@ -400,7 +403,7 @@ private:
 	// configuration state
 	dummy_space_device m_dummy_space;
 
-#if defined(EMSCRIPTEN)
+#if defined(__EMSCRIPTEN__)
 private:
 	static running_machine *emscripten_running_machine;
 	static void emscripten_main_loop();

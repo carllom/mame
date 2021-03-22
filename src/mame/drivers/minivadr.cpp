@@ -47,11 +47,13 @@ public:
 		m_videoram(*this, "videoram"),
 		m_maincpu(*this, "maincpu") { }
 
+	void minivadr(machine_config &config);
+
+private:
 	/* memory pointers */
 	required_shared_ptr<uint8_t> m_videoram;
 	uint32_t screen_update_minivadr(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 	required_device<cpu_device> m_maincpu;
-	void minivadr(machine_config &config);
 	void minivadr_map(address_map &map);
 };
 
@@ -63,23 +65,19 @@ public:
 
 uint32_t minivadr_state::screen_update_minivadr(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	offs_t offs;
-
-	for (offs = 0; offs < m_videoram.bytes(); offs++)
+	for (offs_t offs = 0; offs < m_videoram.bytes(); offs++)
 	{
-		int i;
-
 		uint8_t x = offs << 3;
-		int y = offs >> 5;
+		const int y = offs >> 5;
 		uint8_t data = m_videoram[offs];
 
-		for (i = 0; i < 8; i++)
+		for (int i = 0; i < 8; i++)
 		{
 			pen_t pen = (data & 0x80) ? rgb_t::white() : rgb_t::black();
-			bitmap.pix32(y, x) = pen;
+			bitmap.pix(y, x) = pen;
 
-			data = data << 1;
-			x = x + 1;
+			data <<= 1;
+			x++;
 		}
 	}
 
@@ -87,11 +85,12 @@ uint32_t minivadr_state::screen_update_minivadr(screen_device &screen, bitmap_rg
 }
 
 
-ADDRESS_MAP_START(minivadr_state::minivadr_map)
-	AM_RANGE(0x0000, 0x1fff) AM_ROM
-	AM_RANGE(0xa000, 0xbfff) AM_RAM AM_SHARE("videoram")
-	AM_RANGE(0xe008, 0xe008) AM_READ_PORT("INPUTS") AM_WRITENOP     // W - ???
-ADDRESS_MAP_END
+void minivadr_state::minivadr_map(address_map &map)
+{
+	map(0x0000, 0x1fff).rom();
+	map(0xa000, 0xbfff).ram().share("videoram");
+	map(0xe008, 0xe008).portr("INPUTS").nopw();     // W - ???
+}
 
 
 static INPUT_PORTS_START( minivadr )
@@ -107,23 +106,23 @@ static INPUT_PORTS_START( minivadr )
 INPUT_PORTS_END
 
 
-MACHINE_CONFIG_START(minivadr_state::minivadr)
-
+void minivadr_state::minivadr(machine_config &config)
+{
 	/* basic machine hardware */
-	MCFG_CPU_ADD("maincpu", Z80, XTAL(24'000'000) / 6)
-	MCFG_CPU_PROGRAM_MAP(minivadr_map)
-	MCFG_CPU_VBLANK_INT_DRIVER("screen", minivadr_state, irq0_line_hold)
+	Z80(config, m_maincpu, XTAL(24'000'000) / 6);
+	m_maincpu->set_addrmap(AS_PROGRAM, &minivadr_state::minivadr_map);
+	m_maincpu->set_vblank_int("screen", FUNC(minivadr_state::irq0_line_hold));
 
 	/* video hardware */
-	MCFG_SCREEN_ADD("screen", RASTER)
-	MCFG_SCREEN_REFRESH_RATE(60)
-	MCFG_SCREEN_VBLANK_TIME(ATTOSECONDS_IN_USEC(0))
-	MCFG_SCREEN_SIZE(256, 256)
-	MCFG_SCREEN_VISIBLE_AREA(0, 256-1, 16, 240-1)
-	MCFG_SCREEN_UPDATE_DRIVER(minivadr_state, screen_update_minivadr)
+	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
+	screen.set_refresh_hz(60);
+	screen.set_vblank_time(ATTOSECONDS_IN_USEC(0));
+	screen.set_size(256, 256);
+	screen.set_visarea(0, 256-1, 16, 240-1);
+	screen.set_screen_update(FUNC(minivadr_state::screen_update_minivadr));
 
 	/* the board has no sound hardware */
-MACHINE_CONFIG_END
+}
 
 
 /***************************************************************************
@@ -138,4 +137,4 @@ ROM_START( minivadr )
 ROM_END
 
 
-GAME( 1990, minivadr, 0, minivadr, minivadr, minivadr_state, 0, ROT0, "Taito Corporation", "Mini Vaders", MACHINE_SUPPORTS_SAVE | MACHINE_NO_SOUND_HW )
+GAME( 1990, minivadr, 0, minivadr, minivadr, minivadr_state, empty_init, ROT0, "Taito Corporation", "Mini Vaders", MACHINE_SUPPORTS_SAVE | MACHINE_NO_SOUND_HW )

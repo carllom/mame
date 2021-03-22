@@ -11,15 +11,17 @@
 
 u8 sm510_base_device::ram_r()
 {
+	int blh = (m_sbl) ? 8 : 0; // from SBL (optional)
 	int bmh = (m_sbm) ? (1 << (m_datawidth-1)) : 0; // from SBM
-	u8 address = (bmh | m_bm << 4 | m_bl) & m_datamask;
+	u8 address = (bmh | blh | m_bm << 4 | m_bl) & m_datamask;
 	return m_data->read_byte(address) & 0xf;
 }
 
 void sm510_base_device::ram_w(u8 data)
 {
+	int blh = (m_sbl) ? 8 : 0; // from SBL (optional)
 	int bmh = (m_sbm) ? (1 << (m_datawidth-1)) : 0; // from SBM
-	u8 address = (bmh | m_bm << 4 | m_bl) & m_datamask;
+	u8 address = (bmh | blh | m_bm << 4 | m_bl) & m_datamask;
 	m_data->write_byte(address, data & 0xf);
 }
 
@@ -40,7 +42,7 @@ void sm510_base_device::push_stack()
 void sm510_base_device::do_branch(u8 pu, u8 pm, u8 pl)
 {
 	// set new PC(Pu/Pm/Pl)
-	m_pc = ((pu << 10 & 0xc00) | (pm << 6 & 0x3c0) | (pl & 0x03f)) & m_prgmask;
+	m_pc = ((pu << 10) | (pm << 6 & 0x3c0) | (pl & 0x03f)) & m_prgmask;
 }
 
 u8 sm510_base_device::bitmask(u16 param)
@@ -67,6 +69,11 @@ void sm510_base_device::op_lbl()
 	// LBL xy: load BM/BL with 8-bit immediate value
 	m_bl = m_param & 0xf;
 	m_bm = (m_param & m_datamask) >> 4;
+}
+
+void sm510_base_device::op_sbl()
+{
+	// SBL: set BL high bit for next opcode - handled in execute_one()
 }
 
 void sm510_base_device::op_sbm()
@@ -139,7 +146,7 @@ void sm510_base_device::op_tml()
 
 void sm510_base_device::op_tm()
 {
-	// TM x: indirect subroutine call, pointers(IDX) are in page 0
+	// TM x: indirect subroutine call, pointers(IDX) are on page 0
 	m_icount--;
 	push_stack();
 	u8 idx = m_program->read_byte(m_op & 0x3f);
@@ -196,7 +203,7 @@ void sm510_base_device::op_lax()
 void sm510_base_device::op_ptw()
 {
 	// PTW: output W latch
-	m_write_s(0, m_w, 0xff);
+	m_write_s(m_w);
 }
 
 void sm510_base_device::op_wr()
@@ -219,13 +226,13 @@ void sm510_base_device::op_ws()
 void sm510_base_device::op_kta()
 {
 	// KTA: input K to ACC
-	m_acc = m_read_k(0, 0xff) & 0xf;
+	m_acc = m_read_k() & 0xf;
 }
 
 void sm510_base_device::op_atbp()
 {
 	// ATBP: output ACC to BP(internal LCD backplate signal)
-	m_bp = ((m_acc & 1) != 0);
+	m_bp = m_acc & 1;
 }
 
 void sm510_base_device::op_atx()
@@ -461,5 +468,5 @@ void sm510_base_device::op_clkhi()
 
 void sm510_base_device::op_illegal()
 {
-	logerror("%s unknown opcode $%02X at $%04X\n", tag(), m_op, m_prev_pc);
+	logerror("unknown opcode $%02X at $%04X\n", m_op, m_prev_pc);
 }

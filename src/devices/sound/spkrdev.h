@@ -13,28 +13,26 @@
 #pragma once
 
 
-#define MCFG_SPEAKER_LEVELS(_num, _levels) \
-		speaker_sound_device::static_set_levels(*device, _num, _levels);
-
 class speaker_sound_device : public device_t,
 								public device_sound_interface
 {
 public:
-	speaker_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	speaker_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 0);
 	~speaker_sound_device() {}
 
-	// static configuration
-	static void static_set_levels(device_t &device, int num_levels, const int16_t *levels) { downcast<speaker_sound_device &>(device).m_num_levels = num_levels; downcast<speaker_sound_device &>(device).m_levels = levels;}
+	// configuration
+	void set_levels(int num_levels, const double *levels) { m_num_levels = num_levels; m_levels = levels; }
 
-	void level_w(int new_level);
+	void level_w(int new_level); // can use as writeline
 
 protected:
 	// device-level overrides
 	virtual void device_start() override;
 	virtual void device_reset() override;
+	virtual void device_post_load() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	// Length of anti-aliasing filter kernel, measured in number of intermediate samples
@@ -49,9 +47,9 @@ private:
 	void update_interm_samples(const attotime &time, int volume);
 
 	// Updates the composed volume array and returns final filtered volume of next stream sample
-	double update_interm_samples_get_filtered_volume(int volume);
+	double update_interm_samples_get_filtered_volume(double volume);
 
-	void finalize_interm_sample(int volume);
+	void finalize_interm_sample(double volume);
 	void init_next_interm_sample();
 	inline double make_fraction(const attotime &a, const attotime &b, double timediv);
 	double get_filtered_volume();
@@ -78,13 +76,11 @@ private:
 	int           m_interm_sample_index;              /* counts interm. samples between stream samples */
 	attotime      m_last_update_time;                 /* internal timestamp */
 
-	void speaker_postload();
-
 	// DC blocker state
 	double  m_prevx, m_prevy;
 
 	int          m_num_levels;  /* optional: number of levels (if not two) */
-	const int16_t  *m_levels;     /* optional: pointer to level lookup table */
+	const double  *m_levels;     /* optional: pointer to level lookup table */
 };
 
 DECLARE_DEVICE_TYPE(SPEAKER_SOUND, speaker_sound_device)

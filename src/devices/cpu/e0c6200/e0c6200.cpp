@@ -50,9 +50,9 @@ void e0c6200_cpu_device::state_string_export(const device_state_entry &entry, st
 	}
 }
 
-util::disasm_interface *e0c6200_cpu_device::create_disassembler()
+std::unique_ptr<util::disasm_interface> e0c6200_cpu_device::create_disassembler()
 {
-	return new e0c6200_disassembler;
+	return std::make_unique<e0c6200_disassembler>();
 }
 
 
@@ -132,7 +132,7 @@ void e0c6200_cpu_device::device_start()
 	state_add(STATE_GENPCBASE, "CURPC", m_pc).formatstr("%04X").noshow();
 	state_add(STATE_GENFLAGS, "GENFLAGS", m_f).formatstr("%4s").noshow();
 
-	m_icountptr = &m_icount;
+	set_icountptr(m_icount);
 }
 
 
@@ -210,7 +210,7 @@ void e0c6200_cpu_device::execute_run()
 		m_jpc = ((m_prev_op & 0xfe0) == 0xe40) ? m_npc : (m_prev_pc & 0x1f00);
 
 		// fetch next opcode
-		debugger_instruction_hook(this, m_pc);
+		debugger_instruction_hook(m_pc);
 		m_op = m_program->read_word(m_pc) & 0xfff;
 		m_pc = (m_pc & 0x1000) | ((m_pc + 1) & 0x0fff);
 
@@ -288,8 +288,7 @@ void e0c6200_cpu_device::execute_one()
 		case 0x100:
 			m_icount -= 7;
 			pop_pc();
-			// fall through!
-
+			[[fallthrough]];
 		// LBPX MX,e: load memory with 8-bit immediate data, increment X by 2
 		case 0x900:
 			write_mx(m_op & 0xf); inc_x();
@@ -840,7 +839,7 @@ void e0c6200_cpu_device::execute_one()
 
 		// illegal opcode
 		default:
-			logerror("%s unknown opcode $%03X at $%04X\n", tag(), m_op, m_prev_pc);
+			logerror("unknown opcode $%03X at $%04X\n", m_op, m_prev_pc);
 			break;
 
 			} // 0xff0

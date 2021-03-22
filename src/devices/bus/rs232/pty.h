@@ -7,6 +7,7 @@
 
 #include "rs232.h"
 #include "dipty.h"
+#include "diserial.h"
 
 class pseudo_terminal_device : public device_t,
 								public device_serial_interface,
@@ -36,7 +37,6 @@ private:
 
 	required_ioport m_rs232_txbaud;
 	required_ioport m_rs232_rxbaud;
-	required_ioport m_rs232_startbits;
 	required_ioport m_rs232_databits;
 	required_ioport m_rs232_parity;
 	required_ioport m_rs232_stopbits;

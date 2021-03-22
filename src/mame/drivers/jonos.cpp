@@ -19,8 +19,11 @@ There are interrupt handlers at 5.5 (0x002c) and 6.5 (0x0034).
 #include "emu.h"
 #include "cpu/i8085/i8085.h"
 #include "machine/keyboard.h"
+#include "emupal.h"
 #include "screen.h"
 
+
+namespace {
 
 class jonos_state : public driver_device
 {
@@ -30,21 +33,26 @@ public:
 		, m_maincpu(*this, "maincpu")
 		, m_p_videoram(*this, "videoram")
 		, m_p_chargen(*this, "chargen")
-		{ }
+	{ }
 
-	DECLARE_READ8_MEMBER(keyboard_r);
-	DECLARE_WRITE8_MEMBER(cursor_w);
+	void jonos(machine_config &config);
+
+protected:
+	virtual void machine_reset() override;
+	virtual void machine_start() override;
+
+private:
+	u8 keyboard_r(offs_t offset);
+	void cursor_w(offs_t offset, u8 data);
 	u32 screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	void kbd_put(u8 data);
 
-	void jonos(machine_config &config);
-	void jonos_mem(address_map &map);
-private:
+	void mem_map(address_map &map);
+
 	u8 m_framecnt;
 	u8 m_term_data;
 	u8 m_curs_ctrl;
 	u16 m_curs_pos;
-	virtual void machine_reset() override;
 	required_device<cpu_device> m_maincpu;
 	required_shared_ptr<u8> m_p_videoram;
 	required_region_ptr<u8> m_p_chargen;
@@ -52,15 +60,16 @@ private:
 
 
 
-ADDRESS_MAP_START(jonos_state::jonos_mem)
-	ADDRESS_MAP_UNMAP_HIGH
-	AM_RANGE(0x0000, 0x0fff) AM_ROM AM_REGION("roms", 0)
-	AM_RANGE(0x1800, 0x27ff) AM_RAM AM_SHARE("videoram")
-	AM_RANGE(0x3000, 0x3001) AM_WRITE(cursor_w) // unknown device
-	AM_RANGE(0x4000, 0x4001) // unknown device
-	AM_RANGE(0x5000, 0x5003) AM_READ(keyboard_r) // unknown device
-	AM_RANGE(0x6000, 0x6001) // unknown device
-ADDRESS_MAP_END
+void jonos_state::mem_map(address_map &map)
+{
+	map.unmap_value_high();
+	map(0x0000, 0x0fff).rom().region("roms", 0);
+	map(0x1800, 0x27ff).ram().share("videoram");
+	map(0x3000, 0x3001).w(FUNC(jonos_state::cursor_w)); // unknown device
+	map(0x4000, 0x4001); // unknown device
+	map(0x5000, 0x5003).r(FUNC(jonos_state::keyboard_r)); // unknown device
+	map(0x6000, 0x6001); // unknown device
+}
 
 /* Input ports */
 static INPUT_PORTS_START( jonos )
@@ -71,7 +80,7 @@ void jonos_state::kbd_put(u8 data)
 	m_term_data = data;
 }
 
-READ8_MEMBER( jonos_state::keyboard_r )
+u8 jonos_state::keyboard_r(offs_t offset)
 {
 	if (offset == 0)
 	{
@@ -86,7 +95,7 @@ READ8_MEMBER( jonos_state::keyboard_r )
 	return 0;
 }
 
-WRITE8_MEMBER( jonos_state::cursor_w )
+void jonos_state::cursor_w(offs_t offset, u8 data)
 {
 	if (offset == 1) // control byte
 		m_curs_ctrl = (data == 0x80) ? 1 : 0;
@@ -101,33 +110,42 @@ WRITE8_MEMBER( jonos_state::cursor_w )
 		m_curs_pos = (m_curs_pos & 0xff) | (data << 8);
 }
 
+void jonos_state::machine_start()
+{
+	save_item(NAME(m_term_data));
+	save_item(NAME(m_curs_ctrl));
+	save_item(NAME(m_curs_pos));
+	save_item(NAME(m_framecnt));
+}
+
 void jonos_state::machine_reset()
 {
 	m_curs_ctrl = 0;
 	m_curs_pos = 0;
 	m_term_data = 0;
+	m_framecnt = 0;
 }
 
 uint32_t jonos_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	m_framecnt++;
-	u8 y,ra,chr,gfx,inv;
-	u16 sy=0,x;
+	u16 sy=0;
 	u16 ma = (m_p_videoram[0x7da] + (m_p_videoram[0x7db] << 8)) & 0x7ff;
 
-	for (y = 0; y < 24; y++)
+	for (u8 y = 0; y < 24; y++)
 	{
-		for (ra = 0; ra < 12; ra++)
+		for (u8 ra = 0; ra < 12; ra++)
 		{
-			u16 *p = &bitmap.pix16(sy++);
+			u16 *p = &bitmap.pix(sy++);
 			u16 cpos = y << 8;
 
-			for (x = ma; x < ma + 80; x++)
+			for (u16 x = ma; x < ma + 80; x++)
 			{
-				chr = m_p_videoram[x];
-				inv = (BIT(chr, 7) ^ ((cpos == m_curs_pos) && BIT(m_framecnt, 5))) ? 0xff : 0;
+				u8 chr = m_p_videoram[x];
+				u8 inv = (BIT(chr, 7) ^ ((cpos == m_curs_pos) && BIT(m_framecnt, 5))) ? 0xff : 0;
 				chr &= 0x7f;
 
+				u8 gfx;
 				if (ra < 8)
 					gfx = m_p_chargen[(chr<<3) | ra ] ^ inv;
 				else
@@ -166,31 +184,32 @@ static const gfx_layout jonos_charlayout =
 	8*8                    /* every char takes 8 bytes */
 };
 
-static GFXDECODE_START( jonos )
+static GFXDECODE_START( gfx_jonos )
 	GFXDECODE_ENTRY( "chargen", 0x0000, jonos_charlayout, 0, 1 )
 GFXDECODE_END
 
 
-MACHINE_CONFIG_START(jonos_state::jonos)
+void jonos_state::jonos(machine_config &config)
+{
 	/* basic machine hardware */
-	MCFG_CPU_ADD("maincpu", I8085A, XTAL(16'000'000) / 4)
-	MCFG_CPU_PROGRAM_MAP(jonos_mem)
+	I8085A(config, m_maincpu, XTAL(16'000'000) / 4);
+	m_maincpu->set_addrmap(AS_PROGRAM, &jonos_state::mem_map);
 
 	/* video hardware */
-	MCFG_SCREEN_ADD("screen", RASTER)
-	MCFG_SCREEN_REFRESH_RATE(60)
-	MCFG_SCREEN_VBLANK_TIME(ATTOSECONDS_IN_USEC(2500)) /* not accurate */
-	MCFG_SCREEN_UPDATE_DRIVER(jonos_state, screen_update)
-	MCFG_SCREEN_SIZE(640, 288)
-	MCFG_SCREEN_VISIBLE_AREA(0, 639, 0, 287)
-	MCFG_SCREEN_PALETTE("palette")
+	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
+	screen.set_refresh_hz(60);
+	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); /* not accurate */
+	screen.set_screen_update(FUNC(jonos_state::screen_update));
+	screen.set_size(640, 288);
+	screen.set_visarea(0, 639, 0, 287);
+	screen.set_palette("palette");
 
-	MCFG_GFXDECODE_ADD("gfxdecode", "palette", jonos)
-	MCFG_PALETTE_ADD_MONOCHROME("palette")
+	GFXDECODE(config, "gfxdecode", "palette", gfx_jonos);
+	PALETTE(config, "palette", palette_device::MONOCHROME);
 
-	MCFG_DEVICE_ADD("keyboard", GENERIC_KEYBOARD, 0)
-	MCFG_GENERIC_KEYBOARD_CB(PUT(jonos_state, kbd_put))
-MACHINE_CONFIG_END
+	generic_keyboard_device &keyboard(GENERIC_KEYBOARD(config, "keyboard", 0));
+	keyboard.set_keyboard_callback(FUNC(jonos_state::kbd_put));
+}
 
 
 /* ROM definition */
@@ -205,7 +224,10 @@ ROM_START( jonos )
 	ROM_LOAD( "jochset0.rom", 0x0000, 0x0800, CRC(1d8e9640) SHA1(74f3604acc71f9bc1e1f9479f6438feda79293a2) )
 ROM_END
 
+} // Anonymous namespace
+
+
 /* Driver */
 
-//   YEAR   NAME    PARENT  COMPAT   MACHINE  INPUT  CLASS        INIT     COMPANY  FULLNAME  FLAGS
-COMP( 198?, jonos,  0,      0,       jonos,   jonos, jonos_state, 0,       "Jonos", "Escort", MACHINE_NOT_WORKING | MACHINE_NO_SOUND)
+//   YEAR   NAME   PARENT  COMPAT  MACHINE  INPUT  CLASS        INIT        COMPANY  FULLNAME  FLAGS
+COMP( 198?, jonos, 0,      0,      jonos,   jonos, jonos_state, empty_init, "Jonos", "Escort", MACHINE_NOT_WORKING | MACHINE_NO_SOUND | MACHINE_SUPPORTS_SAVE )

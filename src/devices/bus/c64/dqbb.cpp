@@ -53,7 +53,8 @@ c64_dqbb_cartridge_device::c64_dqbb_cartridge_device(const machine_config &mconf
 void c64_dqbb_cartridge_device::device_start()
 {
 	// allocate memory
-	m_nvram.allocate(0x4000);
+	m_nvram = std::make_unique<uint8_t[]>(0x4000);
+	save_pointer(NAME(m_nvram), 0x4000);
 
 	// state saving
 	save_item(NAME(m_cs));
@@ -78,7 +79,7 @@ void c64_dqbb_cartridge_device::device_reset()
 //  c64_cd_r - cartridge data read
 //-------------------------------------------------
 
-uint8_t c64_dqbb_cartridge_device::c64_cd_r(address_space &space, offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
+uint8_t c64_dqbb_cartridge_device::c64_cd_r(offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
 {
 	if (!m_cs && (!roml || !romh))
 	{
@@ -93,7 +94,7 @@ uint8_t c64_dqbb_cartridge_device::c64_cd_r(address_space &space, offs_t offset,
 //  c64_cd_w - cartridge data write
 //-------------------------------------------------
 
-void c64_dqbb_cartridge_device::c64_cd_w(address_space &space, offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
+void c64_dqbb_cartridge_device::c64_cd_w(offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
 {
 	if (!m_cs && m_we && (offset >= 0x8000 && offset < 0xc000))
 	{

@@ -3,15 +3,15 @@
 #include "emu.h"
 #include "includes/rockrage.h"
 
-PALETTE_INIT_MEMBER(rockrage_state, rockrage)
+void rockrage_state::rockrage_palette(palette_device &palette) const
 {
-	const uint8_t *color_prom = memregion("proms")->base();
+	uint8_t const *const color_prom = memregion("proms")->base();
 
 	for (int i = 0; i < 256*3; i++)
 	{
 		// layer0 uses colors 0x00-0x0f; layer1 uses 0x10-0x1f; sprites use 0x20-0x2f
-		uint8_t colorbase = (i / 256) * 16;
-		uint8_t ctabentry = (color_prom[i] & 0x0f) | colorbase;
+		uint8_t const colorbase = (i / 256) * 16;
+		uint8_t const ctabentry = (color_prom[i] & 0x0f) | colorbase;
 		palette.set_pen_indirect(i, ctabentry);
 	}
 }
@@ -47,7 +47,7 @@ K007420_CALLBACK_MEMBER(rockrage_state::rockrage_sprite_callback)
 }
 
 
-WRITE8_MEMBER(rockrage_state::rockrage_vreg_w)
+void rockrage_state::rockrage_vreg_w(uint8_t data)
 {
 	/* bits 4-7: unused */
 	/* bit 3: bit 4 of bank # (layer 0) */
@@ -70,7 +70,7 @@ uint32_t rockrage_state::screen_update_rockrage(screen_device &screen, bitmap_in
 {
 	m_k007342->tilemap_update();
 
-	bitmap.fill(rgb_t::black(), cliprect);
+	bitmap.fill(0, cliprect);
 	m_k007342->tilemap_draw(screen, bitmap, cliprect, 0, TILEMAP_DRAW_OPAQUE, 0);
 	// Tutankhamen eyes go below sprites
 	m_k007342->tilemap_draw(screen, bitmap, cliprect, 1, 0, 0);

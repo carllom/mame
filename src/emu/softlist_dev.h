@@ -25,49 +25,12 @@
 #define SOFTWARE_SUPPORTED_PARTIAL  1
 #define SOFTWARE_SUPPORTED_NO       2
 
-enum softlist_type
-{
-	SOFTWARE_LIST_ORIGINAL_SYSTEM,
-	SOFTWARE_LIST_COMPATIBLE_SYSTEM
-};
-
 enum software_compatibility
 {
 	SOFTWARE_IS_COMPATIBLE,
 	SOFTWARE_IS_INCOMPATIBLE,
 	SOFTWARE_NOT_COMPATIBLE
 };
-
-
-//**************************************************************************
-//  MACROS
-//**************************************************************************
-
-#define MCFG_SOFTWARE_LIST_CONFIG(_list,_list_type) \
-	software_list_device::static_set_type(*device, _list, _list_type);
-
-#define MCFG_SOFTWARE_LIST_ADD( _tag, _list ) \
-	MCFG_DEVICE_ADD( _tag, SOFTWARE_LIST, 0 ) \
-	MCFG_SOFTWARE_LIST_CONFIG(_list, SOFTWARE_LIST_ORIGINAL_SYSTEM)
-
-#define MCFG_SOFTWARE_LIST_COMPATIBLE_ADD( _tag, _list ) \
-	MCFG_DEVICE_ADD( _tag, SOFTWARE_LIST, 0 ) \
-	MCFG_SOFTWARE_LIST_CONFIG(_list, SOFTWARE_LIST_COMPATIBLE_SYSTEM)
-
-#define MCFG_SOFTWARE_LIST_MODIFY( _tag, _list ) \
-	MCFG_DEVICE_MODIFY( _tag ) \
-	MCFG_SOFTWARE_LIST_CONFIG(_list, SOFTWARE_LIST_ORIGINAL_SYSTEM)
-
-#define MCFG_SOFTWARE_LIST_COMPATIBLE_MODIFY( _tag, _list ) \
-	MCFG_DEVICE_MODIFY( _tag ) \
-	MCFG_SOFTWARE_LIST_CONFIG(_list, SOFTWARE_LIST_COMPATIBLE_SYSTEM)
-
-#define MCFG_SOFTWARE_LIST_FILTER( _tag, _filter ) \
-	MCFG_DEVICE_MODIFY( _tag ) \
-	software_list_device::static_set_filter(*device, _filter);
-
-#define MCFG_SOFTWARE_LIST_REMOVE( _tag ) \
-	MCFG_DEVICE_REMOVE( _tag )
 
 
 //**************************************************************************
@@ -80,7 +43,7 @@ enum software_compatibility
 class software_list_loader
 {
 public:
-	virtual bool load_software(device_image_interface &image, software_list_device &swlist, const char *swname, const rom_entry *start_entry) const = 0;
+	virtual bool load_software(device_image_interface &image, software_list_device &swlist, std::string_view swname, const rom_entry *start_entry) const = 0;
 };
 
 
@@ -89,7 +52,7 @@ public:
 class false_software_list_loader : public software_list_loader
 {
 public:
-	virtual bool load_software(device_image_interface &image, software_list_device &swlist, const char *swname, const rom_entry *start_entry) const override;
+	virtual bool load_software(device_image_interface &image, software_list_device &swlist, std::string_view swname, const rom_entry *start_entry) const override;
 	static const software_list_loader &instance() { return s_instance; }
 
 private:
@@ -102,7 +65,7 @@ private:
 class rom_software_list_loader : public software_list_loader
 {
 public:
-	virtual bool load_software(device_image_interface &image, software_list_device &swlist, const char *swname, const rom_entry *start_entry) const override;
+	virtual bool load_software(device_image_interface &image, software_list_device &swlist, std::string_view swname, const rom_entry *start_entry) const override;
 	static const software_list_loader &instance() { return s_instance; }
 
 private:
@@ -115,7 +78,7 @@ private:
 class image_software_list_loader : public software_list_loader
 {
 public:
-	virtual bool load_software(device_image_interface &image, software_list_device &swlist, const char *swname, const rom_entry *start_entry) const override;
+	virtual bool load_software(device_image_interface &image, software_list_device &swlist, std::string_view swname, const rom_entry *start_entry) const override;
 	static const software_list_loader &instance() { return s_instance; }
 
 private:
@@ -131,16 +94,26 @@ class software_list_device : public device_t
 	friend class softlist_parser;
 
 public:
+	enum class softlist_type
+	{
+		ORIGINAL_SYSTEM,
+		COMPATIBLE_SYSTEM
+	};
+
 	// construction/destruction
-	software_list_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
+	software_list_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock = 0);
 
 	// inline configuration helpers
-	static void static_set_type(device_t &device, const char *list, softlist_type list_type);
-	static void static_set_filter(device_t &device, const char *filter);
+	software_list_device &set_type(const char *list, softlist_type list_type) { m_list_name.assign(list); m_list_type = list_type; return *this; }
+	software_list_device &set_original(const char *list) { return set_type(list, softlist_type::ORIGINAL_SYSTEM); }
+	software_list_device &set_compatible(const char *list) { return set_type(list, softlist_type::COMPATIBLE_SYSTEM); }
+	software_list_device &set_filter(const char *filter) { m_filter = filter; return *this; }
 
 	// getters
 	const std::string &list_name() const { return m_list_name; }
 	softlist_type list_type() const { return m_list_type; }
+	bool is_original() const { return softlist_type::ORIGINAL_SYSTEM == m_list_type; }
+	bool is_compatible() const { return softlist_type::COMPATIBLE_SYSTEM == m_list_type; }
 	const char *filter() const { return m_filter; }
 	const char *filename() { return m_file.filename(); }
 
@@ -152,13 +125,13 @@ public:
 
 	// operations
 	const software_info *find(const std::string &look_for);
-	void find_approx_matches(const std::string &name, int matches, const software_info **list, const char *interface);
+	void find_approx_matches(std::string_view name, int matches, const software_info **list, const char *interface);
 	void release();
 	software_compatibility is_compatible(const software_part &part) const;
 
 	// static helpers
-	static software_list_device *find_by_name(const machine_config &mconfig, const std::string &name);
-	static void display_matches(const machine_config &config, const char *interface, const std::string &name);
+	static software_list_device *find_by_name(const machine_config &mconfig, std::string_view name);
+	static void display_matches(const machine_config &config, const char *interface, std::string_view name);
 	static device_image_interface *find_mountable_image(const machine_config &mconfig, const software_part &part, std::function<bool (const device_image_interface &)> filter);
 	static device_image_interface *find_mountable_image(const machine_config &mconfig, const software_part &part);
 
@@ -190,7 +163,7 @@ private:
 DECLARE_DEVICE_TYPE(SOFTWARE_LIST, software_list_device)
 
 // device type iterator
-typedef device_type_iterator<software_list_device> software_list_device_iterator;
+typedef device_type_enumerator<software_list_device> software_list_device_enumerator;
 
 
 #endif // MAME_EMU_SOFTLIST_DEV_H

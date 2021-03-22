@@ -2,18 +2,22 @@
 // copyright-holders:Tomasz Slanina, Peter Ferrie,Stephane Humbert
 /***************************************************************************
 
- Arcade games (hacks of console games) running on SNES harware.
+ Arcade games (hacks of console games) running on SNES hardware.
 
- Driver (based on nss.c) by Tomasz Slanina  analog[at]op.pl
+ Driver (based on nss.cpp) by Tomasz Slanina
 
     Supported games:
-    - Killer Instinct
+    - Fatal Fury Special
     - Final Fight 2
+    - Ghost Chaser Densei (2 sets)
+    - Gundam Wing: Endless Duel (2 sets)
     - Iron (bootleg of Iron Commando)
-    - Ghost Chaser Densei
-    - Sonic Blast Man 2
-    - Gundam Wing: Endless Duel
+    - Killer Instinct
     - Legend
+    - Rushing Beat Shura
+    - Sonic Blast Man 2
+    - Venom & Spider-Man - Separation Anxiety
+    - Wild Guns
 
     Not dumped:
     - Final Fight 3
@@ -21,13 +25,18 @@
 TODO:
 
  - all games : (re)add PORT_DIPLOCATION
- - kiinstb  : fix gfx glitches, missing texts
+ - kinstb   : fix gfx glitches, missing texts
  - ffight2b : remove hack for starting credits (RAM - mainly 0x7eadce where credits are stored - is filled with 0x55,
    so you are awarded 55 credits on a hard reset)
  - sblast2b : dipswitches
  - sblast2b : pressing start during gameplay changes the character used. Intentional?
- - denseib  :  fix gfx glitches, missing texts
- - legendsb : dipswitches
+ - denseib,2: fix gfx glitches, missing texts
+ - legendsb : unknown dipswitches
+ - rushbets : dipswitches (stored at memory locations $785006 and $785008)
+ - venom    : gfx glitches on second level
+ - wldgunsb : dipswitches
+ - wldgunsb : sometimes continue counter doesn't start from '9', verify if protection is involved.
+ - fatfurspb: ROMs are identical to the SNES version. Mods provided by security chip?
 
 ***************************************************************************
 
@@ -144,75 +153,84 @@ Iron PCB (same as Final Fight 2?)
 
 ***************************************************************************/
 
-
-
-
 #include "emu.h"
 #include "includes/snes.h"
-#include "cpu/mcs51/mcs51.h"
 #include "speaker.h"
+
+
+namespace {
 
 class snesb_state : public snes_state
 {
 public:
 	snesb_state(const machine_config &mconfig, device_type type, const char *tag)
-		: snes_state(mconfig, type, tag) { }
+		: snes_state(mconfig, type, tag)
+	{ }
 
+	void ffight2b(machine_config &config);
+	void kinstb(machine_config &config);
+
+	void init_iron();
+	void init_denseib();
+	void init_denseib2();
+	void init_kinstb();
+	void init_sblast2b();
+	void init_ffight2b();
+	void init_endless();
+	void init_legendsb();
+	void init_rushbets();
+	void init_venom();
+	void init_wldgunsb();
+	void init_fatfurspb();
+
+private:
 	std::unique_ptr<int8_t[]> m_shared_ram;
 	uint8_t m_cnt;
 	std::unique_ptr<int8_t[]> m_shared_ram2;
-	DECLARE_READ8_MEMBER(sharedram_r);
-	DECLARE_WRITE8_MEMBER(sharedram_w);
-	DECLARE_READ8_MEMBER(sb2b_75bd37_r);
-	DECLARE_READ8_MEMBER(sb2b_6a6xxx_r);
-	DECLARE_READ8_MEMBER(sb2b_7xxx_r);
-	DECLARE_READ8_MEMBER(endless_580xxx_r);
-	DECLARE_READ8_MEMBER(endless_624b7f_r);
-	DECLARE_READ8_MEMBER(endless_800b_r);
-	DECLARE_READ8_MEMBER(sharedram2_r);
-	DECLARE_WRITE8_MEMBER(sharedram2_w);
-	DECLARE_READ8_MEMBER(snesb_dsw1_r);
-	DECLARE_READ8_MEMBER(snesb_dsw2_r);
-	DECLARE_READ8_MEMBER(snesb_coin_r);
-	DECLARE_READ8_MEMBER(spc_ram_100_r);
-	DECLARE_WRITE8_MEMBER(spc_ram_100_w);
-	DECLARE_DRIVER_INIT(iron);
-	DECLARE_DRIVER_INIT(denseib);
-	DECLARE_DRIVER_INIT(kinstb);
-	DECLARE_DRIVER_INIT(sblast2b);
-	DECLARE_DRIVER_INIT(ffight2b);
-	DECLARE_DRIVER_INIT(endless);
-	DECLARE_DRIVER_INIT(mk3snes);
-	DECLARE_DRIVER_INIT(legendsb);
+	uint8_t sharedram_r(offs_t offset);
+	void sharedram_w(offs_t offset, uint8_t data);
+	uint8_t sb2b_75bd37_r();
+	uint8_t sb2b_6a6xxx_r(offs_t offset);
+	uint8_t sb2b_7xxx_r(offs_t offset);
+	uint8_t endless_580xxx_r(offs_t offset);
+	uint8_t endless_624b7f_r();
+	uint8_t endless_800b_r(offs_t offset);
+	uint8_t rushbets_75axxx_r(offs_t offset);
+	uint8_t rushbets_5b8e3c_r();
+	uint8_t sharedram2_r(offs_t offset);
+	uint8_t wldgunsb_722262_r();
+	uint8_t wldgunsb_723364_r();
+	uint8_t wldgunsb_721197_r();
+	uint8_t wldgunsb_72553b_r();
+	uint8_t wldgunsb_72443a_r();
+
+	void sharedram2_w(offs_t offset, uint8_t data);
 	DECLARE_MACHINE_RESET(ffight2b);
-	void mk3snes(machine_config &config);
-	void ffight2b(machine_config &config);
-	void kinstb(machine_config &config);
 	void mcu_io_map(address_map &map);
 	void snesb_map(address_map &map);
-	void spc_mem(address_map &map);
+	void spc_map(address_map &map);
 };
 
 
 /* Killer Instinct */
-READ8_MEMBER(snesb_state::sharedram_r)
+uint8_t snesb_state::sharedram_r(offs_t offset)
 {
 	return m_shared_ram[offset];
 }
 
-WRITE8_MEMBER(snesb_state::sharedram_w)
+void snesb_state::sharedram_w(offs_t offset, uint8_t data)
 {
 	m_shared_ram[offset]=data;
 }
 
 /* Sonic Blast Man 2 Special Turbo */
-READ8_MEMBER(snesb_state::sb2b_75bd37_r)
+uint8_t snesb_state::sb2b_75bd37_r()
 {
 	/* protection check */
 	return ++m_cnt;
 }
 
-READ8_MEMBER(snesb_state::sb2b_6a6xxx_r)
+uint8_t snesb_state::sb2b_6a6xxx_r(offs_t offset)
 {
 	/* protection checks */
 	switch(offset)
@@ -225,19 +243,19 @@ READ8_MEMBER(snesb_state::sb2b_6a6xxx_r)
 		case 0xfb7: return 0x47;
 	}
 
-	logerror("Unknown protection read read %x @ %x\n",offset, m_maincpu->pc());
+	logerror("Unknown protection read %x @ %x\n",offset, m_maincpu->pc());
 
 	return 0;
 }
 
-READ8_MEMBER(snesb_state::sb2b_7xxx_r)
+uint8_t snesb_state::sb2b_7xxx_r(offs_t offset)
 {
 	return m_maincpu->space(AS_PROGRAM).read_byte(0xc07000 + offset);
 }
 
 
 /* Endless Duel */
-READ8_MEMBER(snesb_state::endless_580xxx_r)
+uint8_t snesb_state::endless_580xxx_r(offs_t offset)
 {
 	/* protection checks */
 	switch(offset)
@@ -249,18 +267,18 @@ READ8_MEMBER(snesb_state::endless_580xxx_r)
 		case 0xe83: return 0x6b;
 	}
 
-	logerror("Unknown protection read read %x @ %x\n",offset, m_maincpu->pc());
+	logerror("Unknown protection read %x @ %x\n",offset, m_maincpu->pc());
 
 	return 0;
 }
 
-READ8_MEMBER(snesb_state::endless_624b7f_r)
+uint8_t snesb_state::endless_624b7f_r()
 {
 	/* protection check */
 	return ++m_cnt;
 }
 
-READ8_MEMBER(snesb_state::endless_800b_r)
+uint8_t snesb_state::endless_800b_r(offs_t offset)
 {
 	if (!offset)
 	{
@@ -270,54 +288,83 @@ READ8_MEMBER(snesb_state::endless_800b_r)
 	return 0xe8;
 }
 
-READ8_MEMBER(snesb_state::sharedram2_r)
+uint8_t snesb_state::sharedram2_r(offs_t offset)
 {
 	return m_shared_ram2[offset];
 }
 
-WRITE8_MEMBER(snesb_state::sharedram2_w)
+void snesb_state::sharedram2_w(offs_t offset, uint8_t data)
 {
 	m_shared_ram2[offset]=data;
 }
 
-/* Generic read handlers for Dip Switches and coins inputs */
-READ8_MEMBER(snesb_state::snesb_dsw1_r)
+/* Rushing Beat Shura */
+uint8_t snesb_state::rushbets_75axxx_r(offs_t offset)
 {
-	return ioport("DSW1")->read();
+/* protection checks */
+	switch(offset)
+	{
+		case 0xf49: return 0xe3;
+		case 0x05a: return 0xf4;
+		case 0x16b: return 0x05;
+		case 0x27c: return 0x16;
+		case 0x38d: return 0x27;
+	}
+
+	logerror("Unknown protection read %x @ %x\n",offset, m_maincpu->pc());
+
+	return 0;
 }
 
-READ8_MEMBER(snesb_state::snesb_dsw2_r)
+uint8_t snesb_state::rushbets_5b8e3c_r()
 {
-	return ioport("DSW2")->read();
+	/* protection check */
+	return ++m_cnt;
 }
 
-READ8_MEMBER(snesb_state::snesb_coin_r)
+/* Wild Guns */
+uint8_t snesb_state::wldgunsb_722262_r()
 {
-	return ioport("COIN")->read();
+	// PC 2e2f6
+	return 0x2b;
+}
+
+uint8_t snesb_state::wldgunsb_723364_r()
+{
+	// PC b983
+	return 0x93;
+}
+
+uint8_t snesb_state::wldgunsb_721197_r()
+{
+	// PC 2e30c
+	return 0xe4;
+}
+
+uint8_t snesb_state::wldgunsb_72553b_r()
+{
+	// PC 2e216
+	return 0xbf;
+}
+
+uint8_t snesb_state::wldgunsb_72443a_r()
+{
+	// PC 2e322
+	return 0x66;
 }
 
 
-ADDRESS_MAP_START(snesb_state::snesb_map)
-	AM_RANGE(0x000000, 0x7dffff) AM_READWRITE(snes_r_bank1, snes_w_bank1)
-	AM_RANGE(0x7e0000, 0x7fffff) AM_RAM                 /* 8KB Low RAM, 24KB High RAM, 96KB Expanded RAM */
-	AM_RANGE(0x800000, 0xffffff) AM_READWRITE(snes_r_bank2, snes_w_bank2)    /* Mirror and ROM */
-ADDRESS_MAP_END
-
-READ8_MEMBER(snesb_state::spc_ram_100_r)
+void snesb_state::snesb_map(address_map &map)
 {
-	return m_spc700->spc_ram_r(space, offset + 0x100);
+	map(0x000000, 0x7dffff).rw(FUNC(snesb_state::snes_r_bank1), FUNC(snesb_state::snes_w_bank1));
+	map(0x7e0000, 0x7fffff).ram().share("wram");                 /* 8KB Low RAM, 24KB High RAM, 96KB Expanded RAM */
+	map(0x800000, 0xffffff).rw(FUNC(snesb_state::snes_r_bank2), FUNC(snesb_state::snes_w_bank2));    /* Mirror and ROM */
 }
 
-WRITE8_MEMBER(snesb_state::spc_ram_100_w)
+void snesb_state::spc_map(address_map &map)
 {
-	m_spc700->spc_ram_w(space, offset + 0x100, data);
+	map(0x0000, 0xffff).ram().share("aram");
 }
-
-ADDRESS_MAP_START(snesb_state::spc_mem)
-	AM_RANGE(0x0000, 0x00ef) AM_DEVREADWRITE("spc700", snes_sound_device, spc_ram_r, spc_ram_w) /* lower 32k ram */
-	AM_RANGE(0x00f0, 0x00ff) AM_DEVREADWRITE("spc700", snes_sound_device, spc_io_r, spc_io_w)   /* spc io */
-	AM_RANGE(0x0100, 0xffff) AM_READWRITE(spc_ram_100_r, spc_ram_100_w)
-ADDRESS_MAP_END
 
 static INPUT_PORTS_START( snes_common )
 
@@ -476,7 +523,7 @@ static INPUT_PORTS_START( ffight2b )
 	PORT_DIPSETTING(    0x02, DEF_STR( 3C_1C ) )
 	PORT_DIPSETTING(    0x03, DEF_STR( 2C_1C ) )
 	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
-//  PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
+	PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
 	PORT_DIPSETTING(    0x06, DEF_STR( 1C_2C ) )
 	PORT_DIPSETTING(    0x05, DEF_STR( 1C_3C ) )
 	PORT_DIPSETTING(    0x04, DEF_STR( 1C_4C ) )
@@ -519,7 +566,7 @@ static INPUT_PORTS_START( iron )
 	PORT_DIPSETTING(    0x02, DEF_STR( 3C_1C ) )
 	PORT_DIPSETTING(    0x03, DEF_STR( 2C_1C ) )
 	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
-//  PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
+	PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
 	PORT_DIPSETTING(    0x06, DEF_STR( 1C_2C ) )
 	PORT_DIPSETTING(    0x05, DEF_STR( 1C_3C ) )
 	PORT_DIPSETTING(    0x04, DEF_STR( 1C_4C ) )
@@ -563,7 +610,7 @@ static INPUT_PORTS_START( denseib )
 	PORT_DIPSETTING(    0x02, DEF_STR( 3C_1C ) )
 	PORT_DIPSETTING(    0x03, DEF_STR( 2C_1C ) )
 	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
-//  PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
+	PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
 	PORT_DIPSETTING(    0x06, DEF_STR( 1C_2C ) )
 	PORT_DIPSETTING(    0x05, DEF_STR( 1C_3C ) )
 	PORT_DIPSETTING(    0x04, DEF_STR( 1C_4C ) )
@@ -571,7 +618,7 @@ static INPUT_PORTS_START( denseib )
 	PORT_DIPSETTING(    0x18, DEF_STR( Easy ) )
 	PORT_DIPSETTING(    0x10, DEF_STR( Normal ) )
 	PORT_DIPSETTING(    0x08, DEF_STR( Hard ) )
-//  PORT_DIPSETTING(    0x00, DEF_STR( Hard ) )             /* duplicate setting */
+	PORT_DIPSETTING(    0x00, DEF_STR( Hard ) )             /* duplicate setting */
 	PORT_DIPUNUSED( 0x20, IP_ACTIVE_LOW )
 	PORT_DIPUNUSED( 0x40, IP_ACTIVE_LOW )
 	PORT_DIPNAME( 0x80, 0x00, "Mode" )
@@ -608,7 +655,7 @@ static INPUT_PORTS_START( sblast2b )
 	PORT_DIPSETTING(    0x02, DEF_STR( 3C_1C ) )
 	PORT_DIPSETTING(    0x03, DEF_STR( 2C_1C ) )
 	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
-//  PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
+	PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
 	PORT_DIPSETTING(    0x06, DEF_STR( 1C_2C ) )
 	PORT_DIPSETTING(    0x05, DEF_STR( 1C_3C ) )
 	PORT_DIPSETTING(    0x04, DEF_STR( 1C_4C ) )
@@ -657,7 +704,7 @@ static INPUT_PORTS_START( endless )
 	PORT_DIPSETTING(    0x02, DEF_STR( 3C_1C ) )
 	PORT_DIPSETTING(    0x03, DEF_STR( 2C_1C ) )
 	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
-//  PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
+	PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
 	PORT_DIPSETTING(    0x06, DEF_STR( 1C_2C ) )
 	PORT_DIPSETTING(    0x05, DEF_STR( 1C_3C ) )
 	PORT_DIPSETTING(    0x04, DEF_STR( 1C_4C ) )
@@ -691,47 +738,139 @@ static INPUT_PORTS_START( endless )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_COIN2 )
 INPUT_PORTS_END
 
+static INPUT_PORTS_START( rushbets )
+	PORT_INCLUDE(snes_common)
 
-MACHINE_CONFIG_START(snesb_state::kinstb)
+	PORT_START("DSW1")
+	PORT_DIPNAME( 0x07, 0x07, DEF_STR( Coinage ) )
+	PORT_DIPSETTING(    0x01, DEF_STR( 4C_1C ) )
+	PORT_DIPSETTING(    0x02, DEF_STR( 3C_1C ) )
+	PORT_DIPSETTING(    0x03, DEF_STR( 2C_1C ) )
+	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
+	PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
+	PORT_DIPSETTING(    0x06, DEF_STR( 1C_2C ) )
+	PORT_DIPSETTING(    0x05, DEF_STR( 1C_3C ) )
+	PORT_DIPSETTING(    0x04, DEF_STR( 1C_4C ) )
+	PORT_DIPNAME( 0x38, 0x38, DEF_STR( Unknown ) )
+	PORT_DIPSETTING(    0x38, "0" )
+	PORT_DIPSETTING(    0x30, "1" )
+	PORT_DIPSETTING(    0x28, "2" )
+	PORT_DIPSETTING(    0x20, "2" )
+	PORT_DIPSETTING(    0x18, "2" )
+	PORT_DIPSETTING(    0x10, "2" )
+	PORT_DIPSETTING(    0x08, "2" )
+	PORT_DIPSETTING(    0x00, "2" )
+	PORT_DIPNAME( 0xc0, 0xc0, DEF_STR( Unknown ) )
+	PORT_DIPSETTING(    0xc0, "0" )
+	PORT_DIPSETTING(    0x80, "1" )
+	PORT_DIPSETTING(    0x40, "2" )
+	PORT_DIPSETTING(    0x00, "3" )
 
+	PORT_START("COIN")
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_COIN1 )
+	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_COIN2 )
+INPUT_PORTS_END
+
+static INPUT_PORTS_START( venom )
+	PORT_INCLUDE(snes_common)
+
+	PORT_START("DSW1")
+	PORT_DIPNAME( 0x07, 0x07, DEF_STR( Coinage ) )
+	PORT_DIPSETTING(    0x01, DEF_STR( 4C_1C ) )
+	PORT_DIPSETTING(    0x02, DEF_STR( 3C_1C ) )
+	PORT_DIPSETTING(    0x03, DEF_STR( 2C_1C ) )
+	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
+	PORT_DIPSETTING(    0x00, DEF_STR( 1C_1C ) )            /* duplicate setting */
+	PORT_DIPSETTING(    0x06, DEF_STR( 1C_2C ) )
+	PORT_DIPSETTING(    0x05, DEF_STR( 1C_3C ) )
+	PORT_DIPSETTING(    0x04, DEF_STR( 1C_4C ) )
+	PORT_DIPUNUSED( 0x08, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x10, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x20, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x40, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x80, IP_ACTIVE_LOW )
+
+	PORT_START("DSW2")
+	PORT_DIPUNUSED( 0x01, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x02, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x04, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x08, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x10, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x20, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x40, IP_ACTIVE_LOW )
+	PORT_DIPUNUSED( 0x80, IP_ACTIVE_LOW )
+
+	PORT_START("COIN")
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_COIN1 )
+	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_COIN2 )
+
+	// The game code has been hacked to use only 3 buttons (the arcade panel) as a result many moves are not even possible and some buttons have multiple purposes compared to the original game
+	PORT_MODIFY("SERIAL1_DATA1")
+	PORT_BIT( 0x8000, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x4000, IP_ACTIVE_HIGH, IPT_BUTTON1 ) PORT_PLAYER(1)
+	PORT_BIT( 0x2000, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x0080, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x0040, IP_ACTIVE_HIGH, IPT_BUTTON2 ) PORT_PLAYER(1)
+	PORT_BIT( 0x0020, IP_ACTIVE_HIGH, IPT_BUTTON3 ) PORT_PLAYER(1)
+	PORT_BIT( 0x0010, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x000f, IP_ACTIVE_HIGH, IPT_UNUSED )
+
+	PORT_MODIFY("SERIAL2_DATA1")
+	PORT_BIT( 0x8000, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x4000, IP_ACTIVE_HIGH, IPT_BUTTON1 ) PORT_PLAYER(2)
+	PORT_BIT( 0x2000, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x0080, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x0040, IP_ACTIVE_HIGH, IPT_BUTTON2 ) PORT_PLAYER(2)
+	PORT_BIT( 0x0020, IP_ACTIVE_HIGH, IPT_BUTTON3 ) PORT_PLAYER(2)
+	PORT_BIT( 0x0010, IP_ACTIVE_HIGH, IPT_UNUSED )
+	PORT_BIT( 0x000f, IP_ACTIVE_HIGH, IPT_UNUSED )
+INPUT_PORTS_END
+
+static INPUT_PORTS_START( wldgunsb )
+	PORT_INCLUDE( venom )
+
+	PORT_MODIFY("DSW1")
+	PORT_DIPNAME( 0xc0, 0x40, DEF_STR( Lives ) )
+	PORT_DIPSETTING(    0xc0, "1" )
+	PORT_DIPSETTING(    0x80, "2" )
+	PORT_DIPSETTING(    0x40, "3" )
+	PORT_DIPSETTING(    0x00, "4" )
+INPUT_PORTS_END
+
+void snesb_state::kinstb(machine_config &config)
+{
 	/* basic machine hardware */
-	MCFG_CPU_ADD("maincpu", _5A22, 3580000*6)   /* 2.68Mhz, also 3.58Mhz */
-	MCFG_CPU_PROGRAM_MAP(snesb_map)
+	_5A22(config, m_maincpu, 3580000*6);   /* 2.68Mhz, also 3.58Mhz */
+	m_maincpu->set_addrmap(AS_PROGRAM, &snesb_state::snesb_map);
 
 	/* audio CPU */
 	// runs at 24.576 MHz / 12 = 2.048 MHz
-	MCFG_CPU_ADD("soundcpu", SPC700, XTAL(24'576'000) / 12)
-	MCFG_CPU_PROGRAM_MAP(spc_mem)
+	S_SMP(config, m_soundcpu, XTAL(24'576'000) / 12);
+	m_soundcpu->set_addrmap(AS_DATA, &snesb_state::spc_map);
+	m_soundcpu->dsp_io_read_callback().set(m_s_dsp, FUNC(s_dsp_device::dsp_io_r));
+	m_soundcpu->dsp_io_write_callback().set(m_s_dsp, FUNC(s_dsp_device::dsp_io_w));
 
-	MCFG_QUANTUM_PERFECT_CPU("maincpu")
+	config.set_perfect_quantum(m_maincpu);
 
 	/* video hardware */
-	MCFG_SCREEN_ADD("screen", RASTER)
-	MCFG_SCREEN_RAW_PARAMS(DOTCLK_NTSC, SNES_HTOTAL, 0, SNES_SCR_WIDTH, SNES_VTOTAL_NTSC, 0, SNES_SCR_HEIGHT_NTSC)
-	MCFG_SCREEN_UPDATE_DRIVER( snes_state, screen_update )
+	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
+	m_screen->set_raw(DOTCLK_NTSC * 2, SNES_HTOTAL * 2, 0, SNES_SCR_WIDTH * 2, SNES_VTOTAL_NTSC, 0, SNES_SCR_HEIGHT_NTSC);
+	m_screen->set_video_attributes(VIDEO_VARIABLE_WIDTH);
+	m_screen->set_screen_update(FUNC(snes_state::screen_update));
 
-	MCFG_DEVICE_ADD("ppu", SNES_PPU, 0)
-	MCFG_SNES_PPU_OPENBUS_CB(READ8(snes_state, snes_open_bus_r))
-	MCFG_VIDEO_SET_SCREEN("screen")
+	SNES_PPU(config, m_ppu, MCLK_NTSC);
+	m_ppu->open_bus_callback().set([this] { return snes_open_bus_r(); }); // lambda because overloaded function name
+	m_ppu->set_screen("screen");
 
 	/* sound hardware */
-	MCFG_SPEAKER_STANDARD_STEREO("lspeaker", "rspeaker")
-	MCFG_SOUND_ADD("spc700", SNES, 0)
-	MCFG_SOUND_ROUTE(0, "lspeaker", 1.00)
-	MCFG_SOUND_ROUTE(1, "rspeaker", 1.00)
-MACHINE_CONFIG_END
+	SPEAKER(config, "lspeaker").front_left();
+	SPEAKER(config, "rspeaker").front_right();
 
-ADDRESS_MAP_START(snesb_state::mcu_io_map)
-ADDRESS_MAP_END
-
-
-MACHINE_CONFIG_START(snesb_state::mk3snes)
-	kinstb(config);
-
-	MCFG_CPU_ADD("mcu", I8751, XTAL(8'000'000))
-	MCFG_CPU_IO_MAP(mcu_io_map)
-MACHINE_CONFIG_END
-
+	S_DSP(config, m_s_dsp, XTAL(24'576'000) / 12);
+	m_s_dsp->set_addrmap(0, &snesb_state::spc_map);
+	m_s_dsp->add_route(0, "lspeaker", 1.00);
+	m_s_dsp->add_route(1, "rspeaker", 1.00);
+}
 
 MACHINE_RESET_MEMBER( snesb_state, ffight2b )
 {
@@ -742,43 +881,51 @@ MACHINE_RESET_MEMBER( snesb_state, ffight2b )
 	cpu0space.write_byte(0x7eadce, 0x00);
 }
 
-MACHINE_CONFIG_START(snesb_state::ffight2b)
+void snesb_state::ffight2b(machine_config &config)
+{
 	kinstb(config);
 	MCFG_MACHINE_RESET_OVERRIDE( snesb_state, ffight2b )
-MACHINE_CONFIG_END
+}
 
-DRIVER_INIT_MEMBER(snesb_state,kinstb)
+void snesb_state::init_kinstb()
 {
-	int32_t i;
 	uint8_t *rom = memregion("user3")->base();
 
-	for (i = 0; i < 0x400000; i++)
+	for (int32_t i = 0; i < 0x400000; i++)
 	{
 		rom[i] = bitswap<8>(rom[i], 5, 0, 6, 1, 7, 4, 3, 2);
 	}
 
 	m_shared_ram = std::make_unique<int8_t[]>(0x100);
-	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781000, 0x7810ff, read8_delegate(FUNC(snesb_state::sharedram_r),this), write8_delegate(FUNC(snesb_state::sharedram_w),this));
+	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781000, 0x7810ff, read8sm_delegate(*this, FUNC(snesb_state::sharedram_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram_w)));
 
 	/* extra inputs */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770071, 0x770071, read8_delegate(FUNC(snesb_state::snesb_dsw1_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770073, 0x770073, read8_delegate(FUNC(snesb_state::snesb_dsw2_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770079, 0x770079, read8_delegate(FUNC(snesb_state::snesb_coin_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
 
-	DRIVER_INIT_CALL(snes_hirom);
+	init_snes_hirom();
 }
 
-DRIVER_INIT_MEMBER(snesb_state,mk3snes)
+void snesb_state::init_fatfurspb()
 {
-	DRIVER_INIT_CALL(snes_hirom);
-}
-
-DRIVER_INIT_MEMBER(snesb_state,ffight2b)
-{
-	int32_t i;
 	uint8_t *rom = memregion("user3")->base();
 
-	for(i = 0; i < 0x200000; i++)
+	for (int32_t i = 0; i < 0x400000; i++)
+	{
+		rom[i] = bitswap<8>(rom[i], 5, 0, 6, 1, 7, 4, 3, 2); // Same as kinstb
+	}
+
+	// Data is 100% same as Fatal Fury Special (U). Patches applied by protection device for coinage, etc?
+
+	init_snes_hirom();
+}
+
+void snesb_state::init_ffight2b()
+{
+	uint8_t *rom = memregion("user3")->base();
+
+	for (int32_t i = 0; i < 0x200000; i++)
 	{
 		rom[i] = rom[i] ^ 0xff;
 
@@ -809,21 +956,20 @@ DRIVER_INIT_MEMBER(snesb_state,ffight2b)
 	rom[0x7ffc] = 0x54;
 
 	/* extra inputs */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770071, 0x770071, read8_delegate(FUNC(snesb_state::snesb_dsw1_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770073, 0x770073, read8_delegate(FUNC(snesb_state::snesb_dsw2_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770079, 0x770079, read8_delegate(FUNC(snesb_state::snesb_coin_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
 
-	DRIVER_INIT_CALL(snes);
+	init_snes();
 }
 
-DRIVER_INIT_MEMBER(snesb_state,iron)
+void snesb_state::init_iron()
 {
-	int32_t i;
 	uint8_t *rom = memregion("user3")->base();
 
-	for (i = 0; i < 0x140000; i++)
+	for (int32_t i = 0; i < 0x140000; i++)
 	{
-		if(i < 0x80000)
+		if (i < 0x80000)
 		{
 			rom[i] = bitswap<8>(rom[i]^0xff,2,7,1,6,3,0,5,4);
 		}
@@ -834,19 +980,18 @@ DRIVER_INIT_MEMBER(snesb_state,iron)
 	}
 
 	/* extra inputs */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770071, 0x770071, read8_delegate(FUNC(snesb_state::snesb_dsw1_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770073, 0x770073, read8_delegate(FUNC(snesb_state::snesb_dsw2_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770079, 0x770079, read8_delegate(FUNC(snesb_state::snesb_coin_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
 
-	DRIVER_INIT_CALL(snes);
+	init_snes();
 }
 
-DRIVER_INIT_MEMBER(snesb_state,denseib)
+void snesb_state::init_denseib()
 {
 	uint8_t *rom = memregion("user3")->base();
-	int32_t i;
 
-	for (i = 0; i < 0x200000; i++)
+	for (int32_t i = 0; i < 0x200000; i++)
 	{
 		rom[i] = rom[i] ^ 0xff;
 		switch (i >> 16)
@@ -865,14 +1010,76 @@ DRIVER_INIT_MEMBER(snesb_state,denseib)
 	rom[0xfffd] = 0xf7;
 
 	/* extra inputs */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770071, 0x770071, read8_delegate(FUNC(snesb_state::snesb_dsw1_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770073, 0x770073, read8_delegate(FUNC(snesb_state::snesb_dsw2_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770079, 0x770079, read8_delegate(FUNC(snesb_state::snesb_coin_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
 
-	DRIVER_INIT_CALL(snes_hirom);
+	init_snes_hirom();
 }
 
-DRIVER_INIT_MEMBER(snesb_state,legendsb)
+void snesb_state::init_denseib2()
+{
+	uint8_t *src = memregion("user7")->base();
+	uint8_t *dst = memregion("user3")->base();
+
+	static const uint8_t address_tab_high[0x40] = {
+		0x0b, 0x1d, 0x05, 0x15, 0x09, 0x19, 0x04, 0x13, 0x02, 0x1f, 0x07, 0x17, 0x0d, 0x11, 0x0a, 0x1a,
+		0x14, 0x0e, 0x18, 0x06, 0x1e, 0x01, 0x10, 0x0c, 0x1b, 0x0f, 0x16, 0x00, 0x12, 0x08, 0x1c, 0x03,
+		0x2b, 0x3d, 0x25, 0x35, 0x29, 0x39, 0x24, 0x33, 0x22, 0x3f, 0x27, 0x37, 0x2d, 0x31, 0x2a, 0x3a,
+		0x34, 0x2e, 0x38, 0x26, 0x3e, 0x21, 0x30, 0x2c, 0x3b, 0x2f, 0x36, 0x20, 0x32, 0x28, 0x3c, 0x23
+	};
+
+	static const uint8_t address_tab_low[0x40] = {
+		0x14, 0x1d, 0x11, 0x3c, 0x0a, 0x29, 0x2d, 0x2e, 0x30, 0x32, 0x16, 0x36, 0x05, 0x25, 0x26, 0x37,
+		0x20, 0x21, 0x27, 0x28, 0x33, 0x34, 0x23, 0x12, 0x1e, 0x1f, 0x3b, 0x24, 0x2c, 0x35, 0x38, 0x39,
+		0x3d, 0x0c, 0x2a, 0x0d, 0x22, 0x18, 0x19, 0x1a, 0x03, 0x08, 0x04, 0x3a, 0x0b, 0x0f, 0x15, 0x17,
+		0x1b, 0x13, 0x00, 0x1c, 0x2b, 0x01, 0x06, 0x2f, 0x07, 0x09, 0x02, 0x31, 0x10, 0x0e, 0x3f, 0x3e
+	};
+
+	static const uint8_t data_high[16] = {
+		0x03, 0x04, 0x85, 0x01, 0x81, 0x87, 0x07, 0x05, 0x86, 0x00, 0x02, 0x82, 0x84, 0x83, 0x06, 0x80
+	};
+
+	static const uint8_t data_low[16] = {
+		0x30, 0x40, 0x58, 0x10, 0x18, 0x78, 0x70, 0x50, 0x68, 0x00, 0x20, 0x28, 0x48, 0x38, 0x60, 0x08
+	};
+
+	for (int i = 0; i < 0x200000; i++)
+	{
+		int j = (address_tab_high[i >> 15] << 15) + (i & 0x7fc0) + address_tab_low[i & 0x3f];
+
+		dst[i] = data_high[src[j]>>4] | data_low[src[j]&0xf];
+
+		if (i >= 0x00000 && i < 0x10000) {
+			dst[i] = bitswap<8>(dst[i],2,1,3,0,7,4,5,6) ^ 0xff;
+		}
+
+		if (i >= 0x10000 && i < 0x20000) {
+			dst[i] = bitswap<8>(dst[i],1,7,4,5,6,0,3,2);
+		}
+
+		if (i >= 0x20000 && i < 0x30000) {
+			dst[i] = bitswap<8>(dst[i],0,2,6,7,5,3,4,1) ^ 0xff;
+		}
+
+		if (i >= 0x30000 && i < 0x40000) {
+			dst[i] = bitswap<8>(dst[i],6,5,0,3,1,7,2,4) ^ 0xff;
+		}
+	}
+
+	/* boot vector */
+	dst[0xfffc] = 0x40;
+	dst[0xfffd] = 0xf7;
+
+	/* extra inputs */
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
+
+	init_snes_hirom();
+}
+
+void snesb_state::init_legendsb()
 {
 	u8 *rom = memregion("user3")->base();
 
@@ -897,59 +1104,59 @@ DRIVER_INIT_MEMBER(snesb_state,legendsb)
 	rom[0x7ffd] = 0x80;
 
 	// extra inputs
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770071, 0x770071, read8_delegate(FUNC(snesb_state::snesb_dsw1_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770073, 0x770073, read8_delegate(FUNC(snesb_state::snesb_dsw2_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770079, 0x770079, read8_delegate(FUNC(snesb_state::snesb_coin_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
 
-	DRIVER_INIT_CALL(snes);
+	init_snes();
 }
 
-static const uint8_t data_substitution0[] = {0x88,0x02,0x2a,0x08,0x28,0xaa,0x8a,0x0a,0xa2,0x00,0x80,0xa0,0x22,0xa8,0x82,0x20,};
-static const uint8_t data_substitution1[] = {0x44,0x01,0x51,0x40,0x50,0x55,0x45,0x41,0x15,0x00,0x04,0x14,0x11,0x54,0x05,0x10,};
-static const uint8_t address_substitution_low[] =
+void snesb_state::init_sblast2b()
 {
-	0x32,0x35,0x3a,0x28,0x2a,0x0c,0x36,0x38,0x29,0x39,0x04,0x2c,0x21,0x23,0x3d,0x2d,
-	0x3c,0x02,0x17,0x31,0x00,0x2e,0x0a,0x2f,0x25,0x26,0x27,0x30,0x33,0x01,0x18,0x19,
-	0x10,0x11,0x24,0x16,0x1b,0x0d,0x0e,0x12,0x13,0x05,0x22,0x34,0x1c,0x06,0x07,0x37,
-	0x08,0x3b,0x09,0x14,0x15,0x1d,0x0b,0x0f,0x1e,0x1f,0x2b,0x1a,0x03,0x20,0x3f,0x3e,
-};
-
-static const uint8_t  address_substitution_high[] =
-{
-	0x1b,0x15,0x08,0x1f,0x06,0x02,0x13,0x0a,0x1d,0x04,0x0e,0x00,0x17,0x0c,0x11,0x19,
-	0x16,0x0d,0x1c,0x07,0x10,0x03,0x1a,0x0b,0x12,0x05,0x0f,0x18,0x1e,0x01,0x14,0x09,
-	0x2b,0x25,0x28,0x2f,0x26,0x22,0x23,0x2a,0x2d,0x24,0x2e,0x20,0x27,0x2c,0x21,0x29
-};
-
-DRIVER_INIT_MEMBER(snesb_state,sblast2b)
-{
-	int i, cipherText, plainText, newAddress;
 	uint8_t *src = memregion("user7")->base();
 	uint8_t *dst = memregion("user3")->base();
 
-	for (i =0; i < 0x80000 * 3; i++)
-	{
-		cipherText = src[i];
-		plainText = data_substitution0[cipherText & 0xf] | data_substitution1[cipherText >> 4];
-		newAddress = (address_substitution_high[i >> 15] << 15) | (i & 0x7fc0) | (address_substitution_low[i & 0x3f]);
+	static const uint8_t address_tab_high[48] = {
+		0x0b, 0x1d, 0x05, 0x15, 0x09, 0x19, 0x04, 0x13, 0x02, 0x1f, 0x07, 0x17, 0x0d, 0x11, 0x0a, 0x1a,
+		0x14, 0x0e, 0x18, 0x06, 0x1e, 0x01, 0x10, 0x0c, 0x1b, 0x0f, 0x16, 0x00, 0x12, 0x08, 0x1c, 0x03,
+		0x2b, 0x2e, 0x25, 0x26, 0x29, 0x21, 0x24, 0x2c, 0x22, 0x2f, 0x27, 0x20, 0x2d, 0x28, 0x2a, 0x23
+	};
 
-		if (newAddress < 0x10000)
-		{
-			plainText = bitswap<8>(plainText, 6,3,5,4,2,0,7,1) ^ 0xff;
+	static const uint8_t address_tab_low[64] = {
+		0x14, 0x1d, 0x11, 0x3c, 0x0a, 0x29, 0x2d, 0x2e, 0x30, 0x32, 0x16, 0x36, 0x05, 0x25, 0x26, 0x37,
+		0x20, 0x21, 0x27, 0x28, 0x33, 0x34, 0x23, 0x12, 0x1e, 0x1f, 0x3b, 0x24, 0x2c, 0x35, 0x38, 0x39,
+		0x3d, 0x0c, 0x2a, 0x0d, 0x22, 0x18, 0x19, 0x1a, 0x03, 0x08, 0x04, 0x3a, 0x0b, 0x0f, 0x15, 0x17,
+		0x1b, 0x13, 0x00, 0x1c, 0x2b, 0x01, 0x06, 0x2f, 0x07, 0x09, 0x02, 0x31, 0x10, 0x0e, 0x3f, 0x3e
+	};
+
+	static const uint8_t data_high[16] = {
+		0x44, 0x01, 0x51, 0x40, 0x50, 0x55, 0x45, 0x41, 0x15, 0x00, 0x04, 0x14, 0x11, 0x54, 0x05, 0x10
+	};
+
+	static const uint8_t data_low[16] = {
+		0x88, 0x02, 0x2a, 0x08, 0x28, 0xaa, 0x8a, 0x0a, 0xa2, 0x00, 0x80, 0xa0, 0x22, 0xa8, 0x82, 0x20
+	};
+
+	for (int i = 0; i < 0x180000; i++) {
+		int j = (address_tab_high[i >> 15] << 15) + (i & 0x7fc0) + address_tab_low[i & 0x3f];
+
+		dst[i] = data_high[src[j]>>4] | data_low[src[j]&0xf];
+
+		if (i >= 0x00000 && i < 0x10000) {
+			dst[i] = bitswap<8>(dst[i], 6, 3, 5, 4, 2, 0, 7, 1) ^ 0xff;
 		}
-		else if (newAddress < 0x20000)
-		{
-			plainText = bitswap<8>(plainText, 4,0,7,6,3,1,2,5) ^ 0xff;
+
+		if (i >= 0x10000 && i < 0x20000) {
+			dst[i] = bitswap<8>(dst[i], 4, 0, 7, 6, 3, 1, 2, 5) ^ 0xff;
 		}
-		else if (newAddress < 0x30000)
-		{
-			plainText = bitswap<8>(plainText, 5,7,6,1,4,3,0,2);
+
+		if (i >= 0x20000 && i < 0x30000) {
+			dst[i] = bitswap<8>(dst[i], 5, 7, 6, 1, 4, 3, 0, 2);
 		}
-		else if (newAddress < 0x40000)
-		{
-			plainText = bitswap<8>(plainText, 3,1,2,0,5,6,4,7) ^ 0xff;
+
+		if (i >= 0x30000 && i < 0x40000) {
+			dst[i] = bitswap<8>(dst[i], 3, 1, 2, 0, 5, 6, 4, 7) ^ 0xff;
 		}
-		dst[newAddress] = plainText;
 	}
 
 	/*  boot vector */
@@ -957,23 +1164,22 @@ DRIVER_INIT_MEMBER(snesb_state,sblast2b)
 	dst[0xfffd] = 0x7a;
 
 	/*  protection checks */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x75bd37, 0x75bd37, read8_delegate(FUNC(snesb_state::sb2b_75bd37_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x6a6000, 0x6a6fff, read8_delegate(FUNC(snesb_state::sb2b_6a6xxx_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x75bd37, 0x75bd37, read8smo_delegate(*this, FUNC(snesb_state::sb2b_75bd37_r)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x6a6000, 0x6a6fff, read8sm_delegate(*this, FUNC(snesb_state::sb2b_6a6xxx_r)));
 
 	/* handler to read boot code */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x007000, 0x007fff, read8_delegate(FUNC(snesb_state::sb2b_7xxx_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x007000, 0x007fff, read8sm_delegate(*this, FUNC(snesb_state::sb2b_7xxx_r)));
 
 	/* extra inputs */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770071, 0x770071, read8_delegate(FUNC(snesb_state::snesb_dsw1_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770073, 0x770073, read8_delegate(FUNC(snesb_state::snesb_dsw2_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770079, 0x770079, read8_delegate(FUNC(snesb_state::snesb_coin_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
 
-	DRIVER_INIT_CALL(snes_hirom);
+	init_snes_hirom();
 }
 
-DRIVER_INIT_MEMBER(snesb_state,endless)
+void snesb_state::init_endless()
 {
-	int i;
 	uint8_t *src = memregion("user7")->base();
 	uint8_t *dst = memregion("user3")->base();
 
@@ -999,7 +1205,7 @@ DRIVER_INIT_MEMBER(snesb_state,endless)
 		0x41, 0x46, 0x02, 0x43, 0x03, 0x00, 0x40, 0x42, 0x04, 0x47, 0x45, 0x05, 0x06, 0x01, 0x44, 0x07
 	};
 
-	for (i = 0; i < 0x200000; i++) {
+	for (int i = 0; i < 0x200000; i++) {
 		int j = (address_tab_high[i >> 15] << 15) + (i & 0x7fc0) + address_tab_low[i & 0x3f];
 
 		dst[i] = data_high[src[j]>>4] | data_low[src[j]&0xf];
@@ -1026,23 +1232,234 @@ DRIVER_INIT_MEMBER(snesb_state,endless)
 	dst[0x7ffd] = 0x80;
 
 	/* protection checks */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x580000, 0x580fff, read8_delegate(FUNC(snesb_state::endless_580xxx_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x624b7f, 0x624b7f, read8_delegate(FUNC(snesb_state::endless_624b7f_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x580000, 0x580fff, read8sm_delegate(*this, FUNC(snesb_state::endless_580xxx_r)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x624b7f, 0x624b7f, read8smo_delegate(*this, FUNC(snesb_state::endless_624b7f_r)));
 
 	/* work around missing content */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x800b, 0x800c, read8_delegate(FUNC(snesb_state::endless_800b_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x800b, 0x800c, read8sm_delegate(*this, FUNC(snesb_state::endless_800b_r)));
 
 	m_shared_ram = std::make_unique<int8_t[]>(0x22);
 	m_shared_ram2 = std::make_unique<int8_t[]>(0x22);
-	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781000, 0x781021, read8_delegate(FUNC(snesb_state::sharedram_r),this), write8_delegate(FUNC(snesb_state::sharedram_w),this));
-	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781200, 0x781221, read8_delegate(FUNC(snesb_state::sharedram2_r),this), write8_delegate(FUNC(snesb_state::sharedram2_w),this));
+	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781000, 0x781021, read8sm_delegate(*this, FUNC(snesb_state::sharedram_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram_w)));
+	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781200, 0x781221, read8sm_delegate(*this, FUNC(snesb_state::sharedram2_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram2_w)));
 
 	/* extra inputs */
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770071, 0x770071, read8_delegate(FUNC(snesb_state::snesb_dsw1_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770073, 0x770073, read8_delegate(FUNC(snesb_state::snesb_dsw2_r),this));
-	m_maincpu->space(AS_PROGRAM).install_read_handler(0x770079, 0x770079, read8_delegate(FUNC(snesb_state::snesb_coin_r),this));
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
 
-	DRIVER_INIT_CALL(snes);
+	init_snes();
+}
+
+void snesb_state::init_rushbets()
+{
+	uint8_t *src = memregion("user7")->base();
+	uint8_t *dst = memregion("user3")->base();
+
+	static const uint8_t address_tab_high[32] = {
+		0x0b, 0x1d, 0x05, 0x15, 0x09, 0x19, 0x04, 0x13, 0x02, 0x1f, 0x07, 0x17, 0x0d, 0x11, 0x0a, 0x1a,
+		0x14, 0x0e, 0x18, 0x06, 0x1e, 0x01, 0x10, 0x0c, 0x1b, 0x0f, 0x16, 0x00, 0x12, 0x08, 0x1c, 0x03
+	};
+
+	static const uint8_t address_tab_low[64] = {
+		0x14, 0x1d, 0x11, 0x3c, 0x0a, 0x29, 0x2d, 0x2e, 0x30, 0x32, 0x16, 0x36, 0x05, 0x25, 0x26, 0x37,
+		0x20, 0x21, 0x27, 0x28, 0x33, 0x34, 0x23, 0x12, 0x1e, 0x1f, 0x3b, 0x24, 0x2c, 0x35, 0x38, 0x39,
+		0x3d, 0x0c, 0x2a, 0x0d, 0x22, 0x18, 0x19, 0x1a, 0x03, 0x08, 0x04, 0x3a, 0x0b, 0x0f, 0x15, 0x17,
+		0x1b, 0x13, 0x00, 0x1c, 0x2b, 0x01, 0x06, 0x2f, 0x07, 0x09, 0x02, 0x31, 0x10, 0x0e, 0x3f, 0x3e
+	};
+
+	static const uint8_t data_high[16] = {
+		0x84, 0x10, 0x92, 0x80, 0x82, 0x96, 0x94, 0x90, 0x16, 0x00, 0x04, 0x06, 0x12, 0x86, 0x14, 0x02
+	};
+
+	static const uint8_t data_low[16] = {
+		0x28, 0x01, 0x61, 0x20, 0x60, 0x69, 0x29, 0x21, 0x49, 0x00, 0x08, 0x48, 0x41, 0x68, 0x09, 0x40
+	};
+
+	for (int i = 0; i < 0x200000; i++) {
+		int j = (address_tab_high[(i >> 15) & 0x1f] << 15) + (i & 0x107fc0) + address_tab_low[i & 0x3f];
+
+		dst[i] = data_high[src[j]>>4] | data_low[src[j]&0xf];
+
+		if (i >= 0x00000 && i < 0x10000) {
+			dst[i] = bitswap<8>(dst[i], 0, 7, 6, 3, 5, 4, 1, 2) ^ 0xff;
+		}
+
+		if (i >= 0x10000 && i < 0x20000) {
+			dst[i] = bitswap<8>(dst[i], 2, 1, 3, 7, 6, 5, 4, 0) ^ 0xff;
+		}
+
+		if (i >= 0x20000 && i < 0x30000) {
+			dst[i] = bitswap<8>(dst[i], 4, 6, 0, 2, 7, 3, 5, 1);
+		}
+
+		if (i >= 0x30000 && i < 0x40000) {
+			dst[i] = bitswap<8>(dst[i], 5, 4, 7, 1, 0, 6, 2, 3) ^ 0xff;
+		}
+	}
+
+	/* protection checks */
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x75a000, 0x75afff, read8sm_delegate(*this, FUNC(snesb_state::rushbets_75axxx_r)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x5b8e3c, 0x5b8e3c, read8smo_delegate(*this, FUNC(snesb_state::rushbets_5b8e3c_r)));
+
+	m_shared_ram = std::make_unique<int8_t[]>(0x10);
+	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x785000, 0x78500f, read8sm_delegate(*this, FUNC(snesb_state::sharedram_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram_w)));
+
+	/* extra inputs */
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
+
+	// boot vector
+	dst[0xfffc] = 0xec;
+	dst[0xfffd] = 0x80;
+
+	init_snes_hirom();
+}
+
+void snesb_state::init_venom()
+{
+	uint8_t *src = memregion("user7")->base();
+	uint8_t *dst = memregion("user3")->base();
+
+	static uint8_t address_tab_high[0x60] = {
+		0x00, 0x11, 0x02, 0x13, 0x04, 0x15, 0x06, 0x17, 0x08, 0x19, 0x0a, 0x1b, 0x0c, 0x1d, 0x0e, 0x1f,
+		0x20, 0x31, 0x22, 0x33, 0x24, 0x35, 0x26, 0x37, 0x28, 0x39, 0x2a, 0x3b, 0x2c, 0x3d, 0x2e, 0x3f,
+		0x10, 0x01, 0x12, 0x03, 0x14, 0x05, 0x16, 0x07, 0x18, 0x09, 0x1a, 0x0b, 0x1c, 0x0d, 0x1e, 0x0f,
+		0x30, 0x21, 0x32, 0x23, 0x34, 0x25, 0x36, 0x27, 0x38, 0x29, 0x3a, 0x2b, 0x3c, 0x2d, 0x3e, 0x2f,
+		0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+		0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f
+	};
+
+	static uint8_t address_tab_low[0x40] = {
+		0x14, 0x1d, 0x11, 0x3c, 0x0a, 0x29, 0x2d, 0x2e, 0x30, 0x32, 0x16, 0x36, 0x05, 0x25, 0x26, 0x37,
+		0x20, 0x21, 0x27, 0x28, 0x33, 0x34, 0x23, 0x12, 0x1e, 0x1f, 0x3b, 0x24, 0x2c, 0x35, 0x38, 0x39,
+		0x3d, 0x0c, 0x2a, 0x0d, 0x22, 0x18, 0x19, 0x1a, 0x03, 0x08, 0x04, 0x3a, 0x0b, 0x0f, 0x15, 0x17,
+		0x1b, 0x13, 0x00, 0x1c, 0x2b, 0x01, 0x06, 0x2f, 0x07, 0x09, 0x02, 0x31, 0x10, 0x0e, 0x3f, 0x3e
+	};
+
+	static const uint8_t data_high[16] = {
+		0x60, 0x45, 0x04, 0x64, 0x24, 0x00, 0x40, 0x44, 0x01, 0x65, 0x61, 0x21, 0x05, 0x20, 0x41, 0x25
+	};
+
+	static const uint8_t data_low[16] = {
+		0x0a, 0x92, 0x80, 0x8a, 0x88, 0x00, 0x02, 0x82, 0x10, 0x9a, 0x1a, 0x18, 0x90, 0x08, 0x12, 0x98
+	};
+
+	for (int i = 0; i < 0x300000; i++)
+	{
+		int j = (address_tab_high[i >> 15] << 15) + (i & 0x7fc0) + address_tab_low[i & 0x3f];
+
+		dst[i] = data_high[src[j]>>4] | data_low[src[j]&0xf];
+
+		if (i >= 0x00000 && i < 0x10000) {
+			dst[i] = bitswap<8>(dst[i], 6, 7, 0, 3, 1, 4, 2, 5) ^ 0xff;
+		}
+
+		if (i >= 0x10000 && i < 0x20000) {
+			dst[i] = bitswap<8>(dst[i], 0, 1, 4, 5, 3, 7, 6, 2);
+		}
+
+		if (i >= 0x20000 && i < 0x30000) {
+			dst[i] = bitswap<8>(dst[i], 1, 3, 2, 6, 5, 4, 0, 7) ^ 0xff;
+		}
+
+		if (i >= 0x30000 && i < 0x40000) {
+			dst[i] = bitswap<8>(dst[i], 4, 0, 7, 6, 2, 1, 5, 3);
+		}
+	}
+
+	// boot vector
+	dst[0x7ffc] = 0x98;
+	dst[0x7ffd] = 0xff;
+
+	m_shared_ram = std::make_unique<int8_t[]>(0x22);
+	m_shared_ram2 = std::make_unique<int8_t[]>(0x22);
+	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781000, 0x781021, read8sm_delegate(*this, FUNC(snesb_state::sharedram_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram_w)));
+	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781200, 0x781221, read8sm_delegate(*this, FUNC(snesb_state::sharedram2_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram2_w)));
+
+	/* extra inputs */
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770073, 0x770073, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
+
+	init_snes();
+}
+
+void snesb_state::init_wldgunsb()
+{
+	uint8_t *src = memregion("user7")->base();
+	uint8_t *dst = memregion("user3")->base();
+
+	static uint8_t address_tab_high[0x20] = {
+		0x0b, 0x1d, 0x05, 0x15, 0x09, 0x19, 0x04, 0x13, 0x02, 0x1f, 0x07, 0x17, 0x0d, 0x11, 0x0a, 0x1a,
+		0x14, 0x0e, 0x18, 0x06, 0x1e, 0x01, 0x10, 0x0c, 0x1b, 0x0f, 0x16, 0x00, 0x12, 0x08, 0x1c, 0x03
+	};
+
+	static uint8_t address_tab_low[0x40] = {
+		0x14, 0x1d, 0x11, 0x3c, 0x0a, 0x29, 0x2d, 0x2e, 0x30, 0x32, 0x16, 0x36, 0x05, 0x25, 0x26, 0x37,
+		0x20, 0x21, 0x27, 0x28, 0x33, 0x34, 0x23, 0x12, 0x1e, 0x1f, 0x3b, 0x24, 0x2c, 0x35, 0x38, 0x39,
+		0x3d, 0x0c, 0x2a, 0x0d, 0x22, 0x18, 0x19, 0x1a, 0x03, 0x08, 0x04, 0x3a, 0x0b, 0x0f, 0x15, 0x17,
+		0x1b, 0x13, 0x00, 0x1c, 0x2b, 0x01, 0x06, 0x2f, 0x07, 0x09, 0x02, 0x31, 0x10, 0x0e, 0x3f, 0x3e
+	};
+
+	static const uint8_t data_low[16] = {
+		0x30, 0xa8, 0x80, 0xb0, 0x90, 0x00, 0x20, 0xa0, 0x08, 0xb8, 0x38, 0x18, 0x88, 0x10, 0x28, 0x98
+	};
+
+	static const uint8_t data_high[16] = {
+		0x05, 0x43, 0x40, 0x45, 0x44, 0x00, 0x01, 0x41, 0x02, 0x47, 0x07, 0x06, 0x42, 0x04, 0x03, 0x46
+	};
+
+	for (int i = 0; i < 0x100000; i++)
+	{
+		int j = (address_tab_high[i >> 15] << 15) + (i & 0x7fc0) + address_tab_low[i & 0x3f];
+
+		dst[i] = data_high[src[j]>>4] | data_low[src[j]&0xf];
+
+		if (i >= 0x00000 && i < 0x10000) {
+			dst[i] = bitswap<8>(dst[i], 3, 1, 7, 0, 6, 4, 5, 2) ^ 0xff;
+		}
+
+		if (i >= 0x10000 && i < 0x20000) {
+			dst[i] = bitswap<8>(dst[i], 4, 7, 3, 2, 0, 1, 6, 5);
+		}
+
+		if (i >= 0x20000 && i < 0x30000) {
+			dst[i] = bitswap<8>(dst[i], 6, 0, 7, 1, 4, 3, 5, 2) ^ 0xff;
+		}
+
+		if (i >= 0x30000 && i < 0x40000) {
+			dst[i] = bitswap<8>(dst[i], 0, 2, 6, 4, 1, 5, 7, 3);
+		}
+	}
+
+	// boot vector
+	dst[0x7ffc] = 0x40;
+	dst[0x7ffd] = 0x80;
+
+	m_shared_ram = std::make_unique<int8_t[]>(0x22);
+	//m_shared_ram2 = std::make_unique<int8_t[]>(0x22);
+	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781000, 0x781021, read8sm_delegate(*this, FUNC(snesb_state::sharedram_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram_w)));
+	//m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x781200, 0x781221, read8sm_delegate(*this, FUNC(snesb_state::sharedram2_r)), write8sm_delegate(*this, FUNC(snesb_state::sharedram2_w)));
+
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770071, 0x770071, "DSW1");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770072, 0x770072, "DSW2");
+	m_maincpu->space(AS_PROGRAM).install_read_port(0x770079, 0x770079, "COIN");
+
+	// protection overlays
+	// counter (PC=0x2dfe7 / 0x2dfee)
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x7bf45b, 0x7bf45b, read8smo_delegate(*this, FUNC(snesb_state::sb2b_75bd37_r)));
+
+	// these reads with a LDA but discards the upper 8-bit values
+	// POST
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x722262, 0x722262, read8smo_delegate(*this, FUNC(snesb_state::wldgunsb_722262_r)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x723363, 0x723363, read8smo_delegate(*this, FUNC(snesb_state::wldgunsb_723364_r)));
+	// in-game
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x721197, 0x721197, read8smo_delegate(*this, FUNC(snesb_state::wldgunsb_721197_r)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x72553b, 0x72553b, read8smo_delegate(*this, FUNC(snesb_state::wldgunsb_72553b_r)));
+	m_maincpu->space(AS_PROGRAM).install_read_handler(0x72443a, 0x72443a, read8smo_delegate(*this, FUNC(snesb_state::wldgunsb_72443a_r)));
+
+	init_snes();
 }
 
 
@@ -1053,33 +1470,8 @@ ROM_START( kinstb )
 	ROM_LOAD( "3.u16", 0x200000, 0x100000, CRC(7a40f7dd) SHA1(cebe632e8d2d68d0619077cc1e931af73c9a723b) )
 	ROM_LOAD( "4.u17", 0x300000, 0x100000, CRC(3d7564c1) SHA1(392b513991897668d5dd469ac84a34f785895774) )
 
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
-
 	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
 ROM_END
-
-ROM_START( mk3snes ) // this is identical to the SNES release apart from a single byte, the MCU (or some other device?) must be providing the 'arcade-side' of the hardware (or code patches?)
-	ROM_REGION( 0x400000, "user3", 0 )
-	ROM_LOAD( "5.U5", 0x000000, 0x080000, CRC(c21ee1ac) SHA1(12fc526e39b0b998b39d558fbe5660e72c7fad14) )
-	ROM_LOAD( "6.U6", 0x080000, 0x080000, CRC(0e064323) SHA1(a11175516892beb862c7cc1e186034ef1b55ee8f) )
-	ROM_LOAD( "7.U7", 0x100000, 0x080000, CRC(7db6b7be) SHA1(a7653c04f5321fd83062425a492c7ed0a4f1fdb0) )
-	ROM_LOAD( "8.U8", 0x180000, 0x080000, CRC(28771750) SHA1(d6c469ca2640935b6687f5bf5f6e85275157abb0) )
-	ROM_LOAD( "1.U1", 0x200000, 0x080000, CRC(4cab6332) SHA1(3c417ba6d35532b4e2ca9ae4a3b730c589d26aee) )
-	ROM_LOAD( "2.U2", 0x280000, 0x080000, CRC(0327999b) SHA1(dc6bb11a925e893453e0e5e5d88b8ace8d6cf859) )
-	ROM_LOAD( "3.U3", 0x300000, 0x080000, CRC(229af2de) SHA1(1bbb02aec08afab979ffbe4b68a48dc4cc923f73) )
-	ROM_LOAD( "4.U4", 0x380000, 0x080000, CRC(b51930d9) SHA1(220f00d64809a6218015a738e53f11d8dc81578f) )  // 4.U4 is a 99.999809% match for the last part of sns-a3me-0.u1 (mk3u in snes softlist - 1 byte changed?!)
-
-	ROM_REGION( 0x1000, "mcu", 0 )
-	ROM_LOAD( "D87C51.U9", 0x00000, 0x1000, CRC(f447620a) SHA1(ac0d78c7b339f13d5f96a6727a0f2147158697f9) )
-
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
-
-	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
-ROM_END
-
-
 
 ROM_START( ffight2b )
 	ROM_REGION( 0x400000, "user3", 0 )
@@ -1117,9 +1509,6 @@ ROM_START( ffight2b )
 	ROM_CONTINUE(          0x078000, 0x008000 )
 	ROM_LOAD( "ff2_1.u8", 0x100000, 0x040000, CRC(ea315ac1) SHA1(a85de091882d35bc77dc99677511828ff7c20350) )
 
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
-
 	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
 ROM_END
 
@@ -1128,9 +1517,6 @@ ROM_START( iron )
 	ROM_LOAD( "6.c09.bin", 0x000000, 0x080000, CRC(50ea1457) SHA1(092f9a0e34deeb090b8c88553be3b1596ded60ef) )
 	ROM_LOAD( "5.c10.bin", 0x080000, 0x080000, CRC(0c3a0b5b) SHA1(1e8ab860689137e0e94731f1af2cfc561492b5bd) )
 	ROM_LOAD( "4.c11.bin", 0x100000, 0x040000, CRC(2aa417c7) SHA1(24b375e5bbd4be5dcd31b63ea98fbbadd53d543e) )
-
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
 
 	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
 ROM_END
@@ -1142,17 +1528,23 @@ ROM_START( denseib )
 	ROM_LOAD( "dj.u16", 0x100000, 0x0080000, CRC(7cb71fd7) SHA1(7673e9dcaabe804e2d637e67eabca1683dad4245) )
 	ROM_LOAD( "dj.u17", 0x180000, 0x0080000, CRC(de29dd89) SHA1(441aefbc7ee64515ee66431ef504e76dc8dc5ca3) )
 
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
+	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
+ROM_END
+
+ROM_START( denseib2 )
+	ROM_REGION( 0x200000, "user3", ROMREGION_ERASEFF )
 
 	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
+
+	ROM_REGION( 0x200000, "user7", 0 )
+	ROM_LOAD( "u31.bin", 0x000000, 0x080000, CRC(834723a8) SHA1(3f56bba5017f77147e7d52618678f1e2eff4991b) )
+	ROM_LOAD( "u32.bin", 0x080000, 0x080000, CRC(9748e86b) SHA1(68a62e0961d735602ae6ebd1aca5990c588ccbb1) )
+	ROM_LOAD( "u33.bin", 0x100000, 0x080000, CRC(abcc6b61) SHA1(ef90f23b674f6dd36b3d60c9c395a1d4bc853798) )
+	ROM_LOAD( "u34.bin", 0x180000, 0x080000, CRC(0a16ac96) SHA1(ddc11009d4b35a151aa7e357346f3ac109e112ef) )
 ROM_END
 
 ROM_START( sblast2b )
 	ROM_REGION( 0x180000, "user3", ROMREGION_ERASEFF )
-
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
 
 	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
 
@@ -1200,17 +1592,11 @@ ROM_START( legendsb )
 	ROM_CONTINUE(      0x0f0000, 0x008000 )
 	ROM_CONTINUE(      0x078000, 0x008000 )
 
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
-
 	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
 ROM_END
 
 ROM_START( endless )
 	ROM_REGION( 0x200000, "user3", ROMREGION_ERASEFF )
-
-	ROM_REGION(0x100,           "sound_ipl", 0)
-	ROM_LOAD("spc700.rom", 0, 0x40, CRC(44bb3a40) SHA1(97e352553e94242ae823547cd853eecda55c20f0) )
 
 	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
 
@@ -1221,13 +1607,73 @@ ROM_START( endless )
 	ROM_LOAD( "endlessduel.unknownposition4", 0x180000, 0x80000, CRC(9a9493ad) SHA1(82ee4fce9cc2014cb8404fd43eebb7941cdb9ac1) )
 ROM_END
 
+ROM_START( endlessa )
+	ROM_REGION( 0x200000, "user3", ROMREGION_ERASEFF )
+
+	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
+
+	ROM_REGION( 0x200000, "user7", 0 )
+	ROM_LOAD( "gundam wing endless duel.c23", 0x000000, 0x80000, CRC(e49acd29) SHA1(ac137261fe7a7691738ac812bea9591256eb9038) )
+	ROM_LOAD( "gundam wing endless duel.c20", 0x080000, 0x80000, CRC(cf22a554) SHA1(86a31c83a1d28038c334949e82182c07010ccb3c) )
+	ROM_LOAD( "gundam wing endless duel.c22", 0x100000, 0x80000, CRC(30d06d7a) SHA1(17c617d94abb10c3bdf9d51013b116f4ef4debe8) )
+	ROM_LOAD( "gundam wing endless duel.c21", 0x180000, 0x80000, CRC(0cc430c0) SHA1(fb36359e7e3919244c47a6da43f31dc2a79fcba6) )
+ROM_END
+
+ROM_START( rushbets )
+	ROM_REGION( 0x200000, "user3", ROMREGION_ERASEFF )
+
+	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
+
+	ROM_REGION( 0x200000, "user7", 0 )
+	ROM_LOAD( "ic19.bin", 0x000000, 0x80000, CRC(8aa0ad59) SHA1(83facb65c53ade99f1f057a8de27bee4a9c2efd8) )
+	ROM_LOAD( "ic20.bin", 0x080000, 0x80000, CRC(a8afe28b) SHA1(16d1c4f957804d22dc05a97c56ae10c408dbc1f2) )
+	ROM_LOAD( "ic21.bin", 0x100000, 0x80000, CRC(2f6e8711) SHA1(fe4030ef3445594455fe93e374a41e9ba2147bf6) )
+	ROM_LOAD( "ic22.bin", 0x180000, 0x80000, CRC(95a234d2) SHA1(31a556c8ed395f61ba198631ee086c18cc740792) )
+ROM_END
+
+ROM_START( venom )
+	ROM_REGION( 0x300000, "user3", ROMREGION_ERASEFF )
+
+	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
+
+	ROM_REGION( 0x300000, "user7", 0 )
+	ROM_LOAD( "u31.bin", 0x000000, 0x0100000, CRC(d1034a76) SHA1(541dd92197ca2e4eb686e426c840aad847d02be8) )
+	ROM_LOAD( "u32.bin", 0x100000, 0x0100000, CRC(fbe865b0) SHA1(25467a6faa912bf180c5dd7aecee77c3b5f207f8) )
+	ROM_LOAD( "u33.bin", 0x200000, 0x0080000, CRC(ed874ca2) SHA1(cfc90b38ea2eea07e990f0b72d7c1af2a7076beb) )
+	ROM_LOAD( "u34.bin", 0x280000, 0x0080000, CRC(7a09c9e0) SHA1(794965d5501ec0e21f1f3a8cb8fd66f913d42760) )
+ROM_END
+
+ROM_START( wldgunsb )
+	ROM_REGION( 0x100000, "user3", ROMREGION_ERASEFF )
+
+	ROM_REGION(0x800,           "user6", ROMREGION_ERASEFF)
+
+	ROM_REGION( 0x100000, "user7", 0 )
+	ROM_LOAD( "c19.bin", 0x000000, 0x080000, CRC(59df0dc8) SHA1(d18b7f204ad4e0fcd64c2e2a25d60b64930419e7) )
+	ROM_LOAD( "c20.bin", 0x080000, 0x080000, CRC(62ae4acb) SHA1(62aa320bcc7eeedb00c70baa909ac0230256c9a4) )
+ROM_END
+
+ROM_START( fatfurspb )
+	ROM_REGION( 0x400000, "user3", 0 )
+	ROM_LOAD( "1.u14", 0x000000, 0x100000, CRC(7cb9192c) SHA1(0247e303902e86eaa9443f2a39d352430df5f46f) )
+	ROM_LOAD( "2.u15", 0x100000, 0x100000, CRC(440e3017) SHA1(7d1a2077032c761676bff7f841ab1fc669d322fa) )
+	ROM_LOAD( "3.u16", 0x200000, 0x100000, CRC(dbbe10de) SHA1(27c590bff5a762a2528d0819b7544914ab6cae7c) )
+	ROM_LOAD( "4.u17", 0x300000, 0x100000, CRC(a356e60c) SHA1(c403eff4e7c7deefed68a34a0dbeefadac8c7a0e) )
+ROM_END
+
+} // Anonymous namespace
 
 
-GAME( 199?, kinstb,       0,     kinstb,         kinstb,   snesb_state,  kinstb,       ROT0, "bootleg",  "Killer Instinct (SNES bootleg)",                 MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
-GAME( 199?, mk3snes,      0,     mk3snes,        kinstb,   snesb_state,  mk3snes,      ROT0, "bootleg",  "Mortal Kombat 3 (SNES bootleg)",                 MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
-GAME( 1996, ffight2b,     0,     ffight2b,       ffight2b, snesb_state,  ffight2b,     ROT0, "bootleg",  "Final Fight 2 (SNES bootleg)",                   MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
-GAME( 1996, iron,         0,     kinstb,         iron,     snesb_state,  iron,         ROT0, "bootleg",  "Iron (SNES bootleg)",                            MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
-GAME( 1996, denseib,      0,     kinstb,         denseib,  snesb_state,  denseib,      ROT0, "bootleg",  "Ghost Chaser Densei (SNES bootleg)",             MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
-GAME( 1997, sblast2b,     0,     kinstb,         sblast2b, snesb_state,  sblast2b,     ROT0, "bootleg",  "Sonic Blast Man 2 Special Turbo (SNES bootleg)", MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS)
-GAME( 1996, endless,      0,     kinstb,         endless,  snesb_state,  endless,      ROT0, "bootleg",  "Gundam Wing: Endless Duel (SNES bootleg)",       MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
-GAME( 1996, legendsb,     0,     kinstb,         kinstb,   snesb_state,  legendsb,     ROT0, "bootleg",  "Legend (SNES bootleg)",                          MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 199?, kinstb,       0,       kinstb,         kinstb,   snesb_state, init_kinstb,    ROT0, "bootleg",  "Killer Instinct (SNES bootleg)",                         MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1996, ffight2b,     0,       ffight2b,       ffight2b, snesb_state, init_ffight2b,  ROT0, "bootleg",  "Final Fight 2 (SNES bootleg)",                           MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1996, iron,         0,       kinstb,         iron,     snesb_state, init_iron,      ROT0, "bootleg",  "Iron (SNES bootleg)",                                    MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1996, denseib,      0,       kinstb,         denseib,  snesb_state, init_denseib,   ROT0, "bootleg",  "Ghost Chaser Densei (SNES bootleg, set 1)",              MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1996, denseib2,     denseib, kinstb,         denseib,  snesb_state, init_denseib2,  ROT0, "bootleg",  "Ghost Chaser Densei (SNES bootleg, set 2)",              MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1997, sblast2b,     0,       kinstb,         sblast2b, snesb_state, init_sblast2b,  ROT0, "bootleg",  "Sonic Blast Man 2 Special Turbo (SNES bootleg)",         MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS)
+GAME( 1996, endless,      0,       kinstb,         endless,  snesb_state, init_endless,   ROT0, "bootleg",  "Gundam Wing: Endless Duel (SNES bootleg, set 1)",        MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1996, endlessa,     endless, kinstb,         endless,  snesb_state, init_endless,   ROT0, "bootleg",  "Gundam Wing: Endless Duel (SNES bootleg, set 2)",        MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1996, legendsb,     0,       kinstb,         kinstb,   snesb_state, init_legendsb,  ROT0, "bootleg",  "Legend (SNES bootleg)",                                  MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1997, rushbets,     0,       kinstb,         rushbets, snesb_state, init_rushbets,  ROT0, "bootleg",  "Rushing Beat Shura (SNES bootleg)",                      MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1997, venom,        0,       kinstb,         venom,    snesb_state, init_venom,     ROT0, "bootleg",  "Venom & Spider-Man - Separation Anxiety (SNES bootleg)", MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+GAME( 1996, wldgunsb,     0,       kinstb,         wldgunsb, snesb_state, init_wldgunsb,  ROT0, "bootleg",  "Wild Guns (SNES bootleg)",                               MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS ) // based off Japanese version
+GAME( 199?, fatfurspb,    0,       kinstb,         venom,    snesb_state, init_fatfurspb, ROT0, "bootleg",  "Fatal Fury Special (SNES bootleg)",                      MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS ) // coinage, etc. handled by protection device

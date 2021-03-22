@@ -80,14 +80,13 @@
 #include "includes/laserbat.h"
 
 #include "cpu/m6800/m6800.h"
-#include "cpu/s2650/s2650.h"
 
 #include "machine/clock.h"
 
 #include "speaker.h"
 
 
-WRITE8_MEMBER(laserbat_state_base::ct_io_w)
+void laserbat_state_base::ct_io_w(uint8_t data)
 {
 	/*
 	    Uses a hex buffer, so bits 6 and 7 are not physically present.
@@ -126,16 +125,16 @@ WRITE8_MEMBER(laserbat_state_base::ct_io_w)
 	    +-----+-----------------------------+--------------------+--------------+
 	*/
 
-	machine().bookkeeping().coin_counter_w(0, data & 0x01);
-	machine().bookkeeping().coin_counter_w(1, data & 0x02);
-	machine().bookkeeping().coin_counter_w(2, data & 0x04);
+	machine().bookkeeping().coin_counter_w(0, BIT(data, 0));
+	machine().bookkeeping().coin_counter_w(1, BIT(data, 1));
+	machine().bookkeeping().coin_counter_w(2, BIT(data, 2));
 	flip_screen_set((bool(data & 0x08) && !bool(m_row1->read() & 0x10)) ? 1 : 0);
 	m_input_mux = (data >> 4) & 0x03;
 
 //  popmessage("ct io: %02X", data);
 }
 
-READ8_MEMBER(laserbat_state_base::rrowx_r)
+uint8_t laserbat_state_base::rrowx_r()
 {
 	return (m_mpx_p_1_2 ? m_row2 : m_mux_ports[m_input_mux])->read();
 }
@@ -165,34 +164,36 @@ READ8_MEMBER(laserbat_state_base::rrowx_r)
 
 */
 
-ADDRESS_MAP_START(laserbat_state_base::laserbat_map)
-	ADDRESS_MAP_UNMAP_HIGH
+void laserbat_state_base::laserbat_map(address_map &map)
+{
+	map.unmap_value_high();
 
-	AM_RANGE(0x0000, 0x13ff) AM_ROM
-	AM_RANGE(0x2000, 0x33ff) AM_ROM
-	AM_RANGE(0x3800, 0x3bff) AM_ROM
-	AM_RANGE(0x4000, 0x53ff) AM_ROM
-	AM_RANGE(0x6000, 0x73ff) AM_ROM
-	AM_RANGE(0x7800, 0x7bff) AM_ROM
+	map(0x0000, 0x13ff).rom();
+	map(0x2000, 0x33ff).rom();
+	map(0x3800, 0x3bff).rom();
+	map(0x4000, 0x53ff).rom();
+	map(0x6000, 0x73ff).rom();
+	map(0x7800, 0x7bff).rom();
 
-	AM_RANGE(0x1400, 0x14ff) AM_MIRROR(0x6000) AM_WRITENOP
-	AM_RANGE(0x1500, 0x15ff) AM_MIRROR(0x6000) AM_DEVREADWRITE("pvi1", s2636_device, read_data, write_data)
-	AM_RANGE(0x1600, 0x16ff) AM_MIRROR(0x6000) AM_DEVREADWRITE("pvi2", s2636_device, read_data, write_data)
-	AM_RANGE(0x1700, 0x17ff) AM_MIRROR(0x6000) AM_DEVREADWRITE("pvi3", s2636_device, read_data, write_data)
-	AM_RANGE(0x1800, 0x1bff) AM_MIRROR(0x6000) AM_WRITE(videoram_w)
-	AM_RANGE(0x1c00, 0x1fff) AM_MIRROR(0x6000) AM_RAM
-ADDRESS_MAP_END
+	map(0x1400, 0x14ff).mirror(0x6000).nopw();
+	map(0x1500, 0x15ff).mirror(0x6000).rw(m_pvi[0], FUNC(s2636_device::read_data), FUNC(s2636_device::write_data));
+	map(0x1600, 0x16ff).mirror(0x6000).rw(m_pvi[1], FUNC(s2636_device::read_data), FUNC(s2636_device::write_data));
+	map(0x1700, 0x17ff).mirror(0x6000).rw(m_pvi[2], FUNC(s2636_device::read_data), FUNC(s2636_device::write_data));
+	map(0x1800, 0x1bff).mirror(0x6000).w(FUNC(laserbat_state_base::videoram_w));
+	map(0x1c00, 0x1fff).mirror(0x6000).ram();
+}
 
-ADDRESS_MAP_START(laserbat_state_base::laserbat_io_map)
-	AM_RANGE(0x00, 0x00) AM_READ(rhsc_r)    AM_WRITE(cnt_eff_w)
-	AM_RANGE(0x01, 0x01) /* RBALL */        AM_WRITE(cnt_nav_w)
-	AM_RANGE(0x02, 0x02) AM_READ(rrowx_r)   AM_WRITE(csound1_w)
-	AM_RANGE(0x03, 0x03)                    AM_WRITE(whsc_w)
-	AM_RANGE(0x04, 0x04)                    AM_WRITE(wcoh_w)
-	AM_RANGE(0x05, 0x05)                    AM_WRITE(wcov_w)
-	AM_RANGE(0x06, 0x06)                    AM_WRITE(ct_io_w)
-	AM_RANGE(0x07, 0x07)                    AM_WRITE(csound2_w)
-ADDRESS_MAP_END
+void laserbat_state_base::laserbat_io_map(address_map &map)
+{
+	map(0x00, 0x00).r(FUNC(laserbat_state_base::rhsc_r)).w(FUNC(laserbat_state_base::cnt_eff_w));
+	map(0x01, 0x01) /* RBALL */ .w(FUNC(laserbat_state_base::cnt_nav_w));
+	map(0x02, 0x02).r(FUNC(laserbat_state_base::rrowx_r)).w(FUNC(laserbat_state_base::csound1_w));
+	map(0x03, 0x03).w(FUNC(laserbat_state_base::whsc_w));
+	map(0x04, 0x04).w(FUNC(laserbat_state_base::wcoh_w));
+	map(0x05, 0x05).w(FUNC(laserbat_state_base::wcov_w));
+	map(0x06, 0x06).w(FUNC(laserbat_state_base::ct_io_w));
+	map(0x07, 0x07).w(FUNC(laserbat_state_base::csound2_w));
+}
 
 
 static INPUT_PORTS_START( laserbat_base )
@@ -212,8 +213,8 @@ static INPUT_PORTS_START( laserbat_base )
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_BUTTON3 ) PORT_PLAYER(2)
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_BUTTON4 ) PORT_PLAYER(2)
 	PORT_CONFNAME( 0x10, 0x10, DEF_STR(Cabinet) ) // sense line on wiring harness
-	PORT_DIPSETTING(     0x10, DEF_STR(Upright) )
-	PORT_DIPSETTING(     0x00, DEF_STR(Cocktail) )
+	PORT_CONFSETTING(    0x10, DEF_STR(Upright) )
+	PORT_CONFSETTING(    0x00, DEF_STR(Cocktail) )
 	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_SERVICE1 )
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_COIN1 )
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_TILT )
@@ -400,18 +401,18 @@ static const gfx_layout sprites_layout =
 	32*32*2
 };
 
-static GFXDECODE_START( laserbat )
-	GFXDECODE_ENTRY( "gfx1", 0x0000, charlayout,       0, 256 ) /* Rom chars */
-	GFXDECODE_ENTRY( "gfx2", 0x0000, sprites_layout,   0,   8 ) /* Sprites   */
+static GFXDECODE_START( gfx_laserbat )
+	GFXDECODE_ENTRY( "gfx1", 0x0000, charlayout,       0, 256 ) // ROM chars
+	GFXDECODE_ENTRY( "gfx2", 0x0000, sprites_layout,   0,   8 ) // sprites
 GFXDECODE_END
 
 
 INTERRUPT_GEN_MEMBER(laserbat_state_base::laserbat_interrupt)
 {
-	device.execute().set_input_line_and_vector(0, HOLD_LINE, 0x0a);
+	m_maincpu->set_input_line(0, ASSERT_LINE);
 }
 
-DRIVER_INIT_MEMBER(laserbat_state_base, laserbat)
+void laserbat_state_base::init_laserbat()
 {
 	m_scanline_timer = timer_alloc(TIMER_SCANLINE);
 
@@ -456,90 +457,87 @@ void laserbat_state_base::device_timer(emu_timer &timer, device_timer_id id, int
 		video_line(ptr, param);
 		break;
 	default:
-		assert_always(false, "Unknown id in laserbat_state_base::device_timer");
+		throw emu_fatalerror("Unknown id in laserbat_state_base::device_timer");
 	}
 }
 
 
-MACHINE_CONFIG_START(laserbat_state_base::laserbat_base)
-
+void laserbat_state_base::laserbat_base(machine_config &config)
+{
 	// basic machine hardware
-	MCFG_CPU_ADD("maincpu", S2650, XTAL(14'318'181)/4)
-	MCFG_CPU_PROGRAM_MAP(laserbat_map)
-	MCFG_CPU_IO_MAP(laserbat_io_map)
-	MCFG_CPU_VBLANK_INT_DRIVER("screen", laserbat_state_base, laserbat_interrupt)
-	MCFG_S2650_SENSE_INPUT(DEVREADLINE("screen", screen_device, vblank))
+	S2650(config, m_maincpu, XTAL(14'318'181)/4);
+	m_maincpu->set_addrmap(AS_PROGRAM, &laserbat_state_base::laserbat_map);
+	m_maincpu->set_addrmap(AS_IO, &laserbat_state_base::laserbat_io_map);
+	m_maincpu->set_vblank_int("screen", FUNC(laserbat_state_base::laserbat_interrupt));
+	m_maincpu->sense_handler().set(m_screen, FUNC(screen_device::vblank));
+	m_maincpu->intack_handler().set([this]() { m_maincpu->set_input_line(0, CLEAR_LINE); return 0x0a; });
 
 	// video hardware
-	MCFG_SCREEN_ADD("screen", RASTER)
-	MCFG_SCREEN_RAW_PARAMS(XTAL(14'318'181), 227*4, 43*4-1, 227*4-1, 312, 8, 255)
-	MCFG_SCREEN_UPDATE_DRIVER(laserbat_state_base, screen_update_laserbat)
-	MCFG_SCREEN_PALETTE("palette")
+	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
+	m_screen->set_raw(XTAL(14'318'181), 227*4, 43*4-1, 227*4-1, 312, 8, 255);
+	m_screen->set_screen_update(FUNC(laserbat_state_base::screen_update_laserbat));
+	m_screen->set_palette(m_palette);
 
-	MCFG_PLS100_ADD("gfxmix")
+	PLS100(config, m_gfxmix);
 
-	MCFG_DEVICE_ADD("pvi1", S2636, XTAL(14'318'181)/3)
-	MCFG_S2636_OFFSETS(-8, -16)
-	MCFG_S2636_DIVIDER(3)
+	S2636(config, m_pvi[0], XTAL(14'318'181)/3);
+	m_pvi[0]->set_offsets(-8, -16);
+	m_pvi[0]->set_divider(3);
 
-	MCFG_DEVICE_ADD("pvi2", S2636, XTAL(14'318'181)/3)
-	MCFG_S2636_OFFSETS(-8, -16)
-	MCFG_S2636_DIVIDER(3)
+	S2636(config, m_pvi[1], XTAL(14'318'181)/3);
+	m_pvi[1]->set_offsets(-8, -16);
+	m_pvi[1]->set_divider(3);
 
-	MCFG_DEVICE_ADD("pvi3", S2636, XTAL(14'318'181)/3)
-	MCFG_S2636_OFFSETS(-8, -16)
-	MCFG_S2636_DIVIDER(3)
+	S2636(config, m_pvi[2], XTAL(14'318'181)/3);
+	m_pvi[2]->set_offsets(-8, -16);
+	m_pvi[2]->set_divider(3);
 
-	MCFG_GFXDECODE_ADD("gfxdecode", "palette", laserbat)
+	GFXDECODE(config, m_gfxdecode, m_palette, gfx_laserbat);
+}
 
-MACHINE_CONFIG_END
-
-MACHINE_CONFIG_START(laserbat_state::laserbat)
+void laserbat_state::laserbat(machine_config &config)
+{
 	laserbat_base(config);
 
 	// video hardware
-	MCFG_PALETTE_ADD("palette", 256)
-	MCFG_PALETTE_INIT_OWNER(laserbat_state, laserbat)
+	PALETTE(config, m_palette, FUNC(laserbat_state::laserbat_palette), 256);
 
 	// sound board devices
-	MCFG_SPEAKER_STANDARD_MONO("speaker")
+	SPEAKER(config, "speaker").front_center();
 
-	MCFG_SOUND_ADD("csg", SN76477, 0) // audio output not used
-	MCFG_SN76477_NOISE_PARAMS(RES_K(47), RES_K(270), CAP_P(1000)) // R21, switchable R30/R23/R24/R25/R29/R28/R27/R26, C21
-	MCFG_SN76477_DECAY_RES(RES_INF)                 // NC
-	MCFG_SN76477_ATTACK_PARAMS(0, RES_INF)          // NC, NC
-	MCFG_SN76477_AMP_RES(RES_K(47))                 // R26 47k
-	MCFG_SN76477_FEEDBACK_RES(RES_INF)              // NC
-	MCFG_SN76477_VCO_PARAMS(5.0 * RES_VOLTAGE_DIVIDER(RES_K(4.7), RES_K(2.2)), 0, RES_K(47)) // R22/R19, NC, switchable R47/R40/R41/R42/R46/R45/R44/R43
-	MCFG_SN76477_PITCH_VOLTAGE(5.0)                 // tied to Vreg
-	MCFG_SN76477_SLF_PARAMS(CAP_U(4.7), RES_INF)    // C24, switchable NC/R54/R53/R52/R51
-	MCFG_SN76477_ONESHOT_PARAMS(0, RES_INF)         // NC, NC
-	MCFG_SN76477_VCO_MODE(1)                        // BIT15
-	MCFG_SN76477_MIXER_PARAMS(0, 0, 0)              // GND, VCO/NOISE, GND
-	MCFG_SN76477_ENVELOPE_PARAMS(0, 1)              // GND, Vreg
-	MCFG_SN76477_ENABLE(0)                          // AB SOUND
+	SN76477(config, m_csg); // audio output not used
+	m_csg->set_noise_params(RES_K(47), RES_K(270), CAP_P(1000)); // R21, switchable R30/R23/R24/R25/R29/R28/R27/R26, C21
+	m_csg->set_decay_res(RES_INF);                  // NC
+	m_csg->set_attack_params(0, RES_INF);           // NC, NC
+	m_csg->set_amp_res(RES_K(47));                  // R26 47k
+	m_csg->set_feedback_res(RES_INF);               // NC
+	m_csg->set_vco_params(5.0 * RES_VOLTAGE_DIVIDER(RES_K(4.7), RES_K(2.2)), 0, RES_K(47)); // R22/R19, NC, switchable R47/R40/R41/R42/R46/R45/R44/R43
+	m_csg->set_pitch_voltage(5.0);                  // tied to Vreg
+	m_csg->set_slf_params(CAP_U(4.7), RES_INF);     // C24, switchable NC/R54/R53/R52/R51
+	m_csg->set_oneshot_params(0, RES_INF);          // NC, NC
+	m_csg->set_vco_mode(1);                         // BIT15
+	m_csg->set_mixer_params(0, 0, 0);               // GND, VCO/NOISE, GND
+	m_csg->set_envelope_params(0, 1);               // GND, Vreg
+	m_csg->set_enable(0);                           // AB SOUND
 
-	MCFG_TMS3615_ADD("synth_low", 4_MHz_XTAL/16/2) // from the other one's /2 clock output
-	MCFG_SOUND_ROUTE(tms3615_device::FOOTAGE_8, "speaker", 1.0)
+	TMS3615(config, m_synth_low, 4_MHz_XTAL/16/2); // from the other one's /2 clock output
+	m_synth_low->add_route(tms3615_device::FOOTAGE_8, "speaker", 1.0);
 
-	MCFG_TMS3615_ADD("synth_high", 4_MHz_XTAL/16) // 4MHz divided down with a 74LS161
-	MCFG_SOUND_ROUTE(tms3615_device::FOOTAGE_8, "speaker", 1.0)
+	TMS3615(config, m_synth_high, 4_MHz_XTAL/16); // 4MHz divided down with a 74LS161
+	m_synth_high->add_route(tms3615_device::FOOTAGE_8, "speaker", 1.0);
+}
 
-MACHINE_CONFIG_END
-
-MACHINE_CONFIG_START(catnmous_state::catnmous)
+void catnmous_state::catnmous(machine_config &config)
+{
 	laserbat_base(config);
 
 	// video hardware
-	MCFG_PALETTE_ADD("palette", 256)
-	MCFG_PALETTE_INIT_OWNER(catnmous_state, catnmous)
+	PALETTE(config, m_palette, FUNC(catnmous_state::catnmous_palette), 256);
 
 	// sound board devices
-	MCFG_SPEAKER_STANDARD_MONO("speaker")
-	MCFG_SOUND_ADD("audiopcb", ZACCARIA_1B11107, 0)
-	MCFG_SOUND_ROUTE(ALL_OUTPUTS, "speaker", 1.0)
-
-MACHINE_CONFIG_END
+	SPEAKER(config, "speaker").front_center();
+	ZACCARIA_1B11107(config, m_audiopcb).add_route(ALL_OUTPUTS, "speaker", 1.0);
+}
 
 
 ROM_START( laserbat )
@@ -618,7 +616,7 @@ ROM_END
 /*
 Zaccaria "Cat 'N Mouse" 1982
 
-similar to "Quasar" execept it uses an 82s100 for color table lookup
+similar to "Quasar" except it uses an 82s100 for color table lookup
 and has a larger program prom
 
 
@@ -639,94 +637,102 @@ Sound Board 1b11107
 6802
 6821
 2*8910
+
+Labels are in the following format:
+
+   CAT'N MOUSE      <-- Game name, printed
+TYPE ____________   <-- Line to hand write type (revision and/or license?)
+MEM. N. _________   <-- Line to hand write ROM number or PCB location
+
+* Sound ROM labels have "SOUND" in place of "TYPE"
 */
 
 ROM_START( catnmous )
 	ROM_REGION( 0x8000, "maincpu", 0 )
-	ROM_LOAD( "02-1.7c",      0x0000, 0x0400, CRC(d26ec566) SHA1(ceb16f64a3c1ff25a9eab6549f1ae24085bb9e27) )
-	ROM_CONTINUE(             0x4000, 0x0400 )
-	ROM_LOAD( "02-2.6c",      0x0400, 0x0400, CRC(02a7e36c) SHA1(8495b2906ecb0791a47e9b6f1959ed6cbc14cce8) )
-	ROM_CONTINUE(             0x4400, 0x0400 )
-	ROM_LOAD( "02-3.5c",      0x0800, 0x0400, CRC(ee9f90ee) SHA1(dc280dae3a18a9044497bdee41827d2510a04d06) )
-	ROM_CONTINUE(             0x4800, 0x0400 )
-	ROM_LOAD( "02-4.3c",      0x0c00, 0x0400, CRC(71b97af9) SHA1(6735184dc16c8db3050be3b7b5dfdb7d46a671fe) )
-	ROM_CONTINUE(             0x4c00, 0x0400 )
-	ROM_LOAD( "02-5.2c",      0x1000, 0x0400, CRC(887a1da2) SHA1(9e2548d1792c2d2b76811a1e0daae4d378f1f354) )
-	ROM_CONTINUE(             0x5000, 0x0400 )
-	ROM_LOAD( "02-6.7b",      0x2000, 0x0400, CRC(22e045e9) SHA1(dd332e918500d8024d1329bc12c6f939fd41e4a7) )
-	ROM_CONTINUE(             0x6000, 0x0400 )
-	ROM_LOAD( "02-7.6b",      0x2400, 0x0400, CRC(af330ad2) SHA1(cac70341687edd1daee323c0e332297c80057e1e) )
-	ROM_CONTINUE(             0x6400, 0x0400 )
-	ROM_LOAD( "02-8.5b",      0x2800, 0x0400, CRC(c7d38401) SHA1(33a3bb393451cd3fefa23b5c8013068b5b0de7a5) )
-	ROM_CONTINUE(             0x6800, 0x0400 )
-	ROM_LOAD( "02-9.3b",      0x2c00, 0x0400, CRC(c4a33f20) SHA1(355c4345daa681fa2bcfa1e345d2db34f9d94113) )
-	ROM_CONTINUE(             0x6c00, 0x0400 )
-	ROM_LOAD( "02-10-11.2b",  0x3800, 0x0400, CRC(3f7d4b89) SHA1(c8e9be0149a2f728526a416ec5663e69cc2e6758) )
-	ROM_CONTINUE(             0x7800, 0x0400 )
-	ROM_CONTINUE(             0x3000, 0x0400 )
-	ROM_CONTINUE(             0x7000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_1.7c",     0x0000, 0x0400, CRC(d26ec566) SHA1(ceb16f64a3c1ff25a9eab6549f1ae24085bb9e27) )
+	ROM_CONTINUE(                                   0x4000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_2.6c",     0x0400, 0x0400, CRC(02a7e36c) SHA1(8495b2906ecb0791a47e9b6f1959ed6cbc14cce8) )
+	ROM_CONTINUE(                                   0x4400, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_3.5c",     0x0800, 0x0400, CRC(ee9f90ee) SHA1(dc280dae3a18a9044497bdee41827d2510a04d06) )
+	ROM_CONTINUE(                                   0x4800, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_4.3c",     0x0c00, 0x0400, CRC(71b97af9) SHA1(6735184dc16c8db3050be3b7b5dfdb7d46a671fe) )
+	ROM_CONTINUE(                                   0x4c00, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_5.2c",     0x1000, 0x0400, CRC(887a1da2) SHA1(9e2548d1792c2d2b76811a1e0daae4d378f1f354) )
+	ROM_CONTINUE(                                   0x5000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_6.7b",     0x2000, 0x0400, CRC(22e045e9) SHA1(dd332e918500d8024d1329bc12c6f939fd41e4a7) )
+	ROM_CONTINUE(                                   0x6000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_7.6b",     0x2400, 0x0400, CRC(af330ad2) SHA1(cac70341687edd1daee323c0e332297c80057e1e) )
+	ROM_CONTINUE(                                   0x6400, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_8.5b",     0x2800, 0x0400, CRC(c7d38401) SHA1(33a3bb393451cd3fefa23b5c8013068b5b0de7a5) )
+	ROM_CONTINUE(                                   0x6800, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_9.3b",     0x2c00, 0x0400, CRC(c4a33f20) SHA1(355c4345daa681fa2bcfa1e345d2db34f9d94113) )
+	ROM_CONTINUE(                                   0x6c00, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_02_mem_n_10-11.2b", 0x3800, 0x0400, CRC(3f7d4b89) SHA1(c8e9be0149a2f728526a416ec5663e69cc2e6758) ) // labeled: CAT'N MOUSE   TYPE 02  MEM. N. 10/11 - "02" and "10/11" are hand written
+	ROM_CONTINUE(                                   0x7800, 0x0400 )
+	ROM_CONTINUE(                                   0x3000, 0x0400 )
+	ROM_CONTINUE(                                   0x7000, 0x0400 )
 
 	ROM_REGION( 0x1800, "gfx1", 0 )
-	ROM_LOAD( "type01.8g",    0x0000, 0x0800, CRC(2b180d4a) SHA1(b6f48ffdbad64b4d9f1fe838000187800c51228c) )
-	ROM_LOAD( "type01.10g",   0x0800, 0x0800, CRC(e5259f9b) SHA1(396753291ab36c3ed72208d619665fc0f33d1e17) )
-	ROM_LOAD( "type01.11g",   0x1000, 0x0800, CRC(2999f378) SHA1(929082383b2b0006de171587adb932ce57316963) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_8g.8g",   0x0000, 0x0800, CRC(2b180d4a) SHA1(b6f48ffdbad64b4d9f1fe838000187800c51228c) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_10g.10g", 0x0800, 0x0800, CRC(e5259f9b) SHA1(396753291ab36c3ed72208d619665fc0f33d1e17) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_11g.11g", 0x1000, 0x0800, CRC(2999f378) SHA1(929082383b2b0006de171587adb932ce57316963) )
 
 	ROM_REGION( 0x1000, "gfx2", 0 )
-	ROM_LOAD( "cat'n_mouse-type01-mem_n.14l.14l",   0x0000, 0x1000, CRC(83502383) SHA1(9561f87e1a6425bb9544e71340336db8d43c1fd9) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_14l.14l", 0x0000, 0x1000, CRC(83502383) SHA1(9561f87e1a6425bb9544e71340336db8d43c1fd9) )
 
 	ROM_REGION( 0x0100, "gfxmix", 0 )
-	ROM_LOAD( "82s100.13m",   0x0000, 0x00f5, CRC(6b724cdb) SHA1(8a0ca3b171b103661a3b2fffbca3d7162089e243) )
+	ROM_LOAD( "82s100.10m",   0x0000, 0x00f5, CRC(6b724cdb) SHA1(8a0ca3b171b103661a3b2fffbca3d7162089e243) )
 
 	ROM_REGION( 0x10000, "audiopcb:melodycpu", 0 )
-	ROM_LOAD( "sound01.1f",   0xc000, 0x1000, CRC(473c44de) SHA1(ff08b02d45a2c23cabb5db716aa203225a931424) )
-	ROM_LOAD( "sound01.1d",   0xe000, 0x1000, CRC(f65cb9d0) SHA1(a2fe7563c6da055bf6aa20797b2d9fa184f0133c) )
-	ROM_LOAD( "sound01.1e",   0xf000, 0x1000, CRC(1bd90c93) SHA1(20fd2b765a42e25cf7f716e6631b8c567785a866) )
+	ROM_LOAD( "cat_n_mouse_sound_01_mem_n_1f.1f", 0xc000, 0x1000, CRC(473c44de) SHA1(ff08b02d45a2c23cabb5db716aa203225a931424) )
+	ROM_LOAD( "cat_n_mouse_sound_01_mem_n_1d.1d", 0xe000, 0x1000, CRC(f65cb9d0) SHA1(a2fe7563c6da055bf6aa20797b2d9fa184f0133c) )
+	ROM_LOAD( "cat_n_mouse_sound_01_mem_n_1e.1e", 0xf000, 0x1000, CRC(1bd90c93) SHA1(20fd2b765a42e25cf7f716e6631b8c567785a866) )
 ROM_END
 
 ROM_START( catnmousa )
 	ROM_REGION( 0x8000, "maincpu", 0 )
-	ROM_LOAD( "catnmous.7c",  0x0000, 0x0400, CRC(0bf9fc06) SHA1(7d5857121fe51f43e4ae7db34df720198994afdd) )
-	ROM_CONTINUE(             0x4000, 0x0400 )
-	ROM_LOAD( "catnmous.6c",  0x0400, 0x0400, CRC(b0e140a0) SHA1(68d8ca25642e872f2177d09b78d553c033411dd5) )
-	ROM_CONTINUE(             0x4400, 0x0400 )
-	ROM_LOAD( "catnmous.5c",  0x0800, 0x0400, CRC(7bbc0fe5) SHA1(d20e89d89a0958d45ac31b6d2c540fcf3d326068) )
-	ROM_CONTINUE(             0x4800, 0x0400 )
-	ROM_LOAD( "catnmous.3c",  0x0c00, 0x0400, CRC(0350531d) SHA1(6115f907544ab317e0090a10cce3adce26f4afd9) )
-	ROM_CONTINUE(             0x4c00, 0x0400 )
-	ROM_LOAD( "catnmous.2c",  0x1000, 0x0400, CRC(4a26e963) SHA1(be8dd98d3810319a228ce4c07b097eb75f2d1e5c) )
-	ROM_CONTINUE(             0x5000, 0x0400 )
-	ROM_LOAD( "catnmous.7b",  0x2000, 0x0400, CRC(d8d6a029) SHA1(7e5688fd3af97620ed07d9375335fe1deb6e483f) )
-	ROM_CONTINUE(             0x6000, 0x0400 )
-	ROM_LOAD( "catnmous.6b",  0x2400, 0x0400, CRC(ccc871d9) SHA1(355eff250ab3d1a75ed690369add1639e7061ee8) )
-	ROM_CONTINUE(             0x6400, 0x0400 )
-	ROM_LOAD( "catnmous.5b",  0x2800, 0x0400, CRC(23783b84) SHA1(97a3ef7c64e1ded5cc1999d3aa58652ca541166c) )
-	ROM_CONTINUE(             0x6800, 0x0400 )
-	ROM_LOAD( "catnmous.3b",  0x2c00, 0x0400, CRC(e99fce4b) SHA1(2c8efdea55bae5526b547fec53e8f3642fe2bd2e) )
-	ROM_CONTINUE(             0x6c00, 0x0400 )
-	// missing half rom
-	ROM_LOAD( "catnmous.2b",  0x3000, 0x0400, BAD_DUMP CRC(880728fa) SHA1(f204d669c190ad0cf2c885af12625026534db655) )
-	ROM_CONTINUE(             0x7000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_1.7c",  0x0000, 0x0400, CRC(0bf9fc06) SHA1(7d5857121fe51f43e4ae7db34df720198994afdd) )
+	ROM_CONTINUE(                                0x4000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_2.6c",  0x0400, 0x0400, CRC(b0e140a0) SHA1(68d8ca25642e872f2177d09b78d553c033411dd5) )
+	ROM_CONTINUE(                                0x4400, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_3.5c",  0x0800, 0x0400, CRC(7bbc0fe5) SHA1(d20e89d89a0958d45ac31b6d2c540fcf3d326068) )
+	ROM_CONTINUE(                                0x4800, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_4.3c",  0x0c00, 0x0400, CRC(0350531d) SHA1(6115f907544ab317e0090a10cce3adce26f4afd9) )
+	ROM_CONTINUE(                                0x4c00, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_5.2c",  0x1000, 0x0400, CRC(4a26e963) SHA1(be8dd98d3810319a228ce4c07b097eb75f2d1e5c) )
+	ROM_CONTINUE(                                0x5000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_6.7b",  0x2000, 0x0400, CRC(d8d6a029) SHA1(7e5688fd3af97620ed07d9375335fe1deb6e483f) )
+	ROM_CONTINUE(                                0x6000, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_7.6b",  0x2400, 0x0400, CRC(ccc871d9) SHA1(355eff250ab3d1a75ed690369add1639e7061ee8) )
+	ROM_CONTINUE(                                0x6400, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_8.5b",  0x2800, 0x0400, CRC(23783b84) SHA1(97a3ef7c64e1ded5cc1999d3aa58652ca541166c) )
+	ROM_CONTINUE(                                0x6800, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_9.3b",  0x2c00, 0x0400, CRC(e99fce4b) SHA1(2c8efdea55bae5526b547fec53e8f3642fe2bd2e) )
+	ROM_CONTINUE(                                0x6c00, 0x0400 )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_10.2b", 0x3800, 0x0400, CRC(807b7109) SHA1(6c29197b437ab0132d8361f921e6d0d9b10f917e) )
+	ROM_CONTINUE(                                0x7800, 0x0400 )
+	ROM_CONTINUE(                                0x3000, 0x0400 )
+	ROM_CONTINUE(                                0x7000, 0x0400 )
 
 	ROM_REGION( 0x1800, "gfx1", 0 )
-	ROM_LOAD( "catnmous.8g",  0x0000, 0x0800, CRC(2b180d4a) SHA1(b6f48ffdbad64b4d9f1fe838000187800c51228c) )
-	ROM_LOAD( "catnmous.10g", 0x0800, 0x0800, CRC(e5259f9b) SHA1(396753291ab36c3ed72208d619665fc0f33d1e17) )
-	ROM_LOAD( "catnmous.11g", 0x1000, 0x0800, CRC(2999f378) SHA1(929082383b2b0006de171587adb932ce57316963) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_8g.8g",   0x0000, 0x0800, CRC(2b180d4a) SHA1(b6f48ffdbad64b4d9f1fe838000187800c51228c) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_10g.10g", 0x0800, 0x0800, CRC(e5259f9b) SHA1(396753291ab36c3ed72208d619665fc0f33d1e17) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_11g.11g", 0x1000, 0x0800, CRC(2999f378) SHA1(929082383b2b0006de171587adb932ce57316963) )
 
 	ROM_REGION( 0x1000, "gfx2", 0 )
-	ROM_LOAD( "cat'n_mouse-type01-mem_n.14l.14l",   0x0000, 0x1000, CRC(83502383) SHA1(9561f87e1a6425bb9544e71340336db8d43c1fd9) )
+	ROM_LOAD( "cat_n_mouse_type_01_mem_n_14l.14l", 0x0000, 0x1000, CRC(83502383) SHA1(9561f87e1a6425bb9544e71340336db8d43c1fd9) )
 
-	ROM_REGION( 0x0100, "gfxmix", 0 )
-	// copied from parent set to give working graphics, need dump to confirm
-	ROM_LOAD( "catnmousa_82s100.13m", 0x0000, 0x00f5, CRC(6b724cdb) SHA1(8a0ca3b171b103661a3b2fffbca3d7162089e243) BAD_DUMP )
+	ROM_REGION( 0x0100, "gfxmix", 0 ) // copied from parent set to give working graphics, need dump to confirm
+	ROM_LOAD( "cnm_82s100.10m", 0x0000, 0x00f5, CRC(6b724cdb) SHA1(8a0ca3b171b103661a3b2fffbca3d7162089e243) BAD_DUMP ) // labeled C.N.M - 82S100
 
 	ROM_REGION( 0x10000, "audiopcb:melodycpu", 0 )
-	ROM_LOAD( "snd.1f",       0xc000, 0x1000, CRC(473c44de) SHA1(ff08b02d45a2c23cabb5db716aa203225a931424) )
-	ROM_LOAD( "snd.1d",       0xe000, 0x1000, CRC(f65cb9d0) SHA1(a2fe7563c6da055bf6aa20797b2d9fa184f0133c) )
-	ROM_LOAD( "snd.1e",       0xf000, 0x1000, CRC(1bd90c93) SHA1(20fd2b765a42e25cf7f716e6631b8c567785a866) )
+	ROM_LOAD( "cat_n_mouse_sound_01_mem_n_1f.1f", 0xc000, 0x1000, CRC(473c44de) SHA1(ff08b02d45a2c23cabb5db716aa203225a931424) )
+	ROM_LOAD( "cat_n_mouse_sound_01_mem_n_1d.1d", 0xe000, 0x1000, CRC(f65cb9d0) SHA1(a2fe7563c6da055bf6aa20797b2d9fa184f0133c) )
+	ROM_LOAD( "cat_n_mouse_sound_01_mem_n_1e.1e", 0xf000, 0x1000, CRC(1bd90c93) SHA1(20fd2b765a42e25cf7f716e6631b8c567785a866) )
 ROM_END
 
 
-GAME( 1981, laserbat,  0,        laserbat, laserbat, laserbat_state, laserbat, ROT0,  "Zaccaria", "Laser Battle",                    MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
-GAME( 1981, lazarian,  laserbat, laserbat, lazarian, laserbat_state, laserbat, ROT0,  "Zaccaria (Bally Midway license)", "Lazarian", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
-GAME( 1982, catnmous,  0,        catnmous, catnmous, catnmous_state, laserbat, ROT90, "Zaccaria", "Cat and Mouse (set 1)",           MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
-GAME( 1982, catnmousa, catnmous, catnmous, catnmous, catnmous_state, laserbat, ROT90, "Zaccaria", "Cat and Mouse (set 2)",           MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1981, laserbat,  0,        laserbat, laserbat, laserbat_state, init_laserbat, ROT0,  "Zaccaria", "Laser Battle",                    MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1981, lazarian,  laserbat, laserbat, lazarian, laserbat_state, init_laserbat, ROT0,  "Zaccaria (Bally Midway license)", "Lazarian", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1982, catnmous,  0,        catnmous, catnmous, catnmous_state, init_laserbat, ROT90, "Zaccaria", "Cat and Mouse (type 02 program)", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1982, catnmousa, catnmous, catnmous, catnmous, catnmous_state, init_laserbat, ROT90, "Zaccaria", "Cat and Mouse (type 01 program)", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )

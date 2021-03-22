@@ -28,8 +28,8 @@ public:
 	// construction/destruction
 	sv801_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
-	virtual DECLARE_READ8_MEMBER( iorq_r ) override;
-	virtual DECLARE_WRITE8_MEMBER( iorq_w ) override;
+	virtual uint8_t iorq_r(offs_t offset) override;
+	virtual void iorq_w(offs_t offset, uint8_t data) override;
 
 protected:
 	virtual void device_add_mconfig(machine_config &config) override;
@@ -37,12 +37,12 @@ protected:
 	virtual void device_reset() override;
 
 private:
-	DECLARE_WRITE8_MEMBER( motor_w );
+	void motor_w(uint8_t data);
 
 	DECLARE_WRITE_LINE_MEMBER( intrq_w );
 	DECLARE_WRITE_LINE_MEMBER( drq_w );
 
-	DECLARE_FLOPPY_FORMATS(floppy_formats);
+	static void floppy_formats(format_registration &fr);
 
 	required_device<fd1793_device> m_fdc;
 	required_device<floppy_connector> m_floppy0;

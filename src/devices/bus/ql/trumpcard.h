@@ -12,6 +12,7 @@
 #pragma once
 
 #include "exp.h"
+#include "imagedev/floppy.h"
 #include "machine/wd_fdc.h"
 #include "formats/ql_dsk.h"
 
@@ -41,18 +42,18 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 
 	// device_ql_expansion_card_interface overrides
-	virtual uint8_t read(address_space &space, offs_t offset, uint8_t data) override;
-	virtual void write(address_space &space, offs_t offset, uint8_t data) override;
+	virtual uint8_t read(offs_t offset, uint8_t data) override;
+	virtual void write(offs_t offset, uint8_t data) override;
 
 private:
 
-	DECLARE_FLOPPY_FORMATS( floppy_formats );
+	static void floppy_formats(format_registration &fr);
 
 	required_device<wd1772_device> m_fdc;
 	required_device<floppy_connector> m_floppy0;
 	required_device<floppy_connector> m_floppy1;
 	required_memory_region m_rom;
-	optional_shared_ptr<uint8_t> m_ram;
+	memory_share_creator<uint8_t> m_ram;
 
 	int m_ram_size;
 	bool m_rom_en;

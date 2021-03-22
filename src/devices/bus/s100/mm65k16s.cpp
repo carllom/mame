@@ -205,7 +205,7 @@ ioport_constructor s100_mm65k16s_device::device_input_ports() const
 s100_mm65k16s_device::s100_mm65k16s_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, S100_MM65K16S, tag, owner, clock),
 	device_s100_card_interface(mconfig, *this),
-	m_ram(*this, "ram")
+	m_ram(*this, "ram", 0x10000, ENDIANNESS_LITTLE)
 {
 }
 
@@ -216,7 +216,6 @@ s100_mm65k16s_device::s100_mm65k16s_device(const machine_config &mconfig, const 
 
 void s100_mm65k16s_device::device_start()
 {
-	m_ram.allocate(0x10000);
 }
 
 
@@ -233,9 +232,9 @@ void s100_mm65k16s_device::device_reset()
 //  s100_smemr_r - memory read
 //-------------------------------------------------
 
-uint8_t s100_mm65k16s_device::s100_smemr_r(address_space &space, offs_t offset)
+uint8_t s100_mm65k16s_device::s100_smemr_r(offs_t offset)
 {
-	uint8_t data = 0;
+	uint8_t data = 0xff;
 
 	if (offset < 0xf800)
 	{
@@ -250,7 +249,7 @@ uint8_t s100_mm65k16s_device::s100_smemr_r(address_space &space, offs_t offset)
 //  s100_mwrt_w - memory write
 //-------------------------------------------------
 
-void s100_mm65k16s_device::s100_mwrt_w(address_space &space, offs_t offset, uint8_t data)
+void s100_mm65k16s_device::s100_mwrt_w(offs_t offset, uint8_t data)
 {
 	if (offset < 0xf800)
 	{

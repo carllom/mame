@@ -80,7 +80,8 @@ ioport_constructor c128_partner_cartridge_device::device_input_ports() const
 c128_partner_cartridge_device::c128_partner_cartridge_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, C128_PARTNER, tag, owner, clock),
 	device_c64_expansion_card_interface(mconfig, *this),
-	m_ram(*this, "ram"), t_joyb2(nullptr),
+	m_ram(*this, "ram", 0x2000, ENDIANNESS_LITTLE),
+	t_joyb2(nullptr),
 	m_ram_a12_a7(0),
 	m_ls74_cd(0),
 	m_ls74_q1(0),
@@ -96,9 +97,6 @@ c128_partner_cartridge_device::c128_partner_cartridge_device(const machine_confi
 
 void c128_partner_cartridge_device::device_start()
 {
-	// allocate memory
-	m_ram.allocate(0x2000);
-
 	// simulate the 16.7ms pulse from CIA1 PB2 that would arrive thru the joystick port dongle
 	t_joyb2 = timer_alloc();
 	t_joyb2->adjust(attotime::from_msec(16), 0, attotime::from_msec(16));
@@ -147,7 +145,7 @@ void c128_partner_cartridge_device::device_timer(emu_timer &timer, device_timer_
 //  c64_cd_r - cartridge data read
 //-------------------------------------------------
 
-uint8_t c128_partner_cartridge_device::c64_cd_r(address_space &space, offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
+uint8_t c128_partner_cartridge_device::c64_cd_r(offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
 {
 	if (!roml)
 	{
@@ -185,7 +183,7 @@ uint8_t c128_partner_cartridge_device::c64_cd_r(address_space &space, offs_t off
 //  c64_cd_w - cartridge data write
 //-------------------------------------------------
 
-void c128_partner_cartridge_device::c64_cd_w(address_space &space, offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
+void c128_partner_cartridge_device::c64_cd_w(offs_t offset, uint8_t data, int sphi2, int ba, int roml, int romh, int io1, int io2)
 {
 	if (!io1)
 	{

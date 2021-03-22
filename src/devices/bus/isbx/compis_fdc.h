@@ -13,6 +13,7 @@
 
 #include "isbx.h"
 #include "formats/cpis_dsk.h"
+#include "imagedev/floppy.h"
 #include "machine/upd765.h"
 
 
@@ -39,17 +40,17 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 
 	// device_isbx_card_interface overrides
-	virtual uint8_t mcs0_r(address_space &space, offs_t offset) override;
-	virtual void mcs0_w(address_space &space, offs_t offset, uint8_t data) override;
-	virtual uint8_t mdack_r(address_space &space, offs_t offset) override;
-	virtual void mdack_w(address_space &space, offs_t offset, uint8_t data) override;
+	virtual uint8_t mcs0_r(offs_t offset) override;
+	virtual void mcs0_w(offs_t offset, uint8_t data) override;
+	virtual uint8_t mdack_r(offs_t offset) override;
+	virtual void mdack_w(offs_t offset, uint8_t data) override;
 	virtual void opt0_w(int state) override;
 	virtual void opt1_w(int state) override;
 
 private:
 	DECLARE_WRITE_LINE_MEMBER( fdc_irq );
 	DECLARE_WRITE_LINE_MEMBER( fdc_drq );
-	DECLARE_FLOPPY_FORMATS( floppy_formats );
+	static void floppy_formats(format_registration &fr);
 
 	required_device<i8272a_device> m_fdc;
 	required_device<floppy_connector> m_floppy0;

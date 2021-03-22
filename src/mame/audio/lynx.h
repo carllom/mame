@@ -13,10 +13,10 @@ public:
 
 	lynx_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
-	DECLARE_READ8_MEMBER(read);
-	DECLARE_WRITE8_MEMBER(write);
+	uint8_t read(offs_t offset);
+	void write(offs_t offset, uint8_t data);
 	void count_down(int nr);
-	template<typename Object> void set_timer_delegate(Object &&cb) { m_timer_delegate = std::forward<Object>(cb); }
+	template <typename... T> void set_timer_delegate(T &&... args) { m_timer_delegate.set(std::forward<T>(args)...); }
 
 protected:
 	struct LYNX_AUDIO {
@@ -45,7 +45,7 @@ protected:
 	virtual void device_reset() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 	void reset_channel(LYNX_AUDIO *channel);
 	void shift(int chan_nr);
@@ -75,16 +75,11 @@ protected:
 	virtual void device_start() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 };
 
 
 DECLARE_DEVICE_TYPE(LYNX_SND,  lynx_sound_device)
 DECLARE_DEVICE_TYPE(LYNX2_SND, lynx2_sound_device)
-
-
-#define MCFG_LYNX_SND_SET_TIMER( _class, _method) \
-	downcast<lynx_sound_device &>(*device).set_timer_delegate(lynx_sound_device::timer_delegate(&_class::_method, #_class "::" #_method, nullptr, (_class *)nullptr));
-
 
 #endif // MAME_AUDIO_LYNX_H

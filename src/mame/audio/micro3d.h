@@ -13,7 +13,7 @@
 class micro3d_sound_device : public device_t, public device_sound_interface
 {
 public:
-	micro3d_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
+	micro3d_sound_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock = 0);
 
 	void dac_w(u8 data) { m_dac_data = data; }
 	void noise_sh_w(u8 data);
@@ -24,7 +24,7 @@ protected:
 	virtual void device_reset() override;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	enum dac_registers {
@@ -45,8 +45,8 @@ private:
 		void init(double fs);
 		void recompute(double k, double q, double fc);
 
-		std::unique_ptr<float[]> history;
-		std::unique_ptr<float[]> coef;
+		float history[2 * 2];
+		float coef[4 * 2 + 1];
 		double fs;
 		biquad proto_coef[2];
 	};
@@ -73,6 +73,6 @@ private:
 	sound_stream        *m_stream;
 };
 
-DECLARE_DEVICE_TYPE(MICRO3D, micro3d_sound_device)
+DECLARE_DEVICE_TYPE(MICRO3D_SOUND, micro3d_sound_device)
 
 #endif // MAME_AUDIO_MICRO3D_H

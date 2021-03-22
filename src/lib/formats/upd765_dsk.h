@@ -7,9 +7,10 @@
     helper for simple upd765-formatted disk images
 
 *********************************************************************/
+#ifndef MAME_FORMATS_UPD765_DSK_H
+#define MAME_FORMATS_UPD765_DSK_H
 
-#ifndef UPD765_DSK_H
-#define UPD765_DSK_H
+#pragma once
 
 #include "flopimg.h"
 
@@ -17,9 +18,9 @@ class upd765_format : public floppy_image_format_t
 {
 public:
 	struct format {
-		uint32_t form_factor;      // See floppy_image for possible values
-		uint32_t variant;          // See floppy_image for possible values
-		uint32_t encoding;         // See floppy_image for possible values
+		uint32_t form_factor = 0U; // See floppy_image for possible values
+		uint32_t variant = 0U;   // See floppy_image for possible values
+		uint32_t encoding = 0U;  // See floppy_image for possible values
 
 		int cell_size;           // See floppy_image_format_t for details
 		int sector_count;
@@ -38,9 +39,9 @@ public:
 	// End the array with {}
 	upd765_format(const format *formats);
 
-	virtual int identify(io_generic *io, uint32_t form_factor) override;
-	virtual bool load(io_generic *io, uint32_t form_factor, floppy_image *image) override;
-	virtual bool save(io_generic *io, floppy_image *image) override;
+	virtual int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
+	virtual bool load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image) override;
+	virtual bool save(io_generic *io, const std::vector<uint32_t> &variants, floppy_image *image) override;
 	virtual bool supports_save() const override;
 
 protected:
@@ -56,7 +57,7 @@ protected:
 	void extract_sectors(floppy_image *image, const format &f, desc_s *sdesc, int track, int head);
 
 private:
-	const format *formats;
+	format const *const formats;
 };
 
-#endif /* UPD765_DSK_H */
+#endif // MAME_FORMATS_UPD765_DSK_H

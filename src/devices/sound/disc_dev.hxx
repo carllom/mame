@@ -415,8 +415,11 @@ DISCRETE_STEP(dsd_555_mstbl)
 	}
 	x_time = 0;
 
-	if ((trigger_type & DISC_555_TRIGGER_DISCHARGES_CAP) && trigger)
+	if (m_trig_discharges_cap && trigger)
+	{
 		m_cap_voltage = 0;
+		v_cap = 0;
+	}
 
 	/* Wait for trigger */
 	if (UNEXPECTED(!flip_flop && trigger))
@@ -630,10 +633,12 @@ DISCRETE_STEP(dsd_555_cc)
 		{
 			case 1:
 				r_discharge = DSD_555_CC__RDIS;
+				[[fallthrough]];
 			case 0:
 				break;
 			case 3:
 				r_discharge = RES_2_PARALLEL(DSD_555_CC__RDIS, DSD_555_CC__RGND);
+				[[fallthrough]];
 			case 2:
 				r_charge = DSD_555_CC__RGND;
 				vi       = i * r_charge;
@@ -941,10 +946,12 @@ DISCRETE_RESET(dsd_555_cc)
 		{
 			case 1:
 				r_discharge = DSD_555_CC__RDIS;
+				[[fallthrough]];
 			case 0:
 				break;
 			case 3:
 				r_discharge = RES_2_PARALLEL(DSD_555_CC__RDIS, DSD_555_CC__RGND);
+				[[fallthrough]];
 			case 2:
 				r_charge = DSD_555_CC__RGND;
 				break;
@@ -1650,7 +1657,7 @@ DISCRETE_STEP(dsd_ls624)
 	double  freq, t1;
 	double  v_freq_2, v_freq_3, v_freq_4;
 	double  t_used = m_t_used;
-	double  dt = this->sample_time();;
+	double  dt = this->sample_time();
 	double  v_freq = DSD_LS624__VMOD;
 	double  v_rng = DSD_LS624__VRNG;
 	int     count_f = 0, count_r = 0;

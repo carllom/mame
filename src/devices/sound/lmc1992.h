@@ -49,16 +49,6 @@ enum
 };
 
 
-
-//**************************************************************************
-//  INTERFACE CONFIGURATION MACROS
-//**************************************************************************
-
-#define MCFG_LMC1992_ADD(_tag) \
-	MCFG_DEVICE_ADD(_tag, LMC1992, 0)
-
-
-
 //**************************************************************************
 //  TYPE DEFINITIONS
 //**************************************************************************
@@ -70,7 +60,7 @@ class lmc1992_device :  public device_t,
 {
 public:
 	// construction/destruction
-	lmc1992_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	lmc1992_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 0);
 
 	DECLARE_WRITE_LINE_MEMBER( clock_w );
 	DECLARE_WRITE_LINE_MEMBER( data_w );
@@ -81,7 +71,7 @@ protected:
 	virtual void device_start() override;
 
 	// internal callbacks
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 private:
 	inline void execute_command(int addr, int data);

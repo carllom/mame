@@ -21,26 +21,11 @@
 // device type definition
 DECLARE_DEVICE_TYPE(SAMPLES, samples_device)
 
-
-
-//**************************************************************************
-//  INTERFACE CONFIGURATION MACROS
-//**************************************************************************
-
-#define MCFG_SAMPLES_CHANNELS(_channels) \
-	samples_device::static_set_channels(*device, _channels);
-
-#define MCFG_SAMPLES_NAMES(_names) \
-	samples_device::static_set_samples_names(*device, _names);
-
-#define SAMPLES_START_CB_MEMBER(_name) void _name()
-
-#define MCFG_SAMPLES_START_CB(_class, _method) \
-	samples_device::set_samples_start_callback(*device, samples_device::start_cb_delegate(&_class::_method, #_class "::" #_method, this));
-
 //**************************************************************************
 //  TYPE DEFINITIONS
 //**************************************************************************
+
+#define SAMPLES_START_CB_MEMBER(_name) void _name()
 
 // ======================> samples_device
 
@@ -51,12 +36,14 @@ public:
 	typedef device_delegate<void ()> start_cb_delegate;
 
 	// construction/destruction
-	samples_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	samples_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 0);
 
-	// static configuration helpers
-	static void static_set_channels(device_t &device, uint8_t channels) { downcast<samples_device &>(device).m_channels = channels; }
-	static void static_set_samples_names(device_t &device, const char *const *names) { downcast<samples_device &>(device).m_names = names; }
-	static void set_samples_start_callback(device_t &device, start_cb_delegate &&cb) { downcast<samples_device &>(device).m_samples_start_cb = std::move(cb); }
+	// configuration helpers
+	void set_channels(uint8_t channels) { m_channels = channels; }
+	void set_samples_names(const char *const *names) { m_names = names; }
+
+	// start callback helpers
+	template <typename... T> void set_samples_start_callback(T &&...args) { m_samples_start_cb.set(std::forward<T>(args)...); }
 
 	// getters
 	bool playing(uint8_t channel) const;
@@ -98,19 +85,18 @@ protected:
 	virtual void device_post_load() override;
 
 	// device_sound_interface overrides
-	virtual void sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples) override;
+	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
 
 	// internal classes
 	struct channel_t
 	{
 		sound_stream *  stream;
-		const int16_t *   source;
-		int32_t           source_length;
-		int32_t           source_num;
-		uint32_t          pos;
-		uint32_t          frac;
-		uint32_t          step;
-		uint32_t          basefreq;
+		const int16_t * source;
+		int32_t         source_num;
+		uint32_t        source_len;
+		double          pos;
+		uint32_t        basefreq;
+		uint32_t        curfreq;
 		bool            loop;
 		bool            paused;
 	};
@@ -133,7 +119,7 @@ protected:
 };
 
 // iterator, since lots of people are interested in these devices
-typedef device_type_iterator<samples_device> samples_device_iterator;
+typedef device_type_enumerator<samples_device> samples_device_enumerator;
 
 
 // ======================> samples_iterator

@@ -41,17 +41,17 @@ protected:
 	virtual ioport_constructor device_input_ports() const override;
 
 	// device_pet_expansion_card_interface overrides
-	virtual int pet_norom_r(address_space &space, offs_t offset, int sel) override;
-	virtual uint8_t pet_bd_r(address_space &space, offs_t offset, uint8_t data, int &sel) override;
-	virtual void pet_bd_w(address_space &space, offs_t offset, uint8_t data, int &sel) override;
+	virtual int pet_norom_r(offs_t offset, int sel) override;
+	virtual uint8_t pet_bd_r(offs_t offset, uint8_t data, int &sel) override;
+	virtual void pet_bd_w(offs_t offset, uint8_t data, int &sel) override;
 	virtual int pet_diag_r() override;
 	virtual void pet_irq_w(int state) override;
 
 private:
 	DECLARE_WRITE_LINE_MEMBER( acia_irq_w );
 
-	DECLARE_READ8_MEMBER( read );
-	DECLARE_WRITE8_MEMBER( write );
+	uint8_t read(offs_t offset);
+	void write(offs_t offset, uint8_t data);
 
 	void superpet_mem(address_map &map);
 
@@ -59,7 +59,7 @@ private:
 	required_device<mos6551_device> m_acia;
 	required_device<mos6702_device> m_dongle;
 	required_memory_region m_rom;
-	optional_shared_ptr<uint8_t> m_ram;
+	memory_share_creator<uint8_t> m_ram;
 	required_ioport m_io_sw1;
 	required_ioport m_io_sw2;
 

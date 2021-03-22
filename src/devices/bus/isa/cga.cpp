@@ -261,22 +261,23 @@ DEFINE_DEVICE_TYPE(ISA8_CGA, isa8_cga_device, "cga", "IBM Color/Graphics Monitor
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-MACHINE_CONFIG_START(isa8_cga_device::device_add_mconfig)
-	MCFG_SCREEN_ADD(CGA_SCREEN_NAME, RASTER)
-	MCFG_SCREEN_RAW_PARAMS(XTAL(14'318'181),912,0,640,262,0,200)
-	MCFG_SCREEN_UPDATE_DEVICE( DEVICE_SELF, isa8_cga_device, screen_update )
+void isa8_cga_device::device_add_mconfig(machine_config &config)
+{
+	screen_device &screen(SCREEN(config, CGA_SCREEN_NAME, SCREEN_TYPE_RASTER));
+	screen.set_raw(XTAL(14'318'181), 912, 0, 640, 262, 0, 200);
+	screen.set_screen_update(FUNC(isa8_cga_device::screen_update));
 
-	MCFG_PALETTE_ADD("palette", /* CGA_PALETTE_SETS * 16*/ 65536 )
+	PALETTE(config, m_palette).set_entries(/* CGA_PALETTE_SETS * 16*/ 65536);
 
-	MCFG_MC6845_ADD(CGA_MC6845_NAME, MC6845, CGA_SCREEN_NAME, XTAL(14'318'181)/8)
-	MCFG_MC6845_SHOW_BORDER_AREA(false)
-	MCFG_MC6845_CHAR_WIDTH(8)
-	MCFG_MC6845_UPDATE_ROW_CB(isa8_cga_device, crtc_update_row)
-	MCFG_MC6845_OUT_HSYNC_CB(WRITELINE(isa8_cga_device, hsync_changed))
-	MCFG_MC6845_OUT_VSYNC_CB(WRITELINE(isa8_cga_device, vsync_changed))
-	MCFG_MC6845_RECONFIGURE_CB(isa8_cga_device, reconfigure)
-	MCFG_VIDEO_SET_SCREEN(nullptr)
-MACHINE_CONFIG_END
+	MC6845(config, m_crtc, XTAL(14'318'181)/16);
+	m_crtc->set_screen(nullptr);
+	m_crtc->set_show_border_area(false);
+	m_crtc->set_char_width(8);
+	m_crtc->set_update_row_callback(FUNC(isa8_cga_device::crtc_update_row));
+	m_crtc->out_hsync_callback().set(FUNC(isa8_cga_device::hsync_changed));
+	m_crtc->out_vsync_callback().set(FUNC(isa8_cga_device::vsync_changed));
+	m_crtc->set_reconfigure_callback(FUNC(isa8_cga_device::reconfigure));
+}
 
 ioport_constructor isa8_cga_device::device_input_ports() const
 {
@@ -305,7 +306,7 @@ isa8_cga_device::isa8_cga_device(const machine_config &mconfig, const char *tag,
 isa8_cga_device::isa8_cga_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, type, tag, owner, clock),
 	device_isa8_card_interface(mconfig, *this),
-	m_cga_config(*this, "cga_config"), m_framecnt(0), m_mode_control(0), m_color_select(0),
+	m_crtc(*this, CGA_MC6845_NAME), m_cga_config(*this, "cga_config"), m_framecnt(0), m_mode_control(0), m_color_select(0),
 	m_update_row_type(-1), m_y(0), m_chr_gen_base(nullptr), m_chr_gen(nullptr), m_vsync(0), m_hsync(0),
 	m_vram_size( 0x4000 ), m_plantronics(0),
 	m_palette(*this, "palette"),
@@ -330,10 +331,10 @@ void isa8_cga_device::device_start()
 
 	set_isa_device();
 	m_vram.resize(m_vram_size);
-	m_isa->install_device(0x3d0, 0x3df, read8_delegate( FUNC(isa8_cga_device::io_read), this ), write8_delegate( FUNC(isa8_cga_device::io_write), this ) );
-	m_isa->install_bank(0xb8000, 0xb8000 + (std::min<size_t>)(0x8000, m_vram_size) - 1, "bank_cga", &m_vram[0]);
+	m_isa->install_device(0x3d0, 0x3df, read8sm_delegate(*this, FUNC(isa8_cga_device::io_read)), write8sm_delegate(*this, FUNC(isa8_cga_device::io_write)));
+	m_isa->install_bank(0xb8000, 0xb8000 + (std::min<size_t>)(0x8000, m_vram_size) - 1, &m_vram[0]);
 	if(m_vram_size == 0x4000)
-		m_isa->install_bank(0xbc000, 0xbffff, "bank_cga", &m_vram[0]);
+		m_isa->install_bank(0xbc000, 0xbffff, &m_vram[0]);
 
 	/* Initialise the cga palette */
 	int i;
@@ -397,9 +398,7 @@ void isa8_cga_device::device_reset()
 
 uint32_t isa8_cga_device::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	mc6845_device *mc6845 = subdevice<mc6845_device>(CGA_MC6845_NAME);
-
-	mc6845->screen_update( screen, bitmap, cliprect);
+	m_crtc->screen_update( screen, bitmap, cliprect);
 
 	/* Check for changes in font dipsetting */
 	switch ( CGA_FONT )
@@ -470,47 +469,43 @@ isa8_cga_superimpose_device::isa8_cga_superimpose_device(const machine_config &m
 template<bool blink, bool si, bool comp, bool alt, int width>
 MC6845_UPDATE_ROW( isa8_cga_device::cga_text )
 {
-	uint8_t *videoram = &m_vram[m_start_offset];
-	uint32_t  *p = &bitmap.pix32(y);
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	int i;
+	uint8_t const *const videoram = &m_vram[m_start_offset];
+	uint32_t *p = &bitmap.pix(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
 
-	if ( y == 0 ) CGA_LOG(1,"cga_text_8",("\n"));
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) CGA_LOG(1,"cga_text_8",("\n"));
+	for (int i = 0; i < x_count; i++)
 	{
-		uint16_t offset = ( ( ma + i ) << 1 ) & 0x3fff;
-		uint8_t chr = videoram[ offset ];
-		uint8_t attr = videoram[ offset +1 ];
-		uint8_t data = m_chr_gen[ chr * width + ra ];
+		uint16_t const offset = ((ma + i) << 1) & 0x3fff;
+		uint8_t const chr = videoram[offset];
+		uint8_t const attr = videoram[offset +1];
+		uint8_t data = m_chr_gen[chr * width + ra];
 		uint16_t fg, bg;
-		uint8_t xi;
 
-		if ( comp )
+		if (comp)
 		{
-			fg = 0x10 + ( attr & 0x0F );
-			bg = alt ? 0 : ( 0x10 + ( ( attr >> 4 ) & 0x07 ) );
+			fg = 0x10 + (attr & 0x0f);
+			bg = alt ? 0 : (0x10 + ((attr >> 4) & 0x07));
 		}
 		else
 		{
 			fg = attr & 0x0F;
-			bg = alt ? 0 : ( ( attr >> 4 ) & ( blink ? 0x07 : 0x0f ) );
+			bg = alt ? 0 : ((attr >> 4) & (blink ? 0x07 : 0x0f));
 		}
 
-		if ( ( i == cursor_x ) && ( m_framecnt & 0x08 ) )
-			data = 0xFF;
-		else if ( blink && ( attr & 0x80 ) && ( m_framecnt & 0x10 ) )
+		if ((i == cursor_x) && (m_framecnt & 0x08))
+			data = 0xff;
+		else if (blink && (attr & 0x80) && (m_framecnt & 0x10))
 		{
 			data = 0x00;
-			bg = ( attr >> 4 ) & 0x07;
+			bg = (attr >> 4) & 0x07;
 		}
 
-		for(xi=0;xi<8;xi++)
+		for (int xi = 0; xi < 8; xi++)
 		{
-			uint8_t pen_data, dot;
-
-			dot = (data & (1 << (7-xi)));
-			pen_data = dot ? fg : bg;
-			if(!si || (pen_data || dot))
+			uint8_t const dot = (data & (1 << (7 - xi)));
+			uint8_t const pen_data = dot ? fg : bg;
+			if (!si || (pen_data || dot))
 				*p = palette[pen_data];
 			p++;
 		}
@@ -522,28 +517,29 @@ MC6845_UPDATE_ROW( isa8_cga_device::cga_text )
 
 MC6845_UPDATE_ROW( isa8_cga_device::cga_gfx_4bppl_update_row )
 {
-	uint8_t *videoram = &m_vram[m_start_offset];
-	uint32_t  *p = &bitmap.pix32(y);
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	int i;
+	uint8_t const *const videoram = &m_vram[m_start_offset];
+	uint32_t *p = &bitmap.pix(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
 
-	if ( y == 0 ) CGA_LOG(1,"cga_gfx_4bppl_update_row",("\n"));
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) CGA_LOG(1,"cga_gfx_4bppl_update_row",("\n"));
+	for (int i = 0; i < x_count; i++)
 	{
-		uint16_t offset = ( ( ( ma + i ) << 1 ) & 0x1fff ) | ( ( y & 1 ) << 13 );
-		uint8_t data = videoram[ offset ];
+		uint16_t const offset = (((ma + i) << 1) & 0x1fff) | ((y & 1) << 13);
+		uint8_t data;
 
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
+		data = videoram[offset];
 
-		data = videoram[ offset + 1 ];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
 
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
+		data = videoram[offset + 1];
+
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
 	}
 }
 
@@ -581,37 +577,37 @@ static const uint8_t yc_lut[16][8] =
 
 MC6845_UPDATE_ROW( isa8_cga_device::cga_gfx_4bpph_update_row )
 {
-	uint8_t *videoram = &m_vram[m_start_offset];
-	uint32_t  *p = &bitmap.pix32(y);
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	int i;
+	uint8_t const *const videoram = &m_vram[m_start_offset];
+	uint32_t *p = &bitmap.pix(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
 
-	if ( y == 0 ) CGA_LOG(1,"cga_gfx_4bpph_update_row",("\n"));
-
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) CGA_LOG(1,"cga_gfx_4bpph_update_row",("\n"));
+	for (int i = 0; i < x_count; i++)
 	{
-		uint16_t offset = ( ( ( ma + i ) << 1 ) & 0x1fff ) | ( ( y & 1 ) << 13 );
-		uint8_t data = videoram[ offset ];
+		uint16_t const offset = (((ma + i) << 1) & 0x1fff) | ((y & 1) << 13);
+		uint8_t data;
 
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
+		data = videoram[offset];
 
-		data = videoram[ offset + 1 ];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
 
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data >> 4]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
-		*p = palette[data & 0x0F]; p++;
+		data = videoram[offset + 1];
+
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data >> 4];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
+		*p++ = palette[data & 0x0f];
 	}
 }
 
@@ -624,28 +620,29 @@ MC6845_UPDATE_ROW( isa8_cga_device::cga_gfx_4bpph_update_row )
 
 MC6845_UPDATE_ROW( isa8_cga_device::cga_gfx_2bpp_update_row )
 {
-	uint8_t *videoram = &m_vram[m_start_offset];
-	uint32_t  *p = &bitmap.pix32(y);
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	int i;
+	uint8_t const *const videoram = &m_vram[m_start_offset];
+	uint32_t *p = &bitmap.pix(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
 
-	if ( y == 0 ) CGA_LOG(1,"cga_gfx_2bpp_update_row",("\n"));
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) CGA_LOG(1,"cga_gfx_2bpp_update_row",("\n"));
+	for (int i = 0; i < x_count; i++)
 	{
-		uint16_t offset = ( ( ( ma + i ) << 1 ) & 0x1fff ) | ( ( ra & 1 ) << 13 );
-		uint8_t data = videoram[ offset ];
+		uint16_t const offset = (((ma + i) << 1) & 0x1fff) | ((ra & 1) << 13);
+		uint8_t data;
 
-		*p = palette[m_palette_lut_2bpp[ ( data >> 6 ) & 0x03 ]]; p++;
-		*p = palette[m_palette_lut_2bpp[ ( data >> 4 ) & 0x03 ]]; p++;
-		*p = palette[m_palette_lut_2bpp[ ( data >> 2 ) & 0x03 ]]; p++;
-		*p = palette[m_palette_lut_2bpp[   data        & 0x03 ]]; p++;
+		data = videoram[offset];
 
-		data = videoram[ offset+1 ];
+		*p++ = palette[m_palette_lut_2bpp[(data >> 6) & 0x03]];
+		*p++ = palette[m_palette_lut_2bpp[(data >> 4) & 0x03]];
+		*p++ = palette[m_palette_lut_2bpp[(data >> 2) & 0x03]];
+		*p++ = palette[m_palette_lut_2bpp[ data       & 0x03]];
 
-		*p = palette[m_palette_lut_2bpp[ ( data >> 6 ) & 0x03 ]]; p++;
-		*p = palette[m_palette_lut_2bpp[ ( data >> 4 ) & 0x03 ]]; p++;
-		*p = palette[m_palette_lut_2bpp[ ( data >> 2 ) & 0x03 ]]; p++;
-		*p = palette[m_palette_lut_2bpp[   data        & 0x03 ]]; p++;
+		data = videoram[offset + 1];
+
+		*p++ = palette[m_palette_lut_2bpp[(data >> 6) & 0x03]];
+		*p++ = palette[m_palette_lut_2bpp[(data >> 4) & 0x03]];
+		*p++ = palette[m_palette_lut_2bpp[(data >> 2) & 0x03]];
+		*p++ = palette[m_palette_lut_2bpp[ data       & 0x03]];
 	}
 }
 
@@ -659,37 +656,38 @@ MC6845_UPDATE_ROW( isa8_cga_device::cga_gfx_2bpp_update_row )
 
 MC6845_UPDATE_ROW( isa8_cga_device::cga_gfx_1bpp_update_row )
 {
-	uint8_t *videoram = &m_vram[m_start_offset];
-	uint32_t  *p = &bitmap.pix32(y);
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint8_t   fg = m_color_select & 0x0F;
-	int i;
+	uint8_t const *const videoram = &m_vram[m_start_offset];
+	uint32_t *p = &bitmap.pix(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint8_t const fg = m_color_select & 0x0f;
 
-	if ( y == 0 ) CGA_LOG(1,"cga_gfx_1bpp_update_row",("\n"));
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) CGA_LOG(1,"cga_gfx_1bpp_update_row",("\n"));
+	for (int i = 0; i < x_count; i++)
 	{
-		uint16_t offset = ( ( ( ma + i ) << 1 ) & 0x1fff ) | ( ( ra & 1 ) << 13 );
-		uint8_t data = videoram[ offset ];
+		uint16_t const offset = (((ma + i) << 1) & 0x1fff) | ((ra & 1) << 13);
+		uint8_t data;
 
-		*p = palette[( data & 0x80 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x40 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x20 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x10 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x08 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x04 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x02 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x01 ) ? fg : 0]; p++;
+		data = videoram[offset];
 
-		data = videoram[ offset + 1 ];
+		*p++ = palette[(data & 0x80) ? fg : 0];
+		*p++ = palette[(data & 0x40) ? fg : 0];
+		*p++ = palette[(data & 0x20) ? fg : 0];
+		*p++ = palette[(data & 0x10) ? fg : 0];
+		*p++ = palette[(data & 0x08) ? fg : 0];
+		*p++ = palette[(data & 0x04) ? fg : 0];
+		*p++ = palette[(data & 0x02) ? fg : 0];
+		*p++ = palette[(data & 0x01) ? fg : 0];
 
-		*p = palette[( data & 0x80 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x40 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x20 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x10 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x08 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x04 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x02 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x01 ) ? fg : 0]; p++;
+		data = videoram[offset + 1];
+
+		*p++ = palette[(data & 0x80) ? fg : 0];
+		*p++ = palette[(data & 0x40) ? fg : 0];
+		*p++ = palette[(data & 0x20) ? fg : 0];
+		*p++ = palette[(data & 0x10) ? fg : 0];
+		*p++ = palette[(data & 0x08) ? fg : 0];
+		*p++ = palette[(data & 0x04) ? fg : 0];
+		*p++ = palette[(data & 0x02) ? fg : 0];
+		*p++ = palette[(data & 0x01) ? fg : 0];
 	}
 }
 
@@ -782,7 +780,6 @@ void isa8_cga_device::set_palette_luts(void)
  */
 void isa8_cga_device::mode_control_w(uint8_t data)
 {
-	mc6845_device *mc6845 = subdevice<mc6845_device>(CGA_MC6845_NAME);
 	uint8_t monitor = CGA_MONITOR;
 
 	m_mode_control = data;
@@ -791,7 +788,7 @@ void isa8_cga_device::mode_control_w(uint8_t data)
 	switch ( m_mode_control & 0x3F )
 	{
 	case 0x08: case 0x09: case 0x0C: case 0x0D:
-		mc6845->set_hpixels_per_column( 8 );
+		m_crtc->set_hpixels_per_column( 8 );
 		if ( monitor == CGA_MONITOR_COMPOSITE )
 		{
 			if ( m_mode_control & 0x04 )
@@ -812,7 +809,7 @@ void isa8_cga_device::mode_control_w(uint8_t data)
 		}
 		break;
 	case 0x0A: case 0x0B: case 0x2A: case 0x2B:
-		mc6845->set_hpixels_per_column( 8 );
+		m_crtc->set_hpixels_per_column( 8 );
 		if ( monitor == CGA_MONITOR_COMPOSITE )
 		{
 			m_update_row_type = CGA_GFX_4BPPL;
@@ -823,15 +820,15 @@ void isa8_cga_device::mode_control_w(uint8_t data)
 		}
 		break;
 	case 0x0E: case 0x0F: case 0x2E: case 0x2F:
-		mc6845->set_hpixels_per_column( 8 );
+		m_crtc->set_hpixels_per_column( 8 );
 		m_update_row_type = CGA_GFX_2BPP;
 		break;
 	case 0x18: case 0x19: case 0x1C: case 0x1D:
-		mc6845->set_hpixels_per_column( 8 );
+		m_crtc->set_hpixels_per_column( 8 );
 		m_update_row_type = CGA_TEXT_INTEN_ALT;
 		break;
 	case 0x1A: case 0x1B: case 0x3A: case 0x3B:
-		mc6845->set_hpixels_per_column( 16 );
+		m_crtc->set_hpixels_per_column( 16 );
 		if ( monitor == CGA_MONITOR_COMPOSITE )
 		{
 			m_update_row_type = CGA_GFX_4BPPH;
@@ -842,11 +839,11 @@ void isa8_cga_device::mode_control_w(uint8_t data)
 		}
 		break;
 	case 0x1E: case 0x1F: case 0x3E: case 0x3F:
-		mc6845->set_hpixels_per_column( 16 );
+		m_crtc->set_hpixels_per_column( 16 );
 		m_update_row_type = CGA_GFX_1BPP;
 		break;
 	case 0x28: case 0x29: case 0x2C: case 0x2D:
-		mc6845->set_hpixels_per_column( 8 );
+		m_crtc->set_hpixels_per_column( 8 );
 		if ( monitor == CGA_MONITOR_COMPOSITE )
 		{
 			if ( m_mode_control & 0x04 )
@@ -867,7 +864,7 @@ void isa8_cga_device::mode_control_w(uint8_t data)
 		}
 		break;
 	case 0x38: case 0x39: case 0x3C: case 0x3D:
-		mc6845->set_hpixels_per_column( 8 );
+		m_crtc->set_hpixels_per_column( 8 );
 		m_update_row_type = CGA_TEXT_BLINK_ALT;
 		break;
 	default:
@@ -877,7 +874,7 @@ void isa8_cga_device::mode_control_w(uint8_t data)
 
 	// The lowest bit of the mode register selects, among others, the
 	// input clock to the 6845.
-	mc6845->set_clock( ( m_mode_control & 1 ) ? CGA_HCLK : CGA_LCLK );
+	m_crtc->set_unscaled_clock( ( m_mode_control & 1 ) ? CGA_HCLK : CGA_LCLK );
 
 	set_palette_luts();
 }
@@ -905,9 +902,8 @@ void isa8_cga_device::plantronics_w(uint8_t data)
  *************************************************************************/
 
 
-READ8_MEMBER( isa8_cga_device::io_read )
+uint8_t isa8_cga_device::io_read(offs_t offset)
 {
-	mc6845_device *mc6845 = subdevice<mc6845_device>(CGA_MC6845_NAME);
 	uint8_t data = 0xff;
 
 	switch( offset )
@@ -916,7 +912,7 @@ READ8_MEMBER( isa8_cga_device::io_read )
 			/* return last written mc6845 address value here? */
 			break;
 		case 1: case 3: case 5: case 7:
-			data = mc6845->register_r( space, offset );
+			data = m_crtc->register_r();
 			break;
 		case 10:
 			data = m_vsync | ( ( data & 0x40 ) >> 4 ) | m_hsync;
@@ -927,16 +923,14 @@ READ8_MEMBER( isa8_cga_device::io_read )
 
 
 
-WRITE8_MEMBER( isa8_cga_device::io_write )
+void isa8_cga_device::io_write(offs_t offset, uint8_t data)
 {
-	mc6845_device *mc6845 = subdevice<mc6845_device>(CGA_MC6845_NAME);
-
 	switch(offset) {
 	case 0: case 2: case 4: case 6:
-		mc6845->address_w( space, offset, data );
+		m_crtc->address_w(data);
 		break;
 	case 1: case 3: case 5: case 7:
-		mc6845->register_w( space, offset, data );
+		m_crtc->register_w(data);
 		break;
 	case 8:
 		mode_control_w(data);
@@ -966,225 +960,218 @@ WRITE8_MEMBER( isa8_cga_device::io_write )
 //          proc = cga_pgfx_4bpp;
 //
 
-//static inline void pgfx_plot_unit_4bpp(bitmap_ind16 &bitmap,
-//                           int x, int y, int offs)
-//{
-//  int color, values[2];
-//  int i;
-//
-//  if (cga.plantronics & 0x40)
-//  {
-//      values[0] = videoram[offs | 0x4000];
-//      values[1] = videoram[offs];
-//  }
-//  else
-//  {
-//      values[0] = videoram[offs];
-//      values[1] = videoram[offs | 0x4000];
-//  }
-//  for (i=3; i>=0; i--)
-//  {
-//      color = ((values[0] & 0x3) << 1) |
-//          ((values[1] & 2)   >> 1) |
-//          ((values[1] & 1)   << 3);
-//      bitmap.pix16(y, x+i) = Machine->pens[color];
-//      values[0]>>=2;
-//      values[1]>>=2;
-//  }
-//}
-//
-//
-//
+#if 0
+static inline void pgfx_plot_unit_4bpp(bitmap_ind16 &bitmap, int x, int y, int offs)
+{
+	int values[2];
+
+	if (cga.plantronics & 0x40)
+	{
+		values[0] = videoram[offs | 0x4000];
+		values[1] = videoram[offs];
+	}
+	else
+	{
+		values[0] = videoram[offs];
+		values[1] = videoram[offs | 0x4000];
+	}
+	for (int i = 3; i >= 0; i--)
+	{
+		int const color =
+				((values[0] & 0x3) << 1) |
+				((values[1] & 2)   >> 1) |
+				((values[1] & 1)   << 3);
+		bitmap.pix(y, x + i) = Machine->pens[color];
+		values[0] >>= 2;
+		values[1] >>= 2;
+	}
+}
+#endif
+
+
 ///***************************************************************************
 //  Draw graphics mode with 640x200 pixels (default) with 2 bits/pixel.
 //  Even scanlines are from CGA_base + 0x0000, odd from CGA_base + 0x2000
 //  Second plane at CGA_base + 0x4000 / 0x6000
-//***************************************************************************/
-//
-//static void cga_pgfx_4bpp(bitmap_ind16 &bitmap, struct mscrtc6845 *crtc)
-//{
-//  int i, sx, sy, sh;
-//  int offs = mscrtc6845_get_start(crtc)*2;
-//  int lines = mscrtc6845_get_char_lines(crtc);
-//  int height = mscrtc6845_get_char_height(crtc);
-//  int columns = mscrtc6845_get_char_columns(crtc)*2;
-//
-//  for (sy=0; sy<lines; sy++,offs=(offs+columns)&0x1fff)
-//  {
-//      for (sh=0; sh<height; sh++, offs|=0x2000)
-//      {
-//          // char line 0 used as a12 line in graphic mode
-//          if (!(sh & 1))
-//          {
-//              for (i=offs, sx=0; sx<columns; sx++, i=(i+1)&0x1fff)
-//              {
-//                  pgfx_plot_unit_4bpp(bitmap, sx*4, sy*height+sh, i);
-//              }
-//          }
-//          else
-//          {
-//              for (i=offs|0x2000, sx=0; sx<columns; sx++, i=((i+1)&0x1fff)|0x2000)
-//              {
-//                  pgfx_plot_unit_4bpp(bitmap, sx*4, sy*height+sh, i);
-//              }
-//          }
-//      }
-//  }
-//}
-//
-//
-//
-//static inline void pgfx_plot_unit_2bpp(bitmap_ind16 &bitmap,
-//                   int x, int y, const uint16_t *palette, int offs)
-//{
-//  int i;
-//  uint8_t bmap[2], values[2];
-//  uint16_t *dest;
-//
-//  if (cga.plantronics & 0x40)
-//  {
-//      values[0] = videoram[offs];
-//      values[1] = videoram[offs | 0x4000];
-//  }
-//  else
-//  {
-//      values[0] = videoram[offs | 0x4000];
-//      values[1] = videoram[offs];
-//  }
-//  bmap[0] = bmap[1] = 0;
-//  for (i=3; i>=0; i--)
-//  {
-//      bmap[0] = bmap[0] << 1; if (values[0] & 0x80) bmap[0] |= 1;
-//      bmap[0] = bmap[0] << 1; if (values[1] & 0x80) bmap[0] |= 1;
-//      bmap[1] = bmap[1] << 1; if (values[0] & 0x08) bmap[1] |= 1;
-//      bmap[1] = bmap[1] << 1; if (values[1] & 0x08) bmap[1] |= 1;
-//      values[0] = values[0] << 1;
-//      values[1] = values[1] << 1;
-//  }
-//
-//  dest = &bitmap.pix16(y, x);
-//  *(dest++) = palette[(bmap[0] >> 6) & 0x03];
-//  *(dest++) = palette[(bmap[0] >> 4) & 0x03];
-//  *(dest++) = palette[(bmap[0] >> 2) & 0x03];
-//  *(dest++) = palette[(bmap[0] >> 0) & 0x03];
-//  *(dest++) = palette[(bmap[1] >> 6) & 0x03];
-//  *(dest++) = palette[(bmap[1] >> 4) & 0x03];
-//  *(dest++) = palette[(bmap[1] >> 2) & 0x03];
-//  *(dest++) = palette[(bmap[1] >> 0) & 0x03];
-//}
-//
-//
-//
+//****************************************************************************
+
+#if 0
+static void cga_pgfx_4bpp(bitmap_ind16 &bitmap, struct mscrtc6845 *crtc)
+{
+	int offs = mscrtc6845_get_start(crtc) * 2;
+	int const lines = mscrtc6845_get_char_lines(crtc);
+	int const height = mscrtc6845_get_char_height(crtc);
+	int columns = mscrtc6845_get_char_columns(crtc) * 2;
+
+	for (int sy = 0; sy < lines; sy++, offs = (offs + columns) & 0x1fff)
+	{
+		for (int sh = 0; sh < height; sh++, offs |= 0x2000)
+		{
+			// char line 0 used as a12 line in graphic mode
+			if (!(sh & 1))
+			{
+				for (int i = offs, sx = 0; sx < columns; sx++, i = (i + 1) & 0x1fff)
+				{
+					pgfx_plot_unit_4bpp(bitmap, sx * 4, sy * height + sh, i);
+				}
+			}
+			else
+			{
+				for (int i = offs | 0x2000, sx = 0; sx < columns; sx++, i = ((i + 1) & 0x1fff) | 0x2000)
+				{
+					pgfx_plot_unit_4bpp(bitmap, sx * 4, sy * height + sh, i);
+				}
+			}
+		}
+	}
+}
+#endif
+
+
+#if 0
+static inline void pgfx_plot_unit_2bpp(bitmap_ind16 &bitmap, int x, int y, const uint16_t *palette, int offs)
+{
+	uint8_t values[2];
+	if (cga.plantronics & 0x40)
+	{
+		values[0] = videoram[offs];
+		values[1] = videoram[offs | 0x4000];
+	}
+	else
+	{
+		values[0] = videoram[offs | 0x4000];
+		values[1] = videoram[offs];
+	}
+	uint8_t bmap[2] = { 0, 0 };
+	for (int i = 3; i >= 0; i--)
+	{
+		bmap[0] = (bmap[0] << 1) | BIT(values[0], 7);
+		bmap[0] = (bmap[0] << 1) | BIT(values[1], 7);
+		bmap[1] = (bmap[1] << 1) | BIT(values[0], 3);
+		bmap[1] = (bmap[1] << 1) | BIT(values[1], 3);
+		values[0] <<= 1;
+		values[1] <<= 1;
+	}
+
+	uint16_t *dest = &bitmap.pix(y, x);
+	*dest++ = palette[(bmap[0] >> 6) & 0x03];
+	*dest++ = palette[(bmap[0] >> 4) & 0x03];
+	*dest++ = palette[(bmap[0] >> 2) & 0x03];
+	*dest++ = palette[(bmap[0] >> 0) & 0x03];
+	*dest++ = palette[(bmap[1] >> 6) & 0x03];
+	*dest++ = palette[(bmap[1] >> 4) & 0x03];
+	*dest++ = palette[(bmap[1] >> 2) & 0x03];
+	*dest++ = palette[(bmap[1] >> 0) & 0x03];
+}
+#endif
+
+
 ///***************************************************************************
 //  Draw graphics mode with 320x200 pixels (default) with 2 bits/pixel.
 //  Even scanlines are from CGA_base + 0x0000, odd from CGA_base + 0x2000
 //  cga fetches 2 byte per mscrtc6845 access (not modeled here)!
-//***************************************************************************/
-//
-//static void cga_pgfx_2bpp(bitmap_ind16 &bitmap, struct mscrtc6845 *crtc)
-//{
-//  int i, sx, sy, sh;
-//  int offs = mscrtc6845_get_start(crtc)*2;
-//  int lines = mscrtc6845_get_char_lines(crtc);
-//  int height = mscrtc6845_get_char_height(crtc);
-//  int columns = mscrtc6845_get_char_columns(crtc)*2;
-//  int colorset = cga.color_select & 0x3F;
-//  const uint16_t *palette;
-//
-//  /* Most chipsets use bit 2 of the mode control register to
-//   * access a third palette. But not consistently. */
-//  pc_cga_check_palette();
-//  switch(CGA_CHIPSET)
-//  {
-//      /* The IBM Professional Graphics Controller behaves like
-//       * the PC1512, btw. */
-//      case CGA_CHIPSET_PC1512:
-//      if ((colorset < 32) && (cga.mode_control & 4)) colorset += 64;
-//      break;
-//
-//      case CGA_CHIPSET_IBM:
-//      case CGA_CHIPSET_PC200:
-//      case CGA_CHIPSET_ATI:
-//      case CGA_CHIPSET_PARADISE:
-//      if (cga.mode_control & 4) colorset = (colorset & 0x1F) + 64;
-//      break;
-//  }
-//
-//
-//  /* The fact that our palette is located in cga_colortable is a vestigial
-//   * aspect from when we were doing that ugly trick where drawgfx() would
-//   * handle graphics drawing.  Truthfully, we should probably be using
-//   * palette_set_color_rgb() here and not doing the palette lookup in the loop
-//   */
-//  palette = &cga_colortable[256*2 + 16*2] + colorset * 4;
-//
-//  for (sy=0; sy<lines; sy++,offs=(offs+columns)&0x1fff) {
-//
-//      for (sh=0; sh<height; sh++)
-//      {
-//          if (!(sh&1)) { // char line 0 used as a12 line in graphic mode
-//              for (i=offs, sx=0; sx<columns; sx++, i=(i+1)&0x1fff)
-//              {
-//                  pgfx_plot_unit_2bpp(bitmap, sx*8, sy*height+sh, palette, i);
-//              }
-//          }
-//          else
-//          {
-//              for (i=offs|0x2000, sx=0; sx<columns; sx++, i=((i+1)&0x1fff)|0x2000)
-//              {
-//                  pgfx_plot_unit_2bpp(bitmap, sx*8, sy*height+sh, palette, i);
-//              }
-//          }
-//      }
-//  }
-//}
+//****************************************************************************
+
+#if 0
+static void cga_pgfx_2bpp(bitmap_ind16 &bitmap, struct mscrtc6845 *crtc)
+{
+	int offs = mscrtc6845_get_start(crtc) * 2;
+	int const lines = mscrtc6845_get_char_lines(crtc);
+	int const height = mscrtc6845_get_char_height(crtc);
+	int const columns = mscrtc6845_get_char_columns(crtc) * 2;
+
+	/* Most chipsets use bit 2 of the mode control register to access a third palette. But not consistently. */
+	int colorset = cga.color_select & 0x3f;
+	pc_cga_check_palette();
+	switch (CGA_CHIPSET)
+	{
+		/* The IBM Professional Graphics Controller behaves like the PC1512, btw. */
+		case CGA_CHIPSET_PC1512:
+			if ((colorset < 32) && (cga.mode_control & 4)) colorset += 64;
+			break;
+
+		case CGA_CHIPSET_IBM:
+		case CGA_CHIPSET_PC200:
+		case CGA_CHIPSET_ATI:
+		case CGA_CHIPSET_PARADISE:
+			if (cga.mode_control & 4) colorset = (colorset & 0x1f) + 64;
+			break;
+	}
+
+	/* The fact that our palette is located in cga_colortable is a vestigial
+	 * aspect from when we were doing that ugly trick where drawgfx() would
+	 * handle graphics drawing.  Truthfully, we should probably be using
+	 * palette_set_color_rgb() here and not doing the palette lookup in the loop
+	 */
+	uint16_t const *const palette = &cga_colortable[256*2 + 16*2] + colorset * 4;
+
+	for (int sy = 0; sy < lines; sy++, offs = (offs + columns) & 0x1fff)
+	{
+
+		for (int sh = 0; sh < height; sh++)
+		{
+			if (!(sh & 1)) // char line 0 used as a12 line in graphic mode
+			{
+				for (int i = offs, sx = 0; sx < columns; sx++, i = (i + 1) & 0x1fff)
+				{
+					pgfx_plot_unit_2bpp(bitmap, sx * 8, sy * height + sh, palette, i);
+				}
+			}
+			else
+			{
+				for (int i = offs | 0x2000, sx = 0; sx < columns; sx++, i= ((i + 1) & 0x1fff) | 0x2000)
+				{
+					pgfx_plot_unit_2bpp(bitmap, sx * 8, sy * height + sh, palette, i);
+				}
+			}
+		}
+	}
+}
+#endif
 
 
 MC6845_UPDATE_ROW( isa8_cga_pc1512_device::pc1512_gfx_4bpp_update_row )
 {
-	uint8_t *videoram = &m_vram[m_start_offset];
-	uint32_t  *p = &bitmap.pix32(y);
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint16_t  offset_base = ra << 13;
-	int j;
+	uint8_t const *const videoram = &m_vram[m_start_offset];
+	uint32_t *p = &bitmap.pix(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint16_t const offset_base = ra << 13;
 
-	if ( y == 0 ) CGA_LOG(1,"pc1512_gfx_4bpp_update_row",("\n"));
-	for ( j = 0; j < x_count; j++ )
+	if (y == 0) CGA_LOG(1,"pc1512_gfx_4bpp_update_row",("\n"));
+	for (int j = 0; j < x_count; j++)
 	{
-		uint16_t offset = offset_base | ( ( ma + j ) & 0x1FFF );
-		uint16_t i = ( m_color_select & 8 ) ? videoram[ isa8_cga_pc1512_device::vram_offset[3] | offset ] << 3 : 0;
-		uint16_t r = ( m_color_select & 4 ) ? videoram[ isa8_cga_pc1512_device::vram_offset[2] | offset ] << 2 : 0;
-		uint16_t g = ( m_color_select & 2 ) ? videoram[ isa8_cga_pc1512_device::vram_offset[1] | offset ] << 1 : 0;
-		uint16_t b = ( m_color_select & 1 ) ? videoram[ isa8_cga_pc1512_device::vram_offset[0] | offset ]      : 0;
+		uint16_t const offset = offset_base | ((ma + j) & 0x1fff);
+		uint16_t const i = (m_color_select & 8) ? videoram[isa8_cga_pc1512_device::vram_offset[3] | offset] << 3 : 0;
+		uint16_t const r = (m_color_select & 4) ? videoram[isa8_cga_pc1512_device::vram_offset[2] | offset] << 2 : 0;
+		uint16_t const g = (m_color_select & 2) ? videoram[isa8_cga_pc1512_device::vram_offset[1] | offset] << 1 : 0;
+		uint16_t const b = (m_color_select & 1) ? videoram[isa8_cga_pc1512_device::vram_offset[0] | offset]      : 0;
 
-		*p = palette[( ( i & 0x400 ) | ( r & 0x200 ) | ( g & 0x100 ) | ( b & 0x80 ) ) >> 7]; p++;
-		*p = palette[( ( i & 0x200 ) | ( r & 0x100 ) | ( g & 0x080 ) | ( b & 0x40 ) ) >> 6]; p++;
-		*p = palette[( ( i & 0x100 ) | ( r & 0x080 ) | ( g & 0x040 ) | ( b & 0x20 ) ) >> 5]; p++;
-		*p = palette[( ( i & 0x080 ) | ( r & 0x040 ) | ( g & 0x020 ) | ( b & 0x10 ) ) >> 4]; p++;
-		*p = palette[( ( i & 0x040 ) | ( r & 0x020 ) | ( g & 0x010 ) | ( b & 0x08 ) ) >> 3]; p++;
-		*p = palette[( ( i & 0x020 ) | ( r & 0x010 ) | ( g & 0x008 ) | ( b & 0x04 ) ) >> 2]; p++;
-		*p = palette[( ( i & 0x010 ) | ( r & 0x008 ) | ( g & 0x004 ) | ( b & 0x02 ) ) >> 1]; p++;
-		*p = palette[  ( i & 0x008 ) | ( r & 0x004 ) | ( g & 0x002 ) | ( b & 0x01 )       ]; p++;
+		*p++ = palette[((i & 0x400) | (r & 0x200) | (g & 0x100) | (b & 0x80) ) >> 7];
+		*p++ = palette[((i & 0x200) | (r & 0x100) | (g & 0x080) | (b & 0x40) ) >> 6];
+		*p++ = palette[((i & 0x100) | (r & 0x080) | (g & 0x040) | (b & 0x20) ) >> 5];
+		*p++ = palette[((i & 0x080) | (r & 0x040) | (g & 0x020) | (b & 0x10) ) >> 4];
+		*p++ = palette[((i & 0x040) | (r & 0x020) | (g & 0x010) | (b & 0x08) ) >> 3];
+		*p++ = palette[((i & 0x020) | (r & 0x010) | (g & 0x008) | (b & 0x04) ) >> 2];
+		*p++ = palette[((i & 0x010) | (r & 0x008) | (g & 0x004) | (b & 0x02) ) >> 1];
+		*p++ = palette[ (i & 0x008) | (r & 0x004) | (g & 0x002) | (b & 0x01)       ];
 	}
 }
 
 
-WRITE8_MEMBER( isa8_cga_pc1512_device::io_write )
+void isa8_cga_pc1512_device::io_write(offs_t offset, uint8_t data)
 {
-	mc6845_device *mc6845 = subdevice<mc6845_device>(CGA_MC6845_NAME);
-
 	switch (offset)
 	{
 	case 0: case 2: case 4: case 6:
 		data &= 0x1F;
-		mc6845->address_w( space, offset, data );
+		m_crtc->address_w(data);
 		m_mc6845_address = data;
 		break;
 
 	case 1: case 3: case 5: case 7:
 		if ( ! m_mc6845_locked_register[m_mc6845_address] )
 		{
-			mc6845->register_w( space, offset, data );
+			m_crtc->register_w(data);
 			if ( isa8_cga_pc1512_device::mc6845_writeonce_register[m_mc6845_address] )
 			{
 				m_mc6845_locked_register[m_mc6845_address] = 1;
@@ -1206,11 +1193,11 @@ WRITE8_MEMBER( isa8_cga_pc1512_device::io_write )
 		switch( m_mode_control & 0x3F )
 		{
 		case 0x08: case 0x09: case 0x0C: case 0x0D:
-			mc6845->set_hpixels_per_column( 8 );
+			m_crtc->set_hpixels_per_column( 8 );
 			m_update_row_type = CGA_TEXT_INTEN;
 			break;
 		case 0x0A: case 0x0B: case 0x2A: case 0x2B:
-			mc6845->set_hpixels_per_column( 8 );
+			m_crtc->set_hpixels_per_column( 8 );
 			if ( ( CGA_MONITOR ) == CGA_MONITOR_COMPOSITE )
 			{
 				m_update_row_type = CGA_GFX_4BPPL;
@@ -1221,27 +1208,27 @@ WRITE8_MEMBER( isa8_cga_pc1512_device::io_write )
 			}
 			break;
 		case 0x0E: case 0x0F: case 0x2E: case 0x2F:
-			mc6845->set_hpixels_per_column( 8 );
+			m_crtc->set_hpixels_per_column( 8 );
 			m_update_row_type = CGA_GFX_2BPP;
 			break;
 		case 0x18: case 0x19: case 0x1C: case 0x1D:
-			mc6845->set_hpixels_per_column( 8 );
+			m_crtc->set_hpixels_per_column( 8 );
 			m_update_row_type = CGA_TEXT_INTEN_ALT;
 			break;
 		case 0x1A: case 0x1B: case 0x3A: case 0x3B:
-			mc6845->set_hpixels_per_column( 8 );
+			m_crtc->set_hpixels_per_column( 8 );
 			m_update_row_type = PC1512_GFX_4BPP;
 			break;
 		case 0x1E: case 0x1F: case 0x3E: case 0x3F:
-			mc6845->set_hpixels_per_column( 16 );
+			m_crtc->set_hpixels_per_column( 16 );
 			m_update_row_type = CGA_GFX_1BPP;
 			break;
 		case 0x28: case 0x29: case 0x2C: case 0x2D:
-			mc6845->set_hpixels_per_column( 8 );
+			m_crtc->set_hpixels_per_column( 8 );
 			m_update_row_type = CGA_TEXT_BLINK;
 			break;
 		case 0x38: case 0x39: case 0x3C: case 0x3D:
-			mc6845->set_hpixels_per_column( 8 );
+			m_crtc->set_hpixels_per_column( 8 );
 			m_update_row_type = CGA_TEXT_BLINK_ALT;
 			break;
 		default:
@@ -1263,13 +1250,13 @@ WRITE8_MEMBER( isa8_cga_pc1512_device::io_write )
 		break;
 
 	default:
-		isa8_cga_device::io_write(space, offset,data);
+		isa8_cga_device::io_write(offset, data);
 		break;
 	}
 }
 
 
-READ8_MEMBER( isa8_cga_pc1512_device::io_read )
+uint8_t isa8_cga_pc1512_device::io_read(offs_t offset)
 {
 	uint8_t data;
 
@@ -1284,14 +1271,14 @@ READ8_MEMBER( isa8_cga_pc1512_device::io_read )
 		break;
 
 	default:
-		data = isa8_cga_device::io_read(space, offset);
+		data = isa8_cga_device::io_read(offset);
 		break;
 	}
 	return data;
 }
 
 
-WRITE8_MEMBER( isa8_cga_pc1512_device::vram_w )
+void isa8_cga_pc1512_device::vram_w(offs_t offset, uint8_t data)
 {
 	if ( ( m_mode_control & 0x12 ) == 0x12 )
 	{
@@ -1353,13 +1340,13 @@ void isa8_cga_pc1512_device::device_start()
 {
 	isa8_cga_device::device_start();
 
-	m_isa->install_device(0x3d0, 0x3df, read8_delegate( FUNC(isa8_cga_pc1512_device::io_read), this ), write8_delegate( FUNC(isa8_cga_pc1512_device::io_write), this ) );
-	m_isa->install_bank(0xb8000, 0xbbfff, "bank1", &m_vram[0]);
+	m_isa->install_device(0x3d0, 0x3df, read8sm_delegate(*this, FUNC(isa8_cga_pc1512_device::io_read)), write8sm_delegate(*this, FUNC(isa8_cga_pc1512_device::io_write)));
+	m_isa->install_bank(0xb8000, 0xbbfff, &m_vram[0]);
 
 	address_space &space = m_isa->memspace();
 
-	space.install_write_handler( 0xb8000, 0xbbfff, write8_delegate( FUNC(isa8_cga_pc1512_device::vram_w), this ) );
-	space.install_write_handler( 0xbc000, 0xbffff, write8_delegate( FUNC(isa8_cga_pc1512_device::vram_w), this ) );
+	space.install_write_handler(0xb8000, 0xbbfff, write8sm_delegate(*this, FUNC(isa8_cga_pc1512_device::vram_w)));
+	space.install_write_handler(0xbc000, 0xbffff, write8sm_delegate(*this, FUNC(isa8_cga_pc1512_device::vram_w)));
 }
 
 void isa8_cga_pc1512_device::device_reset()
@@ -1394,11 +1381,11 @@ void isa8_wyse700_device::change_resolution(uint8_t mode)
 		case 0x00: width = 640; height = 400; break; // unhandled
 	}
 	rectangle visarea(0, width-1, 0, height-1);
-	subdevice<screen_device>(CGA_SCREEN_NAME)->configure(width, height, visarea, HZ_TO_ATTOSECONDS(60));
+	m_screen->configure(width, height, visarea, HZ_TO_ATTOSECONDS(60));
 
 }
 
-WRITE8_MEMBER( isa8_wyse700_device::io_write )
+void isa8_wyse700_device::io_write(offs_t offset, uint8_t data)
 {
 	switch (offset)
 	{
@@ -1415,13 +1402,13 @@ WRITE8_MEMBER( isa8_wyse700_device::io_write )
 		m_control = data;
 		break;
 	default:
-		isa8_cga_device::io_write(space, offset,data);
+		isa8_cga_device::io_write(offset, data);
 		break;
 	}
 }
 
 
-READ8_MEMBER( isa8_wyse700_device::io_read )
+uint8_t isa8_wyse700_device::io_read(offs_t offset)
 {
 	uint8_t data;
 
@@ -1439,7 +1426,7 @@ READ8_MEMBER( isa8_wyse700_device::io_read )
 		data = m_control;
 		break;
 	default:
-		data = isa8_cga_device::io_read(space, offset);
+		data = isa8_cga_device::io_read(offset);
 		break;
 	}
 	return data;
@@ -1492,9 +1479,9 @@ void isa8_wyse700_device::device_start()
 {
 	isa8_cga_device::device_start();
 
-	m_isa->install_device(0x3d0, 0x3df, read8_delegate( FUNC(isa8_wyse700_device::io_read), this ), write8_delegate( FUNC(isa8_wyse700_device::io_write), this ) );
-	m_isa->install_bank(0xa0000, 0xaffff, "bank_wy1", &m_vram[0x00000]);
-	m_isa->install_bank(0xb0000, 0xbffff, "bank_cga", &m_vram[0x10000]);
+	m_isa->install_device(0x3d0, 0x3df, read8sm_delegate(*this, FUNC(isa8_wyse700_device::io_read)), write8sm_delegate(*this, FUNC(isa8_wyse700_device::io_write)));
+	m_isa->install_bank(0xa0000, 0xaffff, &m_vram[0x00000]);
+	m_isa->install_bank(0xb0000, 0xbffff, &m_vram[0x10000]);
 }
 
 void isa8_wyse700_device::device_reset()
@@ -1507,31 +1494,38 @@ void isa8_wyse700_device::device_reset()
 
 uint32_t isa8_wyse700_device::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
-	if (m_control & 0x08) {
-		const rgb_t *palette = m_palette->palette()->entry_list_raw();
-		uint8_t fg = m_color_select & 0x0F;
+	if (m_control & 0x08)
+	{
+		rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+		uint8_t const fg = m_color_select & 0x0F;
 		uint32_t addr = 0;
-		for (int y = 0; y < 800; y++) {
-			uint8_t *src = &m_vram[addr];
+		for (int y = 0; y < 800; y++)
+		{
+			uint8_t const *src = &m_vram[addr];
 
-			if (y & 1) {
+			if (y & 1)
+			{
 				src += 0x10000;
 				addr += 160;
 			}
 
-			for (int x = 0; x < (1280 / 8); x++) {
+			for (int x = 0; x < (1280 / 8); x++)
+			{
 				uint8_t val = src[x];
 
-				for (int i = 0; i < 8; i++) {
-					bitmap.pix32(y,x*8+i) = (val & 0x80) ? palette[fg] : palette[0x00];
+				for (int i = 0; i < 8; i++)
+				{
+					bitmap.pix(y, x * 8 + i) = (val & 0x80) ? palette[fg] : palette[0x00];
 					val <<= 1;
 				}
 			}
 		}
-	} else {
+		return 0;
+	}
+	else
+	{
 		return isa8_cga_device::screen_update(screen, bitmap, cliprect);
 	}
-	return 0;
 }
 
 
@@ -1554,7 +1548,7 @@ void isa8_ec1841_0002_device::device_start()
 {
 	isa8_cga_device::device_start();
 
-	m_isa->install_device(0x3d0, 0x3df, read8_delegate( FUNC(isa8_ec1841_0002_device::io_read), this ), write8_delegate( FUNC(isa8_ec1841_0002_device::io_write), this ) );
+	m_isa->install_device(0x3d0, 0x3df, read8sm_delegate(*this, FUNC(isa8_ec1841_0002_device::io_read)), write8sm_delegate(*this, FUNC(isa8_ec1841_0002_device::io_write)));
 }
 
 void isa8_ec1841_0002_device::device_reset()
@@ -1563,7 +1557,7 @@ void isa8_ec1841_0002_device::device_reset()
 	m_p3df = 0;
 }
 
-WRITE8_MEMBER( isa8_ec1841_0002_device::char_ram_write )
+void isa8_ec1841_0002_device::char_ram_write(offs_t offset, uint8_t data)
 {
 	offset ^= BIT(offset, 12);
 //  logerror("write char ram %04x %02x\n",offset,data);
@@ -1573,13 +1567,13 @@ WRITE8_MEMBER( isa8_ec1841_0002_device::char_ram_write )
 	m_chr_gen_base[offset + 0x1800] = data;
 }
 
-READ8_MEMBER( isa8_ec1841_0002_device::char_ram_read )
+uint8_t isa8_ec1841_0002_device::char_ram_read(offs_t offset)
 {
 	offset ^= BIT(offset, 12);
 	return m_chr_gen_base[offset];
 }
 
-WRITE8_MEMBER( isa8_ec1841_0002_device::io_write )
+void isa8_ec1841_0002_device::io_write(offs_t offset, uint8_t data)
 {
 	switch (offset)
 	{
@@ -1587,25 +1581,25 @@ WRITE8_MEMBER( isa8_ec1841_0002_device::io_write )
 		m_p3df = data;
 		if (data & 1) {
 			m_isa->install_memory(0xb8000, 0xb9fff,
-									read8_delegate( FUNC(isa8_ec1841_0002_device::char_ram_read), this),
-									write8_delegate(FUNC(isa8_ec1841_0002_device::char_ram_write), this) );
+					read8sm_delegate( *this, FUNC(isa8_ec1841_0002_device::char_ram_read)),
+					write8sm_delegate(*this, FUNC(isa8_ec1841_0002_device::char_ram_write)));
 			if(m_vram_size == 0x4000)
 				m_isa->install_memory(0xbc000, 0xbdfff,
-										read8_delegate( FUNC(isa8_ec1841_0002_device::char_ram_read), this),
-										write8_delegate(FUNC(isa8_ec1841_0002_device::char_ram_write), this) );
+						read8sm_delegate( *this, FUNC(isa8_ec1841_0002_device::char_ram_read)),
+						write8sm_delegate(*this, FUNC(isa8_ec1841_0002_device::char_ram_write)));
 		} else {
-			m_isa->install_bank(0xb8000, 0xb8000 + (std::min<size_t>)(0x8000, m_vram_size) - 1, "bank_cga", &m_vram[0]);
+			m_isa->install_bank(0xb8000, 0xb8000 + (std::min<size_t>)(0x8000, m_vram_size) - 1, &m_vram[0]);
 			if(m_vram_size == 0x4000)
-				m_isa->install_bank(0xbc000, 0xbffff, "bank_cga", &m_vram[0]);
+				m_isa->install_bank(0xbc000, 0xbffff, &m_vram[0]);
 		}
 		break;
 	default:
-		isa8_cga_device::io_write(space, offset, data);
+		isa8_cga_device::io_write(offset, data);
 		break;
 	}
 }
 
-READ8_MEMBER( isa8_ec1841_0002_device::io_read )
+uint8_t isa8_ec1841_0002_device::io_read(offs_t offset)
 {
 	uint8_t data;
 
@@ -1615,13 +1609,37 @@ READ8_MEMBER( isa8_ec1841_0002_device::io_read )
 		data = m_p3df;
 		break;
 	default:
-		data = isa8_cga_device::io_read(space, offset);
+		data = isa8_cga_device::io_read(offset);
 		break;
 	}
 	return data;
 }
 
 DEFINE_DEVICE_TYPE(ISA8_CGA_MC1502, isa8_cga_mc1502_device, "cga_mc1502", "MC1502 CGA")
+
+void isa8_cga_mc1502_device::device_add_mconfig(machine_config &config)
+{
+	screen_device &screen(SCREEN(config, CGA_SCREEN_NAME, SCREEN_TYPE_RASTER));
+	screen.set_raw(XTAL(16'000'000), 912, 0, 640, 462, 0, 400);
+	screen.set_screen_update(FUNC(isa8_cga_mc1502_device::screen_update));
+
+	PALETTE(config, m_palette).set_entries(/* CGA_PALETTE_SETS * 16*/ 65536);
+
+	MC6845(config, m_crtc, XTAL(16'000'000)/16); // soviet clone
+	m_crtc->set_screen(nullptr);
+	m_crtc->set_show_border_area(false);
+	m_crtc->set_char_width(8);
+	m_crtc->set_update_row_callback(FUNC(isa8_cga_mc1502_device::crtc_update_row));
+	m_crtc->out_hsync_callback().set(FUNC(isa8_cga_mc1502_device::hsync_changed));
+	m_crtc->out_vsync_callback().set(FUNC(isa8_cga_mc1502_device::vsync_changed));
+	m_crtc->set_reconfigure_callback(FUNC(isa8_cga_mc1502_device::reconfigure));
+}
+
+MC6845_RECONFIGURE( isa8_cga_mc1502_device::reconfigure )
+{
+	// this has a different horiz freq
+	m_screen->configure(width, height, visarea, frame_period);
+}
 
 //-------------------------------------------------
 //  isa8_cga_mc1502_device - constructor
@@ -1701,14 +1719,23 @@ const tiny_rom_entry *isa8_cga_mc1502_device::device_rom_region() const
 
 DEFINE_DEVICE_TYPE(ISA8_CGA_M24, isa8_cga_m24_device, "cga_m24", "Olivetti M24 CGA")
 
-MACHINE_CONFIG_START(isa8_cga_m24_device::device_add_mconfig)
-	isa8_cga_device::device_add_mconfig(config);
+void isa8_cga_m24_device::device_add_mconfig(machine_config &config)
+{
+	screen_device &screen(SCREEN(config, CGA_SCREEN_NAME, SCREEN_TYPE_RASTER));
+	screen.set_raw(XTAL(14'318'181), 912, 0, 640, 462, 0, 400);
+	screen.set_screen_update(FUNC(isa8_cga_m24_device::screen_update));
 
-	MCFG_DEVICE_MODIFY(CGA_SCREEN_NAME)
-	MCFG_SCREEN_RAW_PARAMS(XTAL(14'318'181),912,0,640,462,0,400)
-	MCFG_DEVICE_MODIFY(CGA_MC6845_NAME)
-	MCFG_MC6845_RECONFIGURE_CB(isa8_cga_m24_device, reconfigure)
-MACHINE_CONFIG_END
+	PALETTE(config, m_palette).set_entries(/* CGA_PALETTE_SETS * 16*/ 65536);
+
+	HD6845S(config, m_crtc, XTAL(14'318'181)/16);
+	m_crtc->set_screen(nullptr);
+	m_crtc->set_show_border_area(false);
+	m_crtc->set_char_width(8);
+	m_crtc->set_update_row_callback(FUNC(isa8_cga_m24_device::crtc_update_row));
+	m_crtc->out_hsync_callback().set(FUNC(isa8_cga_m24_device::hsync_changed));
+	m_crtc->out_vsync_callback().set(FUNC(isa8_cga_m24_device::vsync_changed));
+	m_crtc->set_reconfigure_callback(FUNC(isa8_cga_m24_device::reconfigure));
+}
 
 isa8_cga_m24_device::isa8_cga_m24_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	isa8_cga_m24_device(mconfig, ISA8_CGA_M24, tag, owner, clock)
@@ -1749,14 +1776,13 @@ MC6845_RECONFIGURE( isa8_cga_m24_device::reconfigure )
 	m_screen->configure(width, height, visarea, frame_period);
 }
 
-WRITE8_MEMBER( isa8_cga_m24_device::io_write )
+void isa8_cga_m24_device::io_write(offs_t offset, uint8_t data)
 {
-	mc6845_device *mc6845 = subdevice<mc6845_device>(CGA_MC6845_NAME);
 	switch(offset)
 	{
 		case 0: case 2: case 4: case 6:
 			m_index = data;
-			mc6845->address_w( space, offset, data );
+			m_crtc->address_w(data);
 			break;
 		case 1: case 3: case 5: case 7:
 			switch(m_index & 0x1f) // TODO: this is handled by a pal and prom
@@ -1775,7 +1801,7 @@ WRITE8_MEMBER( isa8_cga_m24_device::io_write )
 					data <<= 1;
 					break;
 			}
-			mc6845->register_w( space, offset, data );
+			m_crtc->register_w(data);
 			break;
 		case 0x0e:
 			m_mode2 = data;
@@ -1785,12 +1811,12 @@ WRITE8_MEMBER( isa8_cga_m24_device::io_write )
 				m_start_offset = 0;
 			break;
 		default:
-			isa8_cga_device::io_write(space, offset, data);
+			isa8_cga_device::io_write(offset, data);
 			break;
 	}
 }
 
-READ8_MEMBER( isa8_cga_m24_device::io_read )
+uint8_t isa8_cga_m24_device::io_read(offs_t offset)
 {
 	uint8_t data = 0xff;
 
@@ -1803,7 +1829,7 @@ READ8_MEMBER( isa8_cga_m24_device::io_read )
 			data = m_mode2;
 			break;
 		default:
-			data = isa8_cga_device::io_read(space, offset);
+			data = isa8_cga_device::io_read(offset);
 			break;
 	}
 	return data;
@@ -1812,7 +1838,7 @@ READ8_MEMBER( isa8_cga_m24_device::io_read )
 
 MC6845_UPDATE_ROW(isa8_cga_m24_device::crtc_update_row)
 {
-	if(m_mode2 & 1)
+	if (m_mode2 & 1)
 	{
 		m24_gfx_1bpp_m24_update_row(bitmap, cliprect, ma, ra, y, x_count, cursor_x, de, hbp, vbp);
 		return;
@@ -1822,7 +1848,7 @@ MC6845_UPDATE_ROW(isa8_cga_m24_device::crtc_update_row)
 		return;
 
 	y = m_y;
-	if(m_y >= bitmap.height())
+	if (m_y >= bitmap.height())
 		return;
 
 	switch (m_update_row_type)
@@ -1860,48 +1886,49 @@ MC6845_UPDATE_ROW(isa8_cga_m24_device::crtc_update_row)
 
 MC6845_UPDATE_ROW( isa8_cga_m24_device::m24_gfx_1bpp_m24_update_row )
 {
-	uint8_t *videoram = &m_vram[m_start_offset];
-	uint32_t  *p = &bitmap.pix32(y);
-	const rgb_t *palette = m_palette->palette()->entry_list_raw();
-	uint8_t   fg = m_color_select & 0x0F;
-	int i;
+	uint8_t const *const videoram = &m_vram[m_start_offset];
+	uint32_t *p = &bitmap.pix(y);
+	rgb_t const *const palette = m_palette->palette()->entry_list_raw();
+	uint8_t const fg = m_color_select & 0x0f;
 
-	if ( y == 0 ) CGA_LOG(1,"m24_gfx_1bpp_m24_update_row",("\n"));
-	for ( i = 0; i < x_count; i++ )
+	if (y == 0) CGA_LOG(1,"m24_gfx_1bpp_m24_update_row",("\n"));
+	for (int i = 0; i < x_count; i++)
 	{
-		uint16_t offset = ( ( ( ma + i ) << 1 ) & 0x1fff ) | ( ( ra & 3 ) << 13 );
-		uint8_t data = videoram[ offset ];
+		uint16_t const offset = (((ma + i) << 1 ) & 0x1fff) | ((ra & 3) << 13);
+		uint8_t data;
 
-		*p = palette[( data & 0x80 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x40 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x20 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x10 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x08 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x04 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x02 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x01 ) ? fg : 0]; p++;
+		data = videoram[offset];
 
-		data = videoram[ offset + 1 ];
+		*p++ = palette[(data & 0x80) ? fg : 0];
+		*p++ = palette[(data & 0x40) ? fg : 0];
+		*p++ = palette[(data & 0x20) ? fg : 0];
+		*p++ = palette[(data & 0x10) ? fg : 0];
+		*p++ = palette[(data & 0x08) ? fg : 0];
+		*p++ = palette[(data & 0x04) ? fg : 0];
+		*p++ = palette[(data & 0x02) ? fg : 0];
+		*p++ = palette[(data & 0x01) ? fg : 0];
 
-		*p = palette[( data & 0x80 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x40 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x20 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x10 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x08 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x04 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x02 ) ? fg : 0]; p++;
-		*p = palette[( data & 0x01 ) ? fg : 0]; p++;
+		data = videoram[offset + 1];
+
+		*p++ = palette[(data & 0x80) ? fg : 0];
+		*p++ = palette[(data & 0x40) ? fg : 0];
+		*p++ = palette[(data & 0x20) ? fg : 0];
+		*p++ = palette[(data & 0x10) ? fg : 0];
+		*p++ = palette[(data & 0x08) ? fg : 0];
+		*p++ = palette[(data & 0x04) ? fg : 0];
+		*p++ = palette[(data & 0x02) ? fg : 0];
+		*p++ = palette[(data & 0x01) ? fg : 0];
 	}
 }
 
 DEFINE_DEVICE_TYPE(ISA8_CGA_CPORTIII, isa8_cga_cportiii_device, "cga_cportiii", "Compaq Portable III CGA")
 
-MACHINE_CONFIG_START(isa8_cga_cportiii_device::device_add_mconfig)
+void isa8_cga_cportiii_device::device_add_mconfig(machine_config &config)
+{
 	isa8_cga_m24_device::device_add_mconfig(config);
 
-	MCFG_DEVICE_MODIFY(CGA_SCREEN_NAME)
-	MCFG_SCREEN_COLOR(rgb_t(255, 125, 0))
-MACHINE_CONFIG_END
+	subdevice<screen_device>(CGA_SCREEN_NAME)->set_color(rgb_t(255, 125, 0));
+}
 
 isa8_cga_cportiii_device::isa8_cga_cportiii_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	isa8_cga_m24_device(mconfig, ISA8_CGA_CPORTIII, tag, owner, clock)
@@ -1921,43 +1948,43 @@ const tiny_rom_entry *isa8_cga_cportiii_device::device_rom_region() const
 void isa8_cga_cportiii_device::device_reset()
 {
 	isa8_cga_m24_device::device_reset();
-	m_isa->install_device(0x13c6, 0x13c7, read8_delegate(FUNC(isa8_cga_cportiii_device::port_13c6_r), this), write8_delegate(FUNC(isa8_cga_cportiii_device::port_13c6_w), this));
-	m_isa->install_device(0x23c6, 0x23c7, read8_delegate(FUNC(isa8_cga_cportiii_device::port_23c6_r), this), write8_delegate(FUNC(isa8_cga_cportiii_device::port_23c6_w), this));
+	m_isa->install_device(0x13c6, 0x13c7, read8smo_delegate(*this, FUNC(isa8_cga_cportiii_device::port_13c6_r)), write8smo_delegate(*this, FUNC(isa8_cga_cportiii_device::port_13c6_w)));
+	m_isa->install_device(0x23c6, 0x23c7, read8smo_delegate(*this, FUNC(isa8_cga_cportiii_device::port_23c6_r)), write8smo_delegate(*this, FUNC(isa8_cga_cportiii_device::port_23c6_w)));
 	m_palette->set_pen_color(0, 100, 25, 0);
 	m_chr_gen_offset[0] = m_chr_gen_offset[2] = 0x0000;
 	m_chr_gen_offset[1] = m_chr_gen_offset[3] = 0x1000;
 }
 
-WRITE8_MEMBER(isa8_cga_cportiii_device::char_ram_write)
+void isa8_cga_cportiii_device::char_ram_write(offs_t offset, uint8_t data)
 {
 	m_chr_gen_base[offset] = data;
 }
 
-READ8_MEMBER(isa8_cga_cportiii_device::char_ram_read)
+uint8_t isa8_cga_cportiii_device::char_ram_read(offs_t offset)
 {
 	return m_chr_gen_base[offset];
 }
 
-READ8_MEMBER(isa8_cga_cportiii_device::port_13c6_r)
+uint8_t isa8_cga_cportiii_device::port_13c6_r()
 {
 	return 0x04;
 }
 
-WRITE8_MEMBER(isa8_cga_cportiii_device::port_13c6_w)
+void isa8_cga_cportiii_device::port_13c6_w(uint8_t data)
 {
 }
 
-READ8_MEMBER(isa8_cga_cportiii_device::port_23c6_r)
+uint8_t isa8_cga_cportiii_device::port_23c6_r()
 {
 	return 0;
 }
 
-WRITE8_MEMBER(isa8_cga_cportiii_device::port_23c6_w)
+void isa8_cga_cportiii_device::port_23c6_w(uint8_t data)
 {
 	m_mode2 = data & 1;
 	if(BIT(data, 3))
-		m_isa->install_memory(0xb8000, 0xb9fff, read8_delegate(FUNC(isa8_cga_cportiii_device::char_ram_read), this), write8_delegate(FUNC(isa8_cga_cportiii_device::char_ram_write), this));
+		m_isa->install_memory(0xb8000, 0xb9fff, read8sm_delegate(*this, FUNC(isa8_cga_cportiii_device::char_ram_read)), write8sm_delegate(*this, FUNC(isa8_cga_cportiii_device::char_ram_write)));
 	else
-		m_isa->install_bank(0xb8000, 0xb8000 + 0x8000 - 1, "bank_cga", &m_vram[0]);
+		m_isa->install_bank(0xb8000, 0xb8000 + 0x8000 - 1, &m_vram[0]);
 }
 

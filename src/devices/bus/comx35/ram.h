@@ -34,12 +34,12 @@ protected:
 	virtual void device_reset() override;
 
 	// device_comx_expansion_card_interface overrides
-	virtual uint8_t comx_mrd_r(address_space &space, offs_t offset, int *extrom) override;
-	virtual void comx_mwr_w(address_space &space, offs_t offset, uint8_t data) override;
-	virtual void comx_io_w(address_space &space, offs_t offset, uint8_t data) override;
+	virtual uint8_t comx_mrd_r(offs_t offset, int *extrom) override;
+	virtual void comx_mwr_w(offs_t offset, uint8_t data) override;
+	virtual void comx_io_w(offs_t offset, uint8_t data) override;
 
 private:
-	optional_shared_ptr<uint8_t> m_ram;
+	memory_share_creator<uint8_t> m_ram;
 
 	int m_bank;
 };

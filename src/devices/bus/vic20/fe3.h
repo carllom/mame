@@ -39,8 +39,8 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override;
 
 	// device_vic20_expansion_card_interface overrides
-	virtual uint8_t vic20_cd_r(address_space &space, offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3) override;
-	virtual void vic20_cd_w(address_space &space, offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3) override;
+	virtual uint8_t vic20_cd_r(offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3) override;
+	virtual void vic20_cd_w(offs_t offset, uint8_t data, int ram1, int ram2, int ram3, int blk1, int blk2, int blk3, int blk5, int io2, int io3) override;
 
 private:
 	enum
@@ -77,7 +77,7 @@ private:
 	void write_register(offs_t offset, uint8_t data);
 
 	required_device<amd_29f040_device> m_flash_rom;
-	optional_shared_ptr<uint8_t> m_ram;
+	memory_share_creator<uint8_t> m_ram;
 
 	uint8_t m_reg1;
 	uint8_t m_reg2;

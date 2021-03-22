@@ -1,5 +1,5 @@
 // license:BSD-3-Clause
-// copyright-holders:R. Belmont, Wilbert Pol
+// copyright-holders:R. Belmont, Wilbert Pol, Nigel Barnes
 /***************************************************************************
 
     Acorn Communicator
@@ -7,8 +7,19 @@
     Driver-in-progress by R. Belmont
     Electron ULA emulation by Wilbert Pol
 
-    Main CPU: 65C816
-    Other chips: 6850 UART, 6522 VIA, SAA5240(video?), AM7910 modem, PCF0335(?), PCF8573P
+    Main CPU:
+      65C816
+
+    Other chips:
+      6850 UART
+      6522 VIA
+      SAA5240 (Teletext)
+      MC68B54 (Econet)
+      AM7910  (Modem)
+      PCD3312 (Tone Generator)
+      PCF0335 (Pulse Dialler?)
+      PCF8573 (RTC)
+      SCN2641 (RS423)
 
 ****************************************************************************/
 
@@ -17,14 +28,20 @@
 #include "machine/6522via.h"
 #include "machine/6850acia.h"
 #include "machine/clock.h"
+#include "machine/input_merger.h"
 #include "machine/mc6854.h"
 #include "machine/ram.h"
 #include "machine/nvram.h"
+#include "machine/pcf8573.h"
+#include "machine/scn_pci.h"
 #include "machine/bankdev.h"
 #include "sound/beep.h"
+#include "sound/pcd3311.h"
+#include "video/saa5240.h"
 #include "bus/econet/econet.h"
 #include "bus/centronics/ctronics.h"
 #include "bus/rs232/rs232.h"
+#include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
 
@@ -45,60 +62,86 @@ public:
 	accomm_state(const machine_config &mconfig, device_type type, const char *tag) :
 		driver_device(mconfig, type, tag),
 		m_maincpu(*this, "maincpu"),
+		m_maincpu_region(*this, "maincpu"),
+		m_irqs(*this, "irqs"),
+		m_screen(*this, "screen"),
+		m_cct(*this, "saa5240"),
 		m_beeper(*this, "beeper"),
+		m_dtmf(*this, "dtmf"),
 		m_ram(*this, RAM_TAG),
+		m_rtc(*this, "rtc"),
 		m_via(*this, "via6522"),
 		m_acia(*this, "acia"),
 		m_acia_clock(*this, "acia_clock"),
+		m_scn2641(*this, "aci"),
 		m_adlc(*this, "mc6854"),
 		m_vram(*this, "vram"),
 		m_keybd1(*this, "LINE1.%u", 0),
 		m_keybd2(*this, "LINE2.%u", 0),
+		m_shiftlock_led(*this, "shiftlock_led"),
+		m_capslock_led(*this, "capslock_led"),
 		m_ch00rom_enabled(true)
 	{ }
 
 	void accomm(machine_config &config);
+	void accommi(machine_config &config);
+
+	DECLARE_INPUT_CHANGED_MEMBER(trigger_reset);
 
 protected:
-	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
-
-	DECLARE_WRITE8_MEMBER(ch00switch_w);
-	DECLARE_READ8_MEMBER(read_keyboard1);
-	DECLARE_READ8_MEMBER(read_keyboard2);
-	DECLARE_READ8_MEMBER(ram_r);
-	DECLARE_WRITE8_MEMBER(ram_w);
-	DECLARE_READ8_MEMBER(sheila_r);
-	DECLARE_WRITE8_MEMBER(sheila_w);
-	DECLARE_WRITE_LINE_MEMBER(write_acia_clock);
-	DECLARE_WRITE_LINE_MEMBER(econet_clk_w);
-
-	DECLARE_PALETTE_INIT(accomm);
-	INTERRUPT_GEN_MEMBER(vbl_int);
-
+	// driver_device overrides
 	virtual void machine_reset() override;
 	virtual void machine_start() override;
+	virtual void video_start() override;
+
+	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
+
+private:
+	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+
+	void ch00switch_w(offs_t offset, uint8_t data);
+	uint8_t read_keyboard1(offs_t offset);
+	uint8_t read_keyboard2(offs_t offset);
+	uint8_t ram_r(offs_t offset);
+	void ram_w(offs_t offset, uint8_t data);
+	uint8_t sheila_r(offs_t offset);
+	void sheila_w(offs_t offset, uint8_t data);
+
+	void accomm_palette(palette_device &palette) const;
+
 	void main_map(address_map &map);
+	void saa5240_map(address_map &map);
 
 	// devices
 	required_device<g65816_device> m_maincpu;
+	required_memory_region m_maincpu_region;
+	required_device<input_merger_device> m_irqs;
+	required_device<screen_device> m_screen;
+	required_device<saa5240_device> m_cct;
 	required_device<beep_device> m_beeper;
+	required_device<pcd3311_device> m_dtmf;
 	required_device<ram_device> m_ram;
+	required_device<pcf8573_device> m_rtc;
 	required_device<via6522_device> m_via;
 	required_device<acia6850_device> m_acia;
 	required_device<clock_device> m_acia_clock;
+	required_device<scn2641_device> m_scn2641;
 	required_device<mc6854_device> m_adlc;
 	required_shared_ptr<uint8_t> m_vram;
 	required_ioport_array<14> m_keybd1, m_keybd2;
-
-	// driver_device overrides
-	virtual void video_start() override;
+	output_finder<> m_shiftlock_led;
+	output_finder<> m_capslock_led;
 
 	void interrupt_handler(int mode, int interrupt);
 	inline uint8_t read_vram( uint16_t addr );
 	inline void plot_pixel(bitmap_ind16 &bitmap, int x, int y, uint32_t color);
 
-private:
 	bool m_ch00rom_enabled;
+
+	enum
+	{
+		TIMER_SCANLINE_INTERRUPT
+	};
 
 	/* ULA context */
 
@@ -109,15 +152,14 @@ private:
 		uint8_t rompage;
 		uint16_t screen_start;
 		uint16_t screen_base;
-		int screen_size;
+		uint16_t screen_size;
 		uint16_t screen_addr;
-		uint8_t *vram;
+		int screen_dispend;
 		int current_pal[16];
 		int communication_mode;
 		int screen_mode;
 		int shiftlock_mode;
 		int capslock_mode;
-		//  int scanline;
 		/* tape reading related */
 		uint32_t tape_value;
 		int tape_steps;
@@ -129,30 +171,21 @@ private:
 		uint8_t tape_byte;
 	};
 
-
 	ULA m_ula;
 	int m_map4[256];
 	int m_map16[256];
+	emu_timer *m_scanline_timer;
 };
 
-static const rgb_t electron_palette[8]=
+void accomm_state::accomm_palette(palette_device &palette) const
 {
-	rgb_t(0x0ff,0x0ff,0x0ff),
-	rgb_t(0x000,0x0ff,0x0ff),
-	rgb_t(0x0ff,0x000,0x0ff),
-	rgb_t(0x000,0x000,0x0ff),
-	rgb_t(0x0ff,0x0ff,0x000),
-	rgb_t(0x000,0x0ff,0x000),
-	rgb_t(0x0ff,0x000,0x000),
-	rgb_t(0x000,0x000,0x000)
-};
-
-PALETTE_INIT_MEMBER(accomm_state, accomm)
-{
-	palette.set_pen_colors(0, electron_palette, ARRAY_LENGTH(electron_palette));
+	for (int i = 0; i < palette.entries(); i++)
+	{
+		palette.set_pen_color(i ^ 7, rgb_t(pal1bit(i >> 0), pal1bit(i >> 1), pal1bit(i >> 2)));
+	}
 }
 
-READ8_MEMBER(accomm_state::read_keyboard1)
+uint8_t accomm_state::read_keyboard1(offs_t offset)
 {
 	uint8_t data = 0;
 
@@ -166,7 +199,7 @@ READ8_MEMBER(accomm_state::read_keyboard1)
 	return data;
 }
 
-READ8_MEMBER(accomm_state::read_keyboard2)
+uint8_t accomm_state::read_keyboard2(offs_t offset)
 {
 	uint8_t data = 0;
 
@@ -180,11 +213,6 @@ READ8_MEMBER(accomm_state::read_keyboard2)
 	return data;
 }
 
-INTERRUPT_GEN_MEMBER(accomm_state::vbl_int)
-{
-	interrupt_handler( INT_SET, INT_DISPLAY_END );
-}
-
 void accomm_state::machine_reset()
 {
 	m_ula.communication_mode = 0x04;
@@ -194,19 +222,36 @@ void accomm_state::machine_reset()
 	m_ula.screen_start = 0x3000;
 	m_ula.screen_base = 0x3000;
 	m_ula.screen_size = 0x8000 - 0x3000;
-	m_ula.screen_addr = 0;
+	m_ula.screen_addr = 0x3000;
 	m_ula.tape_running = 0;
 	m_ula.interrupt_status = 0x82;
 	m_ula.interrupt_control = 0;
-	m_ula.vram = (uint8_t *)m_vram.target() + m_ula.screen_base;
 
 	m_ch00rom_enabled = true;
 }
 
 void accomm_state::machine_start()
 {
+	m_shiftlock_led.resolve();
+	m_capslock_led.resolve();
+
 	m_ula.interrupt_status = 0x82;
 	m_ula.interrupt_control = 0x00;
+
+	save_item(STRUCT_MEMBER(m_ula, interrupt_status));
+	save_item(STRUCT_MEMBER(m_ula, interrupt_control));
+	save_item(STRUCT_MEMBER(m_ula, rompage));
+	save_item(STRUCT_MEMBER(m_ula, screen_start));
+	save_item(STRUCT_MEMBER(m_ula, screen_base));
+	save_item(STRUCT_MEMBER(m_ula, screen_size));
+	save_item(STRUCT_MEMBER(m_ula, screen_addr));
+	save_item(STRUCT_MEMBER(m_ula, screen_dispend));
+	save_item(STRUCT_MEMBER(m_ula, current_pal));
+	save_item(STRUCT_MEMBER(m_ula, communication_mode));
+	save_item(STRUCT_MEMBER(m_ula, screen_mode));
+	save_item(STRUCT_MEMBER(m_ula, shiftlock_mode));
+	save_item(STRUCT_MEMBER(m_ula, capslock_mode));
+	save_item(NAME(m_ch00rom_enabled));
 }
 
 void accomm_state::video_start()
@@ -216,39 +261,38 @@ void accomm_state::video_start()
 		m_map4[i] = ( ( i & 0x10 ) >> 3 ) | ( i & 0x01 );
 		m_map16[i] = ( ( i & 0x40 ) >> 3 ) | ( ( i & 0x10 ) >> 2 ) | ( ( i & 0x04 ) >> 1 ) | ( i & 0x01 );
 	}
+	m_scanline_timer = timer_alloc(TIMER_SCANLINE_INTERRUPT);
+	m_scanline_timer->adjust( m_screen->time_until_pos(0), 0, m_screen->scan_period() );
 }
 
-WRITE8_MEMBER(accomm_state::ch00switch_w)
+void accomm_state::ch00switch_w(offs_t offset, uint8_t data)
 {
+	logerror("ch00switch_w: offset %04x, data %02x\n", offset, data);
 	if (!machine().side_effects_disabled())
 		m_ch00rom_enabled = false;
 }
 
 inline uint8_t accomm_state::read_vram(uint16_t addr)
 {
-	return m_ula.vram[ addr % m_ula.screen_size ];
+	if ( addr & 0x8000 ) addr -= m_ula.screen_size;
+	return m_vram[ addr ];
 }
 
 inline void accomm_state::plot_pixel(bitmap_ind16 &bitmap, int x, int y, uint32_t color)
 {
-	bitmap.pix16(y, x) = (uint16_t)color;
+	bitmap.pix(y, x) = (uint16_t)color;
 }
 
 uint32_t accomm_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	int i;
 	int x = 0;
-	int pal[16];
 	int scanline = screen.vpos();
 	rectangle r = cliprect;
-	r.min_y = r.max_y = scanline;
-
-	if (scanline == 0)
-	{
-		m_ula.screen_addr = m_ula.screen_start - m_ula.screen_base;
-	}
+	r.sety(scanline, scanline);
 
 	/* set up palette */
+	int pal[16];
 	switch( m_ula.screen_mode )
 	{
 	case 0: case 3: case 4: case 6: case 7: /* 2 colour mode */
@@ -430,18 +474,42 @@ uint32_t accomm_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap
 		}
 		break;
 	}
+	if ( m_ula.screen_addr & 0x8000 )
+		m_ula.screen_addr -= m_ula.screen_size;
 
 	return 0;
 }
 
 
-READ8_MEMBER(accomm_state::ram_r)
+void accomm_state::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+{
+	if (id == TIMER_SCANLINE_INTERRUPT)
+	{
+		switch (m_screen->vpos())
+		{
+		case 99:
+			interrupt_handler( INT_SET, INT_RTC );
+			break;
+		case 249:
+		case 255:
+			if ( m_screen->vpos() == m_ula.screen_dispend )
+				interrupt_handler( INT_SET, INT_DISPLAY_END );
+			break;
+		case 311:
+			m_ula.screen_addr = m_ula.screen_start;
+			break;
+		}
+	}
+}
+
+
+uint8_t accomm_state::ram_r(offs_t offset)
 {
 	uint8_t data = 0xff;
 
 	if (m_ch00rom_enabled && (offset < 0x10000))
 	{
-		data = memregion("maincpu")->base()[0x30000 + offset];
+		data = m_maincpu_region->base()[offset];
 	}
 	else
 	{
@@ -459,7 +527,7 @@ READ8_MEMBER(accomm_state::ram_r)
 	return data;
 }
 
-WRITE8_MEMBER(accomm_state::ram_w)
+void accomm_state::ram_w(offs_t offset, uint8_t data)
 {
 	switch (m_ram->size())
 	{
@@ -474,7 +542,7 @@ WRITE8_MEMBER(accomm_state::ram_w)
 }
 
 
-READ8_MEMBER(accomm_state::sheila_r)
+uint8_t accomm_state::sheila_r(offs_t offset)
 {
 	uint8_t data = 0;
 	switch ( offset & 0x0f )
@@ -490,17 +558,17 @@ READ8_MEMBER(accomm_state::sheila_r)
 		data = m_ula.tape_byte;
 		break;
 	}
-	logerror( "ULA: read offset %02x: %02x\n", offset, data );
 	return data;
 }
 
 static const int palette_offset[4] = { 0, 4, 5, 1 };
-static const uint16_t screen_base[8] = { 0x3000, 0x3000, 0x3000, 0x4000, 0x5800, 0x5800, 0x6000, 0x5800 };
+static const uint16_t screen_base[8] = { 0x3000, 0x3000, 0x3000, 0x4000, 0x5800, 0x5800, 0x6000, 0x6000 };
+static const int mode_end[8] = { 255, 255, 255 ,249 ,255, 255, 249, 249 };
 
-WRITE8_MEMBER(accomm_state::sheila_w)
+void accomm_state::sheila_w(offs_t offset, uint8_t data)
 {
 	int i = palette_offset[(( offset >> 1 ) & 0x03)];
-	logerror( "ULA: write offset %02x <- %02x\n", offset & 0x0f, data );
+
 	switch( offset & 0x0f )
 	{
 	case 0x00:  /* Interrupt control */
@@ -510,11 +578,9 @@ WRITE8_MEMBER(accomm_state::sheila_w)
 		break;
 	case 0x02:  /* Screen start address #1 */
 		m_ula.screen_start = ( m_ula.screen_start & 0x7e00 ) | ( ( data & 0xe0 ) << 1 );
-		logerror( "screen_start changed to %04x\n", m_ula.screen_start );
 		break;
 	case 0x03:  /* Screen start address #2 */
-		m_ula.screen_start = ( m_ula.screen_start & 0x1c0 ) | ( ( data & 0x3f ) << 9 );
-		logerror( "screen_start changed to %04x\n", m_ula.screen_start );
+		m_ula.screen_start = ( m_ula.screen_start & 0x1ff ) | ( ( data & 0x3f ) << 9 );
 		break;
 	case 0x04:  /* Cassette data shift register */
 		break;
@@ -576,23 +642,22 @@ WRITE8_MEMBER(accomm_state::sheila_w)
 		m_ula.screen_mode = ( data >> 3 ) & 0x07;
 		m_ula.screen_base = screen_base[ m_ula.screen_mode ];
 		m_ula.screen_size = 0x8000 - m_ula.screen_base;
-		m_ula.vram = (uint8_t *)m_vram.target() + m_ula.screen_base;
-		logerror( "ULA: screen mode set to %d\n", m_ula.screen_mode );
+		m_ula.screen_dispend = mode_end[ m_ula.screen_mode ];
 		m_ula.shiftlock_mode = !BIT(data, 6);
-		output().set_value("shiftlock_led", m_ula.shiftlock_mode);
+		m_shiftlock_led = m_ula.shiftlock_mode;
 		m_ula.capslock_mode = BIT(data, 7);
-		output().set_value("capslock_led", m_ula.capslock_mode);
+		m_capslock_led = m_ula.capslock_mode;
 		break;
-	case 0x08: case 0x0A: case 0x0C: case 0x0E:
-		// video_update
-		m_ula.current_pal[i+10] = (m_ula.current_pal[i+10] & 0x01) | (((data & 0x80) >> 5) | ((data & 0x08) >> 1));
+	case 0x08: case 0x0a: case 0x0c: case 0x0e:
+		/* colour palette */
+		m_ula.current_pal[i+10] = (m_ula.current_pal[i+10] & 0x01) | (((data & 0x80) >> 5) | ((data & 0x08) >> 2));
 		m_ula.current_pal[i+8] = (m_ula.current_pal[i+8] & 0x01) | (((data & 0x40) >> 4) | ((data & 0x04) >> 1));
 		m_ula.current_pal[i+2] = (m_ula.current_pal[i+2] & 0x03) | ((data & 0x20) >> 3);
 		m_ula.current_pal[i] = (m_ula.current_pal[
 		i] & 0x03) | ((data & 0x10) >> 2);
 		break;
-	case 0x09: case 0x0B: case 0x0D: case 0x0F:
-		// video_update
+	case 0x09: case 0x0b: case 0x0d: case 0x0f:
+		/* colour palette */
 		m_ula.current_pal[i+10] = (m_ula.current_pal[i+10] & 0x06) | ((data & 0x08) >> 3);
 		m_ula.current_pal[i+8] = (m_ula.current_pal[i+8] & 0x06) | ((data & 0x04) >> 2);
 		m_ula.current_pal[i+2] = (m_ula.current_pal[i+2] & 0x04) | (((data & 0x20) >> 4) | ((data & 0x02) >> 1));
@@ -623,42 +688,42 @@ void accomm_state::interrupt_handler(int mode, int interrupt)
 	}
 }
 
-WRITE_LINE_MEMBER(accomm_state::write_acia_clock)
+void accomm_state::main_map(address_map &map)
 {
-	m_acia->write_txc(state);
-	m_acia->write_rxc(state);
+	map(0x000000, 0x1fffff).rw(FUNC(accomm_state::ram_r), FUNC(accomm_state::ram_w));               /* System RAM */
+	map(0x200000, 0x3fffff).noprw();                                                                /* External expansion RAM */
+	map(0x400000, 0x400001).rw(m_acia, FUNC(acia6850_device::read), FUNC(acia6850_device::write));  /* MODEM */
+	map(0x410000, 0x410000).ram();                                                                  /* Econet ID */
+	map(0x420000, 0x42000f).m(m_via, FUNC(via6522_device::map));                                    /* 6522 VIA (printer etc) */
+	map(0x430000, 0x430003).rw(m_scn2641, FUNC(scn2641_device::read), FUNC(scn2641_device::write)); /* 2641 ACIA (RS423) */
+	map(0x440000, 0x44ffff).w(FUNC(accomm_state::ch00switch_w));                                    /* CH00SWITCH */
+	map(0x450000, 0x457fff).ram().share("vram");                                                    /* Video RAM */
+	map(0x458000, 0x459fff).r(FUNC(accomm_state::read_keyboard1));                                  /* Video ULA */
+	map(0x45a000, 0x45bfff).r(FUNC(accomm_state::read_keyboard2));                                  /* Video ULA */
+	map(0x45fe00, 0x45feff).rw(FUNC(accomm_state::sheila_r), FUNC(accomm_state::sheila_w));         /* Video ULA */
+	map(0x460000, 0x467fff).ram().share("nvram");                                                   /* CMOS RAM */
+	map(0x470000, 0x47001f).rw(m_adlc, FUNC(mc6854_device::read), FUNC(mc6854_device::write));      /* 68B54 (Econet) */
+	map(0x480000, 0x7fffff).noprw();                                                                /* Reserved */
+	map(0x800000, 0xbfffff).noprw();                                                                /* External expansion IO   */
+	map(0xc00000, 0xf7ffff).rom().region("ext", 0);                                                 /* External expansion ROM  */
+	map(0xf80000, 0xf9ffff).rom().region("maincpu", 0x060000);                                      /* Empty      (ROM Slot 3) */
+	map(0xfa0000, 0xfbffff).rom().region("maincpu", 0x040000);                                      /* ROM bank 4 (ROM Slot 2) */
+	map(0xfc0000, 0xfcffff).rom().region("maincpu", 0x030000);                                      /* ROM bank 3 (ROM Slot 1) */
+	map(0xfd0000, 0xfdffff).rom().region("maincpu", 0x020000);                                      /* ROM bank 2 (ROM Slot 1) */
+	map(0xfe0000, 0xfeffff).rom().region("maincpu", 0x000000);                                      /* ROM bank 0 (ROM Slot 0) */
+	map(0xff0000, 0xffffff).rom().region("maincpu", 0x010000);                                      /* ROM bank 1 (ROM Slot 0) */
 }
 
-WRITE_LINE_MEMBER(accomm_state::econet_clk_w)
+void accomm_state::saa5240_map(address_map &map)
 {
-	m_adlc->rxc_w(state);
-	m_adlc->txc_w(state);
+	map.global_mask(0x07ff);
+	map(0x0000, 0x07ff).ram();
 }
 
-ADDRESS_MAP_START(accomm_state::main_map)
-	AM_RANGE(0x000000, 0x1fffff) AM_READWRITE(ram_r, ram_w)                                       /* System RAM */
-	AM_RANGE(0x200000, 0x3fffff) AM_NOP                                                           /* External expansion RAM */
-	AM_RANGE(0x400000, 0x400000) AM_NOP                                                           /* MODEM */
-	AM_RANGE(0x410000, 0x410000) AM_RAM                                                           /* Econet ID */
-	AM_RANGE(0x420000, 0x42000f) AM_DEVREADWRITE("via6522", via6522_device, read, write)          /* 6522 VIA (printer etc) */
-	AM_RANGE(0x430000, 0x430001) AM_DEVREADWRITE("acia", acia6850_device, read, write)            /* 2641 ACIA (RS423) */
-	AM_RANGE(0x440000, 0x440000) AM_WRITE(ch00switch_w)                                           /* CH00SWITCH */
-	AM_RANGE(0x450000, 0x457fff) AM_RAM AM_SHARE("vram")                                          /* Video RAM */
-	AM_RANGE(0x458000, 0x459fff) AM_READ(read_keyboard1)                                          /* Video ULA */
-	AM_RANGE(0x45a000, 0x45bfff) AM_READ(read_keyboard2)                                          /* Video ULA */
-	AM_RANGE(0x45fe00, 0x45feff) AM_READWRITE(sheila_r, sheila_w)                                 /* Video ULA */
-	AM_RANGE(0x460000, 0x467fff) AM_RAM AM_SHARE("nvram")                                         /* CMOS RAM */
-	AM_RANGE(0x470000, 0x47001f) AM_DEVREADWRITE("mc6854", mc6854_device, read, write)            /* 68B54 (Econet) */
-	AM_RANGE(0x480000, 0x7fffff) AM_NOP                                                           /* Reserved */
-	AM_RANGE(0x800000, 0xbfffff) AM_NOP                                                           /* External expansion IO  */
-	AM_RANGE(0xc00000, 0xf7ffff) AM_NOP                                                           /* External expansion ROM */
-	AM_RANGE(0xf80000, 0xf9ffff) AM_NOP                                                           /* Empty */
-	AM_RANGE(0xfa0000, 0xfbffff) AM_NOP                                                           /* ROM bank 4 */
-	AM_RANGE(0xfc0000, 0xfcffff) AM_ROM AM_REGION("maincpu", 0x000000)                            /* ROM bank 3 */
-	AM_RANGE(0xfd0000, 0xfdffff) AM_ROM AM_REGION("maincpu", 0x010000)                            /* ROM bank 2 */
-	AM_RANGE(0xfe0000, 0xfeffff) AM_ROM AM_REGION("maincpu", 0x020000)                            /* ROM bank 0 */
-	AM_RANGE(0xff0000, 0xffffff) AM_ROM AM_REGION("maincpu", 0x030000)                            /* ROM bank 1 */
-ADDRESS_MAP_END
+INPUT_CHANGED_MEMBER(accomm_state::trigger_reset)
+{
+	m_maincpu->set_input_line(INPUT_LINE_RESET, newval ? ASSERT_LINE : CLEAR_LINE);
+}
 
 static INPUT_PORTS_START( accomm )
 	PORT_START("LINE1.0")
@@ -712,7 +777,7 @@ static INPUT_PORTS_START( accomm )
 	PORT_START("LINE1.8")
 	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_9_PAD)      PORT_CHAR(UCHAR_MAMEKEY(9_PAD))
 	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_6_PAD)      PORT_CHAR(UCHAR_MAMEKEY(6_PAD))
-	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_ENTER_PAD)  PORT_CHAR(UCHAR_MAMEKEY(ENTER_PAD)) PORT_NAME("Keypad =")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_ENTER_PAD)  PORT_CHAR(UCHAR_MAMEKEY(EQUALS_PAD))
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_3_PAD)      PORT_CHAR(UCHAR_MAMEKEY(3_PAD))
 
 	PORT_START("LINE1.9")
@@ -730,7 +795,7 @@ static INPUT_PORTS_START( accomm )
 	PORT_START("LINE1.11")
 	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_BACKSLASH2) PORT_CHAR('\\') PORT_CHAR('|')
 	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_CLOSEBRACE) PORT_CHAR(']')  PORT_CHAR('}')
-	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_F10)        PORT_CHAR(UCHAR_MAMEKEY(F10))       PORT_NAME("Phone")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_F9)         PORT_CHAR(UCHAR_MAMEKEY(F9))        PORT_NAME("Phone")
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_BACKSPACE)  PORT_CHAR(UCHAR_MAMEKEY(ESC))       PORT_NAME("Escape")
 
 	PORT_START("LINE1.12")
@@ -812,9 +877,9 @@ static INPUT_PORTS_START( accomm )
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_7_PAD)      PORT_CHAR(UCHAR_MAMEKEY(7_PAD))
 
 	PORT_START("LINE2.11")
-	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_F9)         PORT_CHAR(UCHAR_MAMEKEY(F9))       PORT_NAME("Stop")
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_F10)        PORT_CHAR(UCHAR_MAMEKEY(F10))      PORT_NAME("Comp")
 	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_SPACE)      PORT_CHAR(' ')
-	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_F12)        PORT_CHAR(UCHAR_MAMEKEY(F12))      PORT_NAME("Calc")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_F11)        PORT_CHAR(UCHAR_MAMEKEY(F11))      PORT_NAME("Calc")
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_ENTER)      PORT_CHAR(13)
 
 	PORT_START("LINE2.12")
@@ -828,84 +893,203 @@ static INPUT_PORTS_START( accomm )
 	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_UNUSED)
 	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_UNUSED)
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_UNUSED)
+
+	PORT_START("STOP")
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_F12)        PORT_CHAR(UCHAR_MAMEKEY(F12))      PORT_NAME("Stop") PORT_CHANGED_MEMBER(DEVICE_SELF, accomm_state, trigger_reset, 0)
 INPUT_PORTS_END
 
-MACHINE_CONFIG_START(accomm_state::accomm)
-	MCFG_CPU_ADD("maincpu", G65816, 16_MHz_XTAL / 8)
-	MCFG_CPU_PROGRAM_MAP(main_map)
-	MCFG_CPU_VBLANK_INT_DRIVER("screen", accomm_state, vbl_int)
+void accomm_state::accomm(machine_config &config)
+{
+	G65816(config, m_maincpu, 16_MHz_XTAL / 8);
+	m_maincpu->set_addrmap(AS_PROGRAM, &accomm_state::main_map);
 
-	MCFG_SCREEN_ADD("screen", RASTER)
-	MCFG_SCREEN_REFRESH_RATE( 50.08 )
-	MCFG_SCREEN_SIZE( 640, 312 )
-	MCFG_SCREEN_VISIBLE_AREA( 0, 640-1, 0, 256-1 )
-	MCFG_SCREEN_UPDATE_DRIVER(accomm_state, screen_update)
-	MCFG_SCREEN_VIDEO_ATTRIBUTES(VIDEO_UPDATE_SCANLINE)
-	MCFG_SCREEN_PALETTE("palette")
+	INPUT_MERGER_ANY_HIGH(config, m_irqs).output_handler().set_inputline(m_maincpu, G65816_LINE_IRQ);
 
-	MCFG_PALETTE_ADD( "palette", 16 )
-	MCFG_PALETTE_INIT_OWNER(accomm_state, accomm)
+	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
+	m_screen->set_raw(16_MHz_XTAL, 1024, 0, 640, 312, 0, 256);
+	m_screen->set_screen_update(FUNC(accomm_state::screen_update));
+	m_screen->set_video_attributes(VIDEO_UPDATE_SCANLINE);
+	m_screen->set_palette("palette");
 
-	MCFG_DEFAULT_LAYOUT(layout_accomm)
+	PALETTE(config, "palette", FUNC(accomm_state::accomm_palette), 16);
+
+	config.set_default_layout(layout_accomm);
 
 	/* internal ram */
-	MCFG_RAM_ADD(RAM_TAG)
-	MCFG_RAM_DEFAULT_SIZE("512K")
-	MCFG_RAM_EXTRA_OPTIONS("1M")
+	RAM(config, RAM_TAG).set_default_size("512K").set_extra_options("1M");
 
-	MCFG_NVRAM_ADD_0FILL("nvram")
+	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 
 	/* sound */
-	MCFG_SPEAKER_STANDARD_MONO("mono")
-	MCFG_SOUND_ADD("beeper", BEEP, 300)
-	MCFG_SOUND_ROUTE(ALL_OUTPUTS, "mono", 1.00)
+	SPEAKER(config, "mono").front_center();
+	BEEP(config, m_beeper, 300).add_route(ALL_OUTPUTS, "mono", 1.00);
 
-	/* rtc pcf8573 */
+	/* rtc */
+	PCF8573(config, m_rtc, 32.768_kHz_XTAL);
+	m_rtc->comp_cb().set(m_via, FUNC(via6522_device::write_cb1));
+
+	/* teletext */
+	SAA5240A(config, m_cct, 6_MHz_XTAL);
+	m_cct->set_addrmap(0, &accomm_state::saa5240_map);
 
 	/* via */
-	MCFG_DEVICE_ADD("via6522", VIA6522, XTAL(16'000'000) / 16)
-	MCFG_VIA6522_WRITEPA_HANDLER(DEVWRITE8("cent_data_out", output_latch_device, write))
-	MCFG_VIA6522_CA2_HANDLER(DEVWRITELINE("centronics", centronics_device, write_strobe))
+	MOS6522(config, m_via, 16_MHz_XTAL / 16);
+	m_via->writepa_handler().set("cent_data_out", FUNC(output_latch_device::write));
+	m_via->ca2_handler().set("centronics", FUNC(centronics_device::write_strobe));
+	m_via->readpb_handler().set(m_rtc, FUNC(pcf8573_device::sda_r)).bit(0);
+	m_via->readpb_handler().append(m_cct, FUNC(saa5240a_device::read_sda)).bit(0);
+	m_via->writepb_handler().set(m_rtc, FUNC(pcf8573_device::sda_w)).bit(1).invert();
+	m_via->writepb_handler().append(m_rtc, FUNC(pcf8573_device::scl_w)).bit(2).invert();
+	m_via->writepb_handler().append(m_cct, FUNC(saa5240a_device::write_sda)).bit(1).invert();
+	m_via->writepb_handler().append(m_cct, FUNC(saa5240a_device::write_scl)).bit(2).invert();
+	m_via->irq_handler().set(m_irqs, FUNC(input_merger_device::in_w<0>));
 
-	/* acia */
-	MCFG_DEVICE_ADD("acia", ACIA6850, 0)
-	MCFG_ACIA6850_TXD_HANDLER(DEVWRITELINE("serial", rs232_port_device, write_txd))
-	MCFG_ACIA6850_RTS_HANDLER(DEVWRITELINE("serial", rs232_port_device, write_rts))
-	MCFG_ACIA6850_IRQ_HANDLER(INPUTLINE("maincpu", G65816_LINE_IRQ))
+	/* rs423 */
+	SCN2641(config, m_scn2641, 3.6864_MHz_XTAL);
+	m_scn2641->txd_handler().set("rs423", FUNC(rs232_port_device::write_txd));
+	m_scn2641->rts_handler().set("rs423", FUNC(rs232_port_device::write_rts));
+	m_scn2641->intr_handler().set(m_irqs, FUNC(input_merger_device::in_w<1>));
 
-	MCFG_RS232_PORT_ADD("serial", default_rs232_devices, nullptr)
-	MCFG_RS232_RXD_HANDLER(DEVWRITELINE("acia", acia6850_device, write_rxd))
-	MCFG_RS232_DCD_HANDLER(DEVWRITELINE("acia", acia6850_device, write_dcd))
-	MCFG_RS232_CTS_HANDLER(DEVWRITELINE("acia", acia6850_device, write_cts))
+	rs232_port_device &rs423(RS232_PORT(config, "rs423", default_rs232_devices, nullptr));
+	rs423.rxd_handler().set(m_scn2641, FUNC(scn2641_device::rxd_w));
+	rs423.dcd_handler().set(m_scn2641, FUNC(scn2641_device::dcd_w));
+	rs423.cts_handler().set(m_scn2641, FUNC(scn2641_device::cts_w));
 
-	MCFG_DEVICE_ADD("acia_clock", CLOCK, XTAL(16'000'000) / 13)
-	MCFG_CLOCK_SIGNAL_HANDLER(WRITELINE(accomm_state, write_acia_clock))
+	/* modem */
+	ACIA6850(config, m_acia, 0);
+	m_acia->txd_handler().set("modem", FUNC(rs232_port_device::write_txd));
+	m_acia->rts_handler().set("modem", FUNC(rs232_port_device::write_rts));
+	m_acia->irq_handler().set(m_irqs, FUNC(input_merger_device::in_w<2>));
+
+	rs232_port_device &modem(RS232_PORT(config, "modem", default_rs232_devices, "null_modem"));
+	modem.rxd_handler().set(m_acia, FUNC(acia6850_device::write_rxd));
+	modem.dcd_handler().set(m_acia, FUNC(acia6850_device::write_dcd));
+	modem.cts_handler().set(m_acia, FUNC(acia6850_device::write_cts));
+
+	CLOCK(config, m_acia_clock, 16_MHz_XTAL / 13);
+	m_acia_clock->signal_handler().set(m_acia, FUNC(acia6850_device::write_txc));
+	m_acia_clock->signal_handler().append(m_acia, FUNC(acia6850_device::write_rxc));
+
+	PCD3311(config, m_dtmf, 3.57864_MHz_XTAL).add_route(ALL_OUTPUTS, "mono", 0.25); // PCD3312
 
 	/* econet */
-	MCFG_DEVICE_ADD("mc6854", MC6854, 0)
-	MCFG_MC6854_OUT_TXD_CB(DEVWRITELINE(ECONET_TAG, econet_device, data_w))
-	MCFG_MC6854_OUT_IRQ_CB(INPUTLINE("maincpu", G65816_LINE_NMI))
-	MCFG_ECONET_ADD()
-	MCFG_ECONET_CLK_CALLBACK(WRITELINE(accomm_state, econet_clk_w))
-	MCFG_ECONET_DATA_CALLBACK(DEVWRITELINE("mc6854", mc6854_device, set_rx))
-	MCFG_ECONET_SLOT_ADD("econet254", 254, econet_devices, nullptr)
+	MC6854(config, m_adlc);
+	m_adlc->out_txd_cb().set("econet", FUNC(econet_device::host_data_w));
+	m_adlc->out_irq_cb().set_inputline(m_maincpu, G65816_LINE_NMI);
+
+	econet_device &econet(ECONET(config, "econet", 0));
+	econet.clk_wr_callback().set(m_adlc, FUNC(mc6854_device::txc_w));
+	econet.clk_wr_callback().append(m_adlc, FUNC(mc6854_device::rxc_w));
+	econet.data_wr_callback().set(m_adlc, FUNC(mc6854_device::set_rx));
+
+	ECONET_SLOT(config, "econet254", "econet", econet_devices).set_slot(254);
 
 	/* printer */
-	MCFG_CENTRONICS_ADD("centronics", centronics_devices, "printer")
-	MCFG_CENTRONICS_ACK_HANDLER(DEVWRITELINE("via6522", via6522_device, write_ca1))
-	MCFG_CENTRONICS_OUTPUT_LATCH_ADD("cent_data_out", "centronics")
-MACHINE_CONFIG_END
+	centronics_device &centronics(CENTRONICS(config, "centronics", centronics_devices, "printer"));
+	centronics.ack_handler().set(m_via, FUNC(via6522_device::write_ca1));
+	output_latch_device &cent_data_out(OUTPUT_LATCH(config, "cent_data_out"));
+	centronics.set_output_latch(cent_data_out);
+}
+
+
+void accomm_state::accommi(machine_config &config)
+{
+	accomm(config);
+
+	/* teletext */
+	SAA5240B(config.replace(), m_cct, 6_MHz_XTAL);
+	m_cct->set_addrmap(0, &accomm_state::saa5240_map);
+}
+
 
 ROM_START(accomm)
-	ROM_REGION(0x40000, "maincpu", 0)
+	ROM_REGION(0x80000, "maincpu", 0)
 	ROM_DEFAULT_BIOS("100")
-	ROM_SYSTEM_BIOS(0, "100", "1.00 13/Nov/86") /* Version 1.00 13/Nov/86 (C)1986 */
-	ROMX_LOAD( "romv100-3.rom", 0x000000, 0x010000, CRC(bd87a157) SHA1(b9b9ed1aab9ffef2de988b2cfeac293afa11448a), ROM_BIOS(1) )
-	ROMX_LOAD( "romv100-2.rom", 0x010000, 0x010000, CRC(3438adee) SHA1(cd9d5522d9430cb2e1936210b77d2edd280f9419), ROM_BIOS(1) )
-	ROMX_LOAD( "romv100-1.rom", 0x020000, 0x010000, CRC(adc6a073) SHA1(3e87f21fafc1d69f33c5b541a20a98e82aacbfab), ROM_BIOS(1) )
-	ROMX_LOAD( "romv100-0.rom", 0x030000, 0x010000, CRC(6d22950d) SHA1(d4cbdccf8d2bc836fb81182b2ed344d7134fe5c9), ROM_BIOS(1) )
-	/* Version 1.70 04/Jun/87 (C)1987 */
-	/* Versone 3.00 13/gen/88 (C)1988 */
+	ROM_SYSTEM_BIOS(0, "100", "MOS v1.00 13/Nov/86") /* MOS: Version 1.00 13/Nov/86 (C)1986 */
+	ROMX_LOAD("romv100-0.rom", 0x000000, 0x010000, CRC(6d22950d) SHA1(d4cbdccf8d2bc836fb81182b2ed344d7134fe5c9), ROM_BIOS(0))
+	ROM_RELOAD(                0x010000, 0x010000)
+	ROMX_LOAD("romv100-1.rom", 0x020000, 0x010000, CRC(adc6a073) SHA1(3e87f21fafc1d69f33c5b541a20a98e82aacbfab), ROM_BIOS(0))
+	ROM_RELOAD(                0x030000, 0x010000)
+	ROMX_LOAD("romv100-2.rom", 0x040000, 0x010000, CRC(3438adee) SHA1(cd9d5522d9430cb2e1936210b77d2edd280f9419), ROM_BIOS(0))
+	ROM_RELOAD(                0x050000, 0x010000)
+	ROMX_LOAD("romv100-3.rom", 0x060000, 0x010000, CRC(bd87a157) SHA1(b9b9ed1aab9ffef2de988b2cfeac293afa11448a), ROM_BIOS(0))
+	ROM_RELOAD(                0x070000, 0x010000)
+
+	ROM_REGION(0x380000, "ext", ROMREGION_ERASEFF)
 ROM_END
 
-COMP( 1986,  accomm,  0, 0, accomm,  accomm, accomm_state,  0,  "Acorn", "Acorn Communicator", MACHINE_NOT_WORKING )
+ROM_START(accommp)
+	ROM_REGION(0x80000, "maincpu", 0)
+	/* ROM labels on both evaluation prototypes were hand written A, B, C, D */
+	ROM_DEFAULT_BIOS("011-1985")
+	/* Serial B01-PPC01-0000004 (owned by Acorn co-founder Chris Curry) */
+	ROM_SYSTEM_BIOS(0, "011-1985", "CMOS v0.11 1985") /* CMOS version 0.11 October (C)1985 */
+	ROMX_LOAD("004-a.rom", 0x000000, 0x008000, CRC(d0d4d5e3) SHA1(67710e349235ed5c71380b5a7d4b570ce355b10e), ROM_BIOS(0))
+	ROM_RELOAD(            0x008000, 0x008000)
+	ROM_RELOAD(            0x010000, 0x008000)
+	ROM_RELOAD(            0x018000, 0x008000)
+	ROMX_LOAD("004-b.rom", 0x020000, 0x010000, CRC(e2fcef94) SHA1(fd065bcdb6c48bee39db9f71b8d193ee228557f7), ROM_BIOS(0))
+	ROM_RELOAD(            0x030000, 0x010000)
+	ROMX_LOAD("004-c.rom", 0x040000, 0x008000, CRC(348c0018) SHA1(9681b6b9eefa9ba294fac6a41dec12ba203e5142), ROM_BIOS(0))
+	ROM_RELOAD(            0x048000, 0x008000)
+	ROM_RELOAD(            0x050000, 0x008000)
+	ROM_RELOAD(            0x058000, 0x008000)
+	ROMX_LOAD("004-d.rom", 0x060000, 0x010000, CRC(1379eb9f) SHA1(8d57bc7e279c5f17c6f0e4d1d5fa7f784aadd549), ROM_BIOS(0))
+	ROM_RELOAD(            0x070000, 0x010000)
+	/* Serial ending 094 */
+	ROM_SYSTEM_BIOS(1, "011-1986", "CMOS v0.11 1986") /* CMOS version 0.11 October (C)1985 */
+	ROMX_LOAD("094-a.rom", 0x008000, 0x008000, CRC(d0d4d5e3) SHA1(67710e349235ed5c71380b5a7d4b570ce355b10e), ROM_BIOS(1))
+	ROM_RELOAD(            0x008000, 0x008000)
+	ROM_RELOAD(            0x010000, 0x008000)
+	ROM_RELOAD(            0x018000, 0x008000)
+	ROMX_LOAD("094-b.rom", 0x020000, 0x008000, CRC(8d793909) SHA1(392028386f831dfae3353e0b7b51a608798e89c6), ROM_BIOS(1))
+	ROM_RELOAD(            0x028000, 0x008000)
+	ROM_RELOAD(            0x030000, 0x008000)
+	ROM_RELOAD(            0x038000, 0x008000)
+	ROMX_LOAD("094-c.rom", 0x040000, 0x008000, CRC(e544e849) SHA1(31cd2dcd2a50880a97b12d61ef144f7d7f112345), ROM_BIOS(1))
+	ROM_RELOAD(            0x048000, 0x008000)
+	ROM_RELOAD(            0x050000, 0x008000)
+	ROM_RELOAD(            0x058000, 0x008000)
+	ROMX_LOAD("094-d-view+castoff.rom", 0x060000, 0x010000, CRC(8027df77) SHA1(51751bfdcf68683c092b6442fb22f11cb565898c), ROM_BIOS(1))
+	ROM_RELOAD(            0x070000, 0x010000)
+
+	ROM_REGION(0x380000, "ext", ROMREGION_ERASEFF)
+ROM_END
+
+ROM_START(accommb)
+	ROM_REGION(0x80000, "maincpu", 0)
+	ROM_DEFAULT_BIOS("170")
+	ROM_SYSTEM_BIOS(0, "170", "MOS v1.70 04/Jun/87") /* MOS: Version 1.70 04/Jun/87 (C)1987 */
+	ROMX_LOAD("0252.200-1-rom0-v1.00.rom", 0x000000, 0x010000, CRC(6d22950d) SHA1(d4cbdccf8d2bc836fb81182b2ed344d7134fe5c9), ROM_BIOS(0))
+	ROM_RELOAD(                            0x010000, 0x010000)
+	ROMX_LOAD("0252.201-1-rom1-v1.00.rom", 0x020000, 0x010000, CRC(adc6a073) SHA1(3e87f21fafc1d69f33c5b541a20a98e82aacbfab), ROM_BIOS(0))
+	ROM_RELOAD(                            0x030000, 0x010000)
+	ROMX_LOAD("0252.202-1-rom2-v1.00.rom", 0x040000, 0x010000, CRC(3438adee) SHA1(cd9d5522d9430cb2e1936210b77d2edd280f9419), ROM_BIOS(0))
+	ROM_RELOAD(                            0x050000, 0x010000)
+	ROMX_LOAD("0252.203-1-rom3-v1.00.rom", 0x060000, 0x010000, CRC(bd87a157) SHA1(b9b9ed1aab9ffef2de988b2cfeac293afa11448a), ROM_BIOS(0))
+	ROM_RELOAD(                            0x070000, 0x010000)
+
+	/* Expansion board: Acorn Computer 0167,000 Issue 1 Spectar II */
+	/* Contains 8 slots for ASTRON Data Cards */
+	ROM_REGION(0x380000, "ext", ROMREGION_ERASEFF)
+	ROM_LOAD("spectar-v1.0-0267-200-03.ic1", 0x000000, 0x010000, CRC(71ad0491) SHA1(c3ace8cdd2383e97eb58d64d011444da678d537c))
+ROM_END
+
+ROM_START(accommi)
+	ROM_REGION(0x80000, "maincpu", 0)
+	ROM_DEFAULT_BIOS("300")
+	ROM_SYSTEM_BIOS(0, "300", "MOS v3.00 13/gen/88") /* MOS: Versione 3.00 13/gen/88 (C)1988 */
+	ROMX_LOAD("rom0.rom",        0x000000, 0x020000, CRC(841bd984) SHA1(2c3bc77178e5bf0342e0410f6c398bb3ac40d0c4), ROM_BIOS(0))
+	ROMX_LOAD("252216-iss1.rom", 0x020000, 0x020000, CRC(40767d31) SHA1(258f4ed92d74523aaaa4aa250db5a99428aaf960), ROM_BIOS(0))
+	ROMX_LOAD("rom2.rom",        0x040000, 0x010000, CRC(e3511af8) SHA1(88a5654a5e84a31078a0a64139fe84db08196c2a), ROM_BIOS(0))
+	ROM_RELOAD(                  0x050000, 0x010000)
+
+	ROM_REGION(0x380000, "ext", ROMREGION_ERASEFF)
+ROM_END
+
+
+/*    YEAR  NAME     PARENT  COMPAT MACHINE  INPUT   CLASS         INIT        COMPANY            FULLNAME                          FLAGS */
+COMP( 1986, accomm,  0,      0,     accomm,  accomm, accomm_state, empty_init, "Acorn Computers", "Acorn Communicator",             MACHINE_NOT_WORKING )
+COMP( 1985, accommp, accomm, 0,     accomm,  accomm, accomm_state, empty_init, "Acorn Computers", "Acorn Communicator (prototype)", MACHINE_NOT_WORKING )
+COMP( 1987, accommb, accomm, 0,     accomm,  accomm, accomm_state, empty_init, "Acorn Computers", "Acorn Briefcase Communicator",   MACHINE_NOT_WORKING )
+COMP( 1988, accommi, accomm, 0,     accommi, accomm, accomm_state, empty_init, "Acorn Computers", "Acorn Communicator (Italian)",   MACHINE_NOT_WORKING )

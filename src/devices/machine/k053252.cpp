@@ -135,7 +135,7 @@ void k053252_device::reset_internal_state()
     DEVICE HANDLERS
 *****************************************************************************/
 
-READ8_MEMBER( k053252_device::read )
+uint8_t k053252_device::read(offs_t offset)
 {
 	//TODO: debugger_access()
 	switch(offset)
@@ -188,7 +188,7 @@ void k053252_device::res_change()
 	}
 }
 
-WRITE8_MEMBER( k053252_device::write )
+void k053252_device::write(offs_t offset, uint8_t data)
 {
 	m_regs[offset] = data;
 
@@ -248,11 +248,4 @@ WRITE8_MEMBER( k053252_device::write )
 		case 0x0e: m_int1_ack_cb(1); break;
 		case 0x0f: m_int2_ack_cb(1); break;
 	}
-}
-
-
-void k053252_device::static_set_slave_screen(device_t &device, const char *tag)
-{
-	k053252_device &dev = downcast<k053252_device &>(device);
-	dev.m_slave_screen.set_tag(tag);
 }

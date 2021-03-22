@@ -11,14 +11,7 @@
 #ifndef MAME_DEVICES_MACHINE_BCREADER_H
 #define MAME_DEVICES_MACHINE_BCREADER_H
 
-#define MCFG_BARCODE_READER_ADD( _tag ) \
-	MCFG_DEVICE_ADD( _tag, BARCODE_READER, 0 )
-
-#define MCFG_BARCODE_READER_REMOVE( _tag ) \
-	MCFG_DEVICE_REMOVE( _tag )
-
-
-// ======================> barcode_reader_device
+#pragma once
 
 class barcode_reader_device : public device_t
 {
@@ -54,7 +47,6 @@ protected:
 DECLARE_DEVICE_TYPE(BARCODE_READER, barcode_reader_device)
 
 // device type iterator
-typedef device_type_iterator<barcode_reader_device> barcode_reader_device_iterator;
-
+typedef device_type_enumerator<barcode_reader_device> barcode_reader_device_enumerator;
 
 #endif // MAME_DEVICES_MACHINE_BCREADER_H

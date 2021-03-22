@@ -26,11 +26,9 @@ static void (*const modules[])(const imgtool_class *imgclass, uint32_t state, un
 #include "modules.cpp"
 };
 
-/* step 3: declare imgtool_create_cannonical_library() */
-imgtoolerr_t imgtool_create_cannonical_library(bool omit_untested, std::unique_ptr<imgtool::library> &library)
+/* step 3: declare imgtool_create_canonical_library() */
+imgtoolerr_t imgtool_create_canonical_library(bool omit_untested, std::unique_ptr<imgtool::library> &library)
 {
-	size_t i;
-
 	/* list of modules that we drop */
 	static const char *const irrelevant_modules[] =
 	{
@@ -42,14 +40,12 @@ imgtoolerr_t imgtool_create_cannonical_library(bool omit_untested, std::unique_p
 		return IMGTOOLERR_OUTOFMEMORY;
 
 	// create all modules
-	for (i = 0; i < ARRAY_LENGTH(modules); i++)
-		library->add(modules[i]);
+	for (auto &module : modules)
+		library->add(module);
 
 	// remove irrelevant modules
-	for (i = 0; i < ARRAY_LENGTH(irrelevant_modules); i++)
-	{
-		library->unlink(irrelevant_modules[i]);
-	}
+	for (auto &module : irrelevant_modules)
+		library->unlink(module);
 
 	// if we are omitting untested, go through and block out the functionality in question
 	if (omit_untested)
@@ -81,6 +77,7 @@ MODULE(mac_mfs)
 MODULE(mac_hfs)
 MODULE(hd)
 MODULE(rsdos)
+MODULE(dgndos)
 MODULE(vzdos)
 MODULE(os9)
 MODULE(ti99_old)
@@ -103,5 +100,6 @@ MODULE(bml3)
 MODULE(hp48)
 MODULE(hp9845_tape)
 MODULE(hp85_tape)
+MODULE(rt11)
 
 #endif /* MODULES_RECURSIVE */

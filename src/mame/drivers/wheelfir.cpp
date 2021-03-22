@@ -164,56 +164,17 @@ BIT M - ( DATA1 != 0) ? 1 : 0  (or DATA1 MSB)
 BIT N - ( scale < 50% ) ? 1 : 0
 
 
-pcb linking
------------
-
-suspicious code:
-
-
-(write/read (exchange data))
-
-0A535C: 48E7 6080                  movem.l D1-D2/A0, -(A7)
-0A5360: 41F9 0078 0000             lea     $780000.l, A0
-0A5366: D040                       add.w   D0, D0
-0A5368: 3181 0000                  move.w  D1, (A0,D0.w)  ; write data
-
-0A536C: 3239 007E 0000             move.w  $7e0000.l, D1
-0A5372: 0801 000D                  btst    #$d, D1
-0A5376: 67F4                       beq     $a536c
-
-0A5378: 3230 0000                  move.w  (A0,D0.w), D1 ; read data
-0A537C: 0241 00FF                  andi.w  #$ff, D1
-
-(unk., maybe sync or config ?)
-
-0A53C2: 2F08                       move.l  A0, -(A7)
-0A53C4: 3F01                       move.w  D1, -(A7)
-0A53C6: 41F9 0078 0000             lea     $780000.l, A0
-0A53CC: D040                       add.w   D0, D0
-0A53CE: 3180 0000                  move.w  D0, (A0,D0.w) ; write offset
-0A53D2: 3180 0000                  move.w  D0, (A0,D0.w) ; again
-
-0A53D6: 3239 007E 0000             move.w  $7e0000.l, D1
-0A53DC: 0801 000D                  btst    #$d, D1   ; flag test
-0A53E0: 67F4                       beq     $a53d6
-
-0A53E2: 3030 0000                  move.w  (A0,D0.w), D0
-0A53E6: 0240 00FF                  andi.w  #$ff, D0
-0A53EA: 321F                       move.w  (A7)+, D1
-0A53EC: 205F                       movea.l (A7)+, A0
-0A53EE: 4E75                       rts
-
-
 */
 
 #include "emu.h"
 #include "cpu/m68000/m68000.h"
+#include "machine/adc0808.h"
 #include "machine/eepromser.h"
 #include "machine/gen_latch.h"
 #include "machine/timer.h"
 #include "sound/dac.h"
-#include "sound/volt_reg.h"
 #include "video/ramdac.h"
+#include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
 
@@ -240,8 +201,18 @@ public:
 		m_subcpu(*this, "subcpu"),
 		m_eeprom(*this, "eeprom"),
 		m_screen(*this, "screen"),
-		m_palette(*this, "palette") { }
+		m_palette(*this, "palette"),
+		m_adc_eoc(0)
+	{ }
 
+	void wheelfir(machine_config &config);
+	DECLARE_READ_LINE_MEMBER(adc_eoc_r);
+
+protected:
+	virtual void machine_start() override;
+	virtual void video_start() override;
+
+private:
 	required_device<cpu_device> m_maincpu;
 	required_device<cpu_device> m_subcpu;
 	required_device<eeprom_serial_93cxx_device> m_eeprom;
@@ -251,7 +222,7 @@ public:
 	std::unique_ptr<int32_t[]> m_zoom_table;
 	std::unique_ptr<uint16_t[]> m_blitter_data;
 
-	scroll_info *m_scanlines;
+	std::unique_ptr<scroll_info[]> m_scanlines;
 
 	int32_t m_direct_write_x0;
 	int32_t m_direct_write_x1;
@@ -276,40 +247,34 @@ public:
 		}
 		return 0;
 	}
-	DECLARE_WRITE16_MEMBER(wheelfir_scanline_cnt_w);
-	DECLARE_WRITE16_MEMBER(wheelfir_blit_w);
-	DECLARE_WRITE16_MEMBER(wheelfir_7c0000_w);
-	DECLARE_READ16_MEMBER(wheelfir_7c0000_r);
-	DECLARE_WRITE16_MEMBER(wheelfir_snd_w);
-	DECLARE_READ16_MEMBER(wheelfir_snd_r);
-	DECLARE_WRITE16_MEMBER(coin_cnt_w);
-	virtual void machine_start() override;
-	virtual void video_start() override;
+	void wheelfir_scanline_cnt_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void wheelfir_blit_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void wheelfir_7c0000_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	uint16_t wheelfir_7c0000_r(offs_t offset, uint16_t mem_mask = ~0);
+	void coin_cnt_w(uint16_t data);
+	DECLARE_WRITE_LINE_MEMBER(adc_eoc_w);
 	uint32_t screen_update_wheelfir(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	DECLARE_WRITE_LINE_MEMBER(screen_vblank_wheelfir);
 	TIMER_DEVICE_CALLBACK_MEMBER(scanline_timer_callback);
-	void wheelfir(machine_config &config);
 	void ramdac_map(address_map &map);
 	void wheelfir_main(address_map &map);
 	void wheelfir_sub(address_map &map);
+	int m_adc_eoc;
 };
 
 
-WRITE16_MEMBER(wheelfir_state::wheelfir_scanline_cnt_w)
+void wheelfir_state::wheelfir_scanline_cnt_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	COMBINE_DATA(&m_scanline_cnt);
 }
 
 
-WRITE16_MEMBER(wheelfir_state::wheelfir_blit_w)
+void wheelfir_state::wheelfir_blit_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	COMBINE_DATA(&m_blitter_data[offset]);
 
 	if(!ACCESSING_BITS_8_15 && offset==0x6)  //LSB only!
 	{
-		int x,y;
-
-
 		int direct_width=m_direct_write_x1-m_direct_write_x0+1;
 		int direct_height=m_direct_write_y1-m_direct_write_y0+1;
 
@@ -317,203 +282,197 @@ WRITE16_MEMBER(wheelfir_state::wheelfir_blit_w)
 
 		if(direct_width>0 && direct_height>0)
 		{
-			x= m_direct_write_idx % direct_width;
-			y = (m_direct_write_idx / direct_width) %direct_height;
+			int x = m_direct_write_idx % direct_width;
+			int y = (m_direct_write_idx / direct_width) % direct_height;
 
 			x+=m_direct_write_x0;
 			y+=m_direct_write_y0;
 
 			if(x<512 && y <512)
 			{
-				m_tmp_bitmap[LAYER_BG]->pix16(y, x) = sixdat;
+				m_tmp_bitmap[LAYER_BG]->pix(y, x) = sixdat;
 			}
 		}
 
 		++m_direct_write_idx;
 
 		return;
-
 	}
 
 	if(offset==0xf && data==0xffff)
 	{
 		m_maincpu->set_input_line(1, HOLD_LINE);
 
+		uint8_t const *const rom = memregion("gfx1")->base();
+
+		int width = m_screen->width();
+		int height = m_screen->height();
+
+		int src_x0=(m_blitter_data[0]>>8)+((m_blitter_data[6]&0x100)?256:0);
+		int src_y0=(m_blitter_data[2]>>8)+((m_blitter_data[6]&0x200)?256:0);
+
+		int dst_x0=(m_blitter_data[0]&0xff)+((m_blitter_data[7]&0x40)?256:0);
+		int dst_y0=(m_blitter_data[2]&0xff)+((m_blitter_data[7]&0x80)?256:0);
+
+		int dst_x1=(m_blitter_data[1]&0xff)+((m_blitter_data[9]&4)?256:0);
+		int dst_y1=(m_blitter_data[3]&0xff)+((m_blitter_data[9]&8)?256:0);
+
+		int x_dst_step=(m_blitter_data[7]&0x1)?1:-1;
+		int y_dst_step=(m_blitter_data[7]&0x2)?1:-1;
+
+		int x_src_step=(m_blitter_data[8]&0x4000)?1:-1;
+		int y_src_step=(m_blitter_data[8]&0x8000)?1:-1;
+
+		int page=((m_blitter_data[6])>>10)*0x40000;
+
+
+		if(page>=0x400000) /* src set to  unav. page before direct write to the framebuffer */
 		{
-			uint8_t *rom = memregion("gfx1")->base();
+			m_direct_write_x0=dst_x0;
+			m_direct_write_x1=dst_x1;
+			m_direct_write_y0=dst_y0;
+			m_direct_write_y1=dst_y1;
+			m_direct_write_idx=0;
+		}
 
-			int width = m_screen->width();
-			int height = m_screen->height();
-
-			int src_x0=(m_blitter_data[0]>>8)+((m_blitter_data[6]&0x100)?256:0);
-			int src_y0=(m_blitter_data[2]>>8)+((m_blitter_data[6]&0x200)?256:0);
-
-			int dst_x0=(m_blitter_data[0]&0xff)+((m_blitter_data[7]&0x40)?256:0);
-			int dst_y0=(m_blitter_data[2]&0xff)+((m_blitter_data[7]&0x80)?256:0);
-
-			int dst_x1=(m_blitter_data[1]&0xff)+((m_blitter_data[9]&4)?256:0);
-			int dst_y1=(m_blitter_data[3]&0xff)+((m_blitter_data[9]&8)?256:0);
-
-			int x_dst_step=(m_blitter_data[7]&0x1)?1:-1;
-			int y_dst_step=(m_blitter_data[7]&0x2)?1:-1;
-
-			int x_src_step=(m_blitter_data[8]&0x4000)?1:-1;
-			int y_src_step=(m_blitter_data[8]&0x8000)?1:-1;
-
-			int page=((m_blitter_data[6])>>10)*0x40000;
-
-
-			if(page>=0x400000) /* src set to  unav. page before direct write to the framebuffer */
+		if(x_dst_step<0)
+		{
+			if(dst_x0<=dst_x1)
 			{
-					m_direct_write_x0=dst_x0;
-					m_direct_write_x1=dst_x1;
-					m_direct_write_y0=dst_y0;
-					m_direct_write_y1=dst_y1;
-					m_direct_write_idx=0;
-
+				return;
 			}
 
-			if(x_dst_step<0)
+		}
+		else
+		{
+			if(dst_x0>=dst_x1)
 			{
-				if(dst_x0<=dst_x1)
-				{
-					return;
-				}
-
-			}
-			else
-			{
-				if(dst_x0>=dst_x1)
-				{
-					return;
-				}
-
+				return;
 			}
 
-			if(y_dst_step<0)
+		}
+
+		if(y_dst_step<0)
+		{
+			if(dst_y0<=dst_y1)
 			{
-				if(dst_y0<=dst_y1)
-				{
-					return;
-				}
+				return;
 			}
-			else
+		}
+		else
+		{
+			if(dst_y0>=dst_y1)
 			{
-				if(dst_y0>=dst_y1)
-				{
-					return;
-				}
-
+				return;
 			}
 
-
-			//additional checks
-
-			int d1, d2, hflag, dflag, index;
-
-			d1=((m_blitter_data[0x0a]&0x1f00)>>8);
-
-			d2=((m_blitter_data[0x0b]&0x1f00)>>8);
+		}
 
 
-			d1|=((m_blitter_data[0x8]&0x100)>>3);
-			d2|=((m_blitter_data[0x8]&0x400)>>5);
-			hflag=(m_blitter_data[0x9]&0x1)?1:0;
-			dflag=(m_blitter_data[0x8]&0x1000)?1:0;
-			index=d1|(d2<<6)|(hflag<<12)|(dflag<<13);
+		//additional checks
+
+		int d1, d2, hflag, dflag, index;
+
+		d1=((m_blitter_data[0x0a]&0x1f00)>>8);
+
+		d2=((m_blitter_data[0x0b]&0x1f00)>>8);
 
 
-			float scale_x=get_scale(index);
+		d1|=((m_blitter_data[0x8]&0x100)>>3);
+		d2|=((m_blitter_data[0x8]&0x400)>>5);
+		hflag=(m_blitter_data[0x9]&0x1)?1:0;
+		dflag=(m_blitter_data[0x8]&0x1000)?1:0;
+		index=d1|(d2<<6)|(hflag<<12)|(dflag<<13);
 
-			d1=((m_blitter_data[0x0b]&0xc000)>>14) |
-				((m_blitter_data[0x0c]&0xc000)>>12) |
-				((m_blitter_data[0x0a]&0x4000)>>10);
-
-			d2=((m_blitter_data[0x0c]&0x1f00)>>8);
-
-
-			d1|=((m_blitter_data[0x8]&0x200)>>4);
-			d2|=((m_blitter_data[0x8]&0x800)>>6);
-
-			hflag=(m_blitter_data[0x9]&0x2)?1:0;
-			dflag=(m_blitter_data[0x8]&0x2000)?1:0;
-			index=d1|(d2<<6)|(hflag<<12)|(dflag<<13);
+		const float scale_x=get_scale(index);
 
 
-			float scale_y=get_scale(index);
+		d1=((m_blitter_data[0x0b]&0xc000)>>14) |
+			((m_blitter_data[0x0c]&0xc000)>>12) |
+			((m_blitter_data[0x0a]&0x4000)>>10);
+
+		d2=((m_blitter_data[0x0c]&0x1f00)>>8);
 
 
-			if(scale_x==0 || scale_y==0) return;
+		d1|=((m_blitter_data[0x8]&0x200)>>4);
+		d2|=((m_blitter_data[0x8]&0x800)>>6);
+
+		hflag=(m_blitter_data[0x9]&0x2)?1:0;
+		dflag=(m_blitter_data[0x8]&0x2000)?1:0;
+		index=d1|(d2<<6)|(hflag<<12)|(dflag<<13);
+
+		const float scale_y=get_scale(index);
 
 
-			float scale_x_step=100.f/scale_x;
-			float scale_y_step=100.f/scale_y;
+		if(scale_x==0 || scale_y==0) return;
+
+
+		const float scale_x_step=100.f/scale_x;
+		const float scale_y_step=100.f/scale_y;
 
 
 
-			int x,y;
-			float idx_x,idx_y;
-
-			int vpage=LAYER_FG;
-			if(m_blitter_data[0x7]&0x10)
-			{
-				vpage=LAYER_BG;
+		int vpage=LAYER_FG;
+		if(m_blitter_data[0x7]&0x10)
+		{
+			vpage=LAYER_BG;
 /*
-                printf("bg -> %d %d   %d %d  %d %d @ %x\n",dst_x0,dst_y0, dst_x1,dst_y1, dst_x1-dst_x0, dst_y1-dst_y0,space.device().safe_pc());
+            printf("%s bg -> %d %d   %d %d  %d %d @ %x\n",machine().describe_context().c_str(), dst_x0,dst_y0, dst_x1,dst_y1, dst_x1-dst_x0, dst_y1-dst_y0);
 
-                for(int i=0;i<16;++i)
-                {
-                    printf("%x = %.4x\n",i,m_blitter_data[i]);
-                }
+            for(int i=0;i<16;++i)
+            {
+                printf("%x = %.4x\n",i,m_blitter_data[i]);
+            }
 
-                printf("\n");
+            printf("\n");
 */
-			}
+		}
 
-			bool endx=false;
-			bool endy=false;
+		bool endx=false;
+		bool endy=false;
 
-			if(m_blitter_data[0x7]&0x0c)
+		if(m_blitter_data[0x7]&0x0c)
+		{
+			//???
+		}
+
+		float idx_x = 0;
+		for(int x=dst_x0; !endx; x+=x_dst_step, idx_x+=scale_x_step)
+		{
+			endy=false;
+			float idx_y = 0;
+			for(int y=dst_y0; !endy; y+=y_dst_step, idx_y+=scale_y_step)
 			{
-				//???
-			}
+				endx=(x==dst_x1);
+				endy=(y==dst_y1);
 
-			for( x=dst_x0, idx_x=0 ; !endx;x+=x_dst_step, idx_x+=scale_x_step )
-			{
-				endy=false;
-				for( y=dst_y0, idx_y=0 ; !endy;y+=y_dst_step, idx_y+=scale_y_step)
+
+				int xx=src_x0+x_src_step*idx_x;
+				int yy=src_y0+y_src_step*idx_y;
+
+				int address=page+yy*512+xx;
+
+				int pix = rom[address&(0x1000000-1)];
+
+				int screen_x=x;
+				int screen_y=y;
+
+
+				if(page>=0x400000)
 				{
-						endx=(x==dst_x1);
-						endy=(y==dst_y1);
-
-
-					int xx=src_x0+x_src_step*idx_x;
-					int yy=src_y0+y_src_step*idx_y;
-
-					int address=page+yy*512+xx;
-
-					int pix = rom[address&(0x1000000-1)];
-
-					int screen_x=x;
-					int screen_y=y;
-
-
-					if(page>=0x400000)
+					//hack for clear
+					if(screen_x >0 && screen_y >0 && screen_x < width && screen_y <height)
 					{
-						//hack for clear
-						if(screen_x >0 && screen_y >0 && screen_x < width && screen_y <height)
-						{
-					//      m_tmp_bitmap[vpage]->pix16(screen_y , screen_x ) =0;
-						}
+				//      m_tmp_bitmap[vpage]->pix(screen_y , screen_x ) =0;
 					}
-					else
-					{
-						if (vpage == LAYER_FG) screen_y&=0xff;
+				}
+				else
+				{
+					if (vpage == LAYER_FG) screen_y&=0xff;
 
-						if(pix && screen_x >0 && screen_y >0 && screen_x < width && screen_y <height)
-						{
-							m_tmp_bitmap[vpage]->pix16(screen_y , screen_x ) = pix;
-						}
+					if(pix && screen_x >0 && screen_y >0 && screen_x < width && screen_y <height)
+					{
+						m_tmp_bitmap[vpage]->pix(screen_y, screen_x) = pix;
 					}
 				}
 			}
@@ -533,22 +492,19 @@ uint32_t wheelfir_state::screen_update_wheelfir(screen_device &screen, bitmap_in
 
 	for(int y=cliprect.min_y; y < cliprect.max_y; y++)
 	{
-		uint16_t *source = &m_tmp_bitmap[LAYER_BG]->pix16(( (m_scanlines[y].y)&511));
-		uint16_t *dest = &bitmap.pix16(y);
+		uint16_t const *const source = &m_tmp_bitmap[LAYER_BG]->pix(( (m_scanlines[y].y)&511));
+		uint16_t *const dest = &bitmap.pix(y);
 
 		for (int x = cliprect.min_x; x < cliprect.max_x; x++)
 		{
-			dest[x] = source[ (x+(m_scanlines[y].x)) &511];
+			dest[x] = source[(x + m_scanlines[y].x) & 511];
 		}
 	}
 
 	copybitmap_trans(bitmap, *m_tmp_bitmap[LAYER_FG], 0, 0, 0, 0, cliprect, 0);
 
 /*
-    {
-        m_tmp_bitmap[LAYER_BG]->fill(0, screen.visible_area());
-
-    }
+    m_tmp_bitmap[LAYER_BG]->fill(0, screen.visible_area());
 */
 
 	return 0;
@@ -564,12 +520,12 @@ WRITE_LINE_MEMBER(wheelfir_state::screen_vblank_wheelfir)
 }
 
 
-WRITE16_MEMBER(wheelfir_state::wheelfir_7c0000_w)
+void wheelfir_state::wheelfir_7c0000_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	if (ACCESSING_BITS_8_15)
 	{
-		//{uint16_t x = data & 0xf800; static int y = -1; if (x != y) { y = x; printf("%s wheelfir_7c0000_w %d%d%d%d%d\n", machine().describe_context(), BIT(data, 15), BIT(data, 14), BIT(data, 13), BIT(data, 12), BIT(data, 11)); }}
-		//{uint16_t x = data & 0x0700; static int y = -1; if (x != y) { y = x; printf("%s eeprom write %d%d%d\n", machine().describe_context(), BIT(data, 10), BIT(data, 9), BIT(data, 8)); }}
+		//{uint16_t x = data & 0xf800; static int y = -1; if (x != y) { y = x; printf("%s wheelfir_7c0000_w %d%d%d%d%d\n", machine().describe_context().c_str(), BIT(data, 15), BIT(data, 14), BIT(data, 13), BIT(data, 12), BIT(data, 11)); }}
+		//{uint16_t x = data & 0x0700; static int y = -1; if (x != y) { y = x; printf("%s eeprom write %d%d%d\n", machine().describe_context().c_str(), BIT(data, 10), BIT(data, 9), BIT(data, 8)); }}
 		m_eeprom->di_write(BIT(data, 9));
 		m_eeprom->clk_write(BIT(data, 8));
 		m_eeprom->cs_write(BIT(data, 10));
@@ -583,7 +539,7 @@ WRITE16_MEMBER(wheelfir_state::wheelfir_7c0000_w)
 	}
 }
 
-READ16_MEMBER(wheelfir_state::wheelfir_7c0000_r)
+uint16_t wheelfir_state::wheelfir_7c0000_r(offs_t offset, uint16_t mem_mask)
 {
 	uint16_t data = 0;
 
@@ -591,7 +547,7 @@ READ16_MEMBER(wheelfir_state::wheelfir_7c0000_r)
 	{
 		data |= (machine().rand() & 0x2000); // ?
 		data |= m_eeprom->do_read() << 15;
-		//printf("%s eeprom read %04x %04x\n", machine().describe_context(), data, mem_mask);
+		//printf("%s eeprom read %04x %04x\n", machine().describe_context().c_str(), data, mem_mask);
 	}
 
 	if (ACCESSING_BITS_0_7)
@@ -602,43 +558,42 @@ READ16_MEMBER(wheelfir_state::wheelfir_7c0000_r)
 	return data;
 }
 
-WRITE16_MEMBER(wheelfir_state::coin_cnt_w)
+void wheelfir_state::coin_cnt_w(uint16_t data)
 {
 	/* bits 0/1 coin counters */
 	machine().bookkeeping().coin_counter_w(0, data & 0x01);
 	machine().bookkeeping().coin_counter_w(1, data & 0x02);
 }
 
-ADDRESS_MAP_START(wheelfir_state::wheelfir_main)
-	AM_RANGE(0x000000, 0x0fffff) AM_ROM
-	AM_RANGE(0x200000, 0x20ffff) AM_RAM
+void wheelfir_state::wheelfir_main(address_map &map)
+{
+	map(0x000000, 0x0fffff).rom();
+	map(0x200000, 0x20ffff).ram();
 
-	AM_RANGE(0x700000, 0x70001f) AM_WRITE(wheelfir_blit_w)
-	AM_RANGE(0x720000, 0x720001) AM_DEVWRITE8("ramdac",ramdac_device, index_w, 0x00ff )
-	AM_RANGE(0x720002, 0x720003) AM_DEVWRITE8("ramdac",ramdac_device, pal_w, 0x00ff )
-	AM_RANGE(0x720004, 0x720005) AM_DEVWRITE8("ramdac",ramdac_device, mask_w, 0x00ff ) // word write?
-	AM_RANGE(0x740000, 0x740001) AM_DEVWRITE("soundlatch", generic_latch_16_device, write)
-	AM_RANGE(0x760000, 0x760001) AM_WRITE(coin_cnt_w)
-	AM_RANGE(0x780000, 0x780005) AM_WRITENOP // Start ADC0808 conversion
-	AM_RANGE(0x780000, 0x780001) AM_READ_PORT("STEERING")
-	AM_RANGE(0x780002, 0x780003) AM_READ_PORT("ACCELERATOR")
-	AM_RANGE(0x780004, 0x780005) AM_READ_PORT("BRAKE")
-	AM_RANGE(0x7a0000, 0x7a0001) AM_WRITE(wheelfir_scanline_cnt_w)
-	AM_RANGE(0x7c0000, 0x7c0001) AM_READWRITE(wheelfir_7c0000_r, wheelfir_7c0000_w)
-	AM_RANGE(0x7e0000, 0x7e0001) AM_READ_PORT("P1")
-	AM_RANGE(0x7e0002, 0x7e0003) AM_READ_PORT("P2")
-ADDRESS_MAP_END
+	map(0x700000, 0x70001f).w(FUNC(wheelfir_state::wheelfir_blit_w));
+	map(0x720001, 0x720001).w("ramdac", FUNC(ramdac_device::index_w));
+	map(0x720003, 0x720003).w("ramdac", FUNC(ramdac_device::pal_w));
+	map(0x720005, 0x720005).w("ramdac", FUNC(ramdac_device::mask_w)); // word write?
+	map(0x740000, 0x740001).w("soundlatch", FUNC(generic_latch_16_device::write));
+	map(0x760000, 0x760001).w(FUNC(wheelfir_state::coin_cnt_w));
+	map(0x780000, 0x78000f).rw("adc", FUNC(adc0808_device::data_r), FUNC(adc0808_device::address_offset_start_w)).umask16(0x00ff);
+	map(0x7a0000, 0x7a0001).w(FUNC(wheelfir_state::wheelfir_scanline_cnt_w));
+	map(0x7c0000, 0x7c0001).rw(FUNC(wheelfir_state::wheelfir_7c0000_r), FUNC(wheelfir_state::wheelfir_7c0000_w));
+	map(0x7e0000, 0x7e0001).portr("P1");
+	map(0x7e0002, 0x7e0003).portr("P2");
+}
 
 
-ADDRESS_MAP_START(wheelfir_state::wheelfir_sub)
-	AM_RANGE(0x000000, 0x0fffff) AM_ROM
-	AM_RANGE(0x200000, 0x20ffff) AM_RAM
+void wheelfir_state::wheelfir_sub(address_map &map)
+{
+	map(0x000000, 0x0fffff).rom();
+	map(0x200000, 0x20ffff).ram();
 
-	AM_RANGE(0x780000, 0x780001) AM_DEVREAD("soundlatch", generic_latch_16_device, read)
+	map(0x780000, 0x780001).r("soundlatch", FUNC(generic_latch_16_device::read));
 
-	AM_RANGE(0x700000, 0x700001) AM_DEVWRITE("ldac", dac_word_interface, write)
-	AM_RANGE(0x740000, 0x740001) AM_DEVWRITE("rdac", dac_word_interface, write)
-ADDRESS_MAP_END
+	map(0x700000, 0x700001).w("ldac", FUNC(dac_word_interface::data_w));
+	map(0x740000, 0x740001).w("rdac", FUNC(dac_word_interface::data_w));
+}
 
 
 static INPUT_PORTS_START( wheelfir )
@@ -656,7 +611,7 @@ static INPUT_PORTS_START( wheelfir )
 	PORT_BIT( 0x0400, IP_ACTIVE_LOW, IPT_COIN1 )
 	PORT_BIT( 0x0800, IP_ACTIVE_LOW, IPT_COIN2 )
 	PORT_BIT( 0x1000, IP_ACTIVE_LOW, IPT_SERVICE ) PORT_NAME( "Test" )
-	PORT_BIT( 0x2000, IP_ACTIVE_LOW, IPT_UNUSED ) /* net comm flag ? */
+	PORT_BIT( 0x2000, IP_ACTIVE_HIGH, IPT_OTHER ) PORT_READ_LINE_DEVICE_MEMBER(DEVICE_SELF, wheelfir_state, adc_eoc_r)
 	PORT_BIT( 0x4000, IP_ACTIVE_LOW, IPT_UNUSED )
 	PORT_BIT( 0x8000, IP_ACTIVE_LOW, IPT_UNUSED )
 
@@ -680,6 +635,16 @@ static INPUT_PORTS_START( wheelfir )
 	PORT_START("BRAKE")
 	PORT_BIT(0xff, 0x00, IPT_PEDAL2) PORT_INVERT PORT_SENSITIVITY(100) PORT_KEYDELTA(10) PORT_NAME("Brake Pedal") PORT_MINMAX(0x00, 0xff) PORT_REVERSE
 INPUT_PORTS_END
+
+READ_LINE_MEMBER( wheelfir_state::adc_eoc_r )
+{
+	return m_adc_eoc;
+}
+
+WRITE_LINE_MEMBER( wheelfir_state::adc_eoc_w )
+{
+	m_adc_eoc = state;
+}
 
 TIMER_DEVICE_CALLBACK_MEMBER(wheelfir_state::scanline_timer_callback)
 {
@@ -720,7 +685,7 @@ void wheelfir_state::machine_start()
 	m_zoom_table = std::make_unique<int32_t[]>(ZOOM_TABLE_SIZE);
 	m_blitter_data = std::make_unique<uint16_t[]>(16);
 
-	m_scanlines = reinterpret_cast<scroll_info*>(auto_alloc_array(machine(), uint8_t, sizeof(scroll_info)*(NUM_SCANLINES+NUM_VBLANK_LINES)));
+	m_scanlines = std::make_unique<scroll_info[]>(NUM_SCANLINES+NUM_VBLANK_LINES);
 
 
 	for(int i=0;i<(ZOOM_TABLE_SIZE);++i)
@@ -747,46 +712,52 @@ void wheelfir_state::machine_start()
 	}
 }
 
-ADDRESS_MAP_START(wheelfir_state::ramdac_map)
-	AM_RANGE(0x000, 0x3ff) AM_DEVREADWRITE("ramdac",ramdac_device,ramdac_pal_r,ramdac_rgb888_w)
-ADDRESS_MAP_END
+void wheelfir_state::ramdac_map(address_map &map)
+{
+	map(0x000, 0x3ff).rw("ramdac", FUNC(ramdac_device::ramdac_pal_r), FUNC(ramdac_device::ramdac_rgb888_w));
+}
 
-MACHINE_CONFIG_START(wheelfir_state::wheelfir)
+void wheelfir_state::wheelfir(machine_config &config)
+{
+	M68000(config, m_maincpu, 32000000/2);
+	m_maincpu->set_addrmap(AS_PROGRAM, &wheelfir_state::wheelfir_main);
 
-	MCFG_CPU_ADD("maincpu", M68000, 32000000/2)
-	MCFG_CPU_PROGRAM_MAP(wheelfir_main)
+	M68000(config, m_subcpu, 32000000/2);
+	m_subcpu->set_addrmap(AS_PROGRAM, &wheelfir_state::wheelfir_sub);
 
-	MCFG_CPU_ADD("subcpu", M68000, 32000000/2)
-	MCFG_CPU_PROGRAM_MAP(wheelfir_sub)
+	//config.set_maximum_quantum(attotime::from_hz(12000));
 
-	//MCFG_QUANTUM_TIME(attotime::from_hz(12000))
+	adc0808_device &adc(ADC0808(config, "adc", 500000)); // unknown clock
+	adc.eoc_ff_callback().set(FUNC(wheelfir_state::adc_eoc_w));
+	adc.in_callback<0>().set_ioport("STEERING");
+	adc.in_callback<1>().set_ioport("ACCELERATOR");
+	adc.in_callback<2>().set_ioport("BRAKE");
 
+	TIMER(config, "scan_timer").configure_scanline(FUNC(wheelfir_state::scanline_timer_callback), "screen", 0, 1);
 
-	MCFG_TIMER_DRIVER_ADD_SCANLINE("scan_timer", wheelfir_state, scanline_timer_callback, "screen", 0, 1)
+	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
+	m_screen->set_refresh_hz(60);
+	m_screen->set_size(336, NUM_SCANLINES+NUM_VBLANK_LINES);
+	m_screen->set_visarea(0,335, 0, NUM_SCANLINES-1);
+	m_screen->set_screen_update(FUNC(wheelfir_state::screen_update_wheelfir));
+	m_screen->screen_vblank().set(FUNC(wheelfir_state::screen_vblank_wheelfir));
+	m_screen->set_palette(m_palette);
 
-	MCFG_SCREEN_ADD("screen", RASTER)
-	MCFG_SCREEN_REFRESH_RATE(60)
-	MCFG_SCREEN_SIZE(336, NUM_SCANLINES+NUM_VBLANK_LINES)
-	MCFG_SCREEN_VISIBLE_AREA(0,335, 0, NUM_SCANLINES-1)
-	MCFG_SCREEN_UPDATE_DRIVER(wheelfir_state, screen_update_wheelfir)
-	MCFG_SCREEN_VBLANK_CALLBACK(WRITELINE(wheelfir_state, screen_vblank_wheelfir))
-	MCFG_SCREEN_PALETTE("palette")
+	PALETTE(config, m_palette).set_entries(NUM_COLORS);
+	ramdac_device &ramdac(RAMDAC(config, "ramdac", 0, m_palette));
+	ramdac.set_addrmap(0, &wheelfir_state::ramdac_map);
 
-	MCFG_PALETTE_ADD("palette", NUM_COLORS)
-	MCFG_RAMDAC_ADD("ramdac", ramdac_map, "palette")
+	EEPROM_93C46_16BIT(config, "eeprom");
 
-	MCFG_EEPROM_SERIAL_93C46_ADD("eeprom")
-
-	MCFG_GENERIC_LATCH_16_ADD("soundlatch")
+	GENERIC_LATCH_16(config, "soundlatch");
 
 	/* sound hardware */
-	MCFG_SPEAKER_STANDARD_STEREO("lspeaker", "rspeaker")
-	MCFG_SOUND_ADD("ldac", DAC_10BIT_R2R, 0) MCFG_SOUND_ROUTE(ALL_OUTPUTS, "lspeaker", 1.0) // unknown DAC
-	MCFG_SOUND_ADD("rdac", DAC_10BIT_R2R, 0) MCFG_SOUND_ROUTE(ALL_OUTPUTS, "rspeaker", 1.0) // unknown DAC
-	MCFG_DEVICE_ADD("vref", VOLTAGE_REGULATOR, 0) MCFG_VOLTAGE_REGULATOR_OUTPUT(5.0)
-	MCFG_SOUND_ROUTE_EX(0, "ldac", 1.0, DAC_VREF_POS_INPUT) MCFG_SOUND_ROUTE_EX(0, "ldac", -1.0, DAC_VREF_NEG_INPUT)
-	MCFG_SOUND_ROUTE_EX(0, "rdac", 1.0, DAC_VREF_POS_INPUT) MCFG_SOUND_ROUTE_EX(0, "rdac", -1.0, DAC_VREF_NEG_INPUT)
-MACHINE_CONFIG_END
+	SPEAKER(config, "lspeaker").front_left();
+	SPEAKER(config, "rspeaker").front_right();
+	DAC_10BIT_R2R(config, "ldac", 0).add_route(ALL_OUTPUTS, "lspeaker", 1.0); // unknown DAC
+	DAC_10BIT_R2R(config, "rdac", 0).add_route(ALL_OUTPUTS, "rspeaker", 1.0); // unknown DAC
+;
+}
 
 
 ROM_START( wheelfir )
@@ -812,4 +783,4 @@ ROM_START( wheelfir )
 	ROM_LOAD16_WORD_SWAP( "eeprom", 0x000000, 0x000080, CRC(961e4bc9) SHA1(8944504bf56a272e9aa08185e73c6b4212d52383) )
 ROM_END
 
-GAME( 199?, wheelfir,    0, wheelfir,    wheelfir, wheelfir_state, 0, ROT0,  "TCH", "Wheels & Fire", MACHINE_IMPERFECT_GRAPHICS)
+GAME( 199?, wheelfir,    0, wheelfir,    wheelfir, wheelfir_state, empty_init, ROT0,  "TCH", "Wheels & Fire", MACHINE_IMPERFECT_GRAPHICS)

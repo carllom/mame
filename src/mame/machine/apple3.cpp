@@ -46,11 +46,9 @@
 
 #include "emu.h"
 #include "includes/apple3.h"
-#include "includes/apple2.h"
-#include "screen.h"
 
-#define LOG_MEMORY      1
-#define LOG_INDXADDR    1
+#define LOG_MEMORY      0
+#define LOG_INDXADDR    0
 
 #define ENV_SLOWSPEED   (0x80)
 #define ENV_IOENABLE    (0x40)
@@ -61,7 +59,11 @@
 #define ENV_PRIMARYROM  (0x02)
 #define ENV_ROMENABLE   (0x01)
 
-READ8_MEMBER(apple3_state::apple3_c0xx_r)
+// 14M / 14, but with every 65th cycle stretched which we cannot reasonably emulate
+// 2 MHz mode probably has every 33rd cycle stretched but this is currently unproven.
+static constexpr XTAL APPLE2_CLOCK(1'021'800);
+
+uint8_t apple3_state::apple3_c0xx_r(offs_t offset)
 {
 	uint8_t result = 0xFF;
 	device_a2bus_card_interface *slotdevice;
@@ -122,7 +124,10 @@ READ8_MEMBER(apple3_state::apple3_c0xx_r)
 		case 0x24: case 0x25: case 0x26: case 0x27:
 		case 0x28: case 0x29: case 0x2A: case 0x2B:
 		case 0x2C: case 0x2D: case 0x2E: case 0x2F:
-			m_cnxx_slot = -1;
+			if (!machine().side_effects_disabled())
+			{
+				m_cnxx_slot = -1;
+			}
 			break;
 
 		case 0x30: case 0x31: case 0x32: case 0x33:
@@ -145,7 +150,7 @@ READ8_MEMBER(apple3_state::apple3_c0xx_r)
 
 		case 0x50: case 0x51: case 0x52: case 0x53:
 		case 0x54: case 0x55: case 0x56: case 0x57:
-			machine().first_screen()->update_partial(machine().first_screen()->vpos());
+			m_screen->update_partial(m_screen->vpos());
 			/* graphics softswitches */
 			if (offset & 1)
 				m_flags |= 1 << ((offset - 0x50) / 2);
@@ -184,6 +189,16 @@ READ8_MEMBER(apple3_state::apple3_c0xx_r)
 			result = (m_joybuttons->read() & 8) ? 0x80 : 0x00;
 			break;
 
+		case 0x64: // slot 2 IRQ status (negative logic)
+		case 0x6c:
+			result = (m_a2bus->get_a2bus_irq_mask() & (1<<2)) ? 0 : 0x80;
+			break;
+
+		case 0x65: // slot 1 IRQ status (negative logic)
+		case 0x6d:
+			result = (m_a2bus->get_a2bus_irq_mask() & (1<<1)) ? 0 : 0x80;
+			break;
+
 		case 0x66:  // paddle A/D conversion done (bit 7 = 1 while counting, 0 when done)
 		case 0x6e:
 			result = m_ramp_active ? 0x80 : 0x00;
@@ -193,7 +208,7 @@ READ8_MEMBER(apple3_state::apple3_c0xx_r)
 		case 0x74: case 0x75: case 0x76: case 0x77:
 		case 0x78: case 0x79: case 0x7A: case 0x7B:
 		case 0x7C: case 0x7D: case 0x7E: case 0x7F:
-			result = m_rtc->read(space, m_via_0_b);
+			result = m_rtc->read(m_via_0_b);
 			break;
 
 		case 0x90: case 0x91: case 0x92: case 0x93:
@@ -253,10 +268,11 @@ READ8_MEMBER(apple3_state::apple3_c0xx_r)
 
 		case 0xda:
 //          printf("ENCWRT off\n");
+			m_charwrt = false;
 			break;
 
 		case 0xdb:
-			apple3_write_charmem();
+			m_charwrt = true;
 //          printf("ENCWRT on (write_charmem (r))\n");
 			break;
 
@@ -301,7 +317,7 @@ READ8_MEMBER(apple3_state::apple3_c0xx_r)
 		case 0xf1:
 		case 0xf2:
 		case 0xf3:
-			result = m_acia->read(space, offset & 0x03);
+			result = m_acia->read(offset & 0x03);
 			break;
 	}
 	return result;
@@ -309,7 +325,7 @@ READ8_MEMBER(apple3_state::apple3_c0xx_r)
 
 
 
-WRITE8_MEMBER(apple3_state::apple3_c0xx_w)
+void apple3_state::apple3_c0xx_w(offs_t offset, uint8_t data)
 {
 	device_a2bus_card_interface *slotdevice;
 
@@ -349,7 +365,7 @@ WRITE8_MEMBER(apple3_state::apple3_c0xx_w)
 
 		case 0x50: case 0x51: case 0x52: case 0x53:
 		case 0x54: case 0x55: case 0x56: case 0x57:
-			machine().first_screen()->update_partial(machine().first_screen()->vpos());
+			m_screen->update_partial(m_screen->vpos());
 			/* graphics softswitches */
 			if (offset & 1)
 				m_flags |= 1 << ((offset - 0x50) / 2);
@@ -372,7 +388,7 @@ WRITE8_MEMBER(apple3_state::apple3_c0xx_w)
 		case 0x74: case 0x75: case 0x76: case 0x77:
 		case 0x78: case 0x79: case 0x7A: case 0x7B:
 		case 0x7C: case 0x7D: case 0x7E: case 0x7F:
-			m_rtc->write(space, m_via_0_b, data);
+			m_rtc->write(m_via_0_b, data);
 			break;
 
 
@@ -432,10 +448,11 @@ WRITE8_MEMBER(apple3_state::apple3_c0xx_w)
 
 		case 0xda:
 //          printf("ENCWRT off\n");
+			m_charwrt = false;
 			break;
 
 		case 0xdb:
-			apple3_write_charmem();
+			m_charwrt = true;
 //          printf("ENCWRT on (write_charmem (w))\n");
 			break;
 
@@ -466,15 +483,18 @@ WRITE8_MEMBER(apple3_state::apple3_c0xx_w)
 		case 0xf1:
 		case 0xf2:
 		case 0xf3:
-			m_acia->write(space, offset & 0x03, data);
+			m_acia->write(offset & 0x03, data);
 			break;
 	}
 }
 
-TIMER_DEVICE_CALLBACK_MEMBER(apple3_state::apple3_interrupt)
+WRITE_LINE_MEMBER(apple3_state::vbl_w)
 {
-	m_via_1->write_cb1(machine().first_screen()->vblank());
-	m_via_1->write_cb2(machine().first_screen()->vblank());
+	// do the font upload at the end of VBL, not the start
+	if ((!state) && (m_charwrt))
+	{
+		apple3_write_charmem();
+	}
 }
 
 uint8_t *apple3_state::apple3_bankaddr(uint16_t bank, offs_t offset)
@@ -512,7 +532,7 @@ void apple3_state::apple3_update_memory()
 		logerror("apple3_update_memory(): via_0_b=0x%02x via_1_a=0x0x%02x\n", m_via_0_b, m_via_1_a);
 	}
 
-	machine().device("maincpu")->set_unscaled_clock((m_via_0_a & ENV_SLOWSPEED) ? 1021800 : 2000000);
+	m_maincpu->set_unscaled_clock(((m_via_0_a & ENV_SLOWSPEED) ? APPLE2_CLOCK : (14.318181_MHz_XTAL / 7)));
 
 	/* bank 2 (0100-01FF) */
 	if (!(m_via_0_a & ENV_STACK1XX))
@@ -584,7 +604,7 @@ void apple3_state::apple3_update_memory()
 		m_bank7rd = m_bank7wr;
 
 		// if we had an IRQ waiting for RAM to be paged in...
-		apple3_irq_update();
+		//apple3_irq_update();
 	}
 }
 
@@ -600,67 +620,30 @@ void apple3_state::apple3_via_out(uint8_t *var, uint8_t data)
 }
 
 
-WRITE8_MEMBER(apple3_state::apple3_via_0_out_a)
+void apple3_state::apple3_via_0_out_a(uint8_t data)
 {
 	apple3_via_out(&m_via_0_a, data);
 }
 
-WRITE8_MEMBER(apple3_state::apple3_via_0_out_b)
+void apple3_state::apple3_via_0_out_b(uint8_t data)
 {
 //  printf("ZP to %02x\n", data);
 	apple3_via_out(&m_via_0_b, data);
 }
 
-WRITE8_MEMBER(apple3_state::apple3_via_1_out_a)
+void apple3_state::apple3_via_1_out_a(uint8_t data)
 {
 	apple3_via_out(&m_via_1_a, data);
 }
 
-WRITE8_MEMBER(apple3_state::apple3_via_1_out_b)
+void apple3_state::apple3_via_1_out_b(uint8_t data)
 {
 	m_dac->write(data);
 	apple3_via_out(&m_via_1_b, data);
 }
 
-void apple3_state::apple3_irq_update()
-{
-	if (m_acia_irq || m_via_1_irq || m_via_0_irq)
-	{
-//      printf("   setting IRQ\n");
-		m_maincpu->set_input_line(M6502_IRQ_LINE, ASSERT_LINE);
-		m_via_1->write_pa7(0);  // this is active low
-	}
-	else
-	{
-//      printf("   clearing IRQ\n");
-		m_maincpu->set_input_line(M6502_IRQ_LINE, CLEAR_LINE);
-		m_via_1->write_pa7(1);
-	}
-}
 
-WRITE_LINE_MEMBER(apple3_state::apple3_acia_irq_func)
-{
-//  printf("acia IRQ: %d\n", state);
-	m_acia_irq = state;
-	apple3_irq_update();
-}
-
-WRITE_LINE_MEMBER(apple3_state::apple3_via_1_irq_func)
-{
-//  printf("via 1 IRQ: %d\n", state);
-	m_via_1_irq = state;
-	apple3_irq_update();
-}
-
-
-WRITE_LINE_MEMBER(apple3_state::apple3_via_0_irq_func)
-{
-//  printf("via 0 IRQ: %d\n", state);
-	m_via_0_irq = state;
-	apple3_irq_update();
-}
-
-MACHINE_RESET_MEMBER(apple3_state,apple3)
+void apple3_state::machine_reset()
 {
 	m_indir_bank = 0;
 	m_sync = false;
@@ -672,14 +655,19 @@ MACHINE_RESET_MEMBER(apple3_state,apple3)
 	m_cnxx_slot = -1;
 	m_analog_sel = 0;
 	m_ramp_active = false;
+	m_charwrt = false;
+	m_inh_state = false;
 
 	m_fdc->set_floppies_4(floppy0, floppy1, floppy2, floppy3);
 
-	m_scanstart->adjust(machine().first_screen()->time_until_pos(0, 0));
+	m_scanstart->adjust(m_screen->time_until_pos(0, 0));
 	m_scanend->adjust(attotime::never);
 }
 
-
+WRITE_LINE_MEMBER(apple3_state::a2bus_inh_w)
+{
+	m_inh_state = state;
+}
 
 uint8_t *apple3_state::apple3_get_indexed_addr(offs_t offset)
 {
@@ -692,7 +680,7 @@ uint8_t *apple3_state::apple3_get_indexed_addr(offs_t offset)
 		if ((offset >= 0xFFD0) && (offset <= 0xFFEF))
 			result = apple3_bankaddr(~0, offset & 0x7FFF);
 		else if (offset < 0x2000)
-			result = apple3_bankaddr(~0, offset - 0x2000);
+			result = apple3_bankaddr(~0, offset);
 		else if (offset > 0x9FFF)
 			result = apple3_bankaddr(~0, offset - 0x8000);
 		else
@@ -706,55 +694,50 @@ uint8_t *apple3_state::apple3_get_indexed_addr(offs_t offset)
 	return result;
 }
 
-DRIVER_INIT_MEMBER(apple3_state,apple3)
+void apple3_state::init_apple3()
 {
 	m_enable_mask = 0;
 
 	m_flags = 0;
-	m_acia_irq = 0;
 	m_via_0_a = ~0;
 	m_via_1_a = ~0;
-	m_via_0_irq = 0;
-	m_via_1_irq = 0;
 	m_va = 0;
 	m_vb = 0;
 	m_vc = 0;
 	m_smoothscr = 0;
+	m_inh_state = false;
 
 	// kludge round +12v pull up resistors, which after conversion will bring this low when nothing is plugged in. issue also affects dcd/dsr but those don't affect booting.
 	m_acia->write_cts(0);
 
 	/* these are here to appease the Apple /// confidence tests */
-	m_via_1->write_pa0(1);
-	m_via_1->write_pa1(1);
-	m_via_1->write_pa2(1);
-	m_via_1->write_pa3(1);
-	m_via_1->write_pa4(1);
-	m_via_1->write_pa5(1);
-	m_via_1->write_pa6(1);
-	m_via_1->write_pa7(1);
+	m_via[1]->write_pa0(1);
+	m_via[1]->write_pa1(1);
+	m_via[1]->write_pa2(1);
+	m_via[1]->write_pa3(1);
+	m_via[1]->write_pa4(1);
+	m_via[1]->write_pa5(1);
+	m_via[1]->write_pa6(1);
+	m_via[1]->write_pa7(1);
 
-	m_via_1->write_pb0(1);
-	m_via_1->write_pb1(1);
-	m_via_1->write_pb2(1);
-	m_via_1->write_pb3(1);
-	m_via_1->write_pb4(1);
-	m_via_1->write_pb5(1);
-	m_via_1->write_pb6(1);
-	m_via_1->write_pb7(1);
+	m_via[1]->write_pb0(1);
+	m_via[1]->write_pb1(1);
+	m_via[1]->write_pb2(1);
+	m_via[1]->write_pb3(1);
+	m_via[1]->write_pb4(1);
+	m_via[1]->write_pb5(1);
+	m_via[1]->write_pb6(1);
+	m_via[1]->write_pb7(1);
 
 	m_scanstart = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(apple3_state::scanstart_cb),this));
 	m_scanend = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(apple3_state::scanend_cb),this));
 
 	apple3_update_memory();
 
-	save_item(NAME(m_acia_irq));
 	save_item(NAME(m_via_0_a));
 	save_item(NAME(m_via_0_b));
 	save_item(NAME(m_via_1_a));
 	save_item(NAME(m_via_1_b));
-	save_item(NAME(m_via_0_irq));
-	save_item(NAME(m_via_1_irq));
 	save_item(NAME(m_zpa));
 	save_item(NAME(m_last_n));
 	save_item(NAME(m_sync));
@@ -774,18 +757,36 @@ DRIVER_INIT_MEMBER(apple3_state,apple3)
 	save_item(NAME(m_vb));
 	save_item(NAME(m_vc));
 	save_item(NAME(m_smoothscr));
-
-	machine().save().register_postload(save_prepost_delegate(FUNC(apple3_state::apple3_postload), this));
+	save_item(NAME(m_charwrt));
+	save_item(NAME(m_inh_state));
 }
 
-void apple3_state::apple3_postload()
+void apple3_state::device_post_load()
 {
 	apple3_update_memory();
 }
 
-READ8_MEMBER(apple3_state::apple3_memory_r)
+uint8_t apple3_state::apple3_memory_r(offs_t offset)
 {
 	uint8_t rv = 0xff;
+
+	if (m_inh_state)
+	{
+		for (int slot = 1; slot < 4; slot++)
+		{
+			device_a2bus_card_interface *slotdevice = m_a2bus->get_a2bus_card(slot);
+			if (slotdevice != nullptr)
+			{
+				if ((slotdevice->inh_type() & INH_READ) == INH_READ)
+				{
+					if ((offset >= slotdevice->inh_start()) && (offset <= slotdevice->inh_end()))
+					{
+						return slotdevice->read_inh_rom(offset);
+					}
+				}
+			}
+		}
+	}
 
 	// (zp), y or (zp,x) read
 	if (!machine().side_effects_disabled())
@@ -834,7 +835,7 @@ READ8_MEMBER(apple3_state::apple3_memory_r)
 		{
 			if (!machine().side_effects_disabled())
 			{
-				rv = apple3_c0xx_r(space, offset-0xc000);
+				rv = apple3_c0xx_r(offset-0xc000);
 			}
 		}
 		else
@@ -848,7 +849,7 @@ READ8_MEMBER(apple3_state::apple3_memory_r)
 		{
 			rv = m_bank9[offset - 0xc100];
 		}
-		else
+		else if (!machine().side_effects_disabled())
 		{
 			/* now identify the device */
 			device_a2bus_card_interface *slotdevice = m_a2bus->get_a2bus_card((offset>>8) & 0x7);
@@ -876,9 +877,12 @@ READ8_MEMBER(apple3_state::apple3_memory_r)
 		}
 		else
 		{
-			if (offset == 0xcfff)
+			if (!machine().side_effects_disabled())
 			{
-				m_cnxx_slot = -1;
+				if (offset == 0xcfff)
+				{
+					m_cnxx_slot = -1;
+				}
 			}
 
 			if (m_cnxx_slot != -1)
@@ -904,11 +908,11 @@ READ8_MEMBER(apple3_state::apple3_memory_r)
 		}
 		else if (offset >= 0xffd0 && offset <= 0xffdf)
 		{
-			rv = m_via_0->read(space, offset);
+			rv = m_via[0]->read(offset);
 		}
 		else if (offset >= 0xffe0 && offset <= 0xffef)
 		{
-			rv = m_via_1->read(space, offset);
+			rv = m_via[1]->read(offset);
 		}
 		else
 		{
@@ -919,8 +923,27 @@ READ8_MEMBER(apple3_state::apple3_memory_r)
 	return rv;
 }
 
-WRITE8_MEMBER(apple3_state::apple3_memory_w)
+void apple3_state::apple3_memory_w(offs_t offset, uint8_t data)
 {
+	if (m_inh_state)
+	{
+		for (int slot = 1; slot < 4; slot++)
+		{
+			device_a2bus_card_interface *slotdevice = m_a2bus->get_a2bus_card(slot);
+			if (slotdevice != nullptr)
+			{
+				if ((slotdevice->inh_type() & INH_WRITE) == INH_WRITE)
+				{
+					if ((offset >= slotdevice->inh_start()) && (offset <= slotdevice->inh_end()))
+					{
+						slotdevice->write_inh_rom(offset, data);
+						return;
+					}
+				}
+			}
+		}
+	}
+
 	if ((m_indir_bank & 0x80) && (offset >= 0x100))
 	{
 		uint8_t *test;
@@ -959,7 +982,7 @@ WRITE8_MEMBER(apple3_state::apple3_memory_w)
 		{
 			if (!machine().side_effects_disabled())
 			{
-				apple3_c0xx_w(space, offset-0xc000, data);
+				apple3_c0xx_w(offset-0xc000, data);
 			}
 		}
 		else
@@ -1051,14 +1074,14 @@ WRITE8_MEMBER(apple3_state::apple3_memory_w)
 		{
 			if (!machine().side_effects_disabled())
 			{
-				m_via_0->write(space, offset, data);
+				m_via[0]->write(offset, data);
 			}
 		}
 		else if (offset >= 0xffe0 && offset <= 0xffef)
 		{
 			if (!machine().side_effects_disabled())
 			{
-				m_via_1->write(space, offset, data);
+				m_via[1]->write(offset, data);
 			}
 		}
 		else
@@ -1096,21 +1119,21 @@ TIMER_CALLBACK_MEMBER(apple3_state::scanstart_cb)
 {
 	int scanline;
 
-	scanline = machine().first_screen()->vpos();
-	//machine().first_screen()->update_partial(machine().first_screen()->vpos());
+	scanline = m_screen->vpos();
+	//m_screen->update_partial(m_screen->vpos());
 
-	m_via_1->write_pb6(0);
+	m_via[1]->write_pb6(0);
 
-	m_scanend->adjust(machine().first_screen()->time_until_pos(scanline, 559));
+	m_scanend->adjust(m_screen->time_until_pos(scanline, 559));
 }
 
 TIMER_CALLBACK_MEMBER(apple3_state::scanend_cb)
 {
-	int scanline = machine().first_screen()->vpos();
+	int scanline = m_screen->vpos();
 
-	m_via_1->write_pb6(1);
+	m_via[1]->write_pb6(1);
 
-	m_scanstart->adjust(machine().first_screen()->time_until_pos((scanline+1) % 224, 0));
+	m_scanstart->adjust(m_screen->time_until_pos((scanline+1) % 224, 0));
 }
 
 READ_LINE_MEMBER(apple3_state::ay3600_shift_r)
@@ -1221,7 +1244,7 @@ static const uint8_t key_remap[0x50][4] =
 
 WRITE_LINE_MEMBER(apple3_state::ay3600_data_ready_w)
 {
-	m_via_1->write_ca2(state);
+	m_via[1]->write_ca2(state);
 
 	if (state == ASSERT_LINE)
 	{
@@ -1344,31 +1367,30 @@ WRITE_LINE_MEMBER(apple3_state::a2bus_irq_w)
 {
 	uint8_t irq_mask = m_a2bus->get_a2bus_irq_mask();
 
-	m_via_1->write_ca1(state);
-	m_via_1->write_pa7(state);
+	m_via[0]->write_ca1(!state);
 
 	if (irq_mask & (1<<4))
 	{
-		m_via_1->write_pa4(ASSERT_LINE);
+		m_via[1]->write_pa4(CLEAR_LINE);
 	}
 	else
 	{
-		m_via_1->write_pa4(CLEAR_LINE);
+		m_via[1]->write_pa4(ASSERT_LINE);
 	}
 
 	if (irq_mask & (1<<3))
 	{
-		m_via_1->write_pa5(ASSERT_LINE);
+		m_via[1]->write_pa5(CLEAR_LINE);
 	}
 	else
 	{
-		m_via_1->write_pa5(CLEAR_LINE);
+		m_via[1]->write_pa5(ASSERT_LINE);
 	}
 }
 
 WRITE_LINE_MEMBER(apple3_state::a2bus_nmi_w)
 {
-	m_via_1->write_pb7(state);
+	m_via[1]->write_pb7(state);
 
 	if (m_via_0_a & ENV_NMIENABLE)
 	{

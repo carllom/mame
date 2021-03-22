@@ -184,7 +184,7 @@ static const int8_t outLvlTbl[16][16] = {
 	{ 0,  2,  4,  6,  8, 10, 12, 14, 16, 17, 19, 21, 23, 25, 27, 29}
 };
 
-static inline uint8_t mgetb(register uint8_t *ptr) { return *ptr; }
+static inline uint8_t mgetb(uint8_t *ptr) { return *ptr; }
 static inline void mputb(uint8_t *ptr, int8_t data) { *ptr = data; }
 
 //**************************************************************************
@@ -207,25 +207,37 @@ vboysnd_device::vboysnd_device(const machine_config &mconfig, const char *tag, d
 
 void vboysnd_device::device_start()
 {
-	int i;
-
+	uint32_t rate = clock() / 120;
 	// create the stream
-	m_stream = machine().sound().stream_alloc(*this, 0, 2, AUDIO_FREQ);
+	m_stream = stream_alloc(0, 2, rate);
 
-	for (i=0; i<2048; i++)
-		waveFreq2LenTbl[i] = AUDIO_FREQ / (5000000.0f/(float)((2048-i) * 32));
-	for (i=0; i<32; i++)
-		waveTimer2LenTbl[i] = ((0.00384f*(float)(i+1)) * (float)AUDIO_FREQ);
-	for (i=0; i<8; i++)
-		waveEnv2LenTbl[i] = ((0.01536f*(float)(i+1)) * (float)AUDIO_FREQ);
+	m_timer = timer_alloc(0, nullptr);
+	m_timer->adjust(attotime::zero, 0, rate ? attotime::from_hz(rate / 4) : attotime::never);
 
-	for (i = 0; i < 5; i++)
+	for (int i=0; i<2048; i++)
+		waveFreq2LenTbl[i] = ((2048 - i) * 32) / 120;
+	for (int i=0; i<32; i++)
+		waveTimer2LenTbl[i] = (i+1) * 120;
+	for (int i=0; i<8; i++)
+		waveEnv2LenTbl[i] = (i + 1) * 4 * 120;
+
+	for (int i = 0; i < 5; i++)
 		memset(&snd_channel[i], 0, sizeof(s_snd_channel));
 
 	memset(m_aram, 0, 0x600);
+}
 
-	m_timer = timer_alloc(0, nullptr);
-	m_timer->adjust(attotime::zero, 0, attotime::from_hz(AUDIO_FREQ/4));
+
+//-------------------------------------------------
+//  device_clock_changed
+//-------------------------------------------------
+
+void vboysnd_device::device_clock_changed()
+{
+	uint32_t rate = clock() / 120;
+	m_stream->set_sample_rate(rate);
+
+	m_timer->adjust(attotime::zero, 0, rate ? attotime::from_hz(rate / 4) : attotime::never);
 }
 
 
@@ -257,15 +269,14 @@ void vboysnd_device::device_timer(emu_timer &timer, device_timer_id tid, int par
 //  our sound stream
 //-------------------------------------------------
 
-void vboysnd_device::sound_stream_update(sound_stream &stream, stream_sample_t **inputs, stream_sample_t **outputs, int samples)
+void vboysnd_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
 {
-	stream_sample_t *outL, *outR;
 	int len, i, j, channel;
 
-	outL = outputs[0];
-	outR = outputs[1];
+	auto &outL = outputs[0];
+	auto &outR = outputs[1];
 
-	len = samples;
+	len = outL.samples();
 
 //  if (mgetb(m_aram+SST0P) & 0x1)  // Sound Stop Reg
 //      goto end;
@@ -372,13 +383,9 @@ void vboysnd_device::sound_stream_update(sound_stream &stream, stream_sample_t *
 		// scale to 16 bits
 		note_left = (note_left << 5) | ((note_left >> 6) & 0x1f);
 		note_right = (note_right << 5) | ((note_right >> 6) & 0x1f);
-		if (note_left  < -32767) note_left  = -32767;
-		if (note_left  > 32767) note_left  = 32767;
-		if (note_right < -32767) note_right = -32767;
-		if (note_right > 32767) note_right = 32767;
 
-		*(outL++) = ((int16_t)note_left);
-		*(outR++) = ((int16_t)note_right);
+		outL.put_int_clamp(j, (int16_t)note_left, 32768);
+		outR.put_int_clamp(j, (int16_t)note_right, 32768);
 	}
 }
 
@@ -386,7 +393,7 @@ void vboysnd_device::sound_stream_update(sound_stream &stream, stream_sample_t *
 //  read - read from the chip's registers and internal RAM
 //-------------------------------------------------
 
-READ8_MEMBER( vboysnd_device::read )
+uint8_t vboysnd_device::read(offs_t offset)
 {
 	m_stream->update();
 	return m_aram[offset];
@@ -396,7 +403,7 @@ READ8_MEMBER( vboysnd_device::read )
 //  write - write to the chip's registers and internal RAM
 //-------------------------------------------------
 
-WRITE8_MEMBER( vboysnd_device::write )
+void vboysnd_device::write(offs_t offset, uint8_t data)
 {
 	int freq, i;
 //    int waveAddr;
@@ -435,6 +442,7 @@ WRITE8_MEMBER( vboysnd_device::write )
 					break;
 				}
 			}
+			[[fallthrough]]; // FIXME: really?
 		case SxINT:
 			if (channel < 5)
 			{

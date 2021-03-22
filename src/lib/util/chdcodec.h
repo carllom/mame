@@ -8,13 +8,13 @@
 
 ***************************************************************************/
 
+#ifndef MAME_UTIL_CHDCODEC_H
+#define MAME_UTIL_CHDCODEC_H
+
 #pragma once
 
-#ifndef __CHDCODEC_H__
-#define __CHDCODEC_H__
-
-#include "osdcore.h"
-#include "coretmpl.h"
+#include <cstdint>
+#include <vector>
 
 
 #define CHDCODEC_VERIFY_COMPRESSION 0
@@ -190,5 +190,4 @@ enum
 	AVHUFF_CODEC_DECOMPRESS_CONFIG = 1
 };
 
-
-#endif // __CHDCODEC_H__
+#endif // MAME_UTIL_CHDCODEC_H

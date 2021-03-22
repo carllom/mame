@@ -9,40 +9,42 @@
     Michael Zapf, Sept 2014
 
 *********************************************************************/
+#ifndef MAME_FORMATS_TI99_DSK_H
+#define MAME_FORMATS_TI99_DSK_H
 
-#ifndef TI99_DSK_H
-#define TI99_DSK_H
+#pragma once
 
 #include "flopimg.h"
-#include "wd177x_dsk.h"
+
+#include <string>
+
 
 class ti99_floppy_format : public floppy_image_format_t
 {
 public:
 	bool supports_save() const override { return true; }
-	bool load(io_generic *io, uint32_t form_factor, floppy_image *image) override;
-	bool save(io_generic *io, floppy_image *image) override;
+	bool load(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants, floppy_image *image) override;
+	bool save(io_generic *io, const std::vector<uint32_t> &variants, floppy_image *image) override;
 
 protected:
-	int decode_bitstream(const uint8_t *bitstream, uint8_t *trackdata, int *sector, int cell_count, int encoding, uint8_t gapbytes, int track_size);
 	uint8_t get_data_from_encoding(uint16_t raw);
+	int get_sectors(const std::vector<bool> &bitstream, int encoding, int track, int head, int sectors, uint8_t *sectordata, int *secnumber);
 
 	virtual int min_heads() =0;
 
 	virtual void determine_sizes(io_generic *io, int& cell_size, int& sector_count, int& heads, int& tracks) =0;
-	virtual int get_track_size(int cell_size, int sector_count) =0;
-	virtual void load_track(io_generic *io, uint8_t *trackdata, int head, int track, int acttrack, int sectorcount, int trackcount, int cellsize) =0;
-	virtual void write_track(io_generic *io, uint8_t *trackdata, int *sector, int track, int head, int maxsect, int maxtrack, int numbytes) =0;
+	virtual int get_track_size(int sector_count) =0;
+	virtual void load_track(io_generic *io, uint8_t *sectordata, int *sector, int *secoffset, int head, int track, int sectorcount, int trackcount) =0;
+	virtual void write_track(io_generic *io, uint8_t *sectordata, int *sector, int track, int head, int sector_count, int track_count) =0;
 
 	int get_encoding(int cell_size);
 
-	void generate_track_fm(int track, int head, int cell_size, uint8_t* trackdata, floppy_image *image);
-	void generate_track_mfm(int track, int head, int cell_size, uint8_t* trackdata, floppy_image *image);
-
-	bool check_for_address_marks(uint8_t* trackdata, int encoding);
+	void generate_fm_track_from_sectors(floppy_image *image, uint8_t *sectordata, int sector_count, int *sector, int *secoffset, int track, int trackid, int head);
+	void generate_mfm_track_from_sectors(floppy_image *image, uint8_t *sectordata, int sector_count, int *sector, int *secoffset, int track, int trackid, int head);
 
 	// Debugging
-	void showtrack(uint8_t* trackdata, int length);
+	void dumpbytes(uint8_t* trackdata, int length);
+	std::string dumpline(uint8_t* line, int address) const;
 };
 
 /*
@@ -51,16 +53,16 @@ protected:
 class ti99_sdf_format : public ti99_floppy_format
 {
 public:
-	int identify(io_generic *io, uint32_t form_factor) override;
+	int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	const char *name() const override;
 	const char *description() const override;
 	const char *extensions() const override;
 
 private:
 	void determine_sizes(io_generic *io, int& cell_size, int& sector_count, int& heads, int& tracks) override;
-	int get_track_size(int cell_size, int sector_count) override;
-	void write_track(io_generic *io, uint8_t *trackdata, int *sector, int track, int head, int maxsect, int maxtrack, int numbytes) override;
-	void load_track(io_generic *io, uint8_t *trackdata, int head, int track, int acttrack, int sectorcount, int trackcount, int cellsize) override;
+	int get_track_size(int sector_count) override;
+	void write_track(io_generic *io, uint8_t *sectordata, int *sector, int track, int head, int sector_count, int track_count) override;
+	void load_track(io_generic *io, uint8_t *sectordata, int *sector, int *secoffset, int head, int track, int sector_count, int track_count) override;
 
 	// This format supports single-sided images
 	int min_heads() override { return 1; }
@@ -90,16 +92,16 @@ extern const floppy_format_type FLOPPY_TI99_SDF_FORMAT;
 class ti99_tdf_format : public ti99_floppy_format
 {
 public:
-	int identify(io_generic *io, uint32_t form_factor) override;
+	int identify(io_generic *io, uint32_t form_factor, const std::vector<uint32_t> &variants) override;
 	const char *name() const override;
 	const char *description() const override;
 	const char *extensions() const override;
 
 private:
 	void determine_sizes(io_generic *io, int& cell_size, int& sector_count, int& heads, int& tracks) override;
-	void load_track(io_generic *io, uint8_t *trackdata, int head, int track, int acttrack, int sectorcount, int trackcount, int cellsize) override;
-	void write_track(io_generic *io, uint8_t *trackdata, int *sector, int track, int head, int maxsect, int maxtrack, int numbytes) override;
-	int get_track_size(int cell_size, int sector_count) override;
+	void load_track(io_generic *io, uint8_t *sectordata, int *sector, int *secoffset, int head, int track, int sectorcount, int trackcount) override;
+	void write_track(io_generic *io, uint8_t *sectordata, int *sector, int track, int head, int sector_count, int track_count) override;
+	int get_track_size(int sector_count) override;
 
 	// This format only supports double-sided images
 	int min_heads() override { return 2; }
@@ -107,4 +109,4 @@ private:
 
 extern const floppy_format_type FLOPPY_TI99_TDF_FORMAT;
 
-#endif /* TI99_DSK_H */
+#endif // MAME_FORMATS_TI99_DSK_H

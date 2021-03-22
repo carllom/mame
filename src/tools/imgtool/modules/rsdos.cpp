@@ -8,9 +8,9 @@
 
 ****************************************************************************/
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
 #include "imgtool.h"
 #include "formats/coco_dsk.h"
 #include "iflopimg.h"
@@ -320,7 +320,7 @@ eof:
 	}
 	else
 	{
-		/* Not the end of file */
+		/* Note the end of file */
 		err = process_rsdos_file(&rsent, image, nullptr, filesize);
 		if (err)
 			return err;
@@ -340,8 +340,8 @@ eof:
 
 		std::string fname = get_dirent_fname(rsent);
 
-		snprintf(ent.filename, ARRAY_LENGTH(ent.filename), "%s", fname.c_str());
-		snprintf(ent.attr, ARRAY_LENGTH(ent.attr), "%d %c", (int) rsent.ftype, (char) (rsent.asciiflag + 'B'));
+		snprintf(ent.filename, std::size(ent.filename), "%s", fname.c_str());
+		snprintf(ent.attr, std::size(ent.attr), "%d %c", (int) rsent.ftype, (char) (rsent.asciiflag + 'B'));
 	}
 	return IMGTOOLERR_SUCCESS;
 }
