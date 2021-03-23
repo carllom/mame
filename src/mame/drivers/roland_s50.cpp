@@ -444,7 +444,7 @@ void roland_w30_state::w30(machine_config &config)
 #ifdef UNUSED_DEFINITION
 void roland_w30_state::s330(machine_config &config)
 {
-	P8097(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
+	N8097BH(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_w30_state::s330_mem_map);
 
 	ADDRESS_MAP_BANK(config, m_psram[0]);
@@ -527,12 +527,12 @@ ROM_END
 #ifdef UNUSED_DEFINITION
 ROM_START(s330)
 	ROM_REGION16_LE(0x4000, "program", 0)
-	ROM_LOAD16_BYTE("s-330.ic15", 0x0000, 0x2000, NO_DUMP)
-	ROM_LOAD16_BYTE("s-330.ic14", 0x0001, 0x2000, NO_DUMP)
+	ROM_LOAD16_BYTE("s-330.ic15", 0x0000, 0x2000, CRC(20AA7CE0))
+	ROM_LOAD16_BYTE("s-330.ic14", 0x0001, 0x2000, CRC(32A00F31))
 ROM_END
 #endif
 
 SYST(1987, s50,  0,   0, s50,  s50,  roland_s50_state,  empty_init, "Roland", "S-50 Digital Sampling Keyboard", MACHINE_IS_SKELETON)
 SYST(1987, s550, s50, 0, s550, s550, roland_s550_state, empty_init, "Roland", "S-550 Digital Sampler", MACHINE_IS_SKELETON)
 SYST(1988, w30,  0,   0, w30,  w30,  roland_w30_state,  empty_init, "Roland", "W-30 Music Workstation", MACHINE_IS_SKELETON)
-//SYST(1988, s330, w30, 0, s330, s330, roland_w30_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_IS_SKELETON)
+SYST(1988, s330, w30, 0, s330, s330, roland_w30_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_IS_SKELETON)

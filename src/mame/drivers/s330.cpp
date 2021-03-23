@@ -49,29 +49,29 @@ public:
 
 	// int m_mapper_state;
 	// int m_seq_bank;
-	// UINT8 m_seqram[0x10000];
-	// UINT8 m_dosram[0x2000];
+	// uint8_t m_seqram[0x10000];
+	// uint8_t m_dosram[0x2000];
 	// DECLARE_INPUT_CHANGED_MEMBER(key_stroke);
 	required_ioport m_panel0;
 	required_ioport m_panel1;
 	required_ioport m_panel2;
 	required_ioport m_panel3;
-	UINT8 m_keyreg_p[4];
-	UINT8 m_keyreg[4];
+	uint8_t m_keyreg_p[4];
+	uint8_t m_keyreg[4];
 	DECLARE_INPUT_CHANGED_MEMBER(keyhandler);
 
 	DECLARE_DRIVER_INIT( s330 );
 
 	DECLARE_FLOPPY_FORMATS( floppy_formats );
 
-	// void send_through_panel(UINT8 data);
+	// void send_through_panel(uint8_t data);
 	DECLARE_PALETTE_INIT(lcd);
 	DECLARE_PALETTE_INIT(vdp);
 	TIMER_DEVICE_CALLBACK_MEMBER(s330_hblank_interrupt);
 
 
 	int m_keyrowsread;
-	UINT8 m_d800, m_d802, m_d804;
+	uint8_t m_d800, m_d802, m_d804;
 	DECLARE_READ8_MEMBER(d800_read);
 	DECLARE_WRITE8_MEMBER(d800_write);
 	DECLARE_READ8_MEMBER(d802_read);
@@ -131,8 +131,8 @@ void s330_state::machine_reset()
 
 	// 60013
 	m_keyrowsread = 0;
-	memset(m_keyreg,0xFF,4*sizeof(UINT8));
-	memset(m_keyreg_p,0xFF,4*sizeof(UINT8));
+	memset(m_keyreg,0xFF,4*sizeof(uint8_t));
+	memset(m_keyreg_p,0xFF,4*sizeof(uint8_t));
 	//m_keyreg[1]=0xFB; // Left key pressed
 }
 
@@ -183,7 +183,7 @@ TIMER_DEVICE_CALLBACK_MEMBER(s330_state::s330_hblank_interrupt)
 // - Odd addresses are passed on to SA-16 (Wave RAM interface)
 // - Even addresses are passed on to the other chips
 //
-READ8_MEMBER(s330_state::m60013_r) //UINT8 name(address_space &space, offs_t offset, UINT8 mem_mask)
+READ8_MEMBER(s330_state::m60013_r) //uint8_t name(address_space &space, offs_t offset, uint8_t mem_mask)
 {
 	if (offset & 1) {
 		// Odd addresses are passed on to SA-16. Offset is normalized to target address range.
@@ -202,7 +202,7 @@ READ8_MEMBER(s330_state::m60013_r) //UINT8 name(address_space &space, offs_t off
 // - Odd addresses are passed on to SA-16 (Wave RAM interface)
 // - Even addresses are passed on to the other chips
 //
-WRITE8_MEMBER(s330_state::m60013_w) //void name(address_space &space, offs_t offset, UINT8 data, UINT8 mem_mask)
+WRITE8_MEMBER(s330_state::m60013_w) //void name(address_space &space, offs_t offset, uint8_t data, uint8_t mem_mask)
 {
 	if (offset & 1) {
 		// Odd addresses are passed on to SA-16. Offset is normalized to target address range.
@@ -251,7 +251,7 @@ WRITE8_MEMBER( s330_state::d804_write )
 
 READ8_MEMBER( s330_state::key_read )
 {
-	UINT8 value, oldvalue;
+	uint8_t value, oldvalue;
 	value = m_keyreg[m_keyrowsread];
 	if (LOG_M60013) {
 		oldvalue = m_keyreg_p[m_keyrowsread];
@@ -386,9 +386,9 @@ WRITE_LINE_MEMBER(s330_state::cb_enp)
 	logerror("cb_enp %d\n", state);
 }
 
-static ADDRESS_MAP_START( s330_map, AS_PROGRAM, 8, s330_state )
-
-	AM_RANGE(0x0100, 0x1FFD) AM_RAMBANK("8kbank")
+void s330_state::s330_map(machine_config &config)
+{
+	map(0x0100, 0x1FFD) AM_RAMBANK("8kbank")
 
 	AM_RANGE(0x0100, 0x1FFD) AM_ROM AM_REGION("bootrom", 0x0100)
 	AM_RANGE(0x2000, 0x3FFF) AM_ROM AM_REGION("bootrom", 0x2000)
