@@ -32,12 +32,15 @@ SOUNDS["DAC"] = true
 
 VIDEOS["HD44780"] = true -- s330
 VIDEOS["TMS3556"] = true -- s330
+VIDEOS["T6963C"] = true -- ajr
 
 --------------------------------------------------
 -- specify available machine cores
 --------------------------------------------------
 
 MACHINES["WD_FDC"] = true
+MACHINES["FDC_PLL"] = true -- wd_fdc
+MACHINES["BANKDEV"] = true -- ajr
 
 --------------------------------------------------
 -- specify available bus cores
@@ -69,9 +72,14 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
-	MAME_DIR .. "src/mame/drivers/s330.cpp",
-	MAME_DIR .. "src/mame/audio/sa16.cpp",
-	MAME_DIR .. "src/mame/audio/sa16.h",
+	-- MAME_DIR .. "src/mame/drivers/s330.cpp",
+	MAME_DIR .. "src/mame/drivers/roland_s50.cpp",
+	MAME_DIR .. "src/mame/machine/mb63h149.cpp", -- (ajr) not mapped to machine core yet?
+	-- MAME_DIR .. "src/mame/machine/mb63h149.h",
+	MAME_DIR .. "src/mame/audio/sa16.cpp", -- not mapped to audio core yet
+	-- MAME_DIR .. "src/mame/audio/sa16.h",
+	MAME_DIR .. "src/mame/audio/bu3905.cpp", -- (ajr) not mapped to audio core yet?
+	-- MAME_DIR .. "src/mame/audio/bu3905.h",
 }
 end
 

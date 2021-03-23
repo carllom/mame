@@ -26,14 +26,6 @@
 		<screen index="0">
 			<bounds x="50" y="100" width="336" height="252" />
 		</screen>
-
-		<bezel element="lcd">
-			<bounds x="0" y="0" width="50" height="18" />
-		</bezel>
 		
-		<bezel element="crt">
-			<bounds x="0" y="100" width="50" height="18" />
-		</bezel>
-
 	</view>
 </mamelayout>
