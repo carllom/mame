@@ -135,7 +135,7 @@ class roland_s330_state : public roland_w30_state
 public:
 	roland_s330_state(const machine_config &mconfig, device_type type, const char *tag)
 		: roland_w30_state(mconfig, type, tag)
-		// , m_lcdc(*this, "lcdc")
+		, m_lcdc(*this, "lcdc")
 	{
 	}
 
@@ -146,10 +146,10 @@ protected:
 private:
 	void mem_map(address_map &map);
 
-    // HD44780_PIXEL_UPDATE(lcd_pixel_update);
-	// void init_lcd_palette(palette_device &palette) const;
+    HD44780_PIXEL_UPDATE(lcd_pixel_update);
+	void init_lcd_palette(palette_device &palette) const;
 
-	// required_device<hd44780_device> m_lcdc;
+	required_device<hd44780_device> m_lcdc;
 };
 
 void roland_s50_state::machine_start()
@@ -251,6 +251,17 @@ u8 roland_w30_state::unknown_status_r()
 	return 0x1c;
 }
 
+void roland_s330_state::init_lcd_palette(palette_device &palette) const
+{
+	palette.set_pen_color(0, rgb_t(131, 136, 139));
+	palette.set_pen_color(1, rgb_t( 92,  83,  88));
+}
+
+HD44780_PIXEL_UPDATE(roland_s330_state::lcd_pixel_update)
+{
+	if (x < 5 && y < 8 && line < 2 && pos < 16)
+		bitmap.pix(line * 8 + y, pos * 6 + x) = state;
+}
 
 void roland_s50_state::mem_map(address_map &map)
 {
@@ -582,10 +593,26 @@ void roland_s330_state::s330(machine_config &config)
 	// Floppy unit: ND-362S-A
 	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
 
+	config.set_default_layout(layout_s330);
+
 	// LCD unit: DM1620-5BL7 (MW-5F)
+	HD44780(config, m_lcdc, 0);
+	m_lcdc->set_lcd_size(2, 16);
+	m_lcdc->set_pixel_update_cb(FUNC(roland_s330_state::lcd_pixel_update));
+	m_lcdc->set_busy_factor(0.005f);
+
+	screen_device &lcd(SCREEN(config, "lcdpanel", SCREEN_TYPE_LCD));
+	lcd.set_refresh_hz(50);
+	lcd.set_vblank_time(ATTOSECONDS_IN_USEC(2500));
+	lcd.set_size(6*16, 9*2);
+	lcd.set_visarea(0, 6*16-1, 0, 9*2-1);
+	lcd.set_screen_update("lcdc", FUNC(hd44780_device::screen_update));
+	lcd.set_palette("lcd_pal");
+	PALETTE(config, "lcd_pal", FUNC(roland_s330_state::init_lcd_palette), 2);
 
 	TMS3556(config, m_vdp, 14.3496_MHz_XTAL); // TMS3556NL
 	m_vdp->set_addrmap(0, &roland_s330_state::vram_map);
+	m_vdp->set_screen("screen");
 
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
 	screen.set_video_attributes(VIDEO_UPDATE_BEFORE_VBLANK);
