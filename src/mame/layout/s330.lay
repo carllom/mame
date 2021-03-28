@@ -1,4 +1,7 @@
-<!-- s330.lay -->
+<?xml version="1.0"?>
+<!--
+license:CC0
+-->
 
 <mamelayout version="2">
 	
@@ -18,12 +21,12 @@
 		<bounds left="0" right="640" top="0" bottom="480" />
 
 		<!-- LCD screen -->
-		<screen index="1">
+		<screen index="0">
 			<bounds x="50" y="0" width="192" height="36" />
 		</screen>
 
 		<!-- CRT screen -->
-		<screen index="0">
+		<screen index="1">
 			<bounds x="50" y="100" width="336" height="252" />
 		</screen>
 		
