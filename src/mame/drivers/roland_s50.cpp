@@ -9,17 +9,20 @@
 #include "emu.h"
 #include "audio/bu3905.h"
 #include "audio/sa16.h"
-//#include "bus/midi/midi.h"
+// #include "bus/midi/midi.h"
 #include "cpu/mcs96/i8x9x.h"
 #include "imagedev/floppy.h"
 #include "machine/bankdev.h"
 #include "machine/mb63h149.h"
 #include "machine/timer.h"
 #include "machine/wd_fdc.h"
+#include "video/hd44780.h"
 #include "video/tms3556.h"
 #include "video/t6963c.h"
 #include "emupal.h"
 #include "screen.h"
+
+#include "s330.lh"
 
 class roland_s50_state : public driver_device
 {
@@ -45,7 +48,13 @@ protected:
 	TIMER_DEVICE_CALLBACK_MEMBER(vdp_timer);
 
 	void p2_w(u8 data);
+
+	//
+	// I/O gate array registers
+	//
 	u8 floppy_status_r();
+	void floppy_select_w(u8 data); 
+
 	u8 floppy_unknown_r();
 	u16 key_r(offs_t offset);
 	void key_w(offs_t offset, u16 data);
@@ -102,28 +111,45 @@ public:
 	}
 
 	void w30(machine_config &config);
-#ifdef UNUSED_DEFINITION
-	void s330(machine_config &config);
-#endif
 
 protected:
 	virtual void machine_start() override;
+
+	void psram1_map(address_map &map);
+	void psram2_map(address_map &map);
+
+	required_device_array<address_map_bank_device, 2> m_psram;
 
 private:
 	u8 psram_bank_r();
 	void psram_bank_w(u8 data);
 	u8 unknown_status_r();
 
-	void w30_mem_map(address_map &map);
-#ifdef UNUSED_DEFINITION
-	void s330_mem_map(address_map &map);
-#endif
-	void psram1_map(address_map &map);
-	void psram2_map(address_map &map);
-
-	required_device_array<address_map_bank_device, 2> m_psram;
+	void mem_map(address_map &map);
 
 	u8 m_psram_bank;
+};
+
+class roland_s330_state : public roland_w30_state
+{
+public:
+	roland_s330_state(const machine_config &mconfig, device_type type, const char *tag)
+		: roland_w30_state(mconfig, type, tag)
+		// , m_lcdc(*this, "lcdc")
+	{
+	}
+
+	void s330(machine_config &config);
+
+protected:
+	// virtual void machine_start() override;
+private:
+	void mem_map(address_map &map);
+
+    // HD44780_PIXEL_UPDATE(lcd_pixel_update);
+	// void init_lcd_palette(palette_device &palette) const;
+
+	// required_device<hd44780_device> m_lcdc;
 };
 
 void roland_s50_state::machine_start()
@@ -172,9 +198,37 @@ void roland_w30_state::psram_bank_w(u8 data)
 	m_psram[0]->set_bank(BIT(data, 3, 4));
 }
 
+// Floppy status register
+//
+// bit0: Disk change (from shugart bus)
+// bit1: Disk ready (from shugart bus)
+// bit2: Interrupt request (from wd1772)
+// bit3: Data request (from wd1772)
 u8 roland_s50_state::floppy_status_r()
 {
-	return 1 | m_fdc->intrq_r() << 2 | m_fdc->drq_r() << 3;
+	return
+		(!m_floppy->get_device()->dskchg_r()) | // signal is inverted (loaded: 0, unloaded: 1)
+		m_floppy->get_device()->ready_r() << 1 |
+		m_fdc->intrq_r() << 2 |
+		m_fdc->drq_r() << 3;
+}
+
+// Floppy drive & side select register
+//
+// bit0: Side
+// bit2,3: Drive0,1 (fdc controller is hooked up this way but only 1 drive installed?!)
+void roland_s50_state::floppy_select_w(u8 data)
+{
+	if (BIT(data, 2))
+	{
+		m_fdc->set_floppy(m_floppy->get_device());
+		m_floppy->get_device()->ss_w(BIT(data, 0)); // Side
+	}
+	else if (BIT(data, 3))
+	{
+		logerror("Selected non-existing floppy1!\n");
+		m_fdc->set_floppy(NULL);
+	}
 }
 
 u8 roland_s50_state::floppy_unknown_r()
@@ -243,7 +297,7 @@ void roland_s550_state::io_map(address_map &map)
 	map(0x0000, 0x3fff).rw(m_wave, FUNC(rf5c36_device::read), FUNC(rf5c36_device::write)).umask16(0xff00);
 }
 
-void roland_w30_state::w30_mem_map(address_map &map)
+void roland_w30_state::mem_map(address_map &map)
 {
 	map(0x0000, 0x1fff).m(m_psram[0], FUNC(address_map_bank_device::amap16));
 	map(0x2000, 0x3fff).rom().region("program", 0x2000);
@@ -260,8 +314,7 @@ void roland_w30_state::w30_mem_map(address_map &map)
 	map(0xc000, 0xffff).rw(m_wave, FUNC(sa16_device::read), FUNC(sa16_device::write)).umask16(0xff00);
 }
 
-#ifdef UNUSED_DEFINITION
-void roland_w30_state::s330_mem_map(address_map &map)
+void roland_s330_state::mem_map(address_map &map)
 {
 	map(0x0000, 0x1fff).m(m_psram[0], FUNC(address_map_bank_device::amap16));
 	map(0x2000, 0x3fff).rom().region("program", 0x2000);
@@ -269,7 +322,6 @@ void roland_w30_state::s330_mem_map(address_map &map)
 	map(0x8000, 0xbfff).m(m_psram[1], FUNC(address_map_bank_device::amap16));
 	map(0xc000, 0xffff).rw(m_wave, FUNC(sa16_device::read), FUNC(sa16_device::write)).umask16(0xff00);
 }
-#endif
 
 void roland_s50_state::sram_map(address_map &map)
 {
@@ -308,12 +360,77 @@ static INPUT_PORTS_START(s550)
 INPUT_PORTS_END
 
 static INPUT_PORTS_START(w30)
+	PORT_START("KEYSW0")
+	PORT_BIT(0x03, IP_ACTIVE_LOW, IPT_UNUSED)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Start/Stop") PORT_CODE(KEYCODE_SPACE)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_UNUSED)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F3") PORT_CODE(KEYCODE_F3) 
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("0 ,._") PORT_CODE(KEYCODE_0) PORT_CODE(KEYCODE_0_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("- -*/") PORT_CODE(KEYCODE_MINUS) PORT_CODE(KEYCODE_MINUS_PAD) 
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Enter") PORT_CODE(KEYCODE_ENTER) PORT_CODE(KEYCODE_ENTER_PAD)
+
+	PORT_START("KEYSW1")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Performance") PORT_CODE(KEYCODE_P)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Rec") PORT_CODE(KEYCODE_R)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Tempo") PORT_CODE(KEYCODE_T)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F2") PORT_CODE(KEYCODE_F2)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F4") PORT_CODE(KEYCODE_F4)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("1 ABC") PORT_CODE(KEYCODE_1) PORT_CODE(KEYCODE_1_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("2 DEF") PORT_CODE(KEYCODE_2) PORT_CODE(KEYCODE_2_PAD)
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("3 GHI") PORT_CODE(KEYCODE_3) PORT_CODE(KEYCODE_3_PAD)
+
+	PORT_START("KEYSW2")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Sequencer") PORT_CODE(KEYCODE_Q)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("|<") PORT_CODE(KEYCODE_UP) PORT_CODE(KEYCODE_HOME)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("<") PORT_CODE(KEYCODE_LEFT)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F1") PORT_CODE(KEYCODE_F1)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F5") PORT_CODE(KEYCODE_F5)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("4 JKL") PORT_CODE(KEYCODE_4) PORT_CODE(KEYCODE_4_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("5 MNO") PORT_CODE(KEYCODE_5) PORT_CODE(KEYCODE_5_PAD)
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("6 PQR") PORT_CODE(KEYCODE_6) PORT_CODE(KEYCODE_6_PAD)
+
+	PORT_START("KEYSW3")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Sound") PORT_CODE(KEYCODE_S)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(">|") PORT_CODE(KEYCODE_DOWN) PORT_CODE(KEYCODE_END)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(">") PORT_CODE(KEYCODE_RIGHT)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("User") PORT_CODE(KEYCODE_U)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Exit") PORT_CODE(KEYCODE_BACKSPACE)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("7 STU") PORT_CODE(KEYCODE_7) PORT_CODE(KEYCODE_7_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("8 VWX") PORT_CODE(KEYCODE_8) PORT_CODE(KEYCODE_8_PAD)
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("9 YZ#") PORT_CODE(KEYCODE_9) PORT_CODE(KEYCODE_9_PAD)
+
+	// PORT_START("DIAL1")
+	// PORT_BIT(0x03ff, 0x0000, IPT_DIAL) PORT_NAME("Cursor") PORT_SENSITIVITY(50) PORT_KEYDELTA(8) PORT_CODE_DEC(KEYCODE_LEFT) PORT_CODE_INC(KEYCODE_RIGHT)
+
+	// PORT_START("DIAL2")
+	// PORT_BIT(0x03ff, 0x0000, IPT_DIAL) PORT_NAME("Value") PORT_SENSITIVITY(50) PORT_KEYDELTA(8) PORT_CODE_DEC(KEYCODE_MINUS) PORT_CODE_INC(KEYCODE_PLUS)
 INPUT_PORTS_END
 
-#ifdef UNUSED_DEFINITION
 static INPUT_PORTS_START(s330)
+	PORT_START("KEYSW0")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Mode") PORT_CODE(KEYCODE_F1)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Menu") PORT_CODE(KEYCODE_F2)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Dec/No") PORT_CODE(KEYCODE_MINUS) PORT_CODE(KEYCODE_MINUS_PAD)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Up") PORT_CODE(KEYCODE_UP)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Inc/Yes") PORT_CODE(KEYCODE_EQUALS) PORT_CODE(KEYCODE_PLUS_PAD)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Command") PORT_CODE(KEYCODE_SPACE)
+	PORT_BIT(0xc0, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW1")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Page") PORT_CODE(KEYCODE_F3)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Sub Menu") PORT_CODE(KEYCODE_F4)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Left") PORT_CODE(KEYCODE_LEFT) PORT_CODE(KEYCODE_4_PAD)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Down") PORT_CODE(KEYCODE_DOWN) PORT_CODE(KEYCODE_2_PAD)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Right") PORT_CODE(KEYCODE_RIGHT) PORT_CODE(KEYCODE_6_PAD)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Execute") PORT_CODE(KEYCODE_ENTER) PORT_CODE(KEYCODE_ENTER_PAD)
+	PORT_BIT(0xc0, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW2")
+	PORT_BIT(0xff, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW3")
+	PORT_BIT(0xff, IP_ACTIVE_LOW, IPT_UNUSED)
 INPUT_PORTS_END
-#endif
 
 static void s50_floppies(device_slot_interface &device)
 {
@@ -405,7 +522,7 @@ void roland_s550_state::s550(machine_config &config)
 void roland_w30_state::w30(machine_config &config)
 {
 	N8097BH(config, m_maincpu, 24_MHz_XTAL / 2);
-	m_maincpu->set_addrmap(AS_PROGRAM, &roland_w30_state::w30_mem_map);
+	m_maincpu->set_addrmap(AS_PROGRAM, &roland_w30_state::mem_map);
 
 	ADDRESS_MAP_BANK(config, m_psram[0]);
 	m_psram[0]->set_endianness(ENDIANNESS_LITTLE);
@@ -441,25 +558,24 @@ void roland_w30_state::w30(machine_config &config)
 	//MB654419U(config, m_tvf, 20_MHz_XTAL);
 }
 
-#ifdef UNUSED_DEFINITION
-void roland_w30_state::s330(machine_config &config)
+void roland_s330_state::s330(machine_config &config)
 {
 	N8097BH(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
-	m_maincpu->set_addrmap(AS_PROGRAM, &roland_w30_state::s330_mem_map);
+	m_maincpu->set_addrmap(AS_PROGRAM, &roland_s330_state::mem_map);
 
 	ADDRESS_MAP_BANK(config, m_psram[0]);
 	m_psram[0]->set_endianness(ENDIANNESS_LITTLE);
 	m_psram[0]->set_data_width(16);
 	m_psram[0]->set_addr_width(16);
 	m_psram[0]->set_stride(0x2000);
-	m_psram[0]->set_addrmap(0, &roland_w30_state::psram1_map);
+	m_psram[0]->set_addrmap(0, &roland_s330_state::psram1_map);
 
 	ADDRESS_MAP_BANK(config, m_psram[1]);
 	m_psram[1]->set_endianness(ENDIANNESS_LITTLE);
 	m_psram[1]->set_data_width(16);
 	m_psram[1]->set_addr_width(17);
 	m_psram[1]->set_stride(0x4000);
-	m_psram[1]->set_addrmap(0, &roland_w30_state::psram2_map);
+	m_psram[1]->set_addrmap(0, &roland_s330_state::psram2_map);
 
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
@@ -469,7 +585,7 @@ void roland_w30_state::s330(machine_config &config)
 	// LCD unit: DM1620-5BL7 (MW-5F)
 
 	TMS3556(config, m_vdp, 14.3496_MHz_XTAL); // TMS3556NL
-	m_vdp->set_addrmap(0, &roland_w30_state::vram_map);
+	m_vdp->set_addrmap(0, &roland_s330_state::vram_map);
 
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
 	screen.set_video_attributes(VIDEO_UPDATE_BEFORE_VBLANK);
@@ -482,7 +598,7 @@ void roland_w30_state::s330(machine_config &config)
 
 	PALETTE(config, "palette", palette_device::RGB_3BIT);
 
-	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_w30_state::vdp_timer), "screen", 0, 1);
+	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_s330_state::vdp_timer), "screen", 0, 1);
 
 	SA16(config, m_wave, 26.88_MHz_XTAL);
 	m_wave->int_callback().set_inputline(m_maincpu, i8x9x_device::HSI0_LINE);
@@ -492,7 +608,6 @@ void roland_w30_state::s330(machine_config &config)
 
 	//MB654419U(config, m_tvf, 20_MHz_XTAL);
 }
-#endif
 
 ROM_START(s50)
 	ROM_REGION16_LE(0x4000, "program", 0)
@@ -524,15 +639,13 @@ ROM_START(w30)
 	ROM_LOAD16_BYTE("lh534145_15179936.ic29", 0x00001, 0x80000, NO_DUMP)
 ROM_END
 
-#ifdef UNUSED_DEFINITION
 ROM_START(s330)
 	ROM_REGION16_LE(0x4000, "program", 0)
-	ROM_LOAD16_BYTE("s-330.ic15", 0x0000, 0x2000, CRC(20AA7CE0))
-	ROM_LOAD16_BYTE("s-330.ic14", 0x0001, 0x2000, CRC(32A00F31))
+	ROM_LOAD16_BYTE("s-330.ic15", 0x0000, 0x2000, CRC(20AA7CE0) SHA1(554839c48aa8851988d86ce1b59cb32e92588c48))
+	ROM_LOAD16_BYTE("s-330.ic14", 0x0001, 0x2000, CRC(32A00F31) SHA1(d764651299273ec8f4801e13e20f98690b491992))
 ROM_END
-#endif
 
 SYST(1987, s50,  0,   0, s50,  s50,  roland_s50_state,  empty_init, "Roland", "S-50 Digital Sampling Keyboard", MACHINE_IS_SKELETON)
 SYST(1987, s550, s50, 0, s550, s550, roland_s550_state, empty_init, "Roland", "S-550 Digital Sampler", MACHINE_IS_SKELETON)
 SYST(1988, w30,  0,   0, w30,  w30,  roland_w30_state,  empty_init, "Roland", "W-30 Music Workstation", MACHINE_IS_SKELETON)
-SYST(1988, s330, w30, 0, s330, s330, roland_w30_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_IS_SKELETON)
+SYST(1988, s330, w30, 0, s330, s330, roland_s330_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_IS_SKELETON)
