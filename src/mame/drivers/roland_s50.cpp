@@ -106,6 +106,9 @@ public:
 	roland_w30_state(const machine_config &mconfig, device_type type, const char *tag)
 		: roland_s50_state(mconfig, type, tag)
 		, m_psram(*this, "psram%u", 1U)
+		, m_keysw(*this, "KEYSW%u", 0U)
+		, m_keyrow(0)
+		, m_leds(*this, "LED%u", 0U)
 		, m_psram_bank(0)
 	{
 	}
@@ -115,14 +118,23 @@ public:
 protected:
 	virtual void machine_start() override;
 
+	u8 psram_bank_r();
+	void psram_bank_w(u8 data);
+
 	void psram1_map(address_map &map);
 	void psram2_map(address_map &map);
 
 	required_device_array<address_map_bank_device, 2> m_psram;
 
+	u8 keysw_r();
+	void keysw_w(u8 data);
+	void leds_w(u8 data);
+
+	// Inputs/outputs
+	required_ioport_array<4> m_keysw;
+	u8 m_keyrow; // M60013: Internal counter for the SCANn outputs
+	output_finder<8> m_leds;
 private:
-	u8 psram_bank_r();
-	void psram_bank_w(u8 data);
 	u8 unknown_status_r();
 
 	void mem_map(address_map &map);
@@ -161,6 +173,7 @@ void roland_s50_state::machine_start()
 void roland_w30_state::machine_start()
 {
 	save_item(NAME(m_psram_bank));
+	m_leds.resolve();
 }
 
 TIMER_DEVICE_CALLBACK_MEMBER(roland_s50_state::vdp_timer)
@@ -168,7 +181,6 @@ TIMER_DEVICE_CALLBACK_MEMBER(roland_s50_state::vdp_timer)
 	// FIXME: internalize this ridiculousness
 	m_vdp->interrupt();
 }
-
 
 void roland_s50_state::p2_w(u8 data)
 {
@@ -251,6 +263,42 @@ u8 roland_w30_state::unknown_status_r()
 	return 0x1c;
 }
 
+// Keyswitch read register (M60013)
+//
+// Repeated reads from this register will read from consecutive keyswitch rows
+u8 roland_w30_state::keysw_r()
+{
+	u8 value = m_keysw[m_keyrow]->read();
+	m_keyrow = (m_keyrow + 1) % 4;
+	return value;
+}
+
+// Keyswitch command register (M60013)
+//
+// A write to this register will reset the keyscan counter
+void roland_w30_state::keysw_w(u8 data)
+{
+	if (data) logerror("KEYPORT Write: %02x\n", data);
+	m_keyrow = 0; // Reset keyscan row counter
+}
+
+// LED indicator register (M60013)
+//
+// There are 8 indicator outputs, each corresponding to one bit in the register.
+// A set bit turns LED off, an unset bit turns LED on.
+void roland_w30_state::leds_w(u8 data)
+{
+	if (data) logerror("LEDS Write: %02x\n", data);
+	m_leds[0] = BIT(data, 0) ? 0 : 1;
+	m_leds[1] = BIT(data, 1) ? 0 : 1;
+	m_leds[2] = BIT(data, 2) ? 0 : 1;
+	m_leds[3] = BIT(data, 3) ? 0 : 1;
+	m_leds[4] = BIT(data, 4) ? 0 : 1;
+	m_leds[5] = BIT(data, 5) ? 0 : 1;
+	m_leds[6] = BIT(data, 6) ? 0 : 1;
+	m_leds[7] = BIT(data, 7) ? 0 : 1;
+}
+
 void roland_s330_state::init_lcd_palette(palette_device &palette) const
 {
 	palette.set_pen_color(0, rgb_t(131, 136, 139));
@@ -331,7 +379,24 @@ void roland_s330_state::mem_map(address_map &map)
 	map(0x2000, 0x3fff).rom().region("program", 0x2000);
 	map(0x4000, 0x7fff).ram().share("common");
 	map(0x8000, 0xbfff).m(m_psram[1], FUNC(address_map_bank_device::amap16));
+
+	// The M60013 I/O gate array controls all I/O communication
+	// The addresses are interleaved:
+	// - Odd addresses are mapped to SA-16 (Wave RAM interface)
+	// - Even addresses are mapped to the other support chips
 	map(0xc000, 0xffff).rw(m_wave, FUNC(sa16_device::read), FUNC(sa16_device::write)).umask16(0xff00);
+
+	map(0xc200, 0xc200).rw(FUNC(roland_s330_state::floppy_status_r), FUNC(roland_s330_state::floppy_select_w));
+	map(0xc300, 0xc302).rw(m_lcdc, FUNC(hd44780_device::read), FUNC(hd44780_device::write)).umask16(0x00ff);
+	map(0xc600, 0xc600).rw(FUNC(roland_s330_state::psram_bank_r), FUNC(roland_s330_state::psram_bank_w));
+	map(0xc800, 0xc806).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
+	map(0xd000, 0xd000).r(m_vdp, FUNC(tms3556_device::vram_r));
+	map(0xd002, 0xd002).rw(m_vdp, FUNC(tms3556_device::vram_r), FUNC(tms3556_device::vram_w));
+	map(0xd004, 0xd004).rw(m_vdp, FUNC(tms3556_device::reg_r), FUNC(tms3556_device::reg_w));
+
+	map(0xd806, 0xd806).rw(FUNC(roland_s330_state::keysw_r), FUNC(roland_s330_state::keysw_w));
+
+	map(0xf00c, 0xf00c).w(FUNC(roland_s330_state::leds_w));
 }
 
 void roland_s50_state::sram_map(address_map &map)
@@ -555,7 +620,7 @@ void roland_w30_state::w30(machine_config &config)
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
 	// Floppy unit: FX-354 (307F1JC)
-	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_pc_floppy_formats).enable_sound(true);
 
 	//MB89352(config, m_scsic, 8_MHz_XTAL); // by option
 
@@ -591,7 +656,7 @@ void roland_s330_state::s330(machine_config &config)
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
 	// Floppy unit: ND-362S-A
-	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_pc_floppy_formats).enable_sound(true);
 
 	config.set_default_layout(layout_s330);
 
