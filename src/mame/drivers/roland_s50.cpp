@@ -152,11 +152,15 @@ public:
 	}
 
 	void s330(machine_config &config);
+	
+	u16 analog_vol_ctrl();
+	u16 analog_dac_value();
 
 protected:
 	// virtual void machine_start() override;
 private:
 	void mem_map(address_map &map);
+	void waveram_map(address_map &map);
 
     HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
@@ -311,6 +315,16 @@ HD44780_PIXEL_UPDATE(roland_s330_state::lcd_pixel_update)
 		bitmap.pix(line * 8 + y, pos * 6 + x) = state;
 }
 
+u16 roland_s330_state::analog_vol_ctrl()
+{
+	return 0x200; // TODO: hookup to dial (10 bit value)
+}
+
+u16 roland_s330_state::analog_dac_value()
+{
+	return 0x200; // TODO: feedback from MB654419/DAC (10 bit value)
+}
+
 void roland_s50_state::mem_map(address_map &map)
 {
 	map(0x0000, 0x3fff).rom().region("program", 0);
@@ -388,6 +402,8 @@ void roland_s330_state::mem_map(address_map &map)
 
 	map(0xc200, 0xc200).rw(FUNC(roland_s330_state::floppy_status_r), FUNC(roland_s330_state::floppy_select_w));
 	map(0xc300, 0xc302).rw(m_lcdc, FUNC(hd44780_device::read), FUNC(hd44780_device::write)).umask16(0x00ff);
+	//map(0xc400, 0xc400) Ext port pins 1-4,6-8 are mapped to bit 0-6 respectively
+	//map(0xc500, 0xc500) Ext port pindir bit 0,1 controls direction of pin 6,7
 	map(0xc600, 0xc600).rw(FUNC(roland_s330_state::psram_bank_r), FUNC(roland_s330_state::psram_bank_w));
 	map(0xc800, 0xc806).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
 	map(0xd000, 0xd000).r(m_vdp, FUNC(tms3556_device::vram_r));
@@ -397,6 +413,11 @@ void roland_s330_state::mem_map(address_map &map)
 	map(0xd806, 0xd806).rw(FUNC(roland_s330_state::keysw_r), FUNC(roland_s330_state::keysw_w));
 
 	map(0xf00c, 0xf00c).w(FUNC(roland_s330_state::leds_w));
+}
+
+void roland_s330_state::waveram_map(address_map &map)
+{
+	map(0x00000, 0xfffff).ram().share("waveram"); // 512k 12 bit data bus
 }
 
 void roland_s50_state::sram_map(address_map &map)
@@ -638,6 +659,8 @@ void roland_s330_state::s330(machine_config &config)
 {
 	N8097BH(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_s330_state::mem_map);
+	m_maincpu->ach4_cb().set(FUNC(roland_s330_state::analog_vol_ctrl)); // Volume control
+	m_maincpu->ach7_cb().set(FUNC(roland_s330_state::analog_dac_value)); // A/D compare level
 
 	ADDRESS_MAP_BANK(config, m_psram[0]);
 	m_psram[0]->set_endianness(ENDIANNESS_LITTLE);
@@ -693,6 +716,7 @@ void roland_s330_state::s330(machine_config &config)
 	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_s330_state::vdp_timer), "screen", 0, 1);
 
 	SA16(config, m_wave, 26.88_MHz_XTAL);
+	m_wave->set_addrmap(0, &roland_s330_state::waveram_map);
 	m_wave->int_callback().set_inputline(m_maincpu, i8x9x_device::HSI0_LINE);
 	m_wave->sh_callback().set("outas", FUNC(bu3905_device::axi_w));
 
