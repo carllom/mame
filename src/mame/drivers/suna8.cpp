@@ -40,10 +40,10 @@ Notes:
 
 #include "cpu/z80/z80.h"
 #include "machine/watchdog.h"
-#include "sound/3812intf.h"
 #include "sound/ay8910.h"
 #include "sound/dac.h"
-#include "sound/ym2203.h"
+#include "sound/ymopn.h"
+#include "sound/ymopl.h"
 #include "speaker.h"
 
 
@@ -1299,7 +1299,7 @@ void suna8_state::hardhead_sound_map(address_map &map)
 	map(0xa000, 0xa001).rw("ymsnd", FUNC(ym3812_device::read), FUNC(ym3812_device::write));
 	map(0xa002, 0xa003).w("aysnd", FUNC(ay8910_device::address_data_w));
 	map(0xc000, 0xc7ff).ram(); // RAM
-	map(0xc800, 0xc800).r("ymsnd", FUNC(ym3812_device::status_port_r));   // ? unsure
+	map(0xc800, 0xc800).r("ymsnd", FUNC(ym3812_device::status_r));   // ? unsure
 	map(0xd000, 0xd000).w(m_soundlatch2, FUNC(generic_latch_8_device::write));   //
 	map(0xd800, 0xd800).r(m_soundlatch, FUNC(generic_latch_8_device::read));   // From Main CPU
 }
@@ -2985,6 +2985,9 @@ ROM_START( starfigh )
 	ROM_LOAD( "starfgtr.b6",   0xc0000, 0x10000, CRC(47d6049c) SHA1(cae0795a19cb6bb8bdabc10c200aa6f8d78dd347) )
 	ROM_LOAD( "starfgtr.a6",   0xd0000, 0x10000, CRC(4a33f6f3) SHA1(daa0a1a43b1b60e2f05b9934fdd6b5f285a0b93a) )
 	ROM_COPY( "gfx1", 0xc0000, 0xe0000, 0x20000 )
+
+	ROM_REGION( 0x100, "proms", 0 )
+	ROM_LOAD( "82s129.5q", 0x000, 0x100, CRC(10bfcebb) SHA1(ae8708db7d3a8984f16e876867ecdbb4445e3378) ) // ??, same as the ones for bestbest in suna16.cpp
 ROM_END
 
 
