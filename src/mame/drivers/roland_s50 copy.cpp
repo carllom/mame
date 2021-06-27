@@ -9,7 +9,7 @@
 #include "emu.h"
 #include "audio/bu3905.h"
 #include "audio/sa16.h"
-// #include "bus/midi/midi.h"
+//#include "bus/midi/midi.h"
 #include "cpu/mcs96/i8x9x.h"
 #include "imagedev/floppy.h"
 #include "machine/bankdev.h"
@@ -106,10 +106,10 @@ public:
 	roland_w30_state(const machine_config &mconfig, device_type type, const char *tag)
 		: roland_s50_state(mconfig, type, tag)
 		, m_psram(*this, "psram%u", 1U)
+		, m_psram_bank(0)
 		, m_keysw(*this, "KEYSW%u", 0U)
 		, m_keyrow(0)
 		, m_leds(*this, "LED%u", 0U)
-		, m_psram_bank(0)
 	{
 	}
 
@@ -118,14 +118,17 @@ public:
 protected:
 	virtual void machine_start() override;
 
-	u8 psram_bank_r();
-	void psram_bank_w(u8 data);
-
+	required_device_array<address_map_bank_device, 2> m_psram;
+	u8 m_psram_bank;
 	void psram1_map(address_map &map);
 	void psram2_map(address_map &map);
+	
+	u8 psram_bank_r();
 
-	required_device_array<address_map_bank_device, 2> m_psram;
-
+	// M60013 I/O gate array registers
+	void psram_bank_w(u8 data);
+	// u8 floppy_status_r();
+	// void floppy_select_w(u8 data);
 	u8 keysw_r();
 	void keysw_w(u8 data);
 	void leds_w(u8 data);
@@ -138,8 +141,6 @@ private:
 	u8 unknown_status_r();
 
 	void mem_map(address_map &map);
-
-	u8 m_psram_bank;
 };
 
 class roland_s330_state : public roland_w30_state
@@ -149,18 +150,15 @@ public:
 		: roland_w30_state(mconfig, type, tag)
 		, m_lcdc(*this, "lcdc")
 	{
+		logerror("roland_s330_state()");
 	}
 
 	void s330(machine_config &config);
-	
-	u16 analog_vol_ctrl();
-	u16 analog_dac_value();
 
 protected:
 	// virtual void machine_start() override;
 private:
 	void mem_map(address_map &map);
-	void waveram_map(address_map &map);
 
     HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
@@ -272,7 +270,8 @@ u8 roland_w30_state::unknown_status_r()
 // Repeated reads from this register will read from consecutive keyswitch rows
 u8 roland_w30_state::keysw_r()
 {
-	u8 value = m_keysw[m_keyrow]->read();
+	u8 value = 0xFF;
+	value = m_keysw[m_keyrow]->read();
 	m_keyrow = (m_keyrow + 1) % 4;
 	return value;
 }
@@ -313,17 +312,6 @@ HD44780_PIXEL_UPDATE(roland_s330_state::lcd_pixel_update)
 {
 	if (x < 5 && y < 8 && line < 2 && pos < 16)
 		bitmap.pix(line * 8 + y, pos * 6 + x) = state;
-}
-
-u16 roland_s330_state::analog_vol_ctrl()
-{
-	return 0x1FF; // TODO: hookup to dial (10 bit value)
-}
-
-u16 roland_s330_state::analog_dac_value()
-{
-	// System function @4835 requires value not to be negative
-	return 0x1FF; // TODO: feedback from MB654419/DAC (10 bit value)
 }
 
 void roland_s50_state::mem_map(address_map &map)
@@ -390,6 +378,8 @@ void roland_w30_state::mem_map(address_map &map)
 
 void roland_s330_state::mem_map(address_map &map)
 {
+	logerror("mem_map()");
+
 	map(0x0000, 0x1fff).m(m_psram[0], FUNC(address_map_bank_device::amap16));
 	map(0x2000, 0x3fff).rom().region("program", 0x2000);
 	map(0x4000, 0x7fff).ram().share("common");
@@ -403,10 +393,8 @@ void roland_s330_state::mem_map(address_map &map)
 
 	map(0xc200, 0xc200).rw(FUNC(roland_s330_state::floppy_status_r), FUNC(roland_s330_state::floppy_select_w));
 	map(0xc300, 0xc302).rw(m_lcdc, FUNC(hd44780_device::read), FUNC(hd44780_device::write)).umask16(0x00ff);
-	//map(0xc400, 0xc400) Ext port pins 1-4,6-8 are mapped to bit 0-6 respectively
-	//map(0xc500, 0xc500) Ext port pindir bit 0,1 controls direction of pin 6,7
 	map(0xc600, 0xc600).rw(FUNC(roland_s330_state::psram_bank_r), FUNC(roland_s330_state::psram_bank_w));
-	map(0xc800, 0xc806).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
+	map(0xc800, 0xc806).rw(FUNC(wd1772_device::read), FUNC(wd1772_device::write));
 	map(0xd000, 0xd000).r(m_vdp, FUNC(tms3556_device::vram_r));
 	map(0xd002, 0xd002).rw(m_vdp, FUNC(tms3556_device::vram_r), FUNC(tms3556_device::vram_w));
 	map(0xd004, 0xd004).rw(m_vdp, FUNC(tms3556_device::reg_r), FUNC(tms3556_device::reg_w));
@@ -414,11 +402,6 @@ void roland_s330_state::mem_map(address_map &map)
 	map(0xd806, 0xd806).rw(FUNC(roland_s330_state::keysw_r), FUNC(roland_s330_state::keysw_w));
 
 	map(0xf00c, 0xf00c).w(FUNC(roland_s330_state::leds_w));
-}
-
-void roland_s330_state::waveram_map(address_map &map)
-{
-	map(0x00000, 0xfffff).ram().share("waveram"); // 512k 12 bit data bus
 }
 
 void roland_s50_state::sram_map(address_map &map)
@@ -497,11 +480,11 @@ static INPUT_PORTS_START(w30)
 	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("8 VWX") PORT_CODE(KEYCODE_8) PORT_CODE(KEYCODE_8_PAD)
 	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("9 YZ#") PORT_CODE(KEYCODE_9) PORT_CODE(KEYCODE_9_PAD)
 
-	// PORT_START("DIAL1")
-	// PORT_BIT(0x03ff, 0x0000, IPT_DIAL) PORT_NAME("Cursor") PORT_SENSITIVITY(50) PORT_KEYDELTA(8) PORT_CODE_DEC(KEYCODE_LEFT) PORT_CODE_INC(KEYCODE_RIGHT)
+	PORT_START("DIAL1")
+	PORT_BIT(0x03ff, 0x0000, IPT_DIAL) PORT_NAME("Cursor") PORT_SENSITIVITY(50) PORT_KEYDELTA(8) PORT_CODE_DEC(KEYCODE_LEFT) PORT_CODE_INC(KEYCODE_RIGHT)
 
-	// PORT_START("DIAL2")
-	// PORT_BIT(0x03ff, 0x0000, IPT_DIAL) PORT_NAME("Value") PORT_SENSITIVITY(50) PORT_KEYDELTA(8) PORT_CODE_DEC(KEYCODE_MINUS) PORT_CODE_INC(KEYCODE_PLUS)
+	PORT_START("DIAL2")
+	PORT_BIT(0x03ff, 0x0000, IPT_DIAL) PORT_NAME("Value") PORT_SENSITIVITY(50) PORT_KEYDELTA(8) PORT_CODE_DEC(KEYCODE_MINUS) PORT_CODE_INC(KEYCODE_PLUS)
 INPUT_PORTS_END
 
 static INPUT_PORTS_START(s330)
@@ -642,7 +625,7 @@ void roland_w30_state::w30(machine_config &config)
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
 	// Floppy unit: FX-354 (307F1JC)
-	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_pc_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
 
 	//MB89352(config, m_scsic, 8_MHz_XTAL); // by option
 
@@ -660,9 +643,8 @@ void roland_s330_state::s330(machine_config &config)
 {
 	N8097BH(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_s330_state::mem_map);
-	m_maincpu->ach4_cb().set(FUNC(roland_s330_state::analog_vol_ctrl)); // Volume control
-	m_maincpu->ach7_cb().set(FUNC(roland_s330_state::analog_dac_value)); // A/D compare level
 
+	// 8k banks
 	ADDRESS_MAP_BANK(config, m_psram[0]);
 	m_psram[0]->set_endianness(ENDIANNESS_LITTLE);
 	m_psram[0]->set_data_width(16);
@@ -670,6 +652,7 @@ void roland_s330_state::s330(machine_config &config)
 	m_psram[0]->set_stride(0x2000);
 	m_psram[0]->set_addrmap(0, &roland_s330_state::psram1_map);
 
+	// 16k banks
 	ADDRESS_MAP_BANK(config, m_psram[1]);
 	m_psram[1]->set_endianness(ENDIANNESS_LITTLE);
 	m_psram[1]->set_data_width(16);
@@ -680,7 +663,7 @@ void roland_s330_state::s330(machine_config &config)
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
 	// Floppy unit: ND-362S-A
-	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_pc_floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_mfm_floppy_formats).enable_sound(true);
 
 	config.set_default_layout(layout_s330);
 
@@ -717,7 +700,6 @@ void roland_s330_state::s330(machine_config &config)
 	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_s330_state::vdp_timer), "screen", 0, 1);
 
 	SA16(config, m_wave, 26.88_MHz_XTAL);
-	m_wave->set_addrmap(0, &roland_s330_state::waveram_map);
 	m_wave->int_callback().set_inputline(m_maincpu, i8x9x_device::HSI0_LINE);
 	m_wave->sh_callback().set("outas", FUNC(bu3905_device::axi_w));
 
