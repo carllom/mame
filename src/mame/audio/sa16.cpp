@@ -197,7 +197,7 @@ void sa16_base_device::write(offs_t offset, u8 data)
 	if (offset >= 0x1000) { // 1000h+: Set offset within block
 		m_blockoffset = (offset - 0x1000) << 1;
 		return;
-	} else if (offset >= 0x800) { // 800h+ Set register offset
+	} else if (offset >= 0x800) { // 800h+ Set "800"-register number to be written using regs800[] port below
 		m_reg800_woffset = offset - 0x800;
 		if (LOG_REG_ACCESS) logerror("%s%s offsetRegister <= %02x\n", machine().describe_context(), tag(), m_reg800_woffset);
 		return;
@@ -230,6 +230,7 @@ void sa16_base_device::write(offs_t offset, u8 data)
 		wram_w8(_BLKOFF + m_blockoffset + 1, data);
 		break;
 	case 8:
+		if (LOG_REG_ACCESS) logerror("%s%s set block = %04x\n", machine().describe_context(), tag(), data);
 		m_regs[SA16REG_BLK] = data;
 		m_smpcounter = 0;
 		break;
@@ -238,6 +239,7 @@ void sa16_base_device::write(offs_t offset, u8 data)
 		break;
 	case 0x405: // Sample port high (16-bit value)
 		m_port_smp16 = (0x00FF & m_port_smp16) | data<<8;
+		if (LOG_REG_ACCESS) logerror("%s%s sample port write[%08x] <= %04x\n", machine().describe_context(), tag(), _BLKOFF + (m_smpcounter<<1), m_port_smp16 >> 4);
 		wram_w16(_BLKOFF + (m_smpcounter<<1), m_port_smp16 >> 4);
 		m_smpcounter++;
 		break;
