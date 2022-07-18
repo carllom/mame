@@ -9,7 +9,7 @@ be inserted into the Odyssey 2/G7000.
 
 Hardware notes:
 - Z80 @ 3.547MHz
-- 2*8KB ROM, 16KB RAM(2*TMS4416, 2 unpopulated sockets)
+- 2*8KB ROM, 16KB RAM(2*TMS4416, 2 unpopulated locations)
 - optional data recorder
 
 The RAM can be expanded to 32KB by simply adding two more TMS4416. To enable it,
@@ -169,7 +169,7 @@ void o2_homecomp_device::device_add_mconfig(machine_config &config)
 
 	// cassette
 	CASSETTE(config, m_cass);
-	m_cass->set_default_state(CASSETTE_STOPPED | CASSETTE_SPEAKER_ENABLED | CASSETTE_MOTOR_DISABLED);
+	m_cass->set_default_state(CASSETTE_STOPPED | CASSETTE_SPEAKER_MUTED | CASSETTE_MOTOR_DISABLED);
 	SPEAKER(config, "cass_output").front_center(); // on data recorder
 	m_cass->add_route(ALL_OUTPUTS, "cass_output", 0.05);
 }

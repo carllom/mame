@@ -8,7 +8,7 @@
 #include "isa.h"
 #include "bus/pc_joy/pc_joy.h"
 #include "cpu/mcs51/mcs51.h"
-#include "sound/3812intf.h"
+#include "sound/ymopl.h"
 
 //*********************************************************************
 //   TYPE DEFINITIONS
@@ -27,8 +27,6 @@ protected:
 	// device-level overrides
 	virtual void device_start() override;
 	virtual void device_reset() override;
-
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
 	// optional information overrides
 	virtual const tiny_rom_entry *device_rom_region() const override;
@@ -52,6 +50,8 @@ private:
 	emu_timer *m_timer;
 	uint8_t m_t0;
 	uint8_t m_t1;
+
+	TIMER_CALLBACK_MEMBER(clock_tick);
 
 	// mcu ports
 	uint8_t dev_dsp_data_r();

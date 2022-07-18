@@ -10,17 +10,31 @@
 
 #include "fsmgr.h"
 
-class fs_prodos : public filesystem_manager_t {
+namespace fs {
+
+class prodos_image : public manager_t {
 public:
-	fs_prodos() : filesystem_manager_t() {}
+	prodos_image() : manager_t() {}
 
-	virtual void enumerate(floppy_enumerator &fe, uint32_t form_factor, const std::vector<uint32_t> &variants) const override;
-	virtual void floppy_instantiate(u32 key, std::vector<u8> &image) const override;
+	virtual const char *name() const override;
+	virtual const char *description() const override;
 
-private:
-	static const u8 boot[512];
+	virtual void enumerate_f(floppy_enumerator &fe, u32 form_factor, const std::vector<u32> &variants) const override;
+	virtual std::unique_ptr<filesystem_t> mount(fsblk_t &blockdev) const override;
+
+	virtual bool can_format() const override;
+	virtual bool can_read() const override;
+	virtual bool can_write() const override;
+	virtual bool has_rsrc() const override;
+	virtual char directory_separator() const override;
+
+	virtual std::vector<meta_description> volume_meta_description() const override;
+	virtual std::vector<meta_description> file_meta_description() const override;
+	virtual std::vector<meta_description> directory_meta_description() const override;
 };
 
-extern const filesystem_manager_type FS_PRODOS;
+extern const prodos_image PRODOS;
+
+} // namespace fs
 
 #endif

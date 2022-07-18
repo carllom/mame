@@ -6,14 +6,14 @@
 //
 //============================================================
 
-#include <string>
+#include "targetreader.h"
 
-#include "emu.h"
 #include <modules/lib/osdobj_common.h>
 
 #include "chainmanager.h"
-#include "targetreader.h"
 #include "target.h"
+
+#include <cmath>
 
 const target_reader::string_to_enum target_reader::STYLE_NAMES[target_reader::STYLE_COUNT] = {
 	{ "guest",  TARGET_STYLE_GUEST },
@@ -60,7 +60,7 @@ bgfx_target* target_reader::read_from_value(const Value& value, std::string pref
 			break;
 	}
 
-	return chains.targets().create_target(target_name, bgfx::TextureFormat::RGBA8, width, height, mode, double_buffer, bilinear, scale, screen_index);
+	return chains.targets().create_target(target_name, bgfx::TextureFormat::BGRA8, width, height, mode, double_buffer, bilinear, scale, screen_index);
 }
 
 bool target_reader::validate_parameters(const Value& value, std::string prefix)

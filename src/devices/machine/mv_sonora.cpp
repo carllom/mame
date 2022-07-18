@@ -3,7 +3,7 @@
 /*********************************************************************
 
     Mac video support, "Sonora" edition
-	Supports 5 different modelines at up to 16bpp
+    Supports 5 different modelines at up to 16bpp
 
 *********************************************************************/
 
@@ -24,12 +24,15 @@ mac_video_sonora_device::mac_video_sonora_device(const machine_config &mconfig, 
 	device_t(mconfig, MAC_VIDEO_SONORA, tag, owner, clock),
 	m_screen(*this, "screen"),
 	m_palette(*this, "palette"),
-	m_monitor_config(*this, "monitor")
+	m_monitor_config(*this, "monitor"),
+	m_screen_vblank(*this),
+	m_is32bit(false)
 {
 }
 
 void mac_video_sonora_device::device_start()
 {
+	m_screen_vblank.resolve_safe();
 	m_vram = nullptr;
 
 	save_item(NAME(m_vram_offset));
@@ -45,7 +48,7 @@ void mac_video_sonora_device::device_reset()
 	m_modeline_id = -1;
 	m_mode = 0x9f;
 	m_depth = 0;
-	m_monitor_id = 0;
+	m_monitor_id = 8;
 	m_vtest = 0;
 	m_vram_offset = 0;
 }
@@ -56,6 +59,7 @@ void mac_video_sonora_device::device_add_mconfig(machine_config &config)
 	// dot clock, htotal, hstart, hend, vtotal, vstart, vend
 	m_screen->set_raw(31334400, 896, 0, 640, 525, 0, 480);
 	m_screen->set_screen_update(FUNC(mac_video_sonora_device::screen_update));
+	m_screen->screen_vblank().set([this](int state) { m_screen_vblank(state && (m_modeline_id != -1)); });
 
 	PALETTE(config, m_palette).set_entries(256);
 }
@@ -105,34 +109,110 @@ uint32_t mac_video_sonora_device::screen_update(screen_device &screen, bitmap_rg
 	uint32_t hres = m.htot - m.hfp - m.hs - m.hbp;
 	uint32_t vres = m.vtot - m.vfp - m.vs - m.vbp;
 
-	const uint64_t *vram = m_vram + (m_vram_offset / 8);
 	const pen_t *pens = m_palette->pens();
-	switch(m_depth) {
-	case 0: // 1bpp
-		for(uint32_t y = 0; y != vres; y++) {
-			uint32_t *scanline = &bitmap.pix(y);
-			for(uint32_t x = 0; x != hres; x += 64) {
-				uint64_t pixels = *vram ++;
-				for(int32_t bit = 63; bit >= 0; bit --)
-					*scanline ++ = pens[(((pixels >> bit) & 1) << 7) | 0x7f];
-			}
-		}
-		break;
 
-	case 3: // 8bpp
-		for(uint32_t y = 0; y != vres; y++) {
-			uint32_t *scanline = &bitmap.pix(y);
-			for(uint32_t x = 0; x != hres; x += 8) {
-				uint64_t pixels = *vram ++;
-				for(int32_t bit = 56; bit >= 0; bit -= 8)
-					*scanline ++ = pens[((pixels >> bit) & 0xff)];
+	if (m_is32bit) {
+		const uint32_t *vram = (uint32_t *)(m_vram + (m_vram_offset / 8));
+		switch (m_depth)
+		{
+		case 0: // 1bpp
+			for (uint32_t y = 0; y != vres; y++)
+			{
+				uint32_t *scanline = &bitmap.pix(y);
+				for (uint32_t x = 0; x != hres; x += 32)
+				{
+					uint32_t pixels = *vram++;
+					for (int32_t bit = 31; bit >= 0; bit--)
+						*scanline++ = pens[(((pixels >> bit) & 1) << 7) | 0x7f];
+				}
 			}
-		}
-		break;
+			break;
 
-	default:
-		bitmap.fill(0xff0000);
-		break;
+		case 1: // 2bpp
+			for (uint32_t y = 0; y != vres; y++)
+			{
+				uint32_t *scanline = &bitmap.pix(y);
+				for (uint32_t x = 0; x != hres; x += 16)
+				{
+					uint32_t pixels = *vram++;
+					for (int32_t bit = 30; bit >= 0; bit -= 2)
+						*scanline++ = pens[(((pixels >> bit) & 0x3)<<6) | 0x3f];
+				}
+			}
+			break;
+
+		case 2: // 4bpp
+			for (uint32_t y = 0; y != vres; y++)
+			{
+				uint32_t *scanline = &bitmap.pix(y);
+				for (uint32_t x = 0; x != hres; x += 8)
+				{
+					uint32_t pixels = *vram++;
+					for (int32_t bit = 28; bit >= 0; bit -= 4)
+						*scanline++ = pens[(((pixels >> bit) & 0x0f)<<4) | 0x0f];
+				}
+			}
+			break;
+
+		case 3: // 8bpp
+			for (uint32_t y = 0; y != vres; y++)
+			{
+				uint32_t *scanline = &bitmap.pix(y);
+				for (uint32_t x = 0; x != hres; x += 4)
+				{
+					uint32_t pixels = *vram++;
+					for (int32_t bit = 24; bit >= 0; bit -= 8)
+						*scanline++ = pens[((pixels >> bit) & 0xff)];
+				}
+			}
+			break;
+
+		case 4: // 16bpp
+			for (uint32_t y = 0; y != vres; y++)
+			{
+				uint32_t *scanline = &bitmap.pix(y);
+				for (uint32_t x = 0; x != hres; x += 2)
+				{
+					const uint32_t pixels = *vram++;
+					*scanline++ = rgb_t(((pixels >> 26) & 0x1f) << 3, ((pixels >> 21) & 0x1f) << 3, ((pixels >> 16) & 0x1f) << 3);
+					*scanline++ = rgb_t(((pixels >> 10) & 0x1f) << 3, ((pixels >> 5) & 0x1f) << 3, (pixels & 0x1f) << 3);
+				}
+			}
+			break;
+
+		default:
+			bitmap.fill(0xff0000);
+			break;
+		}
+	} else {
+		const uint64_t *vram = m_vram + (m_vram_offset / 8);
+		switch(m_depth) {
+		case 0: // 1bpp
+			for(uint32_t y = 0; y != vres; y++) {
+				uint32_t *scanline = &bitmap.pix(y);
+				for(uint32_t x = 0; x != hres; x += 64) {
+					uint64_t pixels = *vram ++;
+					for(int32_t bit = 63; bit >= 0; bit --)
+						*scanline ++ = pens[(((pixels >> bit) & 1) << 7) | 0x7f];
+				}
+			}
+			break;
+
+		case 3: // 8bpp
+			for(uint32_t y = 0; y != vres; y++) {
+				uint32_t *scanline = &bitmap.pix(y);
+				for(uint32_t x = 0; x != hres; x += 8) {
+					uint64_t pixels = *vram ++;
+					for(int32_t bit = 56; bit >= 0; bit -= 8)
+						*scanline ++ = pens[((pixels >> bit) & 0xff)];
+				}
+			}
+			break;
+
+		default:
+			bitmap.fill(0xff0000);
+			break;
+		}
 	}
 
 	return 0;
@@ -160,7 +240,7 @@ uint8_t mac_video_sonora_device::vctrl_r(offs_t offset)
 			res = mon;
 			if(!(m_monitor_id & 8))
 				res &= m_monitor_id & 7;
-		}			
+		}
 
 		return m_monitor_id | (res << 4);
 	}
@@ -219,6 +299,18 @@ void mac_video_sonora_device::vctrl_w(offs_t offset, uint8_t data)
 	}
 }
 
+uint8_t mac_video_sonora_device::dac_r(offs_t offset)
+{
+	switch(offset) {
+	case 2:
+		return m_pal_control;
+
+	default:
+		logerror("dac_r %x\n", offset);
+		return 0;
+	}
+}
+
 void mac_video_sonora_device::dac_w(offs_t offset, uint8_t data)
 {
 	switch(offset) {
@@ -241,6 +333,7 @@ void mac_video_sonora_device::dac_w(offs_t offset, uint8_t data)
 		break;
 
 	case 2:
+		logerror("control = %02x\n", data);
 		m_pal_control = data;
 		break;
 

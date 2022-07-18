@@ -30,8 +30,9 @@ constexpr int STATE_DEVSEL(1);
 constexpr int STATE_ADDRESSHIGH(2);
 constexpr int STATE_ADDRESSLOW(3);
 constexpr int STATE_DATAIN(4);
-constexpr int STATE_DATAOUT(5);
-constexpr int STATE_RESET(6);
+constexpr int STATE_READSELACK(5);
+constexpr int STATE_DATAOUT(6);
+constexpr int STATE_RESET(7);
 
 constexpr int DEVSEL_RW(1);
 constexpr int DEVSEL_ADDRESS(0xfe);
@@ -60,18 +61,19 @@ static inline void ATTR_PRINTF( 3, 4 ) verboselog( device_t *device, int n_level
 //**************************************************************************
 
 // device type definition
-DEFINE_DEVICE_TYPE(I2C_24C01,  i2c_24c01_device,  "24c01",  "24C01 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_PCF8570, i2c_pcf8570_device, "pcf8570",  "PCF8570 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_PCD8572, i2c_pcd8572_device, "pcd8572",  "PCD8572 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_PCF8582, i2c_pcf8582_device, "pcf8582",  "PCF8582 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_24C02,  i2c_24c02_device,  "24c02",  "24C02 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_M24C02, i2c_m24c02_device, "m24c02", "M24C02 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_24C04,  i2c_24c04_device,  "24c04",  "24C04 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_X2404P, i2c_x2404p_device, "x2404p", "X2404P I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_24C08,  i2c_24c08_device,  "24c08",  "24C08 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_24C16,  i2c_24c16_device,  "24c16",  "24C16 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_24C64,  i2c_24c64_device,  "24c64",  "24C64 I2C Memory")
-DEFINE_DEVICE_TYPE(I2C_24C512, i2c_24c512_device, "24c512", "24C512 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_X24C01,  i2c_x24c01_device,  "x24c01",  "X24C01 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_24C01,   i2c_24c01_device,   "24c01",   "24C01 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_PCF8570, i2c_pcf8570_device, "pcf8570", "PCF8570 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_PCD8572, i2c_pcd8572_device, "pcd8572", "PCD8572 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_PCF8582, i2c_pcf8582_device, "pcf8582", "PCF8582 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_24C02,   i2c_24c02_device,   "24c02",   "24C02 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_M24C02,  i2c_m24c02_device,  "m24c02",  "M24C02 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_24C04,   i2c_24c04_device,   "24c04",   "24C04 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_X2404P,  i2c_x2404p_device,  "x2404p",  "X2404P I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_24C08,   i2c_24c08_device,   "24c08",   "24C08 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_24C16,   i2c_24c16_device,   "24c16",   "24C16 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_24C64,   i2c_24c64_device,   "24c64",   "24C64 I2C Memory")
+DEFINE_DEVICE_TYPE(I2C_24C512,  i2c_24c512_device,  "24c512",  "24C512 I2C Memory")
 
 //**************************************************************************
 //  LIVE DEVICE
@@ -105,15 +107,23 @@ i2cmem_device::i2cmem_device(
 	m_wc(0),
 	m_sdar(1),
 	m_state(STATE_IDLE),
+	m_bits(0),
 	m_shift(0),
 	m_devsel(0),
 	m_addresshigh(0),
 	m_byteaddr(0),
 	m_page_offset(0),
-	m_page_written_size(0)
+	m_page_written_size(0),
+	m_devsel_address_low(false)
 {
 	// these memories work off the I2C clock only
 	assert(!clock);
+}
+
+i2c_x24c01_device::i2c_x24c01_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	i2cmem_device(mconfig, I2C_X24C01, tag, owner, clock, 0, 8, 0x80)
+{
+	set_devsel_address_low(true);
 }
 
 i2c_24c01_device::i2c_24c01_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
@@ -241,9 +251,10 @@ void i2cmem_device::nvram_default()
 //  .nv file
 //-------------------------------------------------
 
-void i2cmem_device::nvram_read( emu_file &file )
+bool i2cmem_device::nvram_read( util::read_stream &file )
 {
-	file.read( &m_data[0], m_data_size );
+	size_t actual;
+	return !file.read( &m_data[0], m_data_size, actual ) && actual == m_data_size;
 }
 
 //-------------------------------------------------
@@ -251,9 +262,10 @@ void i2cmem_device::nvram_read( emu_file &file )
 //  .nv file
 //-------------------------------------------------
 
-void i2cmem_device::nvram_write( emu_file &file )
+bool i2cmem_device::nvram_write( util::write_stream &file )
 {
-	file.write( &m_data[0], m_data_size );
+	size_t actual;
+	return !file.write( &m_data[0], m_data_size, actual ) && actual == m_data_size;
 }
 
 
@@ -322,7 +334,7 @@ WRITE_LINE_MEMBER( i2cmem_device::write_sda )
 			}
 			else
 			{
-				verboselog( this, 2, "start\n" );
+				verboselog( this, 1, "start\n" );
 				m_state = STATE_DEVSEL;
 				m_bits = 0;
 			}
@@ -357,91 +369,112 @@ WRITE_LINE_MEMBER( i2cmem_device::write_scl )
 			{
 				if( m_scl )
 				{
-					switch( m_state )
-					{
-					case STATE_DEVSEL:
-						m_devsel = m_shift;
-
-						if( m_devsel == 0 )
-						{
-							// TODO: Atmel datasheets document 2-wire software reset, but doesn't mention it will lower sda only that it will release it.
-							// ltv_naru however requires it to be lowered, but we don't currently know the manufacturer of the chip used.
-							verboselog( this, 1, "software reset\n" );
-							m_state = STATE_RESET;
-							m_sdar = 0;
-						}
-						else if( !select_device() )
-						{
-							verboselog( this, 1, "devsel %02x: not this device\n", m_devsel );
-							m_state = STATE_IDLE;
-						}
-						else if( ( m_devsel & DEVSEL_RW ) == 0 )
-						{
-							verboselog( this, 1, "devsel %02x: write\n", m_devsel );
-							m_state = skip_addresshigh() ? STATE_ADDRESSLOW : STATE_ADDRESSHIGH;
-						}
-						else
-						{
-							verboselog( this, 1, "devsel %02x: read\n", m_devsel );
-							m_state = STATE_DATAOUT;
-						}
-						break;
-
-					case STATE_ADDRESSHIGH:
-						m_addresshigh = m_shift;
-
-						verboselog(this, 1, "addresshigh %02x\n", m_addresshigh);
-
-						m_state = STATE_ADDRESSLOW;
-						break;
-
-					case STATE_ADDRESSLOW:
-						m_byteaddr = m_shift | (skip_addresshigh() ? ((m_devsel & DEVSEL_ADDRESS) << 7) & address_mask() : m_addresshigh << 8);
-						m_page_offset = 0;
-						m_page_written_size = 0;
-
-						verboselog( this, 1, "addresslow %02x (byteaddr %04x)\n", m_shift, m_byteaddr );
-
-						m_state = STATE_DATAIN;
-						break;
-
-					case STATE_DATAIN:
-						if( m_wc )
-						{
-							verboselog( this, 0, "write not enabled\n" );
-							m_state = STATE_IDLE;
-						}
-						else if( m_write_page_size > 0 )
-						{
-							m_page[ m_page_offset ] = m_shift;
-							verboselog( this, 1, "page[ %04x ] <- %02x\n", m_page_offset, m_page[ m_page_offset ] );
-
-							m_page_offset++;
-							if( m_page_offset == m_write_page_size )
-								m_page_offset = 0;
-							m_page_written_size++;
-							if( m_page_written_size > m_write_page_size)
-								m_page_written_size = m_write_page_size;
-						}
-						else
-						{
-							int offset = data_offset();
-
-							verboselog( this, 1, "data[ %04x ] <- %02x\n", offset, m_shift );
-							m_data[ offset ] = m_shift;
-
-							m_byteaddr++;
-						}
-						break;
-					}
-
 					m_bits++;
 				}
 				else
 				{
 					if( m_bits == 8 )
 					{
-						m_sdar = 0;
+						switch( m_state )
+						{
+						case STATE_DEVSEL:
+							m_devsel = m_shift;
+
+							if( m_devsel == 0 && !m_devsel_address_low )
+							{
+								// TODO: Atmel datasheets document 2-wire software reset, but doesn't mention it will lower sda only that it will release it.
+								// ltv_naru however requires it to be lowered, but we don't currently know the manufacturer of the chip used.
+								verboselog( this, 1, "software reset\n" );
+								m_state = STATE_RESET;
+							}
+							else if( !select_device() )
+							{
+								verboselog( this, 1, "devsel %02x: not this device\n", m_devsel );
+								m_state = STATE_IDLE;
+							}
+							else if( ( m_devsel & DEVSEL_RW ) == 0 )
+							{
+								if (m_devsel_address_low)
+								{
+									verboselog( this, 1, "devsel %02x: write (Xicor special, address %02x)\n", m_devsel, m_devsel >> 1);
+									m_byteaddr = (m_devsel & DEVSEL_ADDRESS) >> 1;
+									m_page_offset = 0;
+									m_page_written_size = 0;
+									m_state = STATE_DATAIN;
+								}
+								else
+								{
+									verboselog( this, 1, "devsel %02x: write\n", m_devsel );
+									m_state = skip_addresshigh() ? STATE_ADDRESSLOW : STATE_ADDRESSHIGH;
+								}
+							}
+							else
+							{
+								if (m_devsel_address_low)
+								{
+									verboselog( this, 1, "devsel %02x: read (Xicor special, address %02x)\n", m_devsel, m_devsel >> 1);
+									m_byteaddr = (m_devsel & DEVSEL_ADDRESS) >> 1;
+								}
+								else
+								{
+									verboselog( this, 1, "devsel %02x: read\n", m_devsel );
+								}
+								m_state = STATE_READSELACK;
+							}
+							break;
+
+						case STATE_ADDRESSHIGH:
+							m_addresshigh = m_shift;
+
+							verboselog(this, 1, "addresshigh %02x\n", m_addresshigh);
+
+							m_state = STATE_ADDRESSLOW;
+							break;
+
+						case STATE_ADDRESSLOW:
+							m_byteaddr = m_shift | (skip_addresshigh() ? ((m_devsel & DEVSEL_ADDRESS) << 7) & address_mask() : m_addresshigh << 8);
+							m_page_offset = 0;
+							m_page_written_size = 0;
+
+							verboselog( this, 1, "addresslow %02x (byteaddr %04x)\n", m_shift, m_byteaddr );
+
+							m_state = STATE_DATAIN;
+							break;
+
+						case STATE_DATAIN:
+							if( m_wc )
+							{
+								verboselog( this, 0, "write not enabled\n" );
+								m_state = STATE_IDLE;
+							}
+							else if( m_write_page_size > 0 )
+							{
+								m_page[ m_page_offset ] = m_shift;
+								verboselog( this, 1, "page[ %04x ] <- %02x\n", m_page_offset, m_page[ m_page_offset ] );
+
+								m_page_offset++;
+								if( m_page_offset == m_write_page_size )
+									m_page_offset = 0;
+								m_page_written_size++;
+								if( m_page_written_size > m_write_page_size)
+									m_page_written_size = m_write_page_size;
+							}
+							else
+							{
+								int offset = data_offset();
+
+								verboselog( this, 1, "data[ %04x ] <- %02x\n", offset, m_shift );
+								m_data[ offset ] = m_shift;
+
+								m_byteaddr++;
+							}
+							break;
+						}
+
+						if( m_state != STATE_IDLE )
+						{
+							m_sdar = 0 ;
+						}
 					}
 					else
 					{
@@ -452,10 +485,19 @@ WRITE_LINE_MEMBER( i2cmem_device::write_scl )
 			}
 			break;
 
+		case STATE_READSELACK:
+			m_bits = 0;
+			m_state = STATE_DATAOUT;
+			break;
+
 		case STATE_DATAOUT:
 			if( m_bits < 8 )
 			{
 				if( m_scl )
+				{
+					m_bits++;
+				}
+				else
 				{
 					if( m_bits == 0 )
 					{
@@ -469,7 +511,6 @@ WRITE_LINE_MEMBER( i2cmem_device::write_scl )
 					m_sdar = ( m_shift >> 7 ) & 1;
 
 					m_shift = ( m_shift << 1 ) & 0xff;
-					m_bits++;
 				}
 			}
 			else
@@ -482,18 +523,11 @@ WRITE_LINE_MEMBER( i2cmem_device::write_scl )
 						m_state = STATE_IDLE;
 					}
 
-					m_bits++;
+					m_bits = 0;
 				}
 				else
 				{
-					if( m_bits == 8 )
-					{
-						m_sdar = 1;
-					}
-					else
-					{
-						m_bits = 0;
-					}
+					m_sdar = 1;
 				}
 			}
 			break;
@@ -501,9 +535,13 @@ WRITE_LINE_MEMBER( i2cmem_device::write_scl )
 		case STATE_RESET:
 			if( m_scl )
 			{
-				verboselog(this, 1, "software reset ack\n");
-				m_state = STATE_IDLE;
-				m_sdar = 1;
+				if( m_bits > 8 )
+				{
+					verboselog(this, 1, "software reset ack\n");
+					m_state = STATE_IDLE;
+					m_sdar = 1;
+				}
+				m_bits++;
 			}
 			break;
 		}
@@ -525,7 +563,6 @@ WRITE_LINE_MEMBER( i2cmem_device::write_wc )
 READ_LINE_MEMBER( i2cmem_device::read_sda )
 {
 	int res = m_sdar & 1;
-
 	verboselog( this, 2, "read sda %d\n", res );
 
 	return res;
@@ -543,6 +580,12 @@ int i2cmem_device::address_mask()
 
 int i2cmem_device::select_device()
 {
+	if ( m_devsel_address_low )
+	{
+		// Due to a full address and read/write flag fitting in one 8-bit packet, the Xicor X24C01 replies on all addresses.
+		return 1;
+	}
+
 	int device = ( m_slave_address & 0xf0 ) | ( m_e2 << 3 ) | ( m_e1 << 2 ) | ( m_e0 << 1 );
 	int mask = DEVSEL_ADDRESS & ~( skip_addresshigh() ? address_mask() >> 7 : 0 );
 

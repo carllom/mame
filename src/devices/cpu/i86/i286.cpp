@@ -2,7 +2,6 @@
 // copyright-holders:Carl
 #include "emu.h"
 #include "i286.h"
-#include "debugger.h"
 #include "i86inline.h"
 
 /*
@@ -1091,8 +1090,8 @@ void i80286_cpu_device::execute_run()
 				{
 					if ( m_fire_trap >= 2 )
 					{
-						interrupt(1);
 						m_fire_trap = 0;
+						interrupt(1);
 					}
 					else
 					{

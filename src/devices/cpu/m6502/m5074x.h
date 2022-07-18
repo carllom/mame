@@ -40,6 +40,7 @@ public:
 
 	template <std::size_t Bit> auto read_p() { return m_read_p[Bit].bind(); }
 	template <std::size_t Bit> auto write_p() { return m_write_p[Bit].bind(); }
+	template <std::size_t Bit> void set_pullups(u8 mask) { m_pullups[Bit] = mask; }
 
 	uint8_t ports_r(offs_t offset);
 	void ports_w(offs_t offset, uint8_t data);
@@ -55,13 +56,17 @@ protected:
 	// device-level overrides
 	virtual void device_start() override;
 	virtual void device_reset() override;
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 	virtual space_config_vector memory_space_config() const override;
 
 	// device_execute_interface overrides (TODO: /8 in M50740A/41/52/57/58 SLW mode)
 	virtual uint64_t execute_clocks_to_cycles(uint64_t clocks) const noexcept override { return (clocks + 4 - 1) / 4; }
 	virtual uint64_t execute_cycles_to_clocks(uint64_t cycles) const noexcept override { return (cycles * 4); }
 	virtual void execute_set_input(int inputnum, int state) override;
+
+	TIMER_CALLBACK_MEMBER(timer1_tick);
+	TIMER_CALLBACK_MEMBER(timer2_tick);
+	TIMER_CALLBACK_MEMBER(timerx_tick);
+	virtual TIMER_CALLBACK_MEMBER(adc_complete) { }
 
 	void send_port(uint8_t offset, uint8_t data);
 	uint8_t read_port(uint8_t offset);
@@ -72,7 +77,7 @@ protected:
 	devcb_read8::array<5>  m_read_p;
 	devcb_write8::array<5> m_write_p;
 
-	uint8_t m_ports[5], m_ddrs[5];
+	uint8_t m_ports[5], m_ddrs[5], m_pullups[5];
 	uint8_t m_intctrl, m_tmrctrl;
 	uint8_t m_tmr12pre, m_tmr1, m_tmr2, m_tmrxpre, m_tmrx;
 	uint8_t m_tmr1latch, m_tmr2latch, m_tmrxlatch;
@@ -127,9 +132,10 @@ protected:
 	// device-level overrides
 	virtual void device_start() override;
 	virtual void device_reset() override;
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
 	virtual void execute_set_input(int inputnum, int state) override;
+
+	virtual TIMER_CALLBACK_MEMBER(adc_complete) override;
 
 private:
 	void m50753_map(address_map &map);
