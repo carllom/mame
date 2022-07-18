@@ -109,7 +109,7 @@ epson_pf10_device::epson_pf10_device(const machine_config &mconfig, const char *
 
 void epson_pf10_device::device_start()
 {
-	m_timer = timer_alloc(0, nullptr);
+	m_timer = timer_alloc(FUNC(epson_pf10_device::serial_clk_tick), this);
 }
 
 //-------------------------------------------------
@@ -118,21 +118,17 @@ void epson_pf10_device::device_start()
 
 void epson_pf10_device::device_reset()
 {
-	m_timer->adjust(attotime::zero, 0, attotime::from_hz(38400 * 8));
+	m_timer->adjust(attotime::zero, 0, attotime::from_hz(38400 * 16));
 }
 
 //-------------------------------------------------
-//  device_timer - handler timer events
+//  serial_clk_tick - tick the CPU's external
+//  serial clock
 //-------------------------------------------------
 
-void epson_pf10_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER( epson_pf10_device::serial_clk_tick )
 {
-	switch (id)
-	{
-	case 0:
-		m_cpu->m6801_clock_serial();
-		break;
-	}
+	m_cpu->m6801_clock_serial();
 }
 
 

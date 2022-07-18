@@ -6,6 +6,7 @@
 
 This is the single-chip evolution of Rockwell's older PPS-4 CPU. It is similar,
 but a lot of things were simplified, the ALU instructions are less diverse.
+It also has a lot in common with Rockwell's previous MCU series (A/B5000).
 
 Part numbers:
 - A75xx = MM75    - 28 pin dip
@@ -44,14 +45,15 @@ TODO:
   but again does not explain why
 - allowed opcode after TAB should be limited
 - add MCU mask options, there's one for inverting interrupts
-- finish MM78LA emulation
+- does MM78LA support interrupts? the sparse documentation available says it does
+- MM78LA mnemonics for changed opcodes is unknown
+- no known documentation exists for MM77LA, mcu name is guessed (maybe it was
+  designed in collaboration with Mattel, and later evolved into MM78LA)
 
 */
 
 #include "emu.h"
 #include "pps41base.h"
-
-#include "debugger.h"
 
 
 pps41_base_device::pps41_base_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int prgwidth, address_map_constructor program, int datawidth, address_map_constructor data) :
@@ -68,7 +70,8 @@ pps41_base_device::pps41_base_device(const machine_config &mconfig, device_type 
 	m_write_r(*this),
 	m_read_sdi(*this),
 	m_write_sdo(*this),
-	m_write_ssc(*this)
+	m_write_ssc(*this),
+	m_write_spk(*this)
 { }
 
 
@@ -92,6 +95,7 @@ void pps41_base_device::device_start()
 	m_read_sdi.resolve_safe(1);
 	m_write_sdo.resolve_safe();
 	m_write_ssc.resolve_safe();
+	m_write_spk.resolve_safe();
 
 	// init RAM with 0xf
 	for (int i = 0; i <= m_datamask; i++)
@@ -171,11 +175,11 @@ void pps41_base_device::device_start()
 	state_add(STATE_GENPCBASE, "CURPC", m_prev_pc).formatstr("%03X").noshow();
 
 	m_state_count = 0;
-	state_add(++m_state_count, "PC", m_pc).formatstr("%03X");
-	state_add(++m_state_count, "A", m_a).formatstr("%01X");
-	state_add(++m_state_count, "C", m_c_in).formatstr("%01X");
-	state_add(++m_state_count, "B", m_b).formatstr("%02X");
-	state_add(++m_state_count, "S", m_s).formatstr("%01X");
+	state_add(++m_state_count, "PC", m_pc).formatstr("%03X"); // 1
+	state_add(++m_state_count, "A", m_a).formatstr("%01X"); // 2
+	state_add(++m_state_count, "C", m_c_in).formatstr("%01X"); // 3
+	state_add(++m_state_count, "B", m_b).formatstr("%02X"); // 4
+	state_add(++m_state_count, "S", m_s).formatstr("%01X"); // 5
 
 	set_icountptr(m_icount);
 }

@@ -65,7 +65,7 @@ function createProjects_mame_tiny(_target, _subtarget)
 		MAME_DIR .. "src/osd",
 		MAME_DIR .. "src/emu",
 		MAME_DIR .. "src/devices",
-		MAME_DIR .. "src/mame",
+		MAME_DIR .. "src/mame/shared",
 		MAME_DIR .. "src/lib",
 		MAME_DIR .. "src/lib/util",
 		MAME_DIR .. "3rdparty",
@@ -73,7 +73,7 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
-	MAME_DIR .. "src/mame/drivers/nb4200.cpp",
+	MAME_DIR .. "src/mame/misc/nb4200.cpp",
 }
 end
 
