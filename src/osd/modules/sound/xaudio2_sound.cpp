@@ -9,7 +9,7 @@
 #include "sound_module.h"
 #include "modules/osdmodule.h"
 
-#if defined(OSD_WINDOWS) || defined(OSD_UWP)
+#if defined(OSD_WINDOWS)
 
 // standard windows headers
 #include <windows.h>
@@ -22,13 +22,14 @@
 #undef interface
 
 // stdlib includes
-#include <mutex>
-#include <thread>
-#include <queue>
+#include <algorithm>
 #include <chrono>
+#include <mutex>
+#include <queue>
+#include <thread>
 
 // MAME headers
-#include "emu.h"
+#include "osdcore.h"
 #include "osdepend.h"
 
 #include "winutil.h"
@@ -419,7 +420,7 @@ void sound_xaudio2::set_mastervolume(int attenuation)
 	HRESULT result;
 
 	// clamp the attenuation to 0-32 range
-	attenuation = std::max(std::min(attenuation, 0), -32);
+	attenuation = std::clamp(attenuation, -32, 0);
 
 	// Ranges from 1.0 to XAUDIO2_MAX_VOLUME_LEVEL indicate additional gain
 	// Ranges from 0 to 1.0 indicate a reduced volume level

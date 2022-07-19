@@ -64,7 +64,7 @@ function createProjects_mame_tiny(_target, _subtarget)
 		MAME_DIR .. "src/osd",
 		MAME_DIR .. "src/emu",
 		MAME_DIR .. "src/devices",
-		MAME_DIR .. "src/mame",
+		MAME_DIR .. "src/mame/shared",
 		MAME_DIR .. "src/lib",
 		MAME_DIR .. "src/lib/util",
 		MAME_DIR .. "3rdparty",
@@ -73,13 +73,13 @@ function createProjects_mame_tiny(_target, _subtarget)
 
 files{
 	-- MAME_DIR .. "src/mame/drivers/s330.cpp",
-	MAME_DIR .. "src/mame/drivers/roland_s50.cpp",
-	MAME_DIR .. "src/mame/machine/mb63h149.cpp", -- (ajr) not mapped to machine core yet?
-	-- MAME_DIR .. "src/mame/machine/mb63h149.h",
-	MAME_DIR .. "src/mame/audio/sa16.cpp", -- not mapped to audio core yet
-	-- MAME_DIR .. "src/mame/audio/sa16.h",
-	MAME_DIR .. "src/mame/audio/bu3905.cpp", -- (ajr) not mapped to audio core yet?
-	-- MAME_DIR .. "src/mame/audio/bu3905.h",
+	MAME_DIR .. "src/mame/roland/roland_s50.cpp",
+	MAME_DIR .. "src/mame/roland/mb63h149.cpp", -- (ajr) not mapped to machine core yet?
+	-- MAME_DIR .. "src/mame/roland/mb63h149.h",
+	MAME_DIR .. "src/mame/roland/sa16.cpp", -- not mapped to audio core yet
+	-- MAME_DIR .. "src/mame/roland/sa16.h",
+	MAME_DIR .. "src/mame/roland/bu3905.cpp", -- (ajr) not mapped to audio core yet?
+	-- MAME_DIR .. "src/mame/roland/bu3905.h",
 }
 end
 
