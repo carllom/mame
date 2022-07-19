@@ -95,6 +95,7 @@ void bbc_tube_slot_device::host_w(offs_t offset, uint8_t data)
 #include "tube_80286.h"
 #include "tube_a500.h"
 #include "tube_arm.h"
+#include "tube_arm7.h"
 #include "tube_casper.h"
 #include "tube_cms6809.h"
 //#include "tube_pmsb2p.h"
@@ -111,6 +112,8 @@ void bbc_tube_slot_device::host_w(offs_t offset, uint8_t data)
 void bbc_tube_devices(device_slot_interface &device)
 {
 	device.option_add("6502",   BBC_TUBE_6502);    /* Acorn ANC01 6502 2nd processor */
+	device.option_add("6502p",  BBC_TUBE_6502P);   /* Acorn 6502 2nd processor (pre-production) */
+	device.option_add("6502e",  BBC_TUBE_6502E);   /* Acorn Extended 6502 2nd processor */
 	device.option_add("z80",    BBC_TUBE_Z80);     /* Acorn ANC04 Z80 2nd processor */
 	device.option_add("z80w",   BBC_TUBE_Z80W);    /* Acorn ANC04 Z80 2nd processor (Winchester) */
 	device.option_add("16032",  BBC_TUBE_16032);   /* Acorn 16032 2nd processor */
@@ -132,6 +135,7 @@ void bbc_tube_devices(device_slot_interface &device)
 	/* Acorn ANC21 Universal 2nd Processor Unit */
 	device.option_add("65c102", BBC_TUBE_65C102);  /* Acorn ADC06 65C102 co-processor */
 	device.option_add("80186",  BBC_TUBE_80186);   /* Acorn ADC08 80186 co-processor */
+	device.option_add("arm7",   BBC_TUBE_ARM7);     /* Sprow ARM7 co-processor */
 	device.option_add("rc6502", BBC_TUBE_RC6502);   /* ReCo6502 (6502) */
 	device.option_add("rc65816", BBC_TUBE_RC65816); /* ReCo6502 (65816) */
 }
@@ -144,6 +148,7 @@ void bbc_tube_devices(device_slot_interface &device)
 void bbc_extube_devices(device_slot_interface &device)
 {
 	device.option_add("6502",   BBC_TUBE_6502);     /* Acorn ANC01 6502 2nd processor */
+	device.option_add("6502e",  BBC_TUBE_6502E);    /* Acorn Extended 6502 2nd processor */
 	device.option_add("z80",    BBC_TUBE_Z80);      /* Acorn ANC04 Z80 2nd processor */
 	device.option_add("z80w",   BBC_TUBE_Z80W);     /* Acorn ANC04 Z80 2nd processor (Winchester) */
 	device.option_add("32016",  BBC_TUBE_32016);    /* Acorn ANC05 32016 2nd processor */
@@ -158,6 +163,7 @@ void bbc_extube_devices(device_slot_interface &device)
 	/* Acorn ANC21 Universal 2nd Processor Unit */
 	device.option_add("65c102", BBC_TUBE_65C102);   /* Acorn ADC06 65C102 co-processor */
 	device.option_add("80186",  BBC_TUBE_80186);    /* Acorn ADC08 80186 co-processor */
+	device.option_add("arm7",   BBC_TUBE_ARM7);     /* Sprow ARM7 co-processor */
 	device.option_add("rc6502", BBC_TUBE_RC6502);   /* ReCo6502 (6502) */
 	device.option_add("rc65816", BBC_TUBE_RC65816); /* ReCo6502 (65816) */
 }
@@ -171,7 +177,7 @@ void bbc_intube_devices(device_slot_interface &device)
 {
 	device.option_add("65c102", BBC_TUBE_65C102);  /* Acorn ADC06 65C102 co-processor */
 	device.option_add("80186",  BBC_TUBE_80186);   /* Acorn ADC08 80186 co-processor */
-	//device.option_add("arm7",    BBC_TUBE_ARM7);    /* Sprow ARM7 co-processor */
+	device.option_add("arm7",    BBC_TUBE_ARM7);    /* Sprow ARM7 co-processor */
 	device.option_add("rc6502",  BBC_TUBE_RC6502);  /* ReCo6502 (6502) */
 	device.option_add("rc65816", BBC_TUBE_RC65816); /* ReCo6502 (65816) */
 }
@@ -184,6 +190,7 @@ void bbc_intube_devices(device_slot_interface &device)
 void electron_tube_devices(device_slot_interface &device)
 {
 	device.option_add("6502",   BBC_TUBE_6502);    /* Acorn ANC01 6502 2nd processor */
+	device.option_add("6502e",  BBC_TUBE_6502E);   /* Acorn Extended 6502 2nd processor */
 	device.option_add("z80",    BBC_TUBE_Z80);     /* Acorn ANC04 Z80 2nd processor */
 	device.option_add("32016",  BBC_TUBE_32016);   /* Acorn ANC05 32016 2nd processor */
 	device.option_add("32016l", BBC_TUBE_32016L);  /* Acorn Large 32016 2nd processor */
@@ -191,6 +198,7 @@ void electron_tube_devices(device_slot_interface &device)
 	device.option_add("65c102", BBC_TUBE_65C102);  /* Acorn ADC06 65C102 co-processor */
 	device.option_add("80186",  BBC_TUBE_80186);   /* Acorn ADC08 80186 co-processor */
 	device.option_add("pcplus", BBC_TUBE_PCPLUS);  /* Solidisk PC-Plus co-processor */
+	device.option_add("arm7",   BBC_TUBE_ARM7);    /* Sprow ARM7 co-processor */
 	device.option_add("rc6502", BBC_TUBE_RC6502);  /* ReCo6502 (6502) */
 	device.option_add("rc65816", BBC_TUBE_RC65816); /* ReCo6502 (65816) */
 }

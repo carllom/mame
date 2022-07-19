@@ -1,6 +1,27 @@
 name: CI (Linux)
 
-on: [push, pull_request]
+on:
+  push:
+    paths:
+    - '.github/**'
+    - '3rdparty/**'
+    - 'hash/**'
+    - 'scripts/**'
+    - 'src/**'
+    - 'COPYING'
+    - 'makefile'
+  pull_request:
+    paths:
+    - '.github/**'
+    - '3rdparty/**'
+    - 'hash/**'
+    - 'scripts/**'
+    - 'src/**'
+    - 'COPYING'
+    - 'makefile'
+
+permissions:
+  contents: read
 
 jobs:
   build-linux:
@@ -34,6 +55,8 @@ jobs:
         run: make -j2
       - name: Validate
         run: ./mame -validate
+      - name: Reconcile driver list
+        run: ./mame -listxml | python scripts/build/makedep.py reconcilelist -l src/mame/mame.lst -
       - name: ORM check
         run: python scripts/minimaws/minimaws.py load --executable ./mame --softwarepath hash
       - uses: actions/upload-artifact@master

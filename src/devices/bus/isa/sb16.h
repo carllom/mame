@@ -7,8 +7,8 @@
 #include "isa.h"
 #include "bus/pc_joy/pc_joy.h"
 #include "cpu/mcs51/mcs51.h"
-#include "sound/262intf.h"
 #include "sound/dac.h"
+#include "sound/ymopl.h"
 
 //*********************************************************************
 //   TYPE DEFINITIONS
@@ -26,8 +26,6 @@ protected:
 	// device-level overrides
 	virtual void device_start() override;
 	virtual void device_reset() override;
-
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
 	// optional information overrides
 	virtual const tiny_rom_entry *device_rom_region() const override;
@@ -87,6 +85,8 @@ private:
 	void host_io(address_map &map);
 
 	void control_timer(bool start);
+
+	TIMER_CALLBACK_MEMBER(timer_tick);
 
 	required_device<dac_word_interface> m_ldac;
 	required_device<dac_word_interface> m_rdac;

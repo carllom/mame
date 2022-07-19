@@ -21,6 +21,7 @@ CPUS["NS32000"] = true -- emu3
 
 CPUS["M6800"] = true -- SWTPC8212 (terminal)
 CPUS["IE15"] = true -- IE15 (terminal)
+CPUS["M6803"] = true -- mboardd
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
@@ -28,6 +29,7 @@ CPUS["IE15"] = true -- IE15 (terminal)
 --------------------------------------------------
 
 SOUNDS["DAC"] = true
+SOUNDS["AY8910"] = true
 SOUNDS["BEEP"] = true -- ???
 
 --------------------------------------------------
@@ -44,7 +46,7 @@ VIDEOS["MC6845"] = true -- SWTPC8212
 MACHINES["UPD765"] = true -- e6400
 
 MACHINES["WD_FDC"] = true -- emu3
-MACHINES["NCR5380N"] = true -- emu3
+MACHINES["NCR5380"] = true -- emu3
 MACHINES["ACIA6850"] = true -- emu3
 MACHINES["PIT8253"] = true -- emu3
 MACHINES["NSCSI"] = true -- emu3
@@ -84,7 +86,7 @@ function createProjects_mame_tiny(_target, _subtarget)
 		MAME_DIR .. "src/osd",
 		MAME_DIR .. "src/emu",
 		MAME_DIR .. "src/devices",
-		MAME_DIR .. "src/mame",
+		MAME_DIR .. "src/mame/shared",
 		MAME_DIR .. "src/lib",
 		MAME_DIR .. "src/lib/util",
 		MAME_DIR .. "3rdparty",
@@ -93,10 +95,10 @@ function createProjects_mame_tiny(_target, _subtarget)
 
 files{
 	-- e6400
-	MAME_DIR .. "src/mame/drivers/e6400.cpp",
+	MAME_DIR .. "src/mame/emusys/e6400.cpp",
 	-- eiii
 	-- MAME_DIR .. "src/mame/drivers/emuiii.cpp",	
-	MAME_DIR .. "src/mame/drivers/emu3.cpp",	
+	MAME_DIR .. "src/mame/emusys/emu3.cpp",	
 }
 end
 

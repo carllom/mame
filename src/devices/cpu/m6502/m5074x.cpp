@@ -57,6 +57,7 @@ m5074x_device::m5074x_device(const machine_config &mconfig, device_type type, co
 	m_tmrxlatch(0),
 	m_last_all_ints(0)
 {
+	std::fill(std::begin(m_pullups), std::end(m_pullups), 0);
 }
 
 //-------------------------------------------------
@@ -68,10 +69,10 @@ void m5074x_device::device_start()
 	m_read_p.resolve_all_safe(0);
 	m_write_p.resolve_all_safe();
 
-	for (int i = 0; i < NUM_TIMERS; i++)
-	{
-		m_timers[i] = timer_alloc(i, nullptr);
-	}
+	m_timers[TIMER_1] = timer_alloc(FUNC(m5074x_device::timer1_tick), this);
+	m_timers[TIMER_2] = timer_alloc(FUNC(m5074x_device::timer2_tick), this);
+	m_timers[TIMER_X] = timer_alloc(FUNC(m5074x_device::timerx_tick), this);
+	m_timers[TIMER_ADC] = timer_alloc(FUNC(m5074x_device::adc_complete), this);
 
 	m740_device::device_start();
 
@@ -121,42 +122,39 @@ void m5074x_device::device_reset()
 	m_tmr1 = m_tmr2 = m_tmrx = 0;
 }
 
-void m5074x_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(m5074x_device::timer1_tick)
 {
-	switch (id)
+	m_tmr1--;
+
+	if (m_tmr1 <= 0)
 	{
-		case TIMER_1:
-			m_tmr1--;
+		m_intctrl |= IRQ_TMR1REQ;
+		m_tmr1 = m_tmr1latch;
+		recalc_irqs();
+	}
+}
 
-			if (m_tmr1 <= 0)
-			{
-				m_intctrl |= IRQ_TMR1REQ;
-				m_tmr1 = m_tmr1latch;
-				recalc_irqs();
-			}
-			break;
+TIMER_CALLBACK_MEMBER(m5074x_device::timer2_tick)
+{
+	m_tmr2--;
 
-		case TIMER_2:
-			m_tmr2--;
+	if (m_tmr2 <= 0)
+	{
+		m_intctrl |= IRQ_TMR2REQ;
+		m_tmr2 = m_tmr2latch;
+		recalc_irqs();
+	}
+}
 
-			if (m_tmr2 <= 0)
-			{
-				m_intctrl |= IRQ_TMR2REQ;
-				m_tmr2 = m_tmr2latch;
-				recalc_irqs();
-			}
-			break;
+TIMER_CALLBACK_MEMBER(m5074x_device::timerx_tick)
+{
+	m_tmrx--;
 
-		case TIMER_X:
-			m_tmrx--;
-
-			if (m_tmrx <= 0)
-			{
-				m_tmrctrl |= TMRC_TMRXREQ;
-				m_tmrx = m_tmrxlatch;
-				recalc_irqs();
-			}
-			break;
+	if (m_tmrx <= 0)
+	{
+		m_tmrctrl |= TMRC_TMRXREQ;
+		m_tmrx = m_tmrxlatch;
+		recalc_irqs();
 	}
 }
 
@@ -315,7 +313,7 @@ uint8_t m5074x_device::ports_r(offs_t offset)
 			return m_ddrs[3];
 
 		case 0xa:
-			return read_port(4);
+			return read_port(4) & 0x0f;
 
 		case 0xb:
 			return m_ddrs[4];
@@ -329,53 +327,53 @@ void m5074x_device::ports_w(offs_t offset, uint8_t data)
 	switch (offset)
 	{
 		case 0: // p0
-			send_port(0, data & m_ddrs[0]);
+			send_port(0, (data & m_ddrs[0]) | (m_pullups[0] & ~m_ddrs[0]));
 			m_ports[0] = data;
 			break;
 
 		case 1: // p0 ddr
-			send_port(0, m_ports[0] & data);
+			send_port(0, (m_ports[0] & data) | (m_pullups[0] & ~data));
 			m_ddrs[0] = data;
 			break;
 
 		case 2: // p1
-			send_port(1, data & m_ddrs[1]);
+			send_port(1, (data & m_ddrs[1]) | (m_pullups[1] & ~m_ddrs[1]));
 			m_ports[1] = data;
 			break;
 
 		case 3: // p1 ddr
-			send_port(1, m_ports[1] & data);
+			send_port(1, (m_ports[1] & data) | (m_pullups[1] & ~data));
 			m_ddrs[1] = data;
 			break;
 
 		case 4: // p2
-			send_port(2, data & m_ddrs[2]);
+			send_port(2, (data & m_ddrs[2]) | (m_pullups[2] & ~m_ddrs[2]));
 			m_ports[2] = data;
 			break;
 
 		case 5: // p2 ddr
-			send_port(2, m_ports[2] & data);
+			send_port(2, (m_ports[2] & data) | (m_pullups[2] & ~data));
 			m_ddrs[2] = data;
 			break;
 
 		case 8: // p3
-			send_port(3, data & m_ddrs[3]);
+			send_port(3, (data & m_ddrs[3]) | (m_pullups[3] & ~m_ddrs[3]));
 			m_ports[3] = data;
 			break;
 
 		case 9: // p3 ddr
-			send_port(3, m_ports[3] & data);
+			send_port(3, (m_ports[3] & data) | (m_pullups[3] & ~data));
 			m_ddrs[3] = data;
 			break;
 
-		case 0xa: // p4
-			send_port(4, data & m_ddrs[4]);
-			m_ports[4] = data;
+		case 0xa: // p4 (4-bit open drain)
+			send_port(4, (data & m_ddrs[4] & 0x0f) | (m_pullups[4] & ~m_ddrs[4]));
+			m_ports[4] = data & 0x0f;
 			break;
 
 		case 0xb: // p4 ddr
-			send_port(4, m_ports[4] & data);
-			m_ddrs[4] = data;
+			send_port(4, (m_ports[4] & data & 0x0f) | (m_pullups[4] & ~data));
+			m_ddrs[4] = data & 0x0f;
 			break;
 	}
 }
@@ -496,7 +494,7 @@ void m50753_device::m50753_map(address_map &map)
 	map(0x00e0, 0x00eb).rw(FUNC(m50753_device::ports_r), FUNC(m50753_device::ports_w));
 	map(0x00ee, 0x00ee).r(FUNC(m50753_device::in_r));
 	map(0x00ef, 0x00ef).r(FUNC(m50753_device::ad_r));
-	map(0x00f2, 0x00f2).w(FUNC(m50753_device::ad_start_w));
+	map(0x00f2, 0x00f2).nopr().w(FUNC(m50753_device::ad_start_w));
 	map(0x00f3, 0x00f3).rw(FUNC(m50753_device::ad_control_r), FUNC(m50753_device::ad_control_w));
 	map(0x00f5, 0x00f5).rw(FUNC(m50753_device::pwm_control_r), FUNC(m50753_device::pwm_control_w));
 	map(0x00f9, 0x00ff).rw(FUNC(m50753_device::tmrirq_r), FUNC(m50753_device::tmrirq_w));
@@ -606,23 +604,14 @@ void m50753_device::execute_set_input(int inputnum, int state)
 	recalc_irqs();
 }
 
-void m50753_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(m50753_device::adc_complete)
 {
-	switch (id)
+	m_timers[TIMER_ADC]->adjust(attotime::never);
+
+	// if interrupt source is the ADC, do it.
+	if (m_ad_control & 4)
 	{
-	case TIMER_ADC:
-		m_timers[TIMER_ADC]->adjust(attotime::never);
-
-		// if interrupt source is the ADC, do it.
-		if (m_ad_control & 4)
-		{
-			m_intctrl |= IRQ_50753_INTADC;
-			recalc_irqs();
-		}
-		break;
-
-	default:
-		m5074x_device::device_timer(timer, id, param, ptr);
-		break;
+		m_intctrl |= IRQ_50753_INTADC;
+		recalc_irqs();
 	}
 }

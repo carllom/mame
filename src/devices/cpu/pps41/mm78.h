@@ -39,6 +39,7 @@
    RIO5 20 |           | 23 RIO8       RIO7 20 |___________| 21 RIO8
    RIO6 21 |___________| 22 RIO7
 
+    MM78 also exists as 40-pin DIP and can have the same pinout as MM78L
 */
 
 class mm78_device : public mm76_device
@@ -67,9 +68,9 @@ protected:
 	void program_2k(address_map &map);
 
 	// opcode helpers
-	virtual bool op_is_eob(u8 op) override { return (op & 0xf8) == 0x08; };
-	virtual bool op_is_lb(u8 op) override { return (op & 0xf0) == 0x10; };
-	virtual bool op_is_lai(u8 op) override { return (op & 0xf0) == 0x40; };
+	virtual bool op_is_eob(u8 op) override { return (op & 0xf8) == 0x08; }
+	virtual bool op_is_lb(u8 op) override { return (op & 0xf0) == 0x10; }
+	virtual bool op_is_lai(u8 op) override { return (op & 0xf0) == 0x40; }
 
 	// opcode handlers
 	virtual void op_lba() override;
