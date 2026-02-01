@@ -61,8 +61,8 @@ public:
 	void init_decryption();
 
 protected:
-	virtual void machine_start() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	required_device<cpu_device> m_maincpu;
@@ -83,9 +83,9 @@ private:
 	tilemap_t *m_pf1_tilemap = nullptr;
 	tilemap_t *m_fix_tilemap = nullptr;
 
-	DECLARE_WRITE_LINE_MEMBER(vblank_irq);
-	DECLARE_WRITE_LINE_MEMBER(irq_enable_w);
-	DECLARE_WRITE_LINE_MEMBER(sound_reset_w);
+	void vblank_irq(int state);
+	void irq_enable_w(int state);
+	void sound_reset_w(int state);
 
 	void videoram_w(offs_t offset, uint8_t data);
 	void colorram_w(offs_t offset, uint8_t data);
@@ -96,13 +96,11 @@ private:
 	void draw_sprites(bitmap_ind16 &bitmap, const rectangle &cliprect);
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 
-	void main_io_map(address_map &map);
-	void main_prg_map(address_map &map);
-	void sound_prg_map(address_map &map);
+	void main_io_map(address_map &map) ATTR_COLD;
+	void main_prg_map(address_map &map) ATTR_COLD;
+	void sound_prg_map(address_map &map) ATTR_COLD;
 };
 
-
-// video
 
 TILE_GET_INFO_MEMBER(slapfght_ms_state::get_pf1_tile_info)
 {
@@ -204,15 +202,13 @@ void slapfght_ms_state::video_start()
 }
 
 
-// machine
-
-WRITE_LINE_MEMBER(slapfght_ms_state::vblank_irq)
+void slapfght_ms_state::vblank_irq(int state)
 {
 	if (state && m_main_irq_enabled)
 		m_maincpu->set_input_line(0, ASSERT_LINE);
 }
 
-WRITE_LINE_MEMBER(slapfght_ms_state::irq_enable_w)
+void slapfght_ms_state::irq_enable_w(int state)
 {
 	m_main_irq_enabled = state ? true : false;
 
@@ -220,7 +216,7 @@ WRITE_LINE_MEMBER(slapfght_ms_state::irq_enable_w)
 		m_maincpu->set_input_line(0, CLEAR_LINE);
 }
 
-WRITE_LINE_MEMBER(slapfght_ms_state::sound_reset_w)
+void slapfght_ms_state::sound_reset_w(int state)
 {
 	m_audiocpu->set_input_line(INPUT_LINE_RESET, state ? CLEAR_LINE : ASSERT_LINE);
 
@@ -393,13 +389,13 @@ void slapfght_ms_state::slapfighm(machine_config &config)
 	ym2203_device &ym1(YM2203(config, "ym1", 20_MHz_XTAL / 5)); // divisor unknown
 	ym1.port_a_read_callback().set_ioport("IN0");
 	ym1.port_b_read_callback().set_ioport("IN1");
-	ym1.irq_handler().set_log("ym 1 IRQ");
+	ym1.irq_handler().set([this](int state) { if (state) logerror("ym 1 IRQ\n"); });
 	ym1.add_route(ALL_OUTPUTS, "mono", 0.15);
 
 	ym2203_device &ym2(YM2203(config, "ym2", 20_MHz_XTAL / 5)); // divisor unknown
 	ym2.port_a_read_callback().set_ioport("SW1");
 	ym2.port_b_read_callback().set_ioport("SW2");
-	ym2.irq_handler().set_log("ym 2 IRQ");
+	ym2.irq_handler().set([this](int state) { if (state) logerror("ym 2 IRQ\n"); });
 	ym2.add_route(ALL_OUTPUTS, "mono", 0.15);
 }
 
@@ -413,9 +409,9 @@ ROM_START( slapfighm )
 	ROM_LOAD( "1_snd_fi_0101.ic12", 0x0000, 0x4000, CRC(4e3ae13e) SHA1(4ab29064f3a4cb4fd70a9eb8ddbffb4f5ee74057) ) // 1xxxxxxxxxxxxx = 0xFF
 
 	ROM_REGION( 0x4000, "chars", 0 ) // on one MOD 4/2 board, contains the same data as the original among the weirdness
-	ROM_LOAD( "4-2_fi_401.ic17", 0x0000, 0x4000, CRC(fbdc3ded) SHA1(5c1db5fe0ce32d996f40acf51b9ea09f7709a032) ) // BADADDR         --xxxxxxxxxxxxx, 4-2_fi_401.ic17  [3/4] a77_03.6g IDENTICAL
+	ROM_LOAD( "4-2_fi_401.ic17", 0x0000, 0x4000, CRC(fbdc3ded) SHA1(5c1db5fe0ce32d996f40acf51b9ea09f7709a032) ) // BADADDR  --xxxxxxxxxxxxx, 4-2_fi_401.ic17  [3/4] a77_03.6g IDENTICAL
 	ROM_CONTINUE(                0x0000, 0x4000 )
-	ROM_LOAD( "4-2_fi_402.ic16", 0x2000, 0x2000, CRC(6e9ce9ea) SHA1(9b80360050022fb7b938a874d5c9adb344907bab) ) // BADADDR         x-xxxxxxxxxxxxx, 4-2_fi_402.ic16  [3/4] a77_04.6f IDENTICAL
+	ROM_LOAD( "4-2_fi_402.ic16", 0x2000, 0x2000, CRC(6e9ce9ea) SHA1(9b80360050022fb7b938a874d5c9adb344907bab) ) // BADADDR  x-xxxxxxxxxxxxx, 4-2_fi_402.ic16  [3/4] a77_04.6f IDENTICAL
 	ROM_CONTINUE(                0x2000, 0x2000 )
 	ROM_CONTINUE(                0x2000, 0x2000 )
 	ROM_IGNORE(                          0x2000 )
@@ -439,8 +435,8 @@ ROM_START( slapfighm )
 	ROM_LOAD( "3-sub_cpu_p0312_82s147.bin", 0x300, 0x200, CRC(28d906a7) SHA1(da11a515aa798c0fb687d8617461b0372364b332) )
 	ROM_LOAD( "51-1_p0502.ic10",            0x500, 0x100, CRC(15085e44) SHA1(646e7100fcb112594023cf02be036bd3d42cc13c) )
 
-	ROM_REGION( 0x1000, "plds", ROMREGION_ERASEFF )
-	ROM_LOAD( "4-2_0400_pal16r6acn.ic29", 0x000, 0x104, NO_DUMP )
+	ROM_REGION( 0x104, "plds", ROMREGION_ERASEFF )
+	ROM_LOAD( "4-2_0400_pal16r6acn.ic29", 0x000, 0x104, CRC(cfbed5c6) SHA1(5ec184b973ed4b82a49678a84ebaf9e8e33ccd90) )
 	ROM_LOAD( "4-2-b_pal16r6_p0400.ic29", 0x000, 0x104, CRC(19ac48ea) SHA1(bb79d2e1522f144609cdfe32a01defd19753668d) )
 	ROM_LOAD( "51-1_p0503_pal16r6.ic46",  0x000, 0x104, CRC(07eb86d2) SHA1(482eb325df5bc60353bac85412cf45429cd03c6d) )
 ROM_END
@@ -465,4 +461,4 @@ void slapfght_ms_state::init_decryption() // same as the one for blktiger_ms
 } // anonymous namespace
 
 
-GAME( 199?, slapfighm, alcon, slapfighm, slapfighm, slapfght_ms_state, init_decryption, ROT270, "bootleg (Gaelco / Ervisa)", "Slap Fight (Modular System)", MACHINE_IS_SKELETON )
+GAME( 199?, slapfighm, alcon, slapfighm, slapfighm, slapfght_ms_state, init_decryption, ROT270, "bootleg (Gaelco / Ervisa)", "Slap Fight (Modular System)", MACHINE_NO_SOUND | MACHINE_NOT_WORKING )

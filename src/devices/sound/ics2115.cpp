@@ -63,8 +63,6 @@ void ics2115_device::device_start()
 	m_timer[1].timer = timer_alloc(FUNC(ics2115_device::timer_cb_1), this);
 	m_stream = stream_alloc(0, 2, clock() / (32 * 32));
 
-	m_irq_cb.resolve_safe();
-
 	//Exact formula as per patent 5809466
 	//This seems to give the ok fit but it is not good enough.
 	/*double maxvol = ((1 << volume_bits) - 1) * pow(2., (double)1/0x100);
@@ -227,7 +225,6 @@ device_memory_interface::space_config_vector ics2115_device::memory_space_config
 */
 int ics2115_device::ics2115_voice::update_volume_envelope()
 {
-
 	// test for boundary cross
 	bool bc = false;
 	if (vol.acc >= vol.end || vol.acc <= vol.end)
@@ -424,18 +421,18 @@ void ics2115_device::ics2115_voice::update_ramp()
 	}
 }
 
-int ics2115_device::fill_output(ics2115_voice& voice, std::vector<write_stream_view> &outputs)
+int ics2115_device::fill_output(ics2115_voice& voice, sound_stream &stream)
 {
 	bool irq_invalid = false;
 	const u16 fine = 1 << (3*(voice.vol.incr >> 6));
 	voice.vol.add = (voice.vol.incr & 0x3f)<< (10 - fine);
 
-	for (int i = 0; i < outputs[0].samples(); i++)
+	for (int i = 0; i < stream.samples(); i++)
 	{
 		constexpr int RAMP_SHIFT = 6;
 		const u32 volacc = (voice.vol.acc >> 14) & 0xfff;
-		const u16 vlefti = volacc - m_panlaw[255 - voice.vol.pan]; // left index from acc - pan law
-		const u16 vrighti = volacc - m_panlaw[voice.vol.pan]; // right index from acc - pan law
+		const s16 vlefti = volacc - m_panlaw[255 - voice.vol.pan]; // left index from acc - pan law
+		const s16 vrighti = volacc - m_panlaw[voice.vol.pan]; // right index from acc - pan law
 		//check negative values so no cracks, is it a hardware feature ?
 		const u16 vleft = vlefti > 0 ? (m_volume[vlefti] * voice.state.ramp >> RAMP_SHIFT) : 0;
 		const u16 vright = vrighti > 0 ? (m_volume[vrighti] * voice.state.ramp >> RAMP_SHIFT) : 0;
@@ -448,12 +445,11 @@ int ics2115_device::fill_output(ics2115_voice& voice, std::vector<write_stream_v
 		s32 sample = get_sample(voice);
 
 		//15-bit volume + (5-bit worth of 32 channel sum) + 16-bit samples = 4-bit extra
+		//if (voice.playing())
 		if (!m_vmode || voice.playing())
 		{
-		/*if (voice.playing())
-		{*/
-			outputs[0].add_int(i, (sample * vleft) >> (5 + volume_bits), 32768);
-			outputs[1].add_int(i, (sample * vright) >> (5 + volume_bits), 32768);
+			stream.add_int(0, i, (sample * vleft) >> (5 + volume_bits), 32768);
+			stream.add_int(1, i, (sample * vright) >> (5 + volume_bits), 32768);
 		}
 
 		voice.update_ramp();
@@ -468,11 +464,8 @@ int ics2115_device::fill_output(ics2115_voice& voice, std::vector<write_stream_v
 	return irq_invalid;
 }
 
-void ics2115_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
+void ics2115_device::sound_stream_update(sound_stream &stream)
 {
-	outputs[0].fill(0);
-	outputs[1].fill(0);
-
 	bool irq_invalid = false;
 	for (int osc = 0; osc <= m_active_osc; osc++)
 	{
@@ -489,7 +482,7 @@ void ics2115_device::sound_stream_update(sound_stream &stream, std::vector<read_
         logerror("[%06x=%04x]", curaddr, (s16)sample);
 #endif
 */
-		if (fill_output(voice, outputs))
+		if (fill_output(voice, stream))
 			irq_invalid = true;
 
 #ifdef ICS2115_DEBUG
@@ -523,12 +516,13 @@ void ics2115_device::sound_stream_update(sound_stream &stream, std::vector<read_
 
 	if (irq_invalid)
 		recalc_irq();
-
 }
 
 //Helper Function (Reads off current register)
 u16 ics2115_device::reg_read()
 {
+	m_stream->update();
+
 	u16 ret = 0;
 	ics2115_voice& voice = m_voice[m_osc_select];
 
@@ -536,6 +530,14 @@ u16 ics2115_device::reg_read()
 	{
 		case 0x00: // [osc] Oscillator Configuration
 			ret = voice.osc_conf.value;
+			if (voice.state.on)
+			{
+				ret |= 8;
+			}
+			else
+			{
+				ret &= ~8;
+			}
 			ret <<= 8;
 			break;
 
@@ -618,7 +620,8 @@ u16 ics2115_device::reg_read()
 			ret = m_active_osc;
 			break;
 
-		case 0x0f:{// [osc] Interrupt source/oscillator
+		case 0x0f: // [osc] Interrupt source/oscillator
+		{
 			ret = 0xff;
 			for (int i = 0; i <= m_active_osc; i++)
 			{
@@ -626,9 +629,6 @@ u16 ics2115_device::reg_read()
 				if (v.osc_conf.bitflags.irq_pending || v.vol_ctrl.bitflags.irq_pending)
 				{
 					ret = i | 0xe0;
-					ret &= v.vol_ctrl.bitflags.irq_pending ? (~0x40) : 0xff;
-					ret &= v.osc_conf.bitflags.irq_pending ? (~0x80) : 0xff;
-					recalc_irq();
 					if (v.osc_conf.bitflags.irq_pending)
 					{
 						v.osc_conf.bitflags.irq_pending = 0;
@@ -639,11 +639,13 @@ u16 ics2115_device::reg_read()
 						v.vol_ctrl.bitflags.irq_pending = 0;
 						ret &= ~0x40;
 					}
+					recalc_irq();
 					break;
 				}
 			}
 			ret <<= 8;
-			break;}
+			break;
+		}
 
 		case 0x10: // [osc] Oscillator Control
 			ret = voice.osc.ctl << 8;
@@ -703,6 +705,8 @@ u16 ics2115_device::reg_read()
 
 void ics2115_device::reg_write(u16 data, u16 mem_mask)
 {
+	m_stream->update();
+
 	ics2115_voice& voice = m_voice[m_osc_select];
 	if (m_reg_select < 0x20)
 		COMBINE_DATA(&voice.regs[m_reg_select]);
@@ -716,6 +720,7 @@ void ics2115_device::reg_write(u16 data, u16 mem_mask)
 			{
 				voice.osc_conf.value &= 0x80;
 				voice.osc_conf.value |= (data >> 8) & 0x7f;
+				recalc_irq();
 			}
 			break;
 
@@ -815,6 +820,7 @@ void ics2115_device::reg_write(u16 data, u16 mem_mask)
 			{
 				voice.vol_ctrl.value &= 0x80;
 				voice.vol_ctrl.value |= (data >> 8) & 0x7f;
+				recalc_irq();
 			}
 			break;
 
@@ -935,6 +941,7 @@ u8 ics2115_device::read(offs_t offset)
 	{
 		case 0:
 			//TODO: check this suspect code
+			m_stream->update();
 			if (m_irq_on)
 			{
 				ret |= 0x80;
@@ -1079,10 +1086,12 @@ void ics2115_device::recalc_irq()
 	//Suspect
 	bool irq = (m_irq_pending & m_irq_enabled);
 	for (int i = 0; (!irq) && (i < 32); i++)
-		irq |=  m_voice[i].vol_ctrl.bitflags.irq_pending && m_voice[i].osc_conf.bitflags.irq_pending;
+	{
+		irq |= m_voice[i].osc_conf.bitflags.irq && m_voice[i].osc_conf.bitflags.irq_pending;
+		irq |= m_voice[i].vol_ctrl.bitflags.irq && m_voice[i].vol_ctrl.bitflags.irq_pending;
+	}
 	m_irq_on = irq;
-	if (!m_irq_cb.isnull())
-		m_irq_cb(irq ? ASSERT_LINE : CLEAR_LINE);
+	m_irq_cb(irq ? ASSERT_LINE : CLEAR_LINE);
 }
 
 TIMER_CALLBACK_MEMBER( ics2115_device::timer_cb_0 )

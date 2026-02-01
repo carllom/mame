@@ -2,7 +2,7 @@
 // copyright-holders:Sandro Ronco
 /****************************************************************************
 
-    psion_pack.c
+    psion_pack.cpp
 
     Psion Organiser II Datapack emulation
 
@@ -67,6 +67,7 @@ DEFINE_DEVICE_TYPE(PSION_DATAPACK, datapack_device, "datapack", "Psion Datapack"
 datapack_device::datapack_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, PSION_DATAPACK, tag, owner, clock)
 	, device_memcard_image_interface(mconfig, *this)
+	, m_interface(nullptr)
 {
 }
 
@@ -267,7 +268,7 @@ void datapack_device::control_w(uint8_t data)
     DEVICE_IMAGE_LOAD( datapack )
 -------------------------------------------------*/
 
-image_init_result datapack_device::call_load()
+std::pair<std::error_condition, std::string> datapack_device::call_load()
 {
 	uint8_t data[0x10];
 
@@ -275,13 +276,13 @@ image_init_result datapack_device::call_load()
 
 	// check the OPK head
 	if(strncmp((const char*)data, "OPK", 3))
-		return image_init_result::FAIL;
+		return std::make_pair(image_error::INVALIDIMAGE, std::string());
 
 	// get datapack ID and size
 	m_id   = data[OPK_HEAD_SIZE + 0];
 	m_size = data[OPK_HEAD_SIZE + 1];
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 
@@ -289,7 +290,7 @@ image_init_result datapack_device::call_load()
     DEVICE_IMAGE_CREATE( datapack )
 -------------------------------------------------*/
 
-image_init_result datapack_device::call_create(int format_type, util::option_resolution *create_args)
+std::pair<std::error_condition, std::string> datapack_device::call_create(int format_type, util::option_resolution *create_args)
 {
 	static const uint8_t opk_head[6] = {'O', 'P', 'K', 0x00, 0x00, 0x00};
 
@@ -314,7 +315,7 @@ image_init_result datapack_device::call_create(int format_type, util::option_res
 	fwrite(&m_id, 1);
 	fwrite(&m_size, 1);
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 

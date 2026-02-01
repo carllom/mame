@@ -10,15 +10,19 @@
     - A full VIA (VIA1) and a "pseudo-VIA", which is basically a combination GPIO and
       interrupt controller that looks somewhat like a VIA with no timers and no shift register.
     - A SWIM2 floppy controller
-    - An ASC-like 4-channel audio controller
-    - 16/25 MHz CPU clock generator
+    - An EASC-like 4-channel audio controller
+    - A 16/25/33 MHz CPU clock generator
     - Support logic for various external subsystems (ADB, PDS, SCC, SCSI, SONIC)
 
-    The "Ardbeg" ASIC (LC 520) appears to be a modest update of Sonora, adding support for
-    pushbuttons controlling display brightness and sound volume, plus monitor power saver mode.
-    "Prime Time" (LC 475/575 and Quadra 605) adapts the peripheral section of Sonora to the
-    68040 bus, but omits the DRAM and video controllers.  "Prime Time II" is similar but adds
-    an ATA controller.
+    The "Ardbeg" ASIC (LC 520) is a modest update of Sonora, adding support for pushbuttons
+    controlling display brightness and sound volume, plus monitor power saver mode and PWM
+    outputs for software control of the display brightness and contrast.
+
+    Macintosh TV has a Sonora/Ardbeg derivative called "Tinker Bell" which adds video
+    overlay support.
+
+    Sonora was succeeded for 68040 machines by IOSB, PrimeTime, and PrimeTime II, with similar
+    functionality but became pure I/O hubs with no memory controller or video.
 
     Sonora's video controller is in some of the PowerMac chipsets as well.
 */
@@ -49,7 +53,7 @@ void sonora_device::map(address_map &map)
 	map(0x10000000, 0x10001fff).rw(FUNC(sonora_device::mac_via_r), FUNC(sonora_device::mac_via_w)).mirror(0x00fc0000);
 	map(0x10014000, 0x10015fff).rw(m_asc, FUNC(asc_device::read), FUNC(asc_device::write)).mirror(0x00f00000);
 	map(0x10016000, 0x10017fff).rw(FUNC(sonora_device::swim_r), FUNC(sonora_device::swim_w)).mirror(0x00f00000);
-	map(0x10026000, 0x10027fff).rw(FUNC(sonora_device::pseudovia_r), FUNC(sonora_device::pseudovia_w)).mirror(0x00f00000);
+	map(0x10026000, 0x10027fff).rw(m_pseudovia, FUNC(pseudovia_device::read), FUNC(pseudovia_device::write)).mirror(0x00f00000);
 	map(0x10f24000, 0x10f24003).rw(m_video, FUNC(mac_video_sonora_device::dac_r), FUNC(mac_video_sonora_device::dac_w));
 	map(0x10f28000, 0x10f28007).rw(m_video, FUNC(mac_video_sonora_device::vctrl_r), FUNC(mac_video_sonora_device::vctrl_w));
 
@@ -63,7 +67,7 @@ void sonora_device::map(address_map &map)
 void sonora_device::device_add_mconfig(machine_config &config)
 {
 	MAC_VIDEO_SONORA(config, m_video);
-	m_video->screen_vblank().set(FUNC(sonora_device::vbl_w));
+	m_video->screen_vblank().set(m_pseudovia, FUNC(pseudovia_device::slot_irq_w<0x40>));
 
 	R65NC22(config, m_via1, C7M / 10);
 	m_via1->readpa_handler().set(FUNC(sonora_device::via_in_a));
@@ -73,11 +77,13 @@ void sonora_device::device_add_mconfig(machine_config &config)
 	m_via1->cb2_handler().set(FUNC(sonora_device::via_out_cb2));
 	m_via1->irq_handler().set(FUNC(sonora_device::via1_irq));
 
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	APPLE_PSEUDOVIA(config, m_pseudovia, C15M);
+	m_pseudovia->irq_callback().set(FUNC(sonora_device::via2_irq));
+
 	ASC(config, m_asc, C15M, asc_device::asc_type::SONORA);
-	m_asc->add_route(0, "lspeaker", 1.0);
-	m_asc->add_route(1, "rspeaker", 1.0);
+	m_asc->add_route(0, tag(), 1.0, 0);
+	m_asc->add_route(1, tag(), 1.0, 1);
+	m_asc->irqf_callback().set(m_pseudovia, FUNC(pseudovia_device::asc_irq_w));
 
 	SWIM2(config, m_fdc, C15M);
 	m_fdc->devsel_cb().set(FUNC(sonora_device::devsel_w));
@@ -91,22 +97,24 @@ void sonora_device::device_add_mconfig(machine_config &config)
 //  sonora_device - constructor
 //-------------------------------------------------
 
-sonora_device::sonora_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, SONORA, tag, owner, clock),
-	  write_pb4(*this),
-	  write_pb5(*this),
-	  write_cb2(*this),
-	  read_pb3(*this),
-	  m_maincpu(*this, finder_base::DUMMY_TAG),
-	  m_video(*this, "sonora_video"),
-	  m_via1(*this, "via1"),
-	  m_asc(*this, "asc"),
-	  m_fdc(*this, "fdc"),
-	  m_floppy(*this, "fdc:%d", 0U),
-	  m_rom(*this, finder_base::DUMMY_TAG),
-	  m_cur_floppy(nullptr),
-	  m_hdsel(0),
-	  m_overlay(false)
+sonora_device::sonora_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	device_t(mconfig, SONORA, tag, owner, clock),
+	device_sound_interface(mconfig, *this),
+	write_pb4(*this),
+	write_pb5(*this),
+	write_cb2(*this),
+	read_pb3(*this, 0),
+	m_maincpu(*this, finder_base::DUMMY_TAG),
+	m_video(*this, "sonora_video"),
+	m_via1(*this, "via1"),
+	m_pseudovia(*this, "pseudovia"),
+	m_asc(*this, "asc"),
+	m_fdc(*this, "fdc"),
+	m_floppy(*this, "fdc:%d", 0U),
+	m_rom(*this, finder_base::DUMMY_TAG),
+	m_cur_floppy(nullptr),
+	m_hdsel(0),
+	m_overlay(false)
 {
 }
 
@@ -116,24 +124,18 @@ sonora_device::sonora_device(const machine_config &mconfig, const char *tag, dev
 
 void sonora_device::device_start()
 {
-	m_vram = std::make_unique<u32[]>(0x100000 / sizeof(u32));
+	m_vram = std::make_unique<u64 []>(0x100000 / sizeof(u64));
 
-	write_pb4.resolve_safe();
-	write_pb5.resolve_safe();
-	write_cb2.resolve_safe();
-	read_pb3.resolve_safe(0);
+	m_stream = stream_alloc(8, 2, 22257, STREAM_SYNCHRONOUS);
 
 	m_6015_timer = timer_alloc(FUNC(sonora_device::mac_6015_tick), this);
 	m_6015_timer->adjust(attotime::never);
 
-	save_pointer(NAME(m_vram), 0x100000/sizeof(u32));
+	save_pointer(NAME(m_vram), 0x100000/sizeof(u64));
 	save_item(NAME(m_via_interrupt));
 	save_item(NAME(m_via2_interrupt));
 	save_item(NAME(m_scc_interrupt));
 	save_item(NAME(m_last_taken_interrupt));
-	save_item(NAME(m_pseudovia_regs));
-	save_item(NAME(m_pseudovia_ier));
-	save_item(NAME(m_pseudovia_ifr));
 	save_item(NAME(m_hdsel));
 
 	m_rom_ptr = &m_rom[0];
@@ -146,15 +148,13 @@ void sonora_device::device_start()
 
 void sonora_device::device_reset()
 {
-	m_video->set_vram_base((const u64 *)&m_vram[0]);
+	m_video->set_vram_base(&m_vram[0]);
 	m_video->set_vram_offset(0);
 	m_video->set_32bit();
 
 	// start 60.15 Hz timer
 	m_6015_timer->adjust(attotime::from_hz(60.15), 0, attotime::from_hz(60.15));
 
-	std::fill_n(m_pseudovia_regs, 256, 0);
-	m_pseudovia_regs[2] = 0x7f;
 	m_via_interrupt = m_via2_interrupt = m_scc_interrupt = 0;
 	m_last_taken_interrupt = -1;
 	m_hdsel = 0;
@@ -174,10 +174,16 @@ void sonora_device::device_reset()
 	space.install_rom(0x00000000, memory_end & ~memory_mirror, memory_mirror, m_rom_ptr);
 }
 
+void sonora_device::sound_stream_update(sound_stream &stream)
+{
+	stream.copy(0, 0);
+	stream.copy(1, 1);
+}
+
 u32 sonora_device::rom_switch_r(offs_t offset)
 {
 	// disable the overlay
-	if (m_overlay)
+	if (m_overlay && !machine().side_effects_disabled())
 	{
 		address_space &space = m_maincpu->space(AS_PROGRAM);
 		const u32 memory_end = m_ram_size - 1;
@@ -213,7 +219,7 @@ uint8_t sonora_device::via_in_b()
 	return read_pb3() << 3;
 }
 
-WRITE_LINE_MEMBER(sonora_device::via_out_cb2)
+void sonora_device::via_out_cb2(int state)
 {
 	write_cb2(state & 1);
 }
@@ -237,13 +243,13 @@ void sonora_device::via_out_b(uint8_t data)
 	write_pb5(BIT(data, 5));
 }
 
-WRITE_LINE_MEMBER(sonora_device::via1_irq)
+void sonora_device::via1_irq(int state)
 {
 	m_via_interrupt = state;
 	field_interrupts();
 }
 
-WRITE_LINE_MEMBER(sonora_device::via2_irq)
+void sonora_device::via2_irq(int state)
 {
 	m_via2_interrupt = state;
 	field_interrupts();
@@ -279,197 +285,33 @@ void sonora_device::field_interrupts()
 	}
 }
 
-WRITE_LINE_MEMBER(sonora_device::scc_irq_w)
+void sonora_device::scc_irq_w(int state)
 {
 	m_scc_interrupt = (state == ASSERT_LINE);
 	field_interrupts();
 }
 
-WRITE_LINE_MEMBER(sonora_device::vbl_w)
+void sonora_device::slot0_irq_w(int state)
 {
-	if (!state)
-	{
-		return;
-	}
-
-	m_pseudovia_regs[2] &= ~0x40; // set vblank signal
-
-	if (m_pseudovia_regs[0x12] & 0x40)
-	{
-		pseudovia_recalc_irqs();
-	}
+	m_pseudovia->slot_irq_w<0x08>(state);
 }
 
-void sonora_device::pseudovia_recalc_irqs()
+void sonora_device::slot1_irq_w(int state)
 {
-	// check slot interrupts and bubble them down to IFR
-	uint8_t slot_irqs = (~m_pseudovia_regs[2]) & 0x78;
-	slot_irqs &= (m_pseudovia_regs[0x12] & 0x78);
-
-	if (slot_irqs)
-	{
-		m_pseudovia_regs[3] |= 2; // any slot
-	}
-	else // no slot irqs, clear the pending bit
-	{
-		m_pseudovia_regs[3] &= ~2; // any slot
-	}
-
-	uint8_t ifr = (m_pseudovia_regs[3] & m_pseudovia_ier) & 0x1b;
-
-	if (ifr != 0)
-	{
-		m_pseudovia_regs[3] = ifr | 0x80;
-		m_pseudovia_ifr = ifr | 0x80;
-
-		via2_irq(ASSERT_LINE);
-	}
-	else
-	{
-		via2_irq(CLEAR_LINE);
-	}
+	m_pseudovia->slot_irq_w<0x10>(state);
 }
 
-uint8_t sonora_device::pseudovia_r(offs_t offset)
+void sonora_device::slot2_irq_w(int state)
 {
-	int data = 0;
-
-	if (offset < 0x100)
-	{
-		data = m_pseudovia_regs[offset];
-
-		if (offset == 0x10)
-		{
-			data &= ~0x38;
-		}
-
-		// bit 7 of these registers always reads as 0 on pseudo-VIAs
-		if ((offset == 0x12) || (offset == 0x13))
-		{
-			data &= ~0x80;
-		}
-	}
-	else
-	{
-		offset >>= 9;
-
-		switch (offset)
-		{
-		case 13: // IFR
-			data = m_pseudovia_ifr;
-			break;
-
-		case 14: // IER
-			data = m_pseudovia_ier;
-			break;
-
-		default:
-			logerror("pseudovia_r: Unknown pseudo-VIA register %d access\n", offset);
-			break;
-		}
-	}
-	return data;
+	m_pseudovia->slot_irq_w<0x20>(state);
 }
 
-void sonora_device::pseudovia_w(offs_t offset, uint8_t data)
-{
-	if (offset < 0x100)
-	{
-		switch (offset)
-		{
-		case 0x02:
-			m_pseudovia_regs[offset] |= (data & 0x40);
-			pseudovia_recalc_irqs();
-			break;
-
-		case 0x03:           // write here to ack
-			if (data & 0x80) // 1 bits write 1s
-			{
-				m_pseudovia_regs[offset] |= data & 0x7f;
-				m_pseudovia_ifr |= data & 0x7f;
-			}
-			else // 1 bits write 0s
-			{
-				m_pseudovia_regs[offset] &= ~(data & 0x7f);
-				m_pseudovia_ifr &= ~(data & 0x7f);
-			}
-			pseudovia_recalc_irqs();
-			break;
-
-		case 0x10:
-			m_pseudovia_regs[offset] = data;
-			break;
-
-		case 0x12:
-			if (data & 0x80) // 1 bits write 1s
-			{
-				m_pseudovia_regs[offset] |= data & 0x7f;
-			}
-			else // 1 bits write 0s
-			{
-				m_pseudovia_regs[offset] &= ~(data & 0x7f);
-			}
-			pseudovia_recalc_irqs();
-			break;
-
-		case 0x13:
-			if (data & 0x80) // 1 bits write 1s
-			{
-				m_pseudovia_regs[offset] |= data & 0x7f;
-
-				if (data == 0xff)
-					m_pseudovia_regs[offset] = 0x1f; // I don't know why this is special, but the IIci ROM's POST demands it
-			}
-			else // 1 bits write 0s
-			{
-				m_pseudovia_regs[offset] &= ~(data & 0x7f);
-			}
-			break;
-
-		default:
-			m_pseudovia_regs[offset] = data;
-			break;
-		}
-	}
-	else
-	{
-		offset >>= 9;
-
-		switch (offset)
-		{
-		case 13: // IFR
-			if (data & 0x80)
-			{
-				data = 0x7f;
-			}
-			pseudovia_recalc_irqs();
-			break;
-
-		case 14:             // IER
-			if (data & 0x80) // 1 bits write 1s
-			{
-				m_pseudovia_ier |= data & 0x7f;
-			}
-			else // 1 bits write 0s
-			{
-				m_pseudovia_ier &= ~(data & 0x7f);
-			}
-			pseudovia_recalc_irqs();
-			break;
-
-		default:
-			logerror("pseudovia_w: Unknown extended pseudo-VIA register %d access\n", offset);
-			break;
-		}
-	}
-}
-
-WRITE_LINE_MEMBER(sonora_device::cb1_w)
+void sonora_device::cb1_w(int state)
 {
 	m_via1->write_cb1(state);
 }
 
-WRITE_LINE_MEMBER(sonora_device::cb2_w)
+void sonora_device::cb2_w(int state)
 {
 	m_via1->write_cb2(state);
 }
@@ -541,6 +383,9 @@ void sonora_device::swim_w(offs_t offset, u16 data, u16 mem_mask)
 		m_fdc->write((offset >> 8) & 0xf, data & 0xff);
 	else
 		m_fdc->write((offset >> 8) & 0xf, data >> 8);
+
+	if (!machine().side_effects_disabled())
+		m_maincpu->adjust_icount(-5);
 }
 
 void sonora_device::phases_w(uint8_t phases)
@@ -565,11 +410,11 @@ void sonora_device::devsel_w(uint8_t devsel)
 
 u32 sonora_device::vram_r(offs_t offset)
 {
-	return m_vram[offset];
+	return reinterpret_cast<u32 const *>(m_vram.get())[offset];
 }
 
 void sonora_device::vram_w(offs_t offset, u32 data, u32 mem_mask)
 {
-	COMBINE_DATA(&m_vram[offset]);
+	COMBINE_DATA(&reinterpret_cast<u32 *>(m_vram.get())[offset]);
 }
 

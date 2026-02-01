@@ -104,7 +104,7 @@ void trackfld_audio_device::hyperspt_sound_w(offs_t offset, uint8_t data)
 	/* A5 = RST pin 1=reset                                */
 	/* A6 = VLM5030    output disable (don't care ) */
 	/* A7 = kONAMI DAC output disable (don't care ) */
-	/* A8 = SN76489    output disable (don't care ) */
+	/* A8 = SN76489AN  output disable (don't care ) */
 
 	/* A4 VLM5030 ST pin */
 	if (changes & 0x10)
@@ -119,7 +119,7 @@ void trackfld_audio_device::hyperspt_sound_w(offs_t offset, uint8_t data)
 
 
 
-WRITE_LINE_MEMBER(trackfld_audio_device::sh_irqtrigger_w)
+void trackfld_audio_device::sh_irqtrigger_w(int state)
 {
 	if (m_last_irq == 0 && state)
 	{

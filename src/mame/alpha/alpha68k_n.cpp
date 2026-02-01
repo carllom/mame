@@ -135,7 +135,6 @@ PCB Pinout
   SPK- A5   B5 GND
    GND A6   B6 GND
 
-
 ***************************************************************************/
 
 
@@ -174,7 +173,7 @@ void alpha68k_N_state::draw_sprites(bitmap_ind16 &bitmap, const rectangle &clipr
 
 				bank = data >> 10 & 3;
 				tile = data & 0x3ff;
-				if (m_is_super_stingray == true)
+				if (m_is_super_stingray)
 					color = (data >> 7 & 0x18) | (data >> 13 & 7);
 				else
 				{
@@ -184,7 +183,7 @@ void alpha68k_N_state::draw_sprites(bitmap_ind16 &bitmap, const rectangle &clipr
 				}
 
 				// can't be 0xff in super stingray
-				if (color != 0xff)
+				if (color != 0xff || !m_is_super_stingray)
 				{
 					int fy = ((data & 0x1000) >> 12) ^ m_flipscreen;
 					int fx = m_flipscreen;
@@ -379,7 +378,7 @@ void sstingray_state::main_map(address_map &map)
 	map(0x040000, 0x041fff).ram().share("spriteram"); // sprite RAM
 	map(0x060000, 0x060001).ram().share("videoram");  // MSB: watchdog, LSB: BGC
 	map(0x080000, 0x0801ff).rw(FUNC(sstingray_state::alpha8511_command_r), FUNC(sstingray_state::alpha8511_command_w)).umask16(0x00ff);
-	map(0x0c0000, 0x0c0001).portr("IN0");
+	map(0x0c0000, 0x0c0001).portr(m_in[0]);
 	map(0x0e0000, 0x0e0000).lr8(NAME([this] () -> u8 { return m_in[1]->read(); })).w(m_soundlatch, FUNC(generic_latch_8_device::write));
 }
 
@@ -390,7 +389,7 @@ void alpha68k_N_state::main_map(address_map &map)
 	map(0x040000, 0x041fff).ram().share("spriteram"); // sprite RAM
 	map(0x060000, 0x060001).ram().share("videoram");  // MSB: watchdog, LSB: BGC
 	map(0x080000, 0x0801ff).rw(FUNC(kyros_state::kyros_alpha_trigger_r), FUNC(kyros_state::alpha_microcontroller_w));
-	map(0x0c0000, 0x0c0001).portr("IN0");
+	map(0x0c0000, 0x0c0001).portr(m_in[0]);
 	map(0x0e0000, 0x0e0000).lr8(NAME([this] () -> u8 { return m_in[1]->read(); })).w(m_soundlatch, FUNC(generic_latch_8_device::write));
 }
 
@@ -826,10 +825,12 @@ void jongbou_state::jongbou(machine_config &config)
 	/* sound hardware */
 	ay8910_device &aysnd(AY8910(config, "aysnd", 2000000));
 	aysnd.port_a_read_callback().set(m_soundlatch, FUNC(generic_latch_8_device::read));
+	aysnd.port_b_write_callback().set_nop(); // ?
 	aysnd.add_route(ALL_OUTPUTS, "speaker", 0.65);
 }
 
 
+// also seen on a bootleg PCB CH86-01006A with double sized ROMs and the 8748 MCU
 ROM_START( sstingry )
 	ROM_REGION( 0x20000, "maincpu", 0 )     /* 68000 code */
 	ROM_LOAD16_BYTE( "ss_05.rom",  0x0000,  0x4000, CRC(bfb28d53) SHA1(64a1b8627529ed13074bb949cb104077eb3eac1f) )
@@ -1054,11 +1055,11 @@ void jongbou_state::init_jongbou2()
 }
 
 
-GAME( 1986, sstingry,  0,        sstingry,       sstingry,  sstingray_state, init_sstingry,  ROT90, "Alpha Denshi Co.",                                  "Super Stingray (Japan)", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_TIMING )
+GAME( 1986, sstingry, 0,      sstingry, sstingry, sstingray_state, init_sstingry, ROT90, "Alpha Denshi Co.",                            "Super Stingray (Japan)", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_TIMING )
 
-GAME( 1987, kyros,     0,        kyros,          kyros,     kyros_state, init_kyros,     ROT90, "Alpha Denshi Co. (World Games Inc. license)",       "Kyros", MACHINE_SUPPORTS_SAVE )
-GAME( 1986, kyrosj,    kyros,    kyros,          kyros,     kyros_state, init_kyros,     ROT90, "Alpha Denshi Co.",                                  "Kyros no Yakata (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1987, kyros,    0,      kyros,    kyros,    kyros_state,     init_kyros,    ROT90, "Alpha Denshi Co. (World Games Inc. license)", "Kyros", MACHINE_SUPPORTS_SAVE )
+GAME( 1986, kyrosj,   kyros,  kyros,    kyros,    kyros_state,     init_kyros,    ROT90, "Alpha Denshi Co.",                            "Kyros no Yakata (Japan)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1987, jongbou,   0,        jongbou,        jongbou,   jongbou_state,    init_jongbou,   ROT90, "SNK",                                               "Mahjong Block Jongbou (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1987, jongbou,  0,      jongbou,  jongbou,  jongbou_state,   init_jongbou,  ROT90, "SNK",                                         "Mahjong Block Jongbou (Japan)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1987, jongbou2,  0,        jongbou,        jongbou,   jongbou_state,    init_jongbou2,  ROT90, "SNK",                                               "Mahjong Block Jongbou 2 (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1987, jongbou2, 0,      jongbou,  jongbou,  jongbou_state,   init_jongbou2, ROT90, "SNK",                                         "Mahjong Block Jongbou 2 (Japan)", MACHINE_SUPPORTS_SAVE )

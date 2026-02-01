@@ -336,7 +336,7 @@ public:
 	void eto(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 	// memory pointers
 	required_memory_bank m_audiobank;
@@ -352,12 +352,14 @@ protected:
 	void variable_colpri_cb(u32 &sprite_colbank, u32 &pri_mask, u16 sprite_ctrl);
 	void fixed_colpri_cb(u32 &sprite_colbank, u32 &pri_mask, u16 sprite_ctrl);
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
-	DECLARE_WRITE_LINE_MEMBER(screen_vblank);
+	void screen_vblank(int state);
 
-	void z80_map(address_map &map);
+	rgb_t color_xbgr555(u16 data);
+
+	void z80_map(address_map &map) ATTR_COLD;
 
 private:
-	void eto_map(address_map &map);
+	void eto_map(address_map &map) ATTR_COLD;
 };
 
 
@@ -375,8 +377,8 @@ public:
 	void asuka(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 private:
 	// memory pointers
@@ -393,10 +395,10 @@ private:
 	void msm5205_address_w(u8 data);
 	void msm5205_start_w(u8 data);
 	void msm5205_stop_w(u8 data);
-	DECLARE_WRITE_LINE_MEMBER(msm5205_vck);
+	void msm5205_vck(int state);
 
-	void asuka_map(address_map &map);
-	void z80_map(address_map &map);
+	void asuka_map(address_map &map) ATTR_COLD;
+	void z80_map(address_map &map) ATTR_COLD;
 };
 
 
@@ -421,8 +423,8 @@ private:
 	INTERRUPT_GEN_MEMBER(interrupt);
 	TIMER_DEVICE_CALLBACK_MEMBER(cchip_irq_clear_cb);
 
-	void main_map(address_map &map);
-	void z80_map(address_map &map);
+	void main_map(address_map &map) ATTR_COLD;
+	void z80_map(address_map &map) ATTR_COLD;
 };
 
 
@@ -437,7 +439,7 @@ public:
 	void cadash(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 private:
 	// memory pointers
@@ -450,9 +452,11 @@ private:
 	void share_w(offs_t offset, u16 data);
 	INTERRUPT_GEN_MEMBER(interrupt);
 
-	void main_map(address_map &map);
-	void sub_io(address_map &map);
-	void sub_map(address_map &map);
+	rgb_t color_xbgr444(u16 data);
+
+	void main_map(address_map &map) ATTR_COLD;
+	void sub_io(address_map &map) ATTR_COLD;
+	void sub_map(address_map &map) ATTR_COLD;
 };
 
 
@@ -470,6 +474,16 @@ void base_state::fixed_colpri_cb(u32 &sprite_colbank, u32 &pri_mask, u16 sprite_
 {
 	sprite_colbank = (sprite_ctrl & 0x3c) << 2;
 	pri_mask = 0xf0; // sprites over top bg layer
+}
+
+rgb_t base_state::color_xbgr555(u16 data)
+{
+	return rgb_t(pal5bit(data >> 0), pal5bit(data >> 5), pal5bit(data >> 10));
+}
+
+rgb_t cadash_state::color_xbgr444(u16 data)
+{
+	return rgb_t(pal4bit(data >> 0), pal4bit(data >> 4), pal4bit(data >> 8));
 }
 
 
@@ -528,7 +542,7 @@ void base_state::sound_bankswitch_w(u8 data)
 }
 
 
-WRITE_LINE_MEMBER(msm_state::msm5205_vck)
+void msm_state::msm5205_vck(int state)
 {
 	if (!state)
 		return;
@@ -589,7 +603,7 @@ void bonzeadv_state::main_map(address_map &map)
 	map(0x000000, 0x03ffff).rom();
 	map(0x080000, 0x0fffff).rom();
 	map(0x10c000, 0x10ffff).ram();
-	map(0x200000, 0x200007).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_word_w));
+	map(0x200000, 0x200007).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));
 	map(0x390000, 0x390001).portr("DSWA");
 	map(0x3a0000, 0x3a0001).w(m_pc090oj, FUNC(pc090oj_device::sprite_ctrl_w));
 	map(0x3b0000, 0x3b0001).portr("DSWB");
@@ -609,7 +623,7 @@ void msm_state::asuka_map(address_map &map)
 	map(0x000000, 0x0fffff).rom();
 	map(0x100000, 0x103fff).ram();
 	map(0x1076f0, 0x1076f1).nopr(); // Mofflott init does dummy reads here
-	map(0x200000, 0x20000f).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_word_w));
+	map(0x200000, 0x20000f).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));
 	map(0x3a0000, 0x3a0003).w(m_pc090oj, FUNC(pc090oj_device::sprite_ctrl_w));
 	map(0x3e0000, 0x3e0001).nopr();
 	map(0x3e0001, 0x3e0001).w("ciu", FUNC(pc060ha_device::master_port_w));
@@ -631,16 +645,16 @@ void cadash_state::main_map(address_map &map)
 	map(0x100000, 0x107fff).ram();
 	map(0x800000, 0x800fff).rw(FUNC(cadash_state::share_r), FUNC(cadash_state::share_w));    // network RAM
 	map(0x900000, 0x90000f).rw("tc0220ioc", FUNC(tc0220ioc_device::read), FUNC(tc0220ioc_device::write)).umask16(0x00ff);
-	map(0xa00000, 0xa0000f).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_4bpg_word_w));
+	map(0xa00000, 0xa0000f).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));
 	map(0xb00000, 0xb03fff).rw(m_pc090oj, FUNC(pc090oj_device::word_r), FUNC(pc090oj_device::word_w));  // sprite RAM
 	map(0xc00000, 0xc0ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    // tilemaps
 	map(0xc20000, 0xc2000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
 }
 
 void base_state::eto_map(address_map &map)
-{ // N.B. tc100scn mirror overlaps spriteram
+{
 	map(0x000000, 0x0fffff).rom();
-	map(0x100000, 0x10000f).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_word_w));
+	map(0x100000, 0x10000f).rw("tc0110pcr", FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));
 	map(0x200000, 0x203fff).ram();
 	map(0x300000, 0x30000f).rw("tc0220ioc", FUNC(tc0220ioc_device::read), FUNC(tc0220ioc_device::write)).umask16(0x00ff);
 	map(0x400000, 0x40000f).r("tc0220ioc", FUNC(tc0220ioc_device::read)).umask16(0x00ff);   // service mode mirror
@@ -648,7 +662,7 @@ void base_state::eto_map(address_map &map)
 	map(0x4e0000, 0x4e0001).nopr();
 	map(0x4e0001, 0x4e0001).w("ciu", FUNC(pc060ha_device::master_port_w));
 	map(0x4e0003, 0x4e0003).rw("ciu", FUNC(pc060ha_device::master_comm_r), FUNC(pc060ha_device::master_comm_w));
-	map(0xc00000, 0xc0ffff).w(m_tc0100scn, FUNC(tc0100scn_device::ram_w));
+	map(0xc00000, 0xc0ffff).w(m_tc0100scn, FUNC(tc0100scn_device::ram_w)); // N.B. tc100scn mirror overlaps spriteram
 	map(0xc00000, 0xc03fff).rw(m_pc090oj, FUNC(pc090oj_device::word_r), FUNC(pc090oj_device::word_w));  // sprite RAM
 	map(0xd00000, 0xd0ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    // tilemaps
 	map(0xd20000, 0xd2000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
@@ -779,11 +793,11 @@ static INPUT_PORTS_START( bonzeadv )
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_UNKNOWN )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_JOYSTICK_UP ) PORT_8WAY PORT_COCKTAIL
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN ) PORT_8WAY PORT_COCKTAIL
-	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_8WAY PORT_COCKTAIL // as with all c-chip through ADC reads this ends up on 0x80 instead of 0x08
+	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_8WAY PORT_COCKTAIL
 	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT ) PORT_8WAY PORT_COCKTAIL
 	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_BUTTON1 ) PORT_COCKTAIL
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_BUTTON2 ) PORT_COCKTAIL
-	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_UNKNOWN )
+	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_UNKNOWN )
 INPUT_PORTS_END
 
 static INPUT_PORTS_START( jigkmgri )
@@ -1049,7 +1063,7 @@ void cadash_state::machine_start()
 	m_int5_timer = timer_alloc(FUNC(cadash_state::interrupt5), this);
 }
 
-WRITE_LINE_MEMBER(base_state::screen_vblank)
+void base_state::screen_vblank(int state)
 {
 	// rising edge
 	if (state)
@@ -1119,20 +1133,22 @@ void bonzeadv_state::bonzeadv(machine_config &config)
 	TC0100SCN(config, m_tc0100scn, 0);
 	m_tc0100scn->set_palette("tc0110pcr");
 
-	TC0110PCR(config, "tc0110pcr", 0);
+	tc0110pcr_device &tc0110pcr(TC0110PCR(config, "tc0110pcr", 0));
+	tc0110pcr.set_shift(0);
+	tc0110pcr.set_color_callback(FUNC(bonzeadv_state::color_xbgr555));
 
 	// sound hardware
 	SPEAKER(config, "mono").front_center();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(16'000'000)/2));
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "mono", 0.25);
+	ymsnd.add_route(0, "mono", 0.75);
 	ymsnd.add_route(1, "mono", 1.0);
 	ymsnd.add_route(2, "mono", 1.0);
 
 	tc0140syt_device &tc0140syt(TC0140SYT(config, "tc0140syt", 0));
-	tc0140syt.set_master_tag(m_maincpu);
-	tc0140syt.set_slave_tag(m_audiocpu);
+	tc0140syt.nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	tc0140syt.reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void msm_state::asuka(machine_config &config)
@@ -1174,7 +1190,9 @@ void msm_state::asuka(machine_config &config)
 	TC0100SCN(config, m_tc0100scn, 0);
 	m_tc0100scn->set_palette("tc0110pcr");
 
-	TC0110PCR(config, "tc0110pcr", 0);
+	tc0110pcr_device &tc0110pcr(TC0110PCR(config, "tc0110pcr", 0));
+	tc0110pcr.set_shift(0);
+	tc0110pcr.set_color_callback(FUNC(msm_state::color_xbgr555));
 
 	// sound hardware
 	SPEAKER(config, "mono").front_center();
@@ -1194,8 +1212,8 @@ void msm_state::asuka(machine_config &config)
 	m_adpcm_select->out_callback().set("msm", FUNC(msm5205_device::data_w));
 
 	pc060ha_device &ciu(PC060HA(config, "ciu", 0));
-	ciu.set_master_tag(m_maincpu);
-	ciu.set_slave_tag(m_audiocpu);
+	ciu.nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	ciu.reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void cadash_state::cadash(machine_config &config)
@@ -1242,7 +1260,9 @@ void cadash_state::cadash(machine_config &config)
 	m_tc0100scn->set_offsets(1, 0);
 	m_tc0100scn->set_palette("tc0110pcr");
 
-	TC0110PCR(config, "tc0110pcr", 0);
+	tc0110pcr_device &tc0110pcr(TC0110PCR(config, "tc0110pcr", 0));
+	tc0110pcr.set_shift(0);
+	tc0110pcr.set_color_callback(FUNC(cadash_state::color_xbgr444));
 
 	// sound hardware
 	SPEAKER(config, "mono").front_center();
@@ -1254,8 +1274,8 @@ void cadash_state::cadash(machine_config &config)
 	ymsnd.add_route(1, "mono", 0.50);
 
 	pc060ha_device &ciu(PC060HA(config, "ciu", 0));
-	ciu.set_master_tag(m_maincpu);
-	ciu.set_slave_tag(m_audiocpu);
+	ciu.nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	ciu.reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void msm_state::mofflott(machine_config &config)
@@ -1297,7 +1317,9 @@ void msm_state::mofflott(machine_config &config)
 	m_tc0100scn->set_offsets(1, 0);
 	m_tc0100scn->set_palette("tc0110pcr");
 
-	TC0110PCR(config, "tc0110pcr", 0);
+	tc0110pcr_device &tc0110pcr(TC0110PCR(config, "tc0110pcr", 0));
+	tc0110pcr.set_shift(0);
+	tc0110pcr.set_color_callback(FUNC(msm_state::color_xbgr555));
 
 	// sound hardware
 	SPEAKER(config, "mono").front_center();
@@ -1317,8 +1339,8 @@ void msm_state::mofflott(machine_config &config)
 	m_adpcm_select->out_callback().set("msm", FUNC(msm5205_device::data_w));
 
 	pc060ha_device &ciu(PC060HA(config, "ciu", 0));
-	ciu.set_master_tag(m_maincpu);
-	ciu.set_slave_tag(m_audiocpu);
+	ciu.nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	ciu.reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void base_state::eto(machine_config &config)
@@ -1360,7 +1382,9 @@ void base_state::eto(machine_config &config)
 	m_tc0100scn->set_offsets(1, 0);
 	m_tc0100scn->set_palette("tc0110pcr");
 
-	TC0110PCR(config, "tc0110pcr", 0);
+	tc0110pcr_device &tc0110pcr(TC0110PCR(config, "tc0110pcr", 0));
+	tc0110pcr.set_shift(0);
+	tc0110pcr.set_color_callback(FUNC(base_state::color_xbgr555));
 
 	// sound hardware
 	SPEAKER(config, "mono").front_center();
@@ -1372,8 +1396,8 @@ void base_state::eto(machine_config &config)
 	ymsnd.add_route(1, "mono", 0.50);
 
 	pc060ha_device &ciu(PC060HA(config, "ciu", 0));
-	ciu.set_master_tag(m_maincpu);
-	ciu.set_slave_tag(m_audiocpu);
+	ciu.nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	ciu.reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 
@@ -1489,6 +1513,33 @@ ROM_START( jigkmgri )
 	ROM_LOAD( "b41-04.48",  0x00000, 0x80000, CRC(c668638f) SHA1(07238a6cb4d93ffaf6351657163b5d80f0dbf688) )
 ROM_END
 
+ROM_START( jigkmgria )
+	ROM_REGION( 0x100000, "maincpu", 0 )     // 68000 code
+	ROM_LOAD16_BYTE( "b41-09.17",   0x00000, 0x10000, CRC(06818710) SHA1(b8045f4e15246231a5645d22bb965953f7fb47a3) )
+	ROM_LOAD16_BYTE( "b41-11.26",   0x00001, 0x10000, CRC(33c4c2f4) SHA1(3f1e76932d8f7e06e976b968a711177d25254bef) )
+	ROM_LOAD16_BYTE( "b41-10.16",   0x20000, 0x10000, CRC(4ca94d77) SHA1(69a9f6bcb6d5e4132eed50860bdfe8d6b6d914cd) )
+	ROM_LOAD16_BYTE( "b41-12.25",   0x20001, 0x10000, CRC(40d9c1fc) SHA1(6f03d263e10559988aaa2be00d9bbf55f2fb864e) )
+	// 0x040000 - 0x7ffff is intentionally empty
+	ROM_LOAD16_WORD_SWAP( "b41-01.15", 0x80000, 0x80000, CRC(5d072fa4) SHA1(6ffe1b8531381eb6dd3f1fec18c91294a6aca9f6) )
+
+	ROM_REGION( 0x2000, "cchip:cchip_eprom", 0 )
+	ROM_LOAD( "cchip_b41-05.43", 0x0000, 0x2000, CRC(75c52553) SHA1(87bbaefab90e7d43f63556fbae3e937baf9d397b) )
+
+	ROM_REGION( 0x80000, "tc0100scn", 0 )
+	ROM_LOAD16_WORD_SWAP( "b41-03.1",  0x00000, 0x80000, CRC(736d35d0) SHA1(7d41a7d71e117714bbd2cdda2953589cda6e763a) ) // Tiles (8 x 8)
+
+	ROM_REGION( 0x80000, "pc090oj", 0 )
+	ROM_LOAD16_WORD_SWAP( "b41-02.7",  0x00000, 0x80000, CRC(29f205d9) SHA1(9e9f0c2755a9aa5acfe2601911bfa07d8d61164c) ) // Sprites (16 x 16)
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "b41-13.20", 0x00000, 0x10000, CRC(9e464254) SHA1(b6f6126b54c15320ecaa652d0eeabaa4cd94bd26) ) // banked
+
+	// no ADPCM-A samples
+
+	ROM_REGION( 0x80000, "ymsnd:adpcmb", 0 )
+	ROM_LOAD( "b41-04.48",  0x00000, 0x80000, CRC(c668638f) SHA1(07238a6cb4d93ffaf6351657163b5d80f0dbf688) )
+ROM_END
+
 ROM_START( bonzeadvp ) // Labels consists of hand written checksum values of the ROMs
 	ROM_REGION( 0x100000, "maincpu", 0 )     // 68000 code
 	ROM_LOAD16_BYTE( "0l.ic17", 0x00000, 0x10000, CRC(9e046e6f) SHA1(a05ed46930bcfa8f59fda6f1d370b841ad261258) )
@@ -1526,6 +1577,62 @@ ROM_START( bonzeadvp ) // Labels consists of hand written checksum values of the
 	ROM_LOAD( "2e1f.ic14",  0x20000, 0x20000, CRC(df1f87c0) SHA1(ad3df38c22f1bb7bdc449922bd3c2a5c78aa87f8) ) // ^
 	ROM_LOAD( "f66e.ic11",  0x40000, 0x20000, CRC(c6df1b3e) SHA1(84d6ad3e3af565060aa4324c6e3e91e4dc5089b6) ) // ^
 	ROM_LOAD( "49d7.ic7",   0x60000, 0x20000, CRC(5584c02c) SHA1(00402df66debb257c97a609a37de0f8eeeb6e9f0) ) // ^
+ROM_END
+
+// this prototype seems earlier: Test mode doesn't work properly and main CPU ROMs have strings about 'Rainbow' and 'Jump' instead of 'Fire' and 'Warp'. Remnants from Rainbow Island? Did Taito use it as a start for coding Bonze Adventure?
+ROM_START( bonzeadvp2 ) // only main CPU first 4 ROMs and audio CPU ROM differ from bonzeadvp. Rest is the same but split in smaller chips. All labels handwritten.
+	ROM_REGION( 0x100000, "maincpu", ROMREGION_ERASEFF )     // on BV903001B MAIN PCB, 68000 code
+	ROM_LOAD16_BYTE( "prg 0h.ic17",        0x00000, 0x10000, CRC(ce530615) SHA1(23263f5cb5aa28bb8dfae90351c93056f6560fe6) )
+	ROM_LOAD16_BYTE( "prg 0l.ic26",        0x00001, 0x10000, CRC(048a0dcb) SHA1(2b74e8fd1aa9119b528660dc82d5ea3d779f3e7d) )
+	ROM_LOAD16_BYTE( "prg 1h.ic16",        0x20000, 0x10000, CRC(e5d63e9b) SHA1(e9cb0052811098c0f1f97575fd297cf5fde5d480) )
+	ROM_LOAD16_BYTE( "prg 1l europe.ic25", 0x20001, 0x10000, CRC(d04b8e2b) SHA1(0f9f44a76e90c08745481117d2610eb02ea25d99) )
+	// 0x040000 - 0x7ffff is intentionally empty
+	// these ROMs below are on a ROM P.C.BOARD BT203007B
+	ROM_LOAD16_BYTE( "map 0h ad2e.ic7", 0x80000, 0x10000, CRC(ca894028) SHA1(8d650763d7451f3c4e0c84fecee73a6e2b7ce653) )
+	ROM_LOAD16_BYTE( "map 0l 676f.ic2", 0x80001, 0x10000, CRC(956bc558) SHA1(65ef807ce203e542c38da689fd519f97192e1062) )
+	ROM_LOAD16_BYTE( "map 1h 9cbd.ic8", 0xa0000, 0x10000, CRC(08a5320f) SHA1(8ac6b55fb55c5117bb8f980ea7cfa664025d7aa4) )
+	ROM_LOAD16_BYTE( "map 1l 95f6.ic3", 0xa0001, 0x10000, CRC(f65988c0) SHA1(e05764217aa7a8b92a3d03227538d67bb4a994c6) )
+	ROM_LOAD16_BYTE( "map 2h 0e7e.ic9", 0xc0000, 0x10000, CRC(4513dcf7) SHA1(637dc4bc28b054f27e323febc8ac47d9863e5c13) )
+	ROM_LOAD16_BYTE( "map 2l a418.ic4", 0xc0001, 0x10000, CRC(106475e3) SHA1(5a737e933f39a7820300adc8db7f531fd4449b96) )
+	// ic10 and ic5 not populated
+
+	ROM_REGION( 0x2000, "cchip:cchip_eprom", 0 )  // on BV903001B MAIN PCB, not dumped
+	ROM_LOAD( "generic 10-9 f3eb.ic43", 0x0000, 0x2000, BAD_DUMP CRC(75c52553) SHA1(87bbaefab90e7d43f63556fbae3e937baf9d397b) ) // actually 汎用 on label (translated as 'generic').
+	// Is the C-Chip the same as the final? Probably not as SUM doesn't match
+
+	ROM_REGION( 0x80000, "tc0100scn", ROMREGION_ERASEFF ) // on a second ROM P.C.BOARD BT203007B
+	ROM_LOAD16_BYTE( "scn 0h 8711.ic7", 0x00000, 0x10000, CRC(17466da0) SHA1(1de9cc4bcbfa50d6c40d1acd4ac0a47c705e2f09) )
+	ROM_LOAD16_BYTE( "scn 0l 7fe0.ic2", 0x00001, 0x10000, CRC(c6413f92) SHA1(ac8b1cfc3ba140a68192df1de6750998f5e357a0) )
+	ROM_LOAD16_BYTE( "scn 1h 83b7.ic8", 0x20000, 0x10000, CRC(35fde3c7) SHA1(b6caddff84e607b5ca2dd021151def80ff051f41) )
+	ROM_LOAD16_BYTE( "scn 1l 2bde.ic3", 0x20001, 0x10000, CRC(ca459623) SHA1(b071e672df6872fa777d1baae663ec85f92ec728) )
+	ROM_LOAD16_BYTE( "scn 2h f411.ic9", 0x40000, 0x10000, CRC(229debcf) SHA1(ea99d0ea0169b72109b830cd335a43eb122c0e34) )
+	ROM_LOAD16_BYTE( "scn 2l db08.ic4", 0x40001, 0x10000, CRC(2431e8db) SHA1(1773f0dfe59c4cb9b114a784f345b7fc05bb8934) )
+	// ic10 and ic5 not populated
+
+	ROM_REGION( 0x80000, "pc090oj", 0 ) // on a third ROM P.C.BOARD BT203007B
+	ROM_LOAD16_BYTE( "obj 0h 6ce2.ic7",  0x00000, 0x10000, CRC(d5bff0fd) SHA1(c4998a788c48371d0f83ebec8987b584c5e94d1a) )
+	ROM_LOAD16_BYTE( "obj 0l c67e.ic2",  0x00001, 0x10000, CRC(2f9615a8) SHA1(d89f122ce4af193f56560f5183993e242b22551c) ) // actual SUM of the dump is c672, but given data matches the other existing dumps the one on the label is probably a typo
+	ROM_LOAD16_BYTE( "obj 1h 7708.ic8",  0x20000, 0x10000, CRC(81357279) SHA1(241954743238815a18598d76d96a8a312e087351) ) // actual SUM of the dump is 770b, but given data matches the other existing dumps the one on the label is probably a typo
+	ROM_LOAD16_BYTE( "obj 1l ccf7.ic3",  0x20001, 0x10000, CRC(c7a654d9) SHA1(58b7e5e2e05f7980ad199083b31b5c406b99298e) )
+	ROM_LOAD16_BYTE( "obj 2h 818b.ic9",  0x40000, 0x10000, CRC(d614732b) SHA1(0bfa5dd2876a3480d4f5f3e2baeb94e9601a691a) )
+	ROM_LOAD16_BYTE( "obj 2l 6096.ic4",  0x40001, 0x10000, CRC(6dd67af8) SHA1(7d9d836d0aee2d3d636f28af84bf5f04fc54db74) )
+	ROM_LOAD16_BYTE( "obj 3h 3756.ic10", 0x60000, 0x10000, CRC(981e66a9) SHA1(98db800e99a2508fbe05a8bf12617abd18721f4b) )
+	ROM_LOAD16_BYTE( "obj 3l a355.ic5",  0x60001, 0x10000, CRC(173ddd11) SHA1(c28fd4f728066f7926752f9af1115bc90ce838fc) )
+
+	ROM_REGION( 0x10000, "audiocpu", 0 ) // on BV903001B MAIN PCB
+	ROM_LOAD( "sound main 3-9.ic20", 0x00000, 0x10000, CRC(2b4fc69a) SHA1(030ba4eb81c59174527edcda65f2ed94bd768140) ) // actual label is 3/9 instead of 3-9, possibly a date?
+
+	// no ADPCM-A samples
+
+	ROM_REGION( 0x80000, "ymsnd:adpcmb", 0 ) // on KE7X0003B 4M 8BIT ROM BOARD, // actual label is 3/8 instead of 3-8, possibly a date?
+	ROM_LOAD( "sound 0h 3-8.ic2",  0x00000, 0x10000, CRC(2996e756) SHA1(b6fa6f20bdecb1e6ed7166083c9581f8f97f9836) )
+	ROM_LOAD( "sound 1h 3-8.ic3",  0x10000, 0x10000, CRC(780368ac) SHA1(bc5592fbefa310b1c496b4a9f60e29cb1efa9070) )
+	ROM_LOAD( "sound 2h 3-8.ic4",  0x20000, 0x10000, CRC(8f3b9fa5) SHA1(c4d536af730336b70813653e3b216f7ca9518909) )
+	ROM_LOAD( "sound 3h 3-8.ic5",  0x30000, 0x10000, CRC(1a8be621) SHA1(410a4f93e95f1824643ee918a06fb8c3ac93765d) )
+	ROM_LOAD( "sound 0l 3-8.ic7",  0x40000, 0x10000, CRC(3711abfa) SHA1(35237b13b201f2883bc969ebbb51f7e112f0eb35) )
+	ROM_LOAD( "sound 1l 3-8.ic8",  0x50000, 0x10000, CRC(f24a3d1a) SHA1(c2d8a8e4835429b7830dad5a8d3cdf1afe21b7d6) )
+	ROM_LOAD( "sound 2l 3-8.ic9",  0x60000, 0x10000, CRC(5987900c) SHA1(1109e48d196b3ed5788326df235f1ad950492d17) )
+	ROM_LOAD( "sound 3l 3-8.ic10", 0x70000, 0x10000, CRC(e8a6a9e6) SHA1(435a599d188f6c4650bd3dd72d8080541824148d) )
 ROM_END
 
 ROM_START( asuka ) // Taito PCB: ASKA&ASKA - K1100388A / J1100169A
@@ -1941,6 +2048,32 @@ ROM_START( cadashs ) // no labels on the program ROMs
 	ROM_LOAD( "pal20l8b-c21-12.ic47",   0x0600, 0x0144, CRC(bbc2cc97) SHA1(d4a68f28e0d3f5a3b39ecc25640bc9197ad0260b) )
 ROM_END
 
+ROM_START( cadashso ) // Taito PCB: K1100526A / J1100218A
+	ROM_REGION( 0x80000, "maincpu", 0 )     // 512k for 68000 code
+	ROM_LOAD16_BYTE( "conchimatic_c_31.ic11", 0x00000, 0x20000, CRC(091e71de) SHA1(b4b7346538866866ab92b59fad00d0ba7747d115) )
+	ROM_LOAD16_BYTE( "conchimatic_c_33.ic15", 0x00001, 0x20000, CRC(64722757) SHA1(c59dd101d7b2bd3c23672faeac53a5ffcd25cfc3) )
+	ROM_LOAD16_BYTE( "conchimatic_c_30.ic10", 0x40000, 0x20000, CRC(f7572e71) SHA1(7471bc8e0773b2cf0f8b3a89bfcc4388a5c21ef1) )
+	ROM_LOAD16_BYTE( "conchimatic_c_32.ic14", 0x40001, 0x20000, CRC(3947b8b5) SHA1(10a692d0f881923002db7855293a406d089e6441) )
+
+	ROM_REGION( 0x80000, "tc0100scn", 0 )
+	ROM_LOAD16_WORD_SWAP( "c21-02.9",  0x00000, 0x80000, CRC(205883b9) SHA1(5aafee8cab3f949a7db91bcc26912f331041b51e) ) // SCR tiles (8 x 8)
+
+	ROM_REGION( 0x80000, "pc090oj", 0 )
+	ROM_LOAD16_WORD_SWAP( "c21-01.1",  0x00000, 0x80000, CRC(1ff6f39c) SHA1(742f296efc8073fafa73da2c8d7d26ca9514b6bf) ) // Sprites (16 x 16)
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "c21-08.38",   0x00000, 0x10000, CRC(dca495a0) SHA1(4e0f401f1b967da75f33fd7294860ad0b4bf2dce) ) // banked
+
+	ROM_REGION( 0x08000, "subcpu", 0 )  // HD64180RP8 code (link)
+	ROM_LOAD( "c21-07.57",   0x00000, 0x08000, CRC(f02292bd) SHA1(0a5c06a048ad67f90e0d766b504582e9eef035f7) )
+
+	ROM_REGION( 0x0800, "plds", 0 )
+	ROM_LOAD( "pal16l8b-c21-09.ic34",   0x0000, 0x0104, CRC(4b296700) SHA1(79d6c8fb13e30795d9c1f49885ada658f9722b68) )
+	ROM_LOAD( "pal16l8b-c21-10.ic45",   0x0200, 0x0104, CRC(35642f00) SHA1(a04403536b0ef7e8e7251dfc47274a6c8772fd2d) )
+	ROM_LOAD( "pal16l8b-c21-11-1.ic46", 0x0400, 0x0104, CRC(f4791e24) SHA1(7e3bbffec7b8f9171e6e09706e5622fef3c99ca0) )
+	ROM_LOAD( "pal20l8b-c21-12.ic47",   0x0600, 0x0144, CRC(bbc2cc97) SHA1(d4a68f28e0d3f5a3b39ecc25640bc9197ad0260b) )
+ROM_END
+
 ROM_START( galmedes ) // Taito PCB: K1100388A / J1100169A
 	ROM_REGION( 0x100000, "maincpu", 0 )     // 1024k for 68000 code
 	ROM_LOAD16_BYTE( "gm-prg1.ic23", 0x00000, 0x20000, CRC(32a70753) SHA1(3bd094b7ae600dbc87ba74e8b2d6b86a68346f4f) )
@@ -2081,7 +2214,7 @@ ROM_START( eto )
 	ROM_LOAD16_BYTE( "eto-1.ic23",  0x00000, 0x20000, CRC(44286597) SHA1(ac37e5edbf9d187f60232adc5e9ebed45b3d2fe2) )
 	ROM_LOAD16_BYTE( "eto-0.ic8",   0x00001, 0x20000, CRC(57b79370) SHA1(25f83eada982ef654260fe92016d42a90005a05c) )
 	// 0x40000 - 0x7ffff is intentionally empty
-	ROM_LOAD16_WORD( "eto-2.ic30",    0x80000, 0x80000, CRC(12f46fb5) SHA1(04db8b6ccd0051668bd2930275efa0265c0cfd2b) )    // Fix ROM
+	ROM_LOAD16_WORD( "eto-2.ic30",  0x80000, 0x80000, CRC(12f46fb5) SHA1(04db8b6ccd0051668bd2930275efa0265c0cfd2b) )    // Fix ROM
 
 	ROM_REGION( 0x80000, "tc0100scn", 0 )
 	ROM_LOAD16_WORD_SWAP( "eto-4.ic3", 0x00000, 0x80000, CRC(a8768939) SHA1(a2cbbd3e10ed48ba32a680b2e40ea03900cf33fa) )   // Sprites (16 x 16)
@@ -2091,6 +2224,26 @@ ROM_START( eto )
 
 	ROM_REGION( 0x10000, "audiocpu", 0 )
 	ROM_LOAD( "eto-5.ic27", 0x00000, 0x10000, CRC(b3689da0) SHA1(812d2e0a794403df9f0a5035784f14cd070ea080) ) // banked
+ROM_END
+
+// Possible prototype or test version
+// Smaller program (ends at 0x01eee4, while eto ends at 0x020952)
+// Smaller data (ends at 0x0a74aa, while eto ends at 0x0fdd94)
+ROM_START( etoa )
+	ROM_REGION( 0x100000, "maincpu", 0 )     // 1024k for 68000 code
+	ROM_LOAD16_BYTE( "pe.ic23",  0x00000, 0x20000, CRC(36a6a742) SHA1(32d49842cb46c8acfc44fbbf8da54e25541c2a13) )
+	ROM_LOAD16_BYTE( "po.ic8",   0x00001, 0x20000, CRC(bc86f328) SHA1(ff746e7f17e62c09af2e1011583ee1aedce782d4) )
+	// 0x40000 - 0x7ffff is intentionally empty
+	ROM_LOAD16_WORD( "pd.ic30",  0x80000, 0x80000, CRC(39e6a0f3) SHA1(f75d4313db5f292c5fd8f86f4e6871ee244d30d3) )    // Fix ROM
+
+	ROM_REGION( 0x80000, "tc0100scn", 0 )
+	ROM_LOAD16_WORD_SWAP( "sc.ic3", 0x00000, 0x80000, CRC(a8768939) SHA1(a2cbbd3e10ed48ba32a680b2e40ea03900cf33fa) )   // Sprites (16 x 16)
+
+	ROM_REGION( 0x80000, "pc090oj", 0 )
+	ROM_LOAD16_WORD_SWAP( "ob.ic6", 0x00000, 0x80000, CRC(dd247397) SHA1(53a7bf877fd7e5f3daf295a698f4012447b6f113) )   // SCR tiles (8 x 8)
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "sd.ic27", 0x00000, 0x10000, CRC(b3689da0) SHA1(812d2e0a794403df9f0a5035784f14cd070ea080) ) // banked
 ROM_END
 
 
@@ -2105,30 +2258,33 @@ void base_state::init_earthjkr()
 } // Anonymous namespace
 
 
-GAME( 1988, bonzeadv,  0,        bonzeadv, bonzeadv,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation Japan",   "Bonze Adventure (World, Newer)", MACHINE_SUPPORTS_SAVE )
-GAME( 1988, bonzeadvo, bonzeadv, bonzeadv, bonzeadv,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation Japan",   "Bonze Adventure (World, Older)", MACHINE_SUPPORTS_SAVE )
-GAME( 1988, bonzeadvu, bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito America Corporation", "Bonze Adventure (US)", MACHINE_SUPPORTS_SAVE )
-GAME( 1988, jigkmgri,  bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation",         "Jigoku Meguri (Japan)", MACHINE_SUPPORTS_SAVE )
-GAME( 1988, bonzeadvp, bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation Japan",   "Bonze Adventure (World, prototype)", MACHINE_SUPPORTS_SAVE )
+GAME( 1988, bonzeadv,  0,        bonzeadv, bonzeadv,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation Japan",   "Bonze Adventure (World, rev 1)",            MACHINE_SUPPORTS_SAVE )
+GAME( 1988, bonzeadvo, bonzeadv, bonzeadv, bonzeadv,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation Japan",   "Bonze Adventure (World)",                   MACHINE_SUPPORTS_SAVE )
+GAME( 1988, bonzeadvu, bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito America Corporation", "Bonze Adventure (US, rev 1)",               MACHINE_SUPPORTS_SAVE )
+GAME( 1988, jigkmgri,  bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation",         "Jigoku Meguri (Japan, rev 1)",              MACHINE_SUPPORTS_SAVE )
+GAME( 1988, jigkmgria, bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation",         "Jigoku Meguri (Japan)",                     MACHINE_SUPPORTS_SAVE )
+GAME( 1988, bonzeadvp, bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation Japan",   "Bonze Adventure (World, prototype, newer)", MACHINE_SUPPORTS_SAVE )
+GAME( 1988, bonzeadvp2,bonzeadv, bonzeadv, jigkmgri,  bonzeadv_state, empty_init,    ROT0,   "Taito Corporation Japan",   "Bonze Adventure (World, prototype, older)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1988, asuka,     0,        asuka,    asuka,     msm_state,      empty_init,    ROT270, "Taito Corporation",         "Asuka & Asuka (World)", MACHINE_SUPPORTS_SAVE )
-GAME( 1988, asukaj,    asuka,    asuka,    asuka,     msm_state,      empty_init,    ROT270, "Taito Corporation",         "Asuka & Asuka (Japan, version 1)", MACHINE_SUPPORTS_SAVE )
-GAME( 1988, asukaja,   asuka,    asuka,    asuka,     msm_state,      empty_init,    ROT270, "Taito Corporation",         "Asuka & Asuka (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1988, asuka,     0,        asuka,    asuka,     msm_state,      empty_init,    ROT270, "Taito Corporation",         "Asuka & Asuka (World)",        MACHINE_SUPPORTS_SAVE )
+GAME( 1988, asukaj,    asuka,    asuka,    asuka,     msm_state,      empty_init,    ROT270, "Taito Corporation",         "Asuka & Asuka (Japan, rev 1)", MACHINE_SUPPORTS_SAVE )
+GAME( 1988, asukaja,   asuka,    asuka,    asuka,     msm_state,      empty_init,    ROT270, "Taito Corporation",         "Asuka & Asuka (Japan)",        MACHINE_SUPPORTS_SAVE )
 
 GAME( 1989, mofflott,  0,        mofflott, mofflott,  msm_state,      empty_init,    ROT270, "Taito Corporation",         "Maze of Flott (Japan)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1989, cadash,    0,        cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (World)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashj,   cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation",         "Cadash (Japan, version 2)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashj1,  cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation",         "Cadash (Japan, version 1)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashjo,  cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation",         "Cadash (Japan, oldest version)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashu,   cadash,   cadash,   cadashu,   cadash_state,   empty_init,    ROT0,   "Taito America Corporation", "Cadash (US, version 2)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashu1,  cadash,   cadash,   cadashu,   cadash_state,   empty_init,    ROT0,   "Taito America Corporation", "Cadash (US, version 1?)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashi,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Italy)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashf,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (France)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashg,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Germany, version 1)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashgo,  cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Germany)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
-GAME( 1989, cadashp,   cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (World, prototype)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN)
-GAME( 1989, cadashs,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Spain, version 1)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadash,    0,        cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (World)",            MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashj,   cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation",         "Cadash (Japan, rev 2)",     MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashj1,  cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation",         "Cadash (Japan, rev 1)",     MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashjo,  cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation",         "Cadash (Japan)",            MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashu,   cadash,   cadash,   cadashu,   cadash_state,   empty_init,    ROT0,   "Taito America Corporation", "Cadash (US, rev 2)",        MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashu1,  cadash,   cadash,   cadashu,   cadash_state,   empty_init,    ROT0,   "Taito America Corporation", "Cadash (US, rev 1?)",       MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashi,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Italy)",            MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashf,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (France)",           MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashg,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Germany, rev 1)",   MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashgo,  cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Germany)",          MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashp,   cadash,   cadash,   cadashj,   cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (World, prototype)", MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashs,   cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Spain, rev 1)",     MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
+GAME( 1989, cadashso,  cadash,   cadash,   cadash,    cadash_state,   empty_init,    ROT0,   "Taito Corporation Japan",   "Cadash (Spain)",            MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN )
 
 GAME( 1992, galmedes,  0,        asuka,    galmedes,  msm_state,      empty_init,    ROT270, "Visco",                     "Galmedes (Japan)", MACHINE_SUPPORTS_SAVE )
 
@@ -2137,4 +2293,5 @@ GAME( 1993, earthjkra, earthjkr, asuka,    earthjkr,  msm_state,      empty_init
 GAME( 1993, earthjkrb, earthjkr, asuka,    earthjkr,  msm_state,      empty_init,    ROT270, "Visco",                     "U.N. Defense Force: Earth Joker (US / Japan, set 3)", MACHINE_SUPPORTS_SAVE )
 GAME( 1993, earthjkrp, earthjkr, asuka,    earthjkrp, msm_state,      empty_init,    ROT270, "Visco",                     "U.N. Defense Force: Earth Joker (Japan, prototype?)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1994, eto,       0,        eto,      eto,       base_state,     empty_init,    ROT0,   "Visco",                     "Kokontouzai Eto Monogatari (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1994, eto,       0,        eto,      eto,       base_state,     empty_init,    ROT0,   "Visco",                     "Kokontouzai Eto Monogatari (Japan)",             MACHINE_SUPPORTS_SAVE )
+GAME( 1994, etoa,      eto,      eto,      eto,       base_state,     empty_init,    ROT0,   "Visco",                     "Kokontouzai Eto Monogatari (Japan, prototype?)", MACHINE_SUPPORTS_SAVE )

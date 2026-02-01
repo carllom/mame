@@ -11,8 +11,11 @@
 
 #include "emu.h"
 #include "dspp.h"
-#include "dsppfe.h"
+
 #include "dsppdasm.h"
+#include "dsppfe.h"
+
+#include "emuopts.h"
 
 
 //**************************************************************************
@@ -85,44 +88,44 @@ DEFINE_DEVICE_TYPE(DSPP, dspp_device, "dspp", "3DO DSPP")
 //  dspp_device - constructor
 //-------------------------------------------------
 
-dspp_device::dspp_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: dspp_device(mconfig, DSPP, tag, owner, clock, address_map_constructor(FUNC(dspp_device::code_map), this),
-		address_map_constructor(FUNC(dspp_device::data_map), this))
+dspp_device::dspp_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	dspp_device(mconfig, DSPP, tag, owner, clock, address_map_constructor(FUNC(dspp_device::code_map), this),
+	address_map_constructor(FUNC(dspp_device::data_map), this))
 {
 }
 
-dspp_device::dspp_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, address_map_constructor code_map_ctor, address_map_constructor data_map_ctor)
-	: cpu_device(mconfig, type, tag, owner, clock),
-		m_int_handler(*this),
-		m_dma_read_handler(*this),
-		m_dma_write_handler(*this),
-		m_code_config("code", ENDIANNESS_BIG, 16, 10, -1, code_map_ctor),
-		m_data_config("data", ENDIANNESS_BIG, 16, 10, -1, data_map_ctor),
-		m_output_fifo_start(0),
-		m_output_fifo_count(0),
-		m_dspx_reset(0),
-		m_dspx_int_enable(0),
-		m_dspx_channel_enable(0),
-		m_dspx_channel_complete(0),
-		m_dspx_channel_direction(0),
-		m_dspx_channel_8bit(0),
-		m_dspx_channel_sqxd(0),
-		m_dspx_shadow_current_addr(0),
-		m_dspx_shadow_current_count(0),
-		m_dspx_shadow_next_addr(0),
-		m_dspx_shadow_next_count(0),
-		m_dspx_dmanext_int(0),
-		m_dspx_dmanext_enable(0),
-		m_dspx_consumed_int(0),
-		m_dspx_consumed_enable(0),
-		m_dspx_underover_int(0),
-		m_dspx_underover_enable(0),
-		m_dspx_audio_time(0),
-		m_dspx_audio_duration(0),
-		m_cache(CACHE_SIZE),
-		m_drcuml(nullptr),
-		m_drcfe(nullptr),
-		m_drcoptions(0)
+dspp_device::dspp_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, address_map_constructor code_map_ctor, address_map_constructor data_map_ctor) :
+	cpu_device(mconfig, type, tag, owner, clock),
+	m_int_handler(*this),
+	m_dma_read_handler(*this, 0),
+	m_dma_write_handler(*this),
+	m_code_config("code", ENDIANNESS_BIG, 16, 10, -1, code_map_ctor),
+	m_data_config("data", ENDIANNESS_BIG, 16, 10, -1, data_map_ctor),
+	m_output_fifo_start(0),
+	m_output_fifo_count(0),
+	m_dspx_reset(0),
+	m_dspx_int_enable(0),
+	m_dspx_channel_enable(0),
+	m_dspx_channel_complete(0),
+	m_dspx_channel_direction(0),
+	m_dspx_channel_8bit(0),
+	m_dspx_channel_sqxd(0),
+	m_dspx_shadow_current_addr(0),
+	m_dspx_shadow_current_count(0),
+	m_dspx_shadow_next_addr(0),
+	m_dspx_shadow_next_count(0),
+	m_dspx_dmanext_int(0),
+	m_dspx_dmanext_enable(0),
+	m_dspx_consumed_int(0),
+	m_dspx_consumed_enable(0),
+	m_dspx_underover_int(0),
+	m_dspx_underover_enable(0),
+	m_dspx_audio_time(0),
+	m_dspx_audio_duration(0),
+	m_cache(CACHE_SIZE),
+	m_drcuml(nullptr),
+	m_drcfe(nullptr),
+	m_drcoptions(0)
 {
 #if 0
 	memset(m_core->m_stack, 0, sizeof(m_core->m_stack));
@@ -142,18 +145,21 @@ void dspp_device::device_start()
 {
 	m_isdrc = false;//allow_drc();
 
-	m_core = (dspp_internal_state *)m_cache.alloc_near(sizeof(dspp_internal_state));
+	if (m_isdrc)
+	{
+		m_cache.allocate_cache(mconfig().options().drc_rwx());
+		m_core = m_cache.alloc_near<dspp_internal_state>();
+
+		uint32_t flags = 0;
+		m_drcuml = std::make_unique<drcuml_state>(*this, m_cache, flags, 1, 16, 0);
+
+		m_drcfe = std::make_unique<dspp_frontend>(this, COMPILE_BACKWARDS_BYTES, COMPILE_FORWARDS_BYTES, SINGLE_INSTRUCTION_MODE ? 1 : COMPILE_MAX_SEQUENCE);
+	}
+	else
+	{
+		m_core = &m_local_core;
+	}
 	memset(m_core, 0, sizeof(dspp_internal_state));
-
-	uint32_t flags = 0;
-	m_drcuml = std::make_unique<drcuml_state>(*this, m_cache, flags, 1, 16, 0);
-
-	m_drcfe = std::make_unique<dspp_frontend>(this, COMPILE_BACKWARDS_BYTES, COMPILE_FORWARDS_BYTES, SINGLE_INSTRUCTION_MODE ? 1 : COMPILE_MAX_SEQUENCE);
-
-	// Resolve our callbacks
-	m_int_handler.resolve_safe();
-	m_dma_read_handler.resolve_safe(0);
-	m_dma_write_handler.resolve_safe();
 
 	// Get our address spaces
 	space(AS_PROGRAM).cache(m_code_cache);
@@ -162,11 +168,11 @@ void dspp_device::device_start()
 
 	// Register our state for the debugger
 	state_add(DSPP_PC,         "PC",        m_core->m_pc);
-	state_add(DSPP_ACC,        "ACC",       m_core->m_acc);
+	state_add(DSPP_ACC,        "ACC",       m_core->m_acc).mask(0xfffff);
 	state_add(STATE_GENPC,     "GENPC",     m_core->m_pc).noshow();
+	state_add(STATE_GENPCBASE, "GENPCBASE", m_core->m_pc).noshow();
 #if 0
 	state_add(STATE_GENFLAGS,  "GENFLAGS",  m_core->m_flags).callimport().callexport().formatstr("%6s").noshow();
-	state_add(STATE_GENPCBASE, "GENPCBASE", m_ppc).noshow();
 
 	state_add(DSPP_PS,         "PS",        m_core->m_flagsio).callimport().callexport();
 	for (int regnum = 0; regnum < 32; regnum++)
@@ -446,18 +452,15 @@ void dspp_device::parse_operands(uint32_t numops)
 			// Immediate value
 			if ((operand & 0xc000) == 0xc000)
 			{
-				val = operand & 0x1fff;
-
 				if (operand & 0x2000)
 				{
 					// Left justify
-					val = val << 3;
+					val = (operand & 0x1fff) << 3;
 				}
 				else
 				{
 					// Sign extend if right justified
-					if (val & 0x1000)
-						val |= 0xe000;
+					val = uint16_t(util::sext(operand, 13));
 				}
 				m_core->m_operands[opidx++].value = val;
 			}
@@ -684,7 +687,7 @@ void dspp_device::execute_run()
 		return;
 	}
 
-	bool check_debugger = ((device_t::machine().debug_flags & DEBUG_FLAG_ENABLED) != 0);
+	const bool check_debugger = debugger_enabled();
 
 	do
 	{
@@ -954,38 +957,6 @@ inline void dspp_device::exec_control()
 	}
 }
 
-//-------------------------------------------------
-//  sign_extend8 - Sign extend 8-bits to 32-bits
-//-------------------------------------------------
-
-static inline int32_t sign_extend8(uint8_t val)
-{
-	return (int32_t)(int8_t)val;
-}
-
-
-//-------------------------------------------------
-//  sign_extend16 - Sign extend 16-bits to 32-bits
-//-------------------------------------------------
-
-static inline int32_t sign_extend16(uint16_t val)
-{
-	return (int32_t)(int16_t)val;
-}
-
-
-//-------------------------------------------------
-//  sign_extend20 - Sign extend 20-bits to 32-bits
-//-------------------------------------------------
-
-static inline int32_t sign_extend20(uint32_t val)
-{
-	if (val & 0x00080000)
-		return (int32_t)(0xfff00000 | val);
-	else
-		return (int32_t)val;
-}
-
 
 //-------------------------------------------------
 //  exec_arithmetic - Execute an arithmetic op
@@ -1018,8 +989,8 @@ inline void dspp_device::exec_arithmetic()
 	{
 		uint32_t mul_sel = (m_core->m_op >> 12) & 1;
 
-		int32_t op1 = sign_extend16(read_next_operand());
-		int32_t op2 = sign_extend16(mul_sel ? read_next_operand() : m_core->m_acc >> 4);
+		int32_t op1 = int16_t(read_next_operand());
+		int32_t op2 = int16_t(mul_sel ? read_next_operand() : m_core->m_acc >> 4);
 
 		mul_res = (op1 * op2) >> 11;
 	}
@@ -1207,7 +1178,7 @@ inline void dspp_device::exec_arithmetic()
 		if (alu_op < 8)
 		{
 			// Arithmetic
-			m_core->m_acc = sign_extend20(alu_res) >> shift;
+			m_core->m_acc = util::sext(alu_res, 20) >> shift;
 		}
 		else
 		{
@@ -1227,11 +1198,11 @@ inline void dspp_device::exec_arithmetic()
 			if (m_core->m_flag_over)
 				m_core->m_acc = m_core->m_flag_neg ? 0x7ffff : 0xfff80000;
 			else
-				m_core->m_acc = sign_extend20(alu_res);
+				m_core->m_acc = util::sext(alu_res, 20);
 		}
 		else
 		{
-			m_core->m_acc = sign_extend20(alu_res) << shift;
+			m_core->m_acc = util::sext(alu_res << shift, 20);
 		}
 	}
 
@@ -1463,7 +1434,7 @@ void dspp_device::process_next_dma(int32_t channel)
 
 int16_t dspp_device::decode_sqxd(int8_t data, int16_t prev)
 {
-	int16_t temp = sign_extend8(data & 0xfe);
+	int16_t temp = int8_t(data & 0xfe);
 	int32_t expanded = (temp * iabs(temp)) << 1;
 	int16_t output;
 

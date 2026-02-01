@@ -6,8 +6,8 @@
  *
  ****************************************************************************/
 
-#ifndef MAME_INCLUDES_B2M_H
-#define MAME_INCLUDES_B2M_H
+#ifndef MAME_USSR_B2M_H
+#define MAME_USSR_B2M_H
 
 #pragma once
 
@@ -48,23 +48,24 @@ private:
 	void b2m_palette(palette_device &palette) const;
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	INTERRUPT_GEN_MEMBER(vblank_interrupt);
-	DECLARE_WRITE_LINE_MEMBER(pit_out1);
+	void pit_out1(int state);
 	void ppi1_porta_w(uint8_t data);
 	void ppi1_portb_w(uint8_t data);
 	void ppi1_portc_w(uint8_t data);
 	uint8_t ppi1_portb_r();
 	void ppi2_portc_w(uint8_t data);
+	uint8_t fdc_status_hack_r();
 	uint8_t romdisk_porta_r();
 	void romdisk_portb_w(uint8_t data);
 	void romdisk_portc_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(fdc_drq);
+	void fdc_drq(int state);
 	static void b2m_floppy_formats(format_registration &fr);
 
-	void b2m_io(address_map &map);
-	void b2m_mem(address_map &map);
-	void b2m_rom_io(address_map &map);
-	void machine_start() override;
-	void machine_reset() override;
+	void b2m_io(address_map &map) ATTR_COLD;
+	void b2m_mem(address_map &map) ATTR_COLD;
+	void b2m_rom_io(address_map &map) ATTR_COLD;
+	void machine_start() override ATTR_COLD;
+	void machine_reset() override ATTR_COLD;
 
 	void postload();
 	void set_bank(int bank);
@@ -72,6 +73,8 @@ private:
 	uint8_t m_porta = 0U;
 	uint8_t m_video_scroll = 0U;
 	uint8_t m_portc = 0U;
+
+	bool m_drq_interlock = false;
 
 	uint8_t m_video_page = 0U;
 
@@ -81,6 +84,7 @@ private:
 	uint8_t m_color[4]{};
 	uint8_t m_localmachine = 0U;
 	uint8_t m_vblank_state = 0U;
+
 	required_device<cpu_device> m_maincpu;
 	required_device<speaker_sound_device> m_speaker;
 	required_device<pit8253_device> m_pit;
@@ -93,4 +97,4 @@ private:
 	optional_device<pic8259_device> m_pic;
 };
 
-#endif // MAME_INCLUDES_B2M_H
+#endif // MAME_USSR_B2M_H

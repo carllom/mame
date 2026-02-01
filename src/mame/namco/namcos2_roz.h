@@ -1,8 +1,8 @@
 // license:BSD-3-Clause
 // copyright-holders:David Haywood
 
-#ifndef MAME_VIDEO_NAMCOS2_ROZ_H
-#define MAME_VIDEO_NAMCOS2_ROZ_H
+#ifndef MAME_NAMCO_NAMCOS2_ROZ_H
+#define MAME_NAMCO_NAMCOS2_ROZ_H
 
 #pragma once
 
@@ -21,18 +21,14 @@ public:
 
 	void rozram_word_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
 
-	void draw_roz(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect, uint16_t gfx_ctrl);
+	void draw_roz(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect, uint16_t gfx_ctrl, uint8_t prival = 0, uint8_t primask = ~0);
 
 protected:
 	// device-level overrides
-	virtual void device_start() override;
+	virtual void device_start() override ATTR_COLD;
 
 private:
-	// general
-	void zdrawgfxzoom(screen_device &screen, bitmap_ind16 &dest_bmp, const rectangle &clip, gfx_element *gfx, uint32_t code, uint32_t color, int flipx, int flipy, int sx, int sy, int scalex, int scaley, int zpos);
-	void zdrawgfxzoom(screen_device &screen, bitmap_rgb32 &dest_bmp, const rectangle &clip, gfx_element *gfx, uint32_t code, uint32_t color, int flipx, int flipy, int sx, int sy, int scalex, int scaley, int zpos);
-
-	TILE_GET_INFO_MEMBER( roz_tile_info );
+	TILE_GET_INFO_MEMBER(roz_tile_info);
 	tilemap_t *m_tilemap_roz = nullptr;
 
 	required_shared_ptr<uint16_t> m_rozram;
@@ -43,5 +39,5 @@ private:
 // device type definition
 DECLARE_DEVICE_TYPE(NAMCOS2_ROZ, namcos2_roz_device)
 
-#endif // MAME_VIDEO_NAMCOS2_ROZ_H
+#endif // MAME_NAMCO_NAMCOS2_ROZ_H
 

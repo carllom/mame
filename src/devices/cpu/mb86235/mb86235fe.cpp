@@ -256,7 +256,6 @@ void mb86235_frontend::describe_reg_read(opcode_desc &desc, int reg)
 			break;
 
 		case 0x32:      // FO0
-			break;
 		case 0x33:      // FO1
 			break;
 
@@ -311,11 +310,8 @@ void mb86235_frontend::describe_reg_write(opcode_desc &desc, int reg)
 			break;
 
 		case 0x32:      // FO0
-			desc.userflags |= OP_USERFLAG_FIFOOUT0;
-			desc.flags |= OPFLAG_IS_BRANCH_TARGET;      // fifo check makes this a branch target
-			break;
 		case 0x33:      // FO1
-			desc.userflags |= OP_USERFLAG_FIFOOUT1;
+			desc.userflags |= OP_USERFLAG_FIFOOUT;
 			desc.flags |= OPFLAG_IS_BRANCH_TARGET;      // fifo check makes this a branch target
 			break;
 
@@ -804,7 +800,7 @@ void mb86235_frontend::describe_control(opcode_desc &desc)
 	int ef1 = (desc.opptr.q[0] >> 16) & 0x3f;
 	int ef2 = desc.opptr.q[0] & 0xffff;
 	int cop = (desc.opptr.q[0] >> 22) & 0x1f;
-	int rel12 = (desc.opptr.q[0] & 0x800) ? (0xfffff000 | (desc.opptr.q[0] & 0xfff)) : (desc.opptr.q[0] & 0xfff);
+	int rel12 = util::sext<int>(desc.opptr.q[0], 12);
 
 	switch (cop)
 	{

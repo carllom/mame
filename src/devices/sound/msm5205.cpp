@@ -91,9 +91,6 @@ msm6585_device::msm6585_device(const machine_config &mconfig, const char *tag, d
 
 void msm5205_device::device_start()
 {
-	m_vck_cb.resolve_safe();
-	m_vck_legacy_cb.resolve();
-
 	/* compute the difference tables */
 	compute_tables();
 
@@ -190,7 +187,7 @@ TIMER_CALLBACK_MEMBER(msm5205_device::update_adpcm)
 	int new_signal;
 
 	// callback user handler and latch next data
-	if (!m_vck_legacy_cb.isnull())
+	if (!m_vck_legacy_cb.isunset())
 		m_vck_legacy_cb(1);
 
 	// reset check at last hiedge of VCK
@@ -350,20 +347,16 @@ void msm5205_device::device_clock_changed()
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void msm5205_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
+void msm5205_device::sound_stream_update(sound_stream &stream)
 {
-	auto &output = outputs[0];
-
 	/* if this voice is active */
 	if (m_signal)
 	{
-		constexpr stream_buffer::sample_t sample_scale = 1.0 / double(1 << 12);
+		constexpr sound_stream::sample_t sample_scale = 1.0 / double(1 << 12);
 		const int dac_mask = (m_dac_bits >= 12) ? 0 : (1 << (12 - m_dac_bits)) - 1;
-		stream_buffer::sample_t val = stream_buffer::sample_t(m_signal & ~dac_mask) * sample_scale;
-		output.fill(val);
+		sound_stream::sample_t val = sound_stream::sample_t(m_signal & ~dac_mask) * sample_scale;
+		stream.fill(0, val);
 	}
-	else
-		output.fill(0);
 }
 
 
@@ -371,8 +364,8 @@ void msm5205_device::sound_stream_update(sound_stream &stream, std::vector<read_
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void msm6585_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
+void msm6585_device::sound_stream_update(sound_stream &stream)
 {
 	// should this be different?
-	msm5205_device::sound_stream_update(stream, inputs, outputs);
+	msm5205_device::sound_stream_update(stream);
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
 <!--
-license:CC0
+license:CC0-1.0
 -->
 
 <softwarelist name="amiga_apps" description="Commodore Amiga Application disks">
@@ -116,7 +116,7 @@ license:CC0
 		</part>
 	</software>
 
-	<software name ="suprdupr">
+	<software name="suprdupr">
 		<description>SuperDuper 2.02</description>
 		<year>19??</year>
 		<publisher>Amitech Denmark</publisher>

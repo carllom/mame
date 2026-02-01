@@ -11,16 +11,19 @@
 #include "emu.h"
 
 #include "cpu/m68000/m68000.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 #include "cpu/z80/z80.h"
-#include "emupal.h"
 #include "machine/gen_latch.h"
-#include "screen.h"
 #include "sound/msm5205.h"
 #include "sound/ymopm.h"
+
+#include "emupal.h"
+#include "screen.h"
 #include "speaker.h"
 #include "tilemap.h"
 
+
+namespace {
 
 class sf_state : public driver_device
 {
@@ -87,21 +90,21 @@ private:
 	TILE_GET_INFO_MEMBER(get_bg_tile_info);
 	TILE_GET_INFO_MEMBER(get_fg_tile_info);
 	TILE_GET_INFO_MEMBER(get_tx_tile_info);
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	inline int invert( int nb );
 	void draw_sprites( bitmap_ind16 &bitmap,const rectangle &cliprect );
 	void write_dword( address_space &space, offs_t offset, uint32_t data );
 
-	void sfan_map(address_map &map);
-	void sfjp_map(address_map &map);
-	void sfus_map(address_map &map);
-	void sound2_io_map(address_map &map);
-	void sound2_map(address_map &map);
-	void sound_map(address_map &map);
-	void prot_map(address_map &map);
+	void sfan_map(address_map &map) ATTR_COLD;
+	void sfjp_map(address_map &map) ATTR_COLD;
+	void sfus_map(address_map &map) ATTR_COLD;
+	void sound2_io_map(address_map &map) ATTR_COLD;
+	void sound2_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
+	void prot_map(address_map &map) ATTR_COLD;
 };
 
 void sf_state::coin_w(u8 data)
@@ -773,25 +776,24 @@ void sf_state::sfan(machine_config &config)
 	PALETTE(config, m_palette).set_format(palette_device::xRGB_444, 1024);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	GENERIC_LATCH_8(config, m_soundlatch);
 
 	ym2151_device &ymsnd(YM2151(config, "ymsnd", XTAL(3'579'545)));
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.60);
-	ymsnd.add_route(1, "rspeaker", 0.60);
+	ymsnd.add_route(0, "speaker", 0.60, 0);
+	ymsnd.add_route(1, "speaker", 0.60, 1);
 
 	MSM5205(config, m_msm[0], 384000);
 	m_msm[0]->set_prescaler_selector(msm5205_device::SEX_4B);   /* 8KHz playback ? */
-	m_msm[0]->add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	m_msm[0]->add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+	m_msm[0]->add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	m_msm[0]->add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
 
 	MSM5205(config, m_msm[1], 384000);
 	m_msm[1]->set_prescaler_selector(msm5205_device::SEX_4B);   /* 8KHz playback ? */
-	m_msm[1]->add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	m_msm[1]->add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+	m_msm[1]->add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	m_msm[1]->add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
 }
 
 void sf_state::sfus(machine_config &config)
@@ -806,7 +808,7 @@ void sf_state::sfjp(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &sf_state::sfjp_map);
 
 	I8751(config, m_protcpu, XTAL(8'000'000)); // Clock unknown, but shares the bus with the 68k, so could be similar
-	m_protcpu->set_addrmap(AS_IO, &sf_state::prot_map);
+	m_protcpu->set_addrmap(AS_DATA, &sf_state::prot_map);
 	m_protcpu->port_out_cb<3>().set(FUNC(sf_state::prot_p3_w));
 }
 
@@ -1413,9 +1415,10 @@ ROM_START( sfp )
 	ROM_LOAD( "mmi-7603.13h", 0x0300, 0x0020, CRC(06bcda53) SHA1(fa69b77697bb12aa6012d82ef5b504d3a1d20232) ) /* unknown */
 ROM_END
 
+} // anonymous namespace
 
 
-GAME( 1987, sf,     0, sfus, sfus, sf_state, empty_init, ROT0, "Capcom",  "Street Fighter (US, set 1)", MACHINE_SUPPORTS_SAVE ) // Shows Capcom copyright
+GAME( 1987, sf,    0,  sfus, sfus, sf_state, empty_init, ROT0, "Capcom",  "Street Fighter (US, set 1)", MACHINE_SUPPORTS_SAVE ) // Shows Capcom copyright
 GAME( 1987, sfua,  sf, sfjp, sfjp, sf_state, empty_init, ROT0, "Capcom",  "Street Fighter (US, set 2) (protected)", MACHINE_SUPPORTS_SAVE ) // Shows Capcom USA copyright
 GAME( 1987, sfj,   sf, sfjp, sfjp, sf_state, empty_init, ROT0, "Capcom",  "Street Fighter (Japan) (protected)", MACHINE_SUPPORTS_SAVE )
 GAME( 1987, sfjan, sf, sfan, sfan, sf_state, empty_init, ROT0, "Capcom",  "Street Fighter (Japan, pneumatic buttons)", MACHINE_SUPPORTS_SAVE )

@@ -6,8 +6,8 @@
     Driver by Mariusz Wojcieszek
 
     Notes:
-    - jamma interface is not emulated, hence the game is marked as 'not working'
-    - rom mapping, memory maps and clocks for jamma interface cpus are probably not correct
+    - JAMMA interface is not emulated, hence the game is marked as 'not working'
+    - ROM mapping, memory maps and clocks for JAMMA interface cpus are probably not correct
 
 Paranoia by Naxat Soft 1990
 
@@ -48,30 +48,32 @@ HuC6280A (Hudson)
 #include "speaker.h"
 
 
+namespace {
+
 class paranoia_state : public pce_common_state
 {
 public:
 	paranoia_state(const machine_config &mconfig, device_type type, const char *tag)
-		: pce_common_state(mconfig, type, tag) { }
+		: pce_common_state(mconfig, type, tag)
+	{ }
 
 	void paranoia(machine_config &config);
 
 private:
-	void i8085_d000_w(uint8_t data);
-	uint8_t z80_io_01_r();
-	uint8_t z80_io_02_r();
-	void z80_io_17_w(uint8_t data);
-	void z80_io_37_w(uint8_t data);
-	void i8155_a_w(uint8_t data);
-	void i8155_b_w(uint8_t data);
-	void i8155_c_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(i8155_timer_out);
-	void paranoia_8085_io_map(address_map &map);
-	void paranoia_8085_map(address_map &map);
-	void paranoia_z80_io_map(address_map &map);
-	void paranoia_z80_map(address_map &map);
-	void pce_io(address_map &map);
-	void pce_mem(address_map &map);
+	void i8085_d000_w(u8 data);
+	u8 z80_io_01_r();
+	u8 z80_io_02_r();
+	void z80_io_17_w(u8 data);
+	void z80_io_37_w(u8 data);
+	void i8155_a_w(u8 data);
+	void i8155_b_w(u8 data);
+	void i8155_c_w(u8 data);
+	void i8155_timer_out(int state);
+	void paranoia_8085_io_map(address_map &map) ATTR_COLD;
+	void paranoia_8085_map(address_map &map) ATTR_COLD;
+	void paranoia_z80_io_map(address_map &map) ATTR_COLD;
+	void paranoia_z80_map(address_map &map) ATTR_COLD;
+	void pce_mem(address_map &map) ATTR_COLD;
 };
 
 
@@ -81,20 +83,13 @@ INPUT_PORTS_END
 
 void paranoia_state::pce_mem(address_map &map)
 {
-	map(0x000000, 0x03FFFF).rom();
-	map(0x1F0000, 0x1F1FFF).ram().mirror(0x6000);
-	map(0x1FE000, 0x1FE3FF).rw("huc6270", FUNC(huc6270_device::read), FUNC(huc6270_device::write));
-	map(0x1FE400, 0x1FE7FF).rw(m_huc6260, FUNC(huc6260_device::read), FUNC(huc6260_device::write));
+	map(0x000000, 0x03ffff).rom();
+	common_mem_map(map);
 }
 
-void paranoia_state::pce_io(address_map &map)
+void paranoia_state::i8085_d000_w(u8 data)
 {
-	map(0x00, 0x03).rw("huc6270", FUNC(huc6270_device::read), FUNC(huc6270_device::write));
-}
-
-void paranoia_state::i8085_d000_w(uint8_t data)
-{
-	//logerror( "D000 (8085) write %02x\n", data );
+	//logerror("D000 (8085) write %02x\n", data);
 }
 
 void paranoia_state::paranoia_8085_map(address_map &map)
@@ -117,21 +112,21 @@ void paranoia_state::paranoia_z80_map(address_map &map)
 	map(0x7000, 0x73ff).ram();
 }
 
-uint8_t paranoia_state::z80_io_01_r()
+u8 paranoia_state::z80_io_01_r()
 {
 	return 0;
 }
 
-uint8_t paranoia_state::z80_io_02_r()
+u8 paranoia_state::z80_io_02_r()
 {
 	return 0;
 }
 
-void paranoia_state::z80_io_17_w(uint8_t data)
+void paranoia_state::z80_io_17_w(u8 data)
 {
 }
 
-void paranoia_state::z80_io_37_w(uint8_t data)
+void paranoia_state::z80_io_37_w(u8 data)
 {
 }
 
@@ -144,22 +139,22 @@ void paranoia_state::paranoia_z80_io_map(address_map &map)
 	map(0x37, 0x37).w(FUNC(paranoia_state::z80_io_37_w));
 }
 
-void paranoia_state::i8155_a_w(uint8_t data)
+void paranoia_state::i8155_a_w(u8 data)
 {
 	//logerror("i8155 Port A: %02X\n", data);
 }
 
-void paranoia_state::i8155_b_w(uint8_t data)
+void paranoia_state::i8155_b_w(u8 data)
 {
 	//logerror("i8155 Port B: %02X\n", data);
 }
 
-void paranoia_state::i8155_c_w(uint8_t data)
+void paranoia_state::i8155_c_w(u8 data)
 {
 	//logerror("i8155 Port C: %02X\n", data);
 }
 
-WRITE_LINE_MEMBER(paranoia_state::i8155_timer_out)
+void paranoia_state::i8155_timer_out(int state)
 {
 	//m_subcpu->set_input_line(I8085_RST55_LINE, state ? CLEAR_LINE : ASSERT_LINE );
 	//logerror("Timer out %d\n", state);
@@ -168,13 +163,10 @@ WRITE_LINE_MEMBER(paranoia_state::i8155_timer_out)
 void paranoia_state::paranoia(machine_config &config)
 {
 	/* basic machine hardware */
-	H6280(config, m_maincpu, PCE_MAIN_CLOCK/3);
+	common_cpu(config);
 	m_maincpu->set_addrmap(AS_PROGRAM, &paranoia_state::pce_mem);
-	m_maincpu->set_addrmap(AS_IO, &paranoia_state::pce_io);
-	m_maincpu->port_in_cb().set(FUNC(paranoia_state::pce_joystick_r));
-	m_maincpu->port_out_cb().set(FUNC(paranoia_state::pce_joystick_w));
-	m_maincpu->add_route(0, "lspeaker", 1.00);
-	m_maincpu->add_route(1, "rspeaker", 1.00);
+	m_maincpu->add_route(0, "speaker", 1.00, 0);
+	m_maincpu->add_route(1, "speaker", 1.00, 1);
 
 	config.set_maximum_quantum(attotime::from_hz(60));
 
@@ -193,23 +185,9 @@ void paranoia_state::paranoia(machine_config &config)
 	i8155.out_to_callback().set(FUNC(paranoia_state::i8155_timer_out));
 
 	/* video hardware */
-	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
-	screen.set_raw(PCE_MAIN_CLOCK, huc6260_device::WPF, 64, 64 + 1024 + 64, huc6260_device::LPF, 18, 18 + 242);
-	screen.set_screen_update(FUNC(pce_common_state::screen_update));
-	screen.set_palette(m_huc6260);
+	common_video(config);
 
-	HUC6260(config, m_huc6260, PCE_MAIN_CLOCK);
-	m_huc6260->next_pixel_data().set("huc6270", FUNC(huc6270_device::next_pixel));
-	m_huc6260->time_til_next_event().set("huc6270", FUNC(huc6270_device::time_until_next_event));
-	m_huc6260->vsync_changed().set("huc6270", FUNC(huc6270_device::vsync_changed));
-	m_huc6260->hsync_changed().set("huc6270", FUNC(huc6270_device::hsync_changed));
-
-	huc6270_device &huc6270(HUC6270(config, "huc6270", 0));
-	huc6270.set_vram_size(0x10000);
-	huc6270.irq().set_inputline(m_maincpu, 0);
-
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front(); // TODO: correct?
 }
 
 ROM_START(paranoia)
@@ -226,4 +204,7 @@ ROM_START(paranoia)
 	ROM_LOAD( "4.352", 0x18000, 0x8000, CRC(11297fed) SHA1(17a294e65ba1c4806307602dee4c7c627ad1fcfd) )
 ROM_END
 
-GAME( 1990, paranoia, 0, paranoia, paranoia, paranoia_state, init_pce_common, ROT0, "Naxat Soft", "Paranoia", MACHINE_IMPERFECT_SOUND | MACHINE_NOT_WORKING | MACHINE_SUPPORTS_SAVE )
+} // anonymous namespace
+
+
+GAME( 1990, paranoia, 0, paranoia, paranoia, paranoia_state, init_pce_common, ROT0, "Naxat Soft", "Paranoia (Arcade PC Engine, bootleg?)", MACHINE_IMPERFECT_SOUND | MACHINE_NOT_WORKING | MACHINE_SUPPORTS_SAVE ) // Based off PCE not TG16, cfr. stage clear screen

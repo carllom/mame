@@ -6,8 +6,8 @@
 
 ****************************************************************************/
 
-#ifndef MAME_MACHINE_PSION_PACK_H
-#define MAME_MACHINE_PSION_PACK_H
+#ifndef MAME_PSION_PSION_PACK_H
+#define MAME_PSION_PSION_PACK_H
 
 #include "imagedev/memcard.h"
 
@@ -23,16 +23,18 @@ class datapack_device : public device_t,
 {
 public:
 	// construction/destruction
-	datapack_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	datapack_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock = 0);
 	virtual ~datapack_device();
 
-	// image-level overrides
-	virtual image_init_result call_load() override;
+	void set_interface(const char *interface) { m_interface = interface; }
+
+	// device_image_interface implementation
+	virtual std::pair<std::error_condition, std::string> call_load() override;
 	virtual void call_unload() override;
-	virtual image_init_result call_create(int format_type, util::option_resolution *create_args) override;
+	virtual std::pair<std::error_condition, std::string> call_create(int format_type, util::option_resolution *create_args) override;
 
 	virtual bool is_reset_on_load() const noexcept override { return false; }
-	virtual const char *image_interface() const noexcept override { return "psion_pack"; }
+	virtual const char *image_interface() const noexcept override { return m_interface; }
 	virtual const char *file_extensions() const noexcept override { return "opk"; }
 	virtual const char *image_type_name() const noexcept override { return "datapack"; }
 	virtual const char *image_brief_type_name() const noexcept override { return "dpak"; }
@@ -48,8 +50,8 @@ protected:
 	// internal helper
 	void update();
 
-	// device-level overrides
-	virtual void device_start() override;
+	// device_t implementation
+	virtual void device_start() override ATTR_COLD;
 	virtual void device_config_complete() override;
 
 	// device_image_interface implementation
@@ -64,10 +66,12 @@ private:
 	uint16_t m_counter = 0;           //address counter
 	uint8_t  m_page = 0;              //active page (only for paged Datapack)
 	uint8_t  m_segment = 0;           //active segment (only for segmented Datapack)
+
+	const char *m_interface;
 };
 
 
 // device type definition
 DECLARE_DEVICE_TYPE(PSION_DATAPACK, datapack_device)
 
-#endif // MAME_MACHINE_PSION_PACK_H
+#endif // MAME_PSION_PSION_PACK_H

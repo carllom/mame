@@ -28,7 +28,7 @@
 #include "artmagic.h"
 
 #include "cpu/m68000/m68000.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i80c51.h"
 #include "cpu/tms34010/tms34010.h"
 #include "machine/eeprompar.h"
 #include "machine/mc68681.h"
@@ -55,7 +55,7 @@ void artmagic_state::update_irq_state()
 }
 
 
-WRITE_LINE_MEMBER(artmagic_state::m68k_gen_int)
+void artmagic_state::m68k_gen_int(int state)
 {
 	m_tms_irq = state;
 	update_irq_state();
@@ -364,7 +364,7 @@ void artmagic_state::stonebal_protection()
 }
 
 
-READ_LINE_MEMBER(artmagic_state::prot_r)
+int artmagic_state::prot_r()
 {
 	return m_prot_output_bit;
 }
@@ -490,10 +490,17 @@ void artmagic_state::stonebal_tms_map(address_map &map)
 void artmagic_state::shtstar_subcpu_map(address_map &map)
 {
 	map(0x000000, 0x03ffff).rom();
+	map(0x8000c0, 0x8000c1).nopw(); // ?
+	map(0x800100, 0x800101).noprw(); // ?
 	map(0x800141, 0x800141).w("aysnd", FUNC(ym2149_device::address_w));
 	map(0x800143, 0x800143).rw("aysnd", FUNC(ym2149_device::data_r), FUNC(ym2149_device::data_w));
 	map(0x800180, 0x80019f).rw("subduart", FUNC(mc68681_device::read), FUNC(mc68681_device::write)).umask16(0x00ff);
 	map(0xffc000, 0xffffff).ram();
+}
+
+void artmagic_state::shtstar_subcpu_vector_map(address_map &map)
+{
+	map(0xfffff9, 0xfffff9).r("subduart", FUNC(mc68681_device::get_irq_vector));
 }
 
 void artmagic_state::shtstar_guncpu_map(address_map &map)
@@ -501,7 +508,7 @@ void artmagic_state::shtstar_guncpu_map(address_map &map)
 	map(0x0000, 0x7fff).rom();
 }
 
-void artmagic_state::shtstar_guncpu_io_map(address_map &map)
+void artmagic_state::shtstar_guncpu_data_map(address_map &map)
 {
 	map(0xc000, 0xcfff).ram();
 }
@@ -592,7 +599,7 @@ static INPUT_PORTS_START( cheesech )
 	PORT_BIT( 0xff00, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("30000a")
-	PORT_BIT( 0x0001, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(artmagic_state, prot_r)    // protection data
+	PORT_BIT( 0x0001, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(FUNC(artmagic_state::prot_r))    // protection data
 	PORT_BIT( 0x0002, IP_ACTIVE_HIGH, IPT_CUSTOM )     // protection ready
 	PORT_BIT( 0x00fc, IP_ACTIVE_LOW, IPT_UNKNOWN )
 	PORT_BIT( 0xff00, IP_ACTIVE_LOW, IPT_UNUSED )
@@ -784,7 +791,7 @@ static INPUT_PORTS_START( shtstar )
 	PORT_BIT( 0xff00, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("3c000a")
-	PORT_BIT( 0x0001, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(artmagic_state, prot_r)    // protection data
+	PORT_BIT( 0x0001, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(FUNC(artmagic_state::prot_r))    // protection data
 	PORT_BIT( 0x0002, IP_ACTIVE_HIGH, IPT_CUSTOM )     // protection ready
 	PORT_BIT( 0x00fc, IP_ACTIVE_LOW, IPT_UNKNOWN )
 	PORT_BIT( 0xff00, IP_ACTIVE_LOW, IPT_UNUSED )
@@ -858,20 +865,26 @@ void artmagic_state::shtstar(machine_config &config)
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &artmagic_state::shtstar_map);
 
-	MC68681(config, "mainduart", 3686400);
+	m_tms->output_int().set_inputline("maincpu", M68K_IRQ_4);
+
+	mc68681_device &mainduart(MC68681(config, "mainduart", 3686400));
+	mainduart.irq_cb().set_inputline("maincpu", M68K_IRQ_5);
+	mainduart.set_clocks(500000, 500000, 500000, 500000); // external clocking required for self-test; values probably wrong
 
 	/* sub cpu*/
 	m68000_device &subcpu(M68000(config, "subcpu", MASTER_CLOCK_25MHz/2));
 	subcpu.set_addrmap(AS_PROGRAM, &artmagic_state::shtstar_subcpu_map);
+	subcpu.set_addrmap(m68000_device::AS_CPU_SPACE, &artmagic_state::shtstar_subcpu_vector_map);
 
-	MC68681(config, "subduart", 3686400);
+	mc68681_device &subduart(MC68681(config, "subduart", 3686400));
+	subduart.irq_cb().set_inputline("subcpu", M68K_IRQ_4);
 
 	YM2149(config, "aysnd", 3686400/2).add_route(ALL_OUTPUTS, "mono", 0.10);
 
 	/*gun board cpu*/
 	i80c31_device &guncpu(I80C31(config, "guncpu", 6000000));
 	guncpu.set_addrmap(AS_PROGRAM, &artmagic_state::shtstar_guncpu_map);
-	guncpu.set_addrmap(AS_IO, &artmagic_state::shtstar_guncpu_io_map);
+	guncpu.set_addrmap(AS_DATA, &artmagic_state::shtstar_guncpu_data_map);
 	guncpu.port_in_cb<1>().set_constant(0); // ?
 }
 

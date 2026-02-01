@@ -4,7 +4,7 @@
 
     nbmj8991 - Nichibutsu Mahjong games for years 1989-1991
 
-    Driver by Takahiro Nogi <nogi@kt.rim.or.jp> 1999/12/02 -
+    Driver by Takahiro Nogi 1999/12/02 -
 
 ******************************************************************************/
 /******************************************************************************
@@ -296,7 +296,7 @@ static INPUT_PORTS_START( pstadium )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -338,7 +338,7 @@ static INPUT_PORTS_START( triplew1 )
 	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -403,7 +403,7 @@ static INPUT_PORTS_START( ntopstar )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -468,7 +468,7 @@ static INPUT_PORTS_START( mjlstory )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -517,7 +517,7 @@ static INPUT_PORTS_START( vanilla )
 	PORT_DIPUNUSED_DIPLOC( 0x80, 0x80, "DSWB:8" )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -584,7 +584,7 @@ static INPUT_PORTS_START( finalbny )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -650,7 +650,7 @@ static INPUT_PORTS_START( qmhayaku )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -694,7 +694,7 @@ static INPUT_PORTS_START( galkoku )
 	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -759,7 +759,7 @@ static INPUT_PORTS_START( hyouban )
 	PORT_DIPSETTING(    0x80, "B" )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -828,7 +828,7 @@ static INPUT_PORTS_START( galkaika )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -897,7 +897,7 @@ static INPUT_PORTS_START( tokyogal )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -966,7 +966,7 @@ static INPUT_PORTS_START( tokimbsj )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -1035,7 +1035,7 @@ static INPUT_PORTS_START( mcontest )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -1104,7 +1104,7 @@ static INPUT_PORTS_START( uchuuai )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -1173,7 +1173,7 @@ static INPUT_PORTS_START( mjgottub )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -1237,7 +1237,7 @@ static INPUT_PORTS_START( av2mj1bb )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -1304,7 +1304,7 @@ static INPUT_PORTS_START( av2mj2rg )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("SYSTEM")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", nb1413m3_device, busyflag_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("nb1413m3", FUNC(nb1413m3_device::busyflag_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_UNUSED )         //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_MEMORY_RESET )   // MEMORY RESET
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_SERVICE2 )       // ANALYZER
@@ -1326,6 +1326,7 @@ void nbmj8991_state::nbmjdrv1(machine_config &config) // galkoku
 	m_maincpu->set_vblank_int("screen", FUNC(nbmj8991_state::irq0_line_hold));
 
 	NB1413M3(config, m_nb1413m3, 0);
+	m_nb1413m3->set_blitter_rom_tag("gfx1");
 
 	/* video hardware */
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
@@ -1355,6 +1356,7 @@ void nbmj8991_state::nbmjdrv2(machine_config &config) // pstadium
 	m_maincpu->set_vblank_int("screen", FUNC(nbmj8991_state::irq0_line_hold));
 
 	NB1413M3(config, m_nb1413m3, 0);
+	m_nb1413m3->set_blitter_rom_tag("gfx1");
 
 	Z80(config, m_audiocpu, 4000000);                  /* 4.00 MHz */
 	m_audiocpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::nbmj8991_sound_map);
@@ -1402,7 +1404,7 @@ void nbmj8991_state::galkoku(machine_config &config)
 {
 	nbmjdrv1(config);
 
-	m_nb1413m3->set_type(NB1413M3_GALKOKU);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_GALKOKU);
 }
 
 
@@ -1413,7 +1415,7 @@ void nbmj8991_state::galkaika(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::galkaika_map);
 
-	m_nb1413m3->set_type(NB1413M3_GALKAIKA);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_GALKAIKA);
 }
 
 
@@ -1424,7 +1426,7 @@ void nbmj8991_state::tokyogal(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::tokyogal_map);
 
-	m_nb1413m3->set_type(NB1413M3_TOKYOGAL);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_TOKYOGAL);
 }
 
 
@@ -1435,7 +1437,7 @@ void nbmj8991_state::tokimbsj(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::galkaika_map);
 
-	m_nb1413m3->set_type(NB1413M3_TOKIMBSJ);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_TOKIMBSJ);
 
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 }
@@ -1445,7 +1447,7 @@ void nbmj8991_state::mcontest(machine_config &config)
 {
 	nbmjdrv1(config);
 
-	m_nb1413m3->set_type(NB1413M3_MCONTEST);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_MCONTEST);
 }
 
 
@@ -1453,7 +1455,7 @@ void nbmj8991_state::uchuuai(machine_config &config)
 {
 	nbmjdrv1(config);
 
-	m_nb1413m3->set_type(NB1413M3_UCHUUAI);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_UCHUUAI);
 }
 
 
@@ -1464,7 +1466,7 @@ void nbmj8991_state::hyouban(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_IO, &nbmj8991_state::hyouban_io_map);
 
-	m_nb1413m3->set_type(NB1413M3_HYOUBAN);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_HYOUBAN);
 
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 }
@@ -1474,7 +1476,7 @@ void nbmj8991_state::pstadium(machine_config &config)
 {
 	nbmjdrv2(config);
 
-	m_nb1413m3->set_type(NB1413M3_PSTADIUM);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_PSTADIUM);
 }
 
 
@@ -1485,7 +1487,7 @@ void nbmj8991_state::triplew1(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::triplew1_map);
 
-	m_nb1413m3->set_type(NB1413M3_TRIPLEW1);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_TRIPLEW1);
 }
 
 
@@ -1496,7 +1498,7 @@ void nbmj8991_state::triplew2(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::triplew2_map);
 
-	m_nb1413m3->set_type(NB1413M3_TRIPLEW2);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_TRIPLEW2);
 }
 
 
@@ -1504,7 +1506,7 @@ void nbmj8991_state::ntopstar(machine_config &config)
 {
 	nbmjdrv2(config);
 
-	m_nb1413m3->set_type(NB1413M3_NTOPSTAR);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_NTOPSTAR);
 }
 
 
@@ -1515,7 +1517,7 @@ void nbmj8991_state::mjlstory(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::mjlstory_map);
 
-	m_nb1413m3->set_type(NB1413M3_MJLSTORY);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_MJLSTORY);
 }
 
 
@@ -1523,7 +1525,7 @@ void nbmj8991_state::vanilla(machine_config &config)
 {
 	nbmjdrv2(config);
 
-	m_nb1413m3->set_type(NB1413M3_VANILLA);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_VANILLA);
 }
 
 
@@ -1532,7 +1534,7 @@ void nbmj8991_state::finalbny(machine_config &config)
 	nbmjdrv2(config);
 
 	/* basic machine hardware */
-	m_nb1413m3->set_type(NB1413M3_FINALBNY);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_FINALBNY);
 
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 }
@@ -1542,7 +1544,7 @@ void nbmj8991_state::qmhayaku(machine_config &config)
 {
 	nbmjdrv2(config);
 
-	m_nb1413m3->set_type(NB1413M3_QMHAYAKU);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_QMHAYAKU);
 }
 
 
@@ -1553,7 +1555,7 @@ void nbmj8991_state::mjgottub(machine_config &config)
 	/* basic machine hardware */
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::triplew1_map);
 
-	m_nb1413m3->set_type(NB1413M3_MJGOTTUB);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_MJGOTTUB);
 
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 }
@@ -1567,7 +1569,7 @@ void nbmj8991_state::av2mj1bb(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::av2mj1bb_map);
 	m_maincpu->set_addrmap(AS_IO, &nbmj8991_state::av2mj1bb_io_map);
 
-	m_nb1413m3->set_type(NB1413M3_AV2MJ1BB);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_AV2MJ1BB);
 }
 
 
@@ -1579,7 +1581,7 @@ void nbmj8991_state::av2mj2rg(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &nbmj8991_state::av2mj2rg_map);
 	m_maincpu->set_addrmap(AS_IO, &nbmj8991_state::av2mj1bb_io_map);
 
-	m_nb1413m3->set_type(NB1413M3_AV2MJ2RG);
+	m_nb1413m3->set_type(nb1413m3_device::NB1413M3_AV2MJ2RG);
 }
 
 
@@ -1864,6 +1866,34 @@ ROM_START( galkoku )
 	ROM_LOAD( "gkok_20.bin", 0x100000, 0x10000, CRC(36107e6f) SHA1(0872d0ae2add129bdd036754fd5d751627bc142e) )
 ROM_END
 
+ROM_START( galkokua )
+	ROM_REGION( 0x10000, "maincpu", 0 ) /* program */
+	ROM_LOAD( "gkok_01.bin", 0x00000,  0x10000, CRC(16899efa) SHA1(3078b80fb4b173320f5563b15fe79e4ae6a4dab5) )
+
+	ROM_REGION( 0x20000, "voice", 0 ) /* voice */
+	ROM_LOAD( "gkok_02.bin", 0x00000,  0x10000, CRC(3dec7469) SHA1(e464899e7f2e1a6bf88260c6bc746df94623ef0e) )
+	ROM_LOAD( "gkok_03.bin", 0x10000,  0x10000, CRC(66f51b21) SHA1(bac5f9e20bd2eac63e5bbd72178e39b4892b0ba4) )
+
+	ROM_REGION( 0x110000, "gfx1", 0 ) /* gfx */
+	ROM_LOAD( "gkok_04.bin", 0x000000, 0x10000, CRC(741815a5) SHA1(5ddb61d88738d15e1f68df2deaa0b1612803a23e) )
+	ROM_LOAD( "gkok_05.bin", 0x010000, 0x10000, CRC(28a17cd8) SHA1(dfb4066898bd66b8306252695e9f801c8e44f25e) )
+	ROM_LOAD( "gkok_06.bin", 0x020000, 0x10000, CRC(8eac2143) SHA1(75cd75de761144b31dec387083f5a11846e6809f) )
+	ROM_LOAD( "gkok_07.bin", 0x030000, 0x10000, CRC(de5f3f20) SHA1(dd0eab9e3a7422638836859c7d7317855d7dc62e) )
+	ROM_LOAD( "gkok_08.bin", 0x040000, 0x10000, CRC(f3348126) SHA1(b2633e4ed2395f8978d88959632166d66bd29e0b) )
+	ROM_LOAD( "gkok_09.bin", 0x050000, 0x10000, CRC(691f2521) SHA1(79eb7b8dab160f30af7cb81a565d5ecdce341930) )
+	ROM_LOAD( "gkok_10.bin", 0x060000, 0x10000, CRC(f1b0b411) SHA1(b77b6026dd3daa42e00820c2a473ede3b7733c3e) )
+	ROM_LOAD( "gkok_11.bin", 0x070000, 0x10000, CRC(ef42af9e) SHA1(c1972aa92ffdcb5f462256cee2a3e38df8922d64) )
+	ROM_LOAD( "gkok_12.bin", 0x080000, 0x10000, CRC(e2b32195) SHA1(208ff04f951ba1cd5f96a484820e12005ed66e5f) )
+	ROM_LOAD( "gkok_13.bin", 0x090000, 0x10000, CRC(83d913a1) SHA1(831dc254e1300b98c236dc934bbe3c91e42dea60) )
+	ROM_LOAD( "gkok_14.bin", 0x0a0000, 0x10000, CRC(04c97de9) SHA1(03d5be851107e0e736c2ae3bb8cec0be0783174b) )
+	ROM_LOAD( "gkok_15.bin", 0x0b0000, 0x10000, CRC(3845280d) SHA1(1b86a396c9f2affb9431bc878405d87cb30b4ac0) )
+	ROM_LOAD( "gkok_16.bin", 0x0c0000, 0x10000, CRC(7472a7ce) SHA1(321ee7caeb76e6963f33ebed3db1d81bdff4de30) )
+	ROM_LOAD( "gkok_17.bin", 0x0d0000, 0x10000, CRC(92b605a2) SHA1(3f84579a855a89361ae0449c4dd4cbfe9cbae06e) )
+	ROM_LOAD( "gkok_18.bin", 0x0e0000, 0x10000, CRC(8bb7bdcc) SHA1(0d025f9b96a606fa777d11602863c118862450d5) )
+	ROM_LOAD( "gkok_19.bin", 0x0f0000, 0x10000, CRC(b1b4643a) SHA1(d4b7f1cad1b544d2800d7358ff90b7fa19ff0ca2) )
+	ROM_LOAD( "gkok_20.bin", 0x100000, 0x10000, CRC(36107e6f) SHA1(0872d0ae2add129bdd036754fd5d751627bc142e) )
+ROM_END
+
 ROM_START( hyouban ) // Medal Series No. 124N, according to dip sheet
 	ROM_REGION( 0x10000, "maincpu", 0 ) /* program */
 	ROM_LOAD( "1.3d",        0x00000,  0x10000, CRC(307b4f7e) SHA1(303e1818cb12ede15dadec165f18a6a33d564d5e) )
@@ -2101,11 +2131,12 @@ ROM_START( av2mj2rg )
 ROM_END
 
 
-GAME( 1989, galkoku,  0,        galkoku,  galkoku,  nbmj8991_state, empty_init,    ROT180, "Nichibutsu / T.R.Tec", "Mahjong Gal no Kokuhaku (Japan)", MACHINE_SUPPORTS_SAVE )
-GAME( 1989, hyouban,  galkoku,  hyouban,  hyouban,  nbmj8991_state, empty_init,    ROT180, "Nichibutsu / T.R.Tec", "Mahjong Hyouban Musume [BET] (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1989, galkoku,  0,        galkoku,  galkoku,  nbmj8991_state, empty_init,    ROT180, "Nichibutsu / T.R.Tec", "Mahjong Gal no Kokuhaku (Japan, set 1)", MACHINE_SUPPORTS_SAVE )
+GAME( 1989, galkokua, galkoku,  galkoku,  galkoku,  nbmj8991_state, empty_init,    ROT180, "Nichibutsu / T.R.Tec", "Mahjong Gal no Kokuhaku (Japan, set 2)", MACHINE_SUPPORTS_SAVE )
+GAME( 1989, hyouban,  galkoku,  hyouban,  hyouban,  nbmj8991_state, empty_init,    ROT180, "Nichibutsu / T.R.Tec", "Mahjong Hyouban Musume (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1989, galkaika, 0,        galkaika, galkaika, nbmj8991_state, init_galkaika, ROT180, "Nichibutsu / T.R.Tec", "Mahjong Gal no Kaika (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1989, tokyogal, 0,        tokyogal, tokyogal, nbmj8991_state, init_tokyogal, ROT180, "Nichibutsu", "Tokyo Gal Zukan (Japan)", MACHINE_SUPPORTS_SAVE )
-GAME( 1989, tokimbsj, tokyogal, tokimbsj, tokimbsj, nbmj8991_state, init_tokimbsj, ROT180, "Nichibutsu", "Tokimeki Bishoujo [BET] (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1989, tokimbsj, tokyogal, tokimbsj, tokimbsj, nbmj8991_state, init_tokimbsj, ROT180, "Nichibutsu", "Tokimeki Bishoujo (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1989, mcontest, 0,        mcontest, mcontest, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Miss Mahjong Contest (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1989, uchuuai,  0,        uchuuai,  uchuuai,  nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Mahjong Uchuu yori Ai wo komete (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1989, triplew1, 0,        triplew1, triplew1, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Mahjong Triple Wars (Japan)", MACHINE_SUPPORTS_SAVE )
@@ -2113,10 +2144,10 @@ GAME( 1990, pstadium, 0,        pstadium, pstadium, nbmj8991_state, empty_init, 
 GAME( 1990, triplew2, 0,        triplew2, triplew1, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Mahjong Triple Wars 2 (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1990, ntopstar, 0,        ntopstar, ntopstar, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Mahjong Nerae! Top Star (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1991, mjlstory, 0,        mjlstory, mjlstory, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Mahjong Jikken Love Story (Japan)", MACHINE_SUPPORTS_SAVE )
-GAME( 1991, ladymakr, mjlstory, mjlstory, finalbny, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Lady Maker [BET] (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1991, ladymakr, mjlstory, mjlstory, finalbny, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Lady Maker (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1991, vanilla,  0,        vanilla,  vanilla,  nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Mahjong Vanilla Syndrome (Japan)", MACHINE_SUPPORTS_SAVE )
-GAME( 1991, finalbny, vanilla,  finalbny, finalbny, nbmj8991_state, init_finalbny, ROT180, "Nichibutsu", "Mahjong Final Bunny [BET] (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1991, finalbny, vanilla,  finalbny, finalbny, nbmj8991_state, init_finalbny, ROT180, "Nichibutsu", "Mahjong Final Bunny (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1991, qmhayaku, 0,        qmhayaku, qmhayaku, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Quiz-Mahjong Hayaku Yatteyo! (Japan)", MACHINE_SUPPORTS_SAVE )
-GAME( 1991, mjgottub, 0,        mjgottub, mjgottub, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Medal Mahjong Gottsu ee-kanji [BET] (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1991, mjgottub, 0,        mjgottub, mjgottub, nbmj8991_state, empty_init,    ROT180, "Nichibutsu", "Medal Mahjong Gottsu ee-kanji (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1991, av2mj1bb, 0,        av2mj1bb, av2mj1bb, nbmj8991_state, empty_init,    ROT0,   "Miki Syouji / AV Japan", "AV2Mahjong No.1 Bay Bridge no Seijo (Japan)", MACHINE_NOT_WORKING | MACHINE_SUPPORTS_SAVE )
 GAME( 1991, av2mj2rg, 0,        av2mj2rg, av2mj2rg, nbmj8991_state, empty_init,    ROT0,   "Miki Syouji / AV Japan", "AV2Mahjong No.2 Rouge no Kaori (Japan)", MACHINE_NOT_WORKING | MACHINE_SUPPORTS_SAVE )

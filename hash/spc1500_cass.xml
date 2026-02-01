@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
 <!--
-license:CC0
+license:CC0-1.0
 -->
 
 <softwarelist name="spc1500_cass" description="Samsung SPC-1500 cassettes">
@@ -19,7 +19,7 @@ license:CC0
 	</software>
 
 	<software name="demoa">
-		<description>SPC1500 Demo (Alt)</description>
+		<description>SPC1500 Demo (alt)</description>
 		<year>198?</year>
 		<publisher>Samsung</publisher>
 		<part name="cass" interface="spc1500_cass">

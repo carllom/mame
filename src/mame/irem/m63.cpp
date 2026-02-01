@@ -160,9 +160,9 @@ public:
 	void init_fghtbskt();
 
 protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	required_shared_ptr<uint8_t> m_spriteram;
@@ -200,21 +200,19 @@ private:
 	void m63_videoram_w(offs_t offset, uint8_t data);
 	void m63_colorram_w(offs_t offset, uint8_t data);
 	void m63_videoram2_w(offs_t offset, uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(pal_bank_w);
-	DECLARE_WRITE_LINE_MEMBER(m63_flipscreen_w);
-	DECLARE_WRITE_LINE_MEMBER(fghtbskt_flipscreen_w);
-	DECLARE_WRITE_LINE_MEMBER(coin1_w);
-	DECLARE_WRITE_LINE_MEMBER(coin2_w);
+	void pal_bank_w(int state);
+	void fghtbskt_flipscreen_w(int state);
+	void coin1_w(int state);
+	void coin2_w(int state);
 	void snd_irq_w(uint8_t data);
 	void snddata_w(offs_t offset, uint8_t data);
 	void p1_w(uint8_t data);
 	void p2_w(uint8_t data);
 	uint8_t snd_status_r();
-	DECLARE_READ_LINE_MEMBER(irq_r);
+	int irq_r();
 	uint8_t snddata_r(offs_t offset);
 	void fghtbskt_samples_w(uint8_t data);
-	SAMPLES_START_CB_MEMBER(fghtbskt_sh_start);
-	DECLARE_WRITE_LINE_MEMBER(nmi_mask_w);
+	void nmi_mask_w(int state);
 	TILE_GET_INFO_MEMBER(get_bg_tile_info);
 	TILE_GET_INFO_MEMBER(get_fg_tile_info);
 	void m63_palette(palette_device &palette) const;
@@ -222,10 +220,10 @@ private:
 	INTERRUPT_GEN_MEMBER(snd_irq);
 	INTERRUPT_GEN_MEMBER(vblank_irq);
 	void draw_sprites( bitmap_ind16 &bitmap, const rectangle &cliprect );
-	void fghtbskt_map(address_map &map);
-	void i8039_map(address_map &map);
-	void i8039_port_map(address_map &map);
-	void m63_map(address_map &map);
+	void fghtbskt_map(address_map &map) ATTR_COLD;
+	void i8039_map(address_map &map) ATTR_COLD;
+	void i8039_port_map(address_map &map) ATTR_COLD;
+	void m63_map(address_map &map) ATTR_COLD;
 };
 
 
@@ -278,7 +276,7 @@ void m63_state::m63_palette(palette_device &palette) const
 		// blue component
 		bit0 = BIT(color_prom[i], 6);
 		bit1 = BIT(color_prom[i], 7);
-		int const b = 0x4f * bit0 + 0xa8 * bit1;
+		int const b = 0x52 * bit0 + 0xad * bit1;
 
 		palette.set_pen_color(i + 256, rgb_t(r, g, b));
 	}
@@ -302,19 +300,13 @@ void m63_state::m63_videoram2_w(offs_t offset, uint8_t data)
 	m_fg_tilemap->mark_tile_dirty(offset);
 }
 
-WRITE_LINE_MEMBER(m63_state::pal_bank_w)
+void m63_state::pal_bank_w(int state)
 {
 	m_pal_bank = state;
 	m_bg_tilemap->mark_all_dirty();
 }
 
-WRITE_LINE_MEMBER(m63_state::m63_flipscreen_w)
-{
-	flip_screen_set(!state);
-	machine().tilemap().mark_all_dirty();
-}
-
-WRITE_LINE_MEMBER(m63_state::fghtbskt_flipscreen_w)
+void m63_state::fghtbskt_flipscreen_w(int state)
 {
 	flip_screen_set(state);
 	m_fg_flag = flip_screen() ? TILE_FLIPX : 0;
@@ -399,12 +391,12 @@ uint32_t m63_state::screen_update_m63(screen_device &screen, bitmap_ind16 &bitma
 }
 
 
-WRITE_LINE_MEMBER(m63_state::coin1_w)
+void m63_state::coin1_w(int state)
 {
 	machine().bookkeeping().coin_counter_w(0, state);
 }
 
-WRITE_LINE_MEMBER(m63_state::coin2_w)
+void m63_state::coin2_w(int state)
 {
 	machine().bookkeeping().coin_counter_w(1, state);
 }
@@ -448,7 +440,7 @@ uint8_t m63_state::snd_status_r()
 	return m_sound_status;
 }
 
-READ_LINE_MEMBER(m63_state::irq_r)
+int m63_state::irq_r()
 {
 	if (m_sound_irq)
 	{
@@ -474,7 +466,7 @@ void m63_state::fghtbskt_samples_w(uint8_t data)
 		m_samples->start_raw(0, m_samplebuf.get() + ((data & 0xf0) << 8), 0x2000, 8000);
 }
 
-WRITE_LINE_MEMBER(m63_state::nmi_mask_w)
+void m63_state::nmi_mask_w(int state)
 {
 	m_nmi_mask = state;
 }
@@ -691,18 +683,6 @@ static GFXDECODE_START( gfx_fghtbskt )
 GFXDECODE_END
 
 
-SAMPLES_START_CB_MEMBER(m63_state::fghtbskt_sh_start)
-{
-	int i, len = memregion("samples")->bytes();
-	uint8_t *ROM = memregion("samples")->base();
-
-	m_samplebuf = std::make_unique<int16_t[]>(len);
-	save_pointer(NAME(m_samplebuf), len);
-
-	for(i = 0; i < len; i++)
-		m_samplebuf[i] = ((int8_t)(ROM[i] ^ 0x80)) * 256;
-}
-
 INTERRUPT_GEN_MEMBER(m63_state::snd_irq)
 {
 	m_sound_irq = 1;
@@ -747,7 +727,7 @@ void m63_state::m63(machine_config &config)
 
 	ls259_device &outlatch(LS259(config, "outlatch")); // probably chip at E7 obscured by pulldown resistor
 	outlatch.q_out_cb<0>().set(FUNC(m63_state::nmi_mask_w));
-	outlatch.q_out_cb<2>().set(FUNC(m63_state::m63_flipscreen_w));
+	outlatch.q_out_cb<2>().set(FUNC(m63_state::flip_screen_set)).invert();
 	outlatch.q_out_cb<3>().set(FUNC(m63_state::pal_bank_w));
 	outlatch.q_out_cb<6>().set(FUNC(m63_state::coin1_w));
 	outlatch.q_out_cb<7>().set(FUNC(m63_state::coin2_w));
@@ -828,7 +808,6 @@ void m63_state::fghtbskt(machine_config &config)
 
 	SAMPLES(config, m_samples);
 	m_samples->set_channels(1);
-	m_samples->set_samples_start_callback(FUNC(m63_state::fghtbskt_sh_start));
 	m_samples->add_route(ALL_OUTPUTS, "mono", 0.50);
 }
 
@@ -1014,6 +993,16 @@ void m63_state::init_wilytowr()
 void m63_state::init_fghtbskt()
 {
 	m_sy_offset = 240;
+
+	// initialize samples
+	int len = memregion("samples")->bytes();
+	uint8_t *ROM = memregion("samples")->base();
+
+	m_samplebuf = std::make_unique<int16_t[]>(len);
+	save_pointer(NAME(m_samplebuf), len);
+
+	for(int i = 0; i < len; i++)
+		m_samplebuf[i] = ((int8_t)(ROM[i] ^ 0x80)) * 256;
 }
 
 } // Anonymous namespace

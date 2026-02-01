@@ -1,14 +1,15 @@
 // license:BSD-3-Clause
 // copyright-holders:Aaron Giles
-/******************************************************************************
+/*******************************************************************************
 
     tiny.lst
 
-    List of all enabled drivers in the system. This file is parsed by
-    makelist.exe, sorted, and output as C code describing the drivers.
+    List of all enabled drivers for compile target. This is not an automatically
+    generated file, and it should be manually updated when a new driver is added.
 
-******************************************************************************/
+*******************************************************************************/
 
+@source:roland/roland_s50.cpp
 s330        // Roland S-330 Sampler
 s50
 s550

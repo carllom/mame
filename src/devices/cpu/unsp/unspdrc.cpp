@@ -154,7 +154,7 @@ void unsp_device::code_compile_block(offs_t pc)
 	const opcode_desc *seqhead, *seqlast;
 	bool override = false;
 
-	g_profiler.start(PROFILER_DRC_COMPILE);
+	auto profile = g_profiler.start(PROFILER_DRC_COMPILE);
 
 	/* get a description of this sequence */
 	const opcode_desc *desclist = m_drcfe->describe_code(pc);
@@ -230,7 +230,6 @@ void unsp_device::code_compile_block(offs_t pc)
 
 			/* end the sequence */
 			block.end();
-			g_profiler.stop();
 			succeeded = true;
 		}
 		catch (drcuml_block::abort_compilation &)
@@ -611,7 +610,7 @@ void unsp_device::generate_sequence_instruction(drcuml_block &block, compiler_st
 	UML_MAPVAR(block, MAPVAR_PC, desc->pc);
 
 	/* if we are debugging, call the debugger */
-	if ((machine().debug_flags & DEBUG_FLAG_ENABLED) != 0)
+	if (debugger_enabled())
 	{
 		//save_fast_iregs(block);
 		UML_DEBUG(block, desc->pc);

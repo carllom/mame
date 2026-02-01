@@ -34,7 +34,6 @@ enum save_error
 {
 	STATERR_NONE,
 	STATERR_NOT_FOUND,
-	STATERR_ILLEGAL_REGISTRATIONS,
 	STATERR_INVALID_HEADER,
 	STATERR_READ_ERROR,
 	STATERR_WRITE_ERROR,
@@ -160,6 +159,7 @@ public:
 	rewinder *rewind() { return m_rewind.get(); }
 	int registration_count() const { return m_entry_list.size(); }
 	bool registration_allowed() const { return m_reg_allowed; }
+	bool supported() const { return m_supported; }
 
 	// registration control
 	void allow_registration(bool allowed = true);
@@ -334,7 +334,7 @@ private:
 	running_machine &         m_machine;              // reference to our machine
 	std::unique_ptr<rewinder> m_rewind;               // rewinder
 	bool                      m_reg_allowed;          // are registrations allowed?
-	s32                       m_illegal_regs;         // number of illegal registrations
+	bool                      m_supported;            // are saved states supported?
 
 	std::vector<std::unique_ptr<state_entry>>    m_entry_list;       // list of registered entries
 	std::vector<std::unique_ptr<ram_state>>      m_ramstate_list;    // list of ram states

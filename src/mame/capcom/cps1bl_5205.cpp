@@ -39,6 +39,8 @@ knightsb3:       OK.
 #include "speaker.h"
 
 
+namespace {
+
 #define CPS1_ROWSCROLL_OFFS  (0x20/2)    /* base of row scroll offsets in other RAM */
 #define CODE_SIZE            0x400000
 
@@ -72,17 +74,17 @@ private:
 	void captcommb2_soundlatch_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
 	uint8_t captcommb2_soundlatch_r();
 	void captcommb2_snd_bankswitch_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(captcommb2_mux_select_w);
+	void captcommb2_mux_select_w(int state);
 	void knightsb_layer_w(offs_t offset, uint16_t data);
 	void sf2b_layer_w(offs_t offset, uint16_t data);
 	void sf2mdt_layer_w(offs_t offset, uint16_t data);
 	void sf2mdt_soundlatch_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
 	void sf2mdta_layer_w(offs_t offset, uint16_t data);
 
-	void captcommb2_map(address_map &map);
-	void sf2b_map(address_map &map);
-	void sf2mdt_map(address_map &map);
-	void captcommb2_z80map(address_map &map);
+	void captcommb2_map(address_map &map) ATTR_COLD;
+	void sf2b_map(address_map &map) ATTR_COLD;
+	void sf2mdt_map(address_map &map) ATTR_COLD;
+	void captcommb2_z80map(address_map &map) ATTR_COLD;
 
 	bool m_captcommb2_mux_toggle = false;
 
@@ -161,7 +163,7 @@ void cps1bl_5205_state::captcommb2_snd_bankswitch_w(uint8_t data)
 	membank("bank1")->set_entry(data & 0x0f);
 }
 
-WRITE_LINE_MEMBER(cps1bl_5205_state::captcommb2_mux_select_w)
+void cps1bl_5205_state::captcommb2_mux_select_w(int state)
 {
 	// toggle both mux select pins (and fire /nmi)
 	// vck halved by flipflop IC186  ~2kHz
@@ -352,8 +354,7 @@ void cps1bl_5205_state::captcommb2(machine_config &config)
 	// xtals: 30MHz, 24MHz, 400KHz
 	M68000(config, m_maincpu, 24000000 / 2);   // 12MHz measured on pcb
 	m_maincpu->set_addrmap(AS_PROGRAM, &cps1bl_5205_state::captcommb2_map);
-	m_maincpu->set_vblank_int("screen", FUNC(cps1bl_5205_state::cps1_interrupt));
-	m_maincpu->set_addrmap(m68000_base_device::AS_CPU_SPACE, &cps1bl_5205_state::cpu_space_map);
+	m_maincpu->set_vblank_int("screen", FUNC(cps1bl_5205_state::irq2_line_hold));
 
 	Z80(config, m_audiocpu, 30000000 / 8);  // 3.75MHz measured on pcb
 	m_audiocpu->set_addrmap(AS_PROGRAM, &cps1bl_5205_state::captcommb2_z80map);
@@ -365,6 +366,7 @@ void cps1bl_5205_state::captcommb2(machine_config &config)
 	m_screen->set_raw(CPS_PIXEL_CLOCK, CPS_HTOTAL, CPS_HBEND, CPS_HBSTART, CPS_VTOTAL, CPS_VBEND, CPS_VBSTART);
 	m_screen->set_screen_update(FUNC(cps1bl_5205_state::screen_update_fcrash));
 	m_screen->screen_vblank().set(FUNC(cps1bl_5205_state::screen_vblank_cps1));
+	m_screen->screen_vblank().append(FUNC(cps1bl_5205_state::cps1_objram_latch));
 	m_screen->set_palette(m_palette);
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_cps1);
@@ -426,6 +428,7 @@ void cps1bl_5205_state::sf2mdt(machine_config &config)
 	m_screen->set_raw(CPS_PIXEL_CLOCK, CPS_HTOTAL, CPS_HBEND, CPS_HBSTART, CPS_VTOTAL, CPS_VBEND, CPS_VBSTART);
 	m_screen->set_screen_update(FUNC(cps1bl_5205_state::screen_update_fcrash));
 	m_screen->screen_vblank().set(FUNC(cps1bl_5205_state::screen_vblank_cps1));
+	m_screen->screen_vblank().append(FUNC(cps1bl_5205_state::cps1_objram_latch));
 	m_screen->set_palette(m_palette);
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_cps1);
@@ -613,8 +616,6 @@ void cps1bl_5205_state::init_sf2b()
 	m_bootleg_sprite_ram = std::make_unique<uint16_t[]>(0x2000);
 	m_maincpu->space(AS_PROGRAM).install_ram(0x700000, 0x703fff, m_bootleg_sprite_ram.get());
 	m_maincpu->space(AS_PROGRAM).install_ram(0x704000, 0x707fff, m_bootleg_sprite_ram.get());
-
-	init_cps1();
 }
 
 void cps1bl_5205_state::init_sf2mdt()
@@ -1362,6 +1363,9 @@ ROM_START( sf2mdtb )
 	ROM_LOAD( "5.ic28", 0x00000, 0x20000, CRC(d5bee9cc) SHA1(e638cb5ce7a22c18b60296a7defe8b03418da56c) )
 	ROM_RELOAD(         0x10000, 0x20000 )
 ROM_END
+
+} // anonymous namespace
+
 
 // ************************************************************************* DRIVER MACROS
 

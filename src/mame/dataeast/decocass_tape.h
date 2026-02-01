@@ -1,7 +1,7 @@
 // license:GPL-2.0+
 // copyright-holders:Juergen Buchmueller, David Haywood
-#ifndef MAME_MACHINE_DECOCASS_TAPE_H
-#define MAME_MACHINE_DECOCASS_TAPE_H
+#ifndef MAME_DATAEAST_DECOCASS_TAPE_H
+#define MAME_DATAEAST_DECOCASS_TAPE_H
 
 #pragma once
 
@@ -17,8 +17,8 @@ public:
 
 protected:
 	// device-level overrides
-	virtual void device_start() override;
-	virtual void device_reset() override;
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 
 private:
 	/* regions within the virtual tape */
@@ -58,13 +58,13 @@ private:
 
 	// internal state
 	emu_timer *         m_tape_timer;              /* timer for running the tape */
-	int8_t                m_speed;              /* speed: <-1=fast rewind, -1=reverse, 0=stopped, 1=normal, >1=fast forward */
+	int8_t              m_speed;              /* speed: <-1=fast rewind, -1=reverse, 0=stopped, 1=normal, >1=fast forward */
 	tape_region         m_region;             /* current region */
 	tape_byte           m_bytenum;            /* byte number within a datablock */
-	uint8_t               m_bitnum;             /* bit number within a byte */
-	uint32_t              m_clockpos;           /* the current clock position of the tape */
-	uint32_t              m_numclocks;          /* total number of clocks on the entire tape */
-	uint16_t              m_crc16[256];         /* CRC16 for each block */
+	uint8_t             m_bitnum;             /* bit number within a byte */
+	uint32_t            m_clockpos;           /* the current clock position of the tape */
+	uint32_t            m_numclocks;          /* total number of clocks on the entire tape */
+	uint16_t            m_crc16[256];         /* CRC16 for each block */
 	optional_region_ptr<uint8_t> m_tape_data;
 
 	std::string describe_state();
@@ -73,4 +73,4 @@ private:
 
 DECLARE_DEVICE_TYPE(DECOCASS_TAPE, decocass_tape_device)
 
-#endif // MAME_MACHINE_DECOCASS_TAPE_H
+#endif // MAME_DATAEAST_DECOCASS_TAPE_H

@@ -5,26 +5,30 @@
     Sega System 16B hardware
 
 ***************************************************************************/
-#ifndef MAME_INCLUDES_SEGAS16B_H
-#define MAME_INCLUDES_SEGAS16B_H
+
+#ifndef MAME_SEGA_SEGAS16B_H
+#define MAME_SEGA_SEGAS16B_H
 
 #pragma once
 
-#include "cpu/m68000/m68000.h"
-#include "cpu/mcs51/mcs51.h"
-#include "cpu/z80/z80.h"
 #include "315_5195.h"
+#include "segaic16_m.h"
+#include "segaic16.h"
+#include "sega16sp.h"
+
+#include "cpu/m68000/m68000.h"
+#include "cpu/mcs51/i8051.h"
+#include "cpu/z80/z80.h"
 #include "machine/cxd1095.h"
 #include "machine/gen_latch.h"
+#include "machine/msm6253.h"
 #include "machine/nvram.h"
-#include "segaic16_m.h"
 #include "machine/upd4701.h"
 #include "sound/dac.h"
 #include "sound/upd7759.h"
 #include "sound/ymopm.h"
 #include "sound/ymopl.h"
-#include "segaic16.h"
-#include "sega16sp.h"
+
 #include "screen.h"
 
 INPUT_PORTS_EXTERN( system16b_generic );
@@ -54,6 +58,7 @@ public:
 		, m_soundlatch(*this, "soundlatch")
 		, m_cxdio(*this, "cxdio")
 		, m_upd4701a(*this, "upd4701a%u", 1U)
+		, m_adc(*this, "adc")
 		, m_workram(*this, "workram")
 		, m_i8751_sync_timer(nullptr)
 		, m_romboard(ROM_BOARD_INVALID)
@@ -64,10 +69,6 @@ public:
 		, m_i8751_initial_config(nullptr)
 		, m_atomicp_sound_divisor(0)
 		, m_atomicp_sound_count(0)
-		, m_hwc_input_value(0)
-		, m_hwc_monitor(*this, "MONITOR")
-		, m_hwc_left(*this, "LEFT")
-		, m_hwc_right(*this, "RIGHT")
 		, m_hwc_left_limit(*this, "LEFT_LIMIT")
 		, m_hwc_right_limit(*this, "RIGHT_LIMIT")
 		, m_mj_input_num(0)
@@ -87,6 +88,8 @@ public:
 	void fpointbla(machine_config &config);
 	void atomicp(machine_config &config);
 	void aceattacb_fd1094(machine_config &config);
+	void hwchamp(machine_config &config);
+	void hwchamp_fd1094(machine_config &config);
 	void system16b_i8751(machine_config &config);
 	void system16c(machine_config &config);
 	void system16b_mc8123(machine_config &config);
@@ -109,6 +112,7 @@ public:
 	void init_generic_korean();
 	void init_generic_bootleg();
 	void init_lockonph();
+
 	// game-specific driver init
 	void init_isgsm();
 	void init_tturf_5704();
@@ -131,6 +135,8 @@ public:
 	void init_shinobi3_5358();
 	void init_altbeas4_5521();
 	void init_aliensyn7_5358_small();
+
+	DECLARE_INPUT_CHANGED_MEMBER(handy_w);
 
 protected:
 	// memory mapping
@@ -155,8 +161,8 @@ protected:
 	void sound_w16(uint16_t data);
 
 	// other callbacks
-	DECLARE_WRITE_LINE_MEMBER(upd7759_generate_nmi);
-	INTERRUPT_GEN_MEMBER( i8751_main_cpu_vblank );
+	void upd7759_generate_nmi(int state);
+	INTERRUPT_GEN_MEMBER(i8751_main_cpu_vblank);
 	void spin_68k_w(uint8_t data);
 
 	// video updates
@@ -168,24 +174,24 @@ protected:
 	// bootleg stuff
 	void tilemap_16b_fpointbl_fill_latch(int i, uint16_t* latched_pageselect, uint16_t* latched_yscroll, uint16_t* latched_xscroll, uint16_t* textram);
 
-	void decrypted_opcodes_map(address_map &map);
-	void decrypted_opcodes_map_fpointbla(address_map &map);
-	void decrypted_opcodes_map_x(address_map &map);
-	void fpointbl_map(address_map &map);
-	void fpointbl_sound_map(address_map &map);
-	void lockonph_map(address_map &map);
-	void lockonph_sound_iomap(address_map &map);
-	void lockonph_sound_map(address_map &map);
-	void map_fpointbla(address_map &map);
-	void mcu_io_map(address_map &map);
-	void sound_decrypted_opcodes_map(address_map &map);
-	void sound_map(address_map &map);
-	void sound_portmap(address_map &map);
-	void bootleg_sound_map(address_map &map);
-	void bootleg_sound_portmap(address_map &map);
-	void system16b_bootleg_map(address_map &map);
-	void system16b_map(address_map &map);
-	void system16c_map(address_map &map);
+	void decrypted_opcodes_map(address_map &map) ATTR_COLD;
+	void decrypted_opcodes_map_fpointbla(address_map &map) ATTR_COLD;
+	void decrypted_opcodes_map_x(address_map &map) ATTR_COLD;
+	void fpointbl_map(address_map &map) ATTR_COLD;
+	void fpointbl_sound_map(address_map &map) ATTR_COLD;
+	void lockonph_map(address_map &map) ATTR_COLD;
+	void lockonph_sound_iomap(address_map &map) ATTR_COLD;
+	void lockonph_sound_map(address_map &map) ATTR_COLD;
+	void map_fpointbla(address_map &map) ATTR_COLD;
+	void mcu_data_map(address_map &map) ATTR_COLD;
+	void sound_decrypted_opcodes_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
+	void sound_portmap(address_map &map) ATTR_COLD;
+	void bootleg_sound_map(address_map &map) ATTR_COLD;
+	void bootleg_sound_portmap(address_map &map) ATTR_COLD;
+	void system16b_bootleg_map(address_map &map) ATTR_COLD;
+	void system16b_map(address_map &map) ATTR_COLD;
+	void system16c_map(address_map &map) ATTR_COLD;
 
 	// internal types
 	typedef delegate<void ()> i8751_sim_delegate;
@@ -203,9 +209,9 @@ protected:
 	};
 
 	// device overrides
-	virtual void video_start() override;
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void video_start() override ATTR_COLD;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 	TIMER_CALLBACK_MEMBER(i8751_sync);
 	TIMER_CALLBACK_MEMBER(atomicp_sound_irq);
@@ -246,6 +252,7 @@ protected:
 	optional_device<generic_latch_8_device> m_soundlatch; // not for atomicp
 	optional_device<cxd1095_device> m_cxdio; // for aceattac
 	optional_device_array<upd4701_device, 2> m_upd4701a; // for aceattac
+	optional_device<msm6253_device> m_adc; // for hwchamp
 
 	// memory pointers
 	required_shared_ptr<uint16_t> m_workram;
@@ -265,10 +272,6 @@ protected:
 
 	// game-specific state
 	uint8_t             m_atomicp_sound_count;
-	uint8_t             m_hwc_input_value;
-	optional_ioport     m_hwc_monitor;
-	optional_ioport     m_hwc_left;
-	optional_ioport     m_hwc_right;
 	optional_ioport     m_hwc_left_limit;
 	optional_ioport     m_hwc_right_limit;
 	uint8_t             m_mj_input_num;
@@ -300,15 +303,16 @@ public:
 protected:
 	void sound_control_w(uint8_t data);
 	void dac_data_w(offs_t offset, uint8_t data);
-	INTERRUPT_GEN_MEMBER( soundirq_cb );
+	INTERRUPT_GEN_MEMBER(soundirq_cb);
+
 	bool m_nmi_enable;
 	uint16_t m_dac_data;
 
-	void dfjail_map(address_map &map);
-	void dfjail_sound_iomap(address_map &map);
+	void dfjail_map(address_map &map) ATTR_COLD;
+	void dfjail_sound_iomap(address_map &map) ATTR_COLD;
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 	required_device<dac_word_interface> m_dac;
 };
@@ -323,13 +327,13 @@ public:
 		, m_steer(*this, "STEER")
 	{ }
 
-	DECLARE_CUSTOM_INPUT_MEMBER(afighter_accel_r);
-	DECLARE_CUSTOM_INPUT_MEMBER(afighter_handl_left_r);
-	DECLARE_CUSTOM_INPUT_MEMBER(afighter_handl_right_r);
+	ioport_value afighter_accel_r();
+	ioport_value afighter_handl_left_r();
+	ioport_value afighter_handl_right_r();
 
 private:
-	required_ioport     m_accel;
-	required_ioport     m_steer;
+	required_ioport m_accel;
+	required_ioport m_steer;
 };
 
-#endif // MAME_INCLUDES_SEGAS16B_H
+#endif // MAME_SEGA_SEGAS16B_H

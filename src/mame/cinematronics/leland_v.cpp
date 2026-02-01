@@ -2,7 +2,7 @@
 // copyright-holders:Aaron Giles
 /***************************************************************************
 
-    Cinemat/Leland driver
+    Cinematronics / Leland Cinemat System driver
 
     Leland video hardware
 
@@ -12,14 +12,18 @@
 #include "leland.h"
 #include "leland_a.h"
 
+/* debugging */
+#define LOG_WARN    (1U << 1)
+#define LOG_COMM    (1U << 2)
+
+#define VERBOSE     LOG_WARN
+#include "logmacro.h"
+
 
 /* constants */
 static constexpr int VRAM_SIZE = 0x10000;
 static constexpr int QRAM_SIZE = 0x10000;
 
-
-/* debugging */
-#define LOG_COMM    0
 
 /*************************************
  *
@@ -29,18 +33,17 @@ static constexpr int QRAM_SIZE = 0x10000;
 
 TIMER_CALLBACK_MEMBER(leland_state::scanline_callback)
 {
-	int scanline = param;
+	u8 scanline = param;
+	u8 last_scanline = scanline - 1;
 
 	/* update the DACs */
 	if (!(m_dac_control & 0x01))
-		m_dac[0]->write(m_video_ram[(m_last_scanline) * 256 + 160]);
+		m_dac[0]->write(m_video_ram[last_scanline << 8 | 0xa0]);
 
 	if (!(m_dac_control & 0x02))
-		m_dac[1]->write(m_video_ram[(m_last_scanline) * 256 + 161]);
+		m_dac[1]->write(m_video_ram[last_scanline << 8 | 0xa1]);
 
-	m_last_scanline = scanline;
-
-	scanline = (scanline+1) % 256;
+	scanline++;
 
 	/* come back at the next appropriate scanline */
 	m_scanline_timer->adjust(m_screen->time_until_pos(scanline), scanline);
@@ -110,7 +113,6 @@ void leland_state::video_start()
 	save_item(NAME(m_xscroll));
 	save_item(NAME(m_yscroll));
 	save_item(NAME(m_gfxbank));
-	save_item(NAME(m_last_scanline));
 	for (u8 i = 0; i < 2; i++)
 	{
 		save_item(NAME(m_vram_state[i].m_addr), i);
@@ -150,9 +152,7 @@ void ataxx_state::video_start()
 
 void leland_state::scroll_w(offs_t offset, u8 data)
 {
-	int scanline = m_screen->vpos();
-	if (scanline > 0)
-		m_screen->update_partial(scanline - 1);
+	m_screen->update_partial(m_screen->vpos() - 1);
 
 	/* adjust the proper scroll value */
 	switch (offset)
@@ -181,12 +181,10 @@ void leland_state::scroll_w(offs_t offset, u8 data)
 
 void leland_state::gfx_port_w(u8 data)
 {
-	int scanline = m_screen->vpos();
-	if (scanline > 0)
-		m_screen->update_partial(scanline - 1);
-
 	if (m_gfxbank != data)
 	{
+		m_screen->update_partial(m_screen->vpos() - 1);
+
 		m_gfxbank = data;
 		m_tilemap->mark_all_dirty();
 	}
@@ -242,15 +240,20 @@ int leland_state::vram_port_r(offs_t offset, int num)
 			break;
 
 		default:
-			logerror("%s: Warning: Unknown video port %02x read (address=%04x)\n",
-						machine().describe_context(), offset, addr);
+			if (!machine().side_effects_disabled())
+				LOGMASKED(LOG_WARN, "%s: Warning: Unknown video port %02x read (address=%04x)\n",
+							machine().describe_context(), offset, addr);
 			ret = 0;
 			break;
 	}
-	state->m_addr = addr;
 
-	if (LOG_COMM && addr >= 0xf000)
-		logerror("%s:%s comm read %04X = %02X\n", machine().describe_context(), num ? "slave" : "master", addr, ret);
+	if (!machine().side_effects_disabled())
+	{
+		state->m_addr = addr;
+
+		if (addr >= 0xf000)
+			LOGMASKED(LOG_COMM, "%s:%s comm read %04X = %02X\n", machine().describe_context(), num ? "slave" : "master", addr, ret);
+	}
 
 	return ret;
 }
@@ -270,14 +273,10 @@ void leland_state::vram_port_w(offs_t offset, u8 data, int num)
 	int inc = (offset >> 2) & 2;
 	int trans = (offset >> 4) & num;
 
-	/* don't fully understand why this is needed.  Isn't the
-	   video RAM just one big RAM? */
-	int scanline = m_screen->vpos();
-	if (scanline > 0)
-		m_screen->update_partial(scanline - 1);
+	m_screen->update_partial(m_screen->vpos() - 1);
 
-	if (LOG_COMM && addr >= 0xf000)
-		logerror("%s:%s comm write %04X = %02X\n", machine().describe_context(), num ? "slave" : "master", addr, data);
+	if (addr >= 0xf000)
+		LOGMASKED(LOG_COMM, "%s:%s comm write %04X = %02X\n", machine().describe_context(), num ? "slave" : "master", addr, data);
 
 	/* based on the low 3 bits of the offset, update the destination */
 	switch (offset & 7)
@@ -328,7 +327,7 @@ void leland_state::vram_port_w(offs_t offset, u8 data, int num)
 			break;
 
 		default:
-			logerror("%s:Warning: Unknown video port write (address=%04x value=%02x)\n",
+			LOGMASKED(LOG_WARN, "%s:Warning: Unknown video port write (address=%04x value=%02x)\n",
 						machine().describe_context(), offset, addr);
 			break;
 	}
@@ -490,23 +489,12 @@ static const gfx_layout leland_layout =
 	8*8
 };
 
-static const gfx_layout ataxx_layout =
-{
-	8,8,
-	RGN_FRAC(1,6),
-	6,
-	{ RGN_FRAC(5,6), RGN_FRAC(4,6), RGN_FRAC(3,6), RGN_FRAC(2,6), RGN_FRAC(1,6), RGN_FRAC(0,6) },
-	{ STEP8(0,1) },
-	{ STEP8(0,8) },
-	8*8
-};
-
 static GFXDECODE_START( gfx_leland )
 	GFXDECODE_ENTRY( "bg_gfx", 0, leland_layout, 0, 8*16) // *16 is foreground
 GFXDECODE_END
 
 static GFXDECODE_START( gfx_ataxx )
-	GFXDECODE_ENTRY( "bg_gfx", 0, ataxx_layout, 0, 16) // 16 is foreground
+	GFXDECODE_ENTRY( "bg_gfx", 0, gfx_8x8x6_planar, 0, 16) // 16 is foreground
 GFXDECODE_END
 
 void leland_state::leland_video(machine_config &config)
@@ -515,10 +503,7 @@ void leland_state::leland_video(machine_config &config)
 	PALETTE(config, m_palette).set_format(palette_device::BGR_233, 1024);
 
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
-	m_screen->set_video_attributes(VIDEO_ALWAYS_UPDATE);
-	m_screen->set_size(40*8, 32*8);
-	m_screen->set_visarea(0*8, 40*8-1, 0*8, 30*8-1);
-	m_screen->set_refresh_hz(60);
+	m_screen->set_raw(14.318181_MHz_XTAL / 2, 424, 0, 320, 256, 0, 240);
 	m_screen->set_screen_update(FUNC(leland_state::screen_update));
 	m_screen->set_palette(m_palette);
 }

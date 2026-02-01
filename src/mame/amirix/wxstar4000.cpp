@@ -56,8 +56,8 @@
 ***************************************************************************/
 
 #include "emu.h"
-#include "cpu/m68000/m68000.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/m68000/m68010.h"
+#include "cpu/mcs51/i8051.h"
 #include "machine/gen_latch.h"
 #include "machine/icm7170.h"
 #include "machine/nvram.h"
@@ -66,6 +66,9 @@
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
+
+
+namespace {
 
 class wxstar4k_state : public driver_device
 {
@@ -88,18 +91,18 @@ public:
 private:
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 
-	void cpubd_main(address_map &map);
-	void vidbd_main(address_map &map);
-	void vidbd_sub(address_map &map);
-	void vidbd_sub_io(address_map &map);
-	void databd_main(address_map &map);
-	void databd_main_io(address_map &map);
-	void iobd_main(address_map &map);
-	void iobd_main_io(address_map &map);
+	void cpubd_main(address_map &map) ATTR_COLD;
+	void vidbd_main(address_map &map) ATTR_COLD;
+	void vidbd_sub(address_map &map) ATTR_COLD;
+	void vidbd_sub_data(address_map &map) ATTR_COLD;
+	void databd_main(address_map &map) ATTR_COLD;
+	void databd_main_data(address_map &map) ATTR_COLD;
+	void iobd_main(address_map &map) ATTR_COLD;
+	void iobd_main_data(address_map &map) ATTR_COLD;
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 	optional_device<m68010_device> m_maincpu, m_gfxcpu;
 	optional_device<mcs51_cpu_device> m_gfxsubcpu, m_datacpu, m_iocpu;
@@ -164,7 +167,7 @@ void wxstar4k_state::vidbd_sub(address_map &map)
 	map(0x0000, 0x1fff).rom().region("gfxsubcpu", 0);
 }
 
-void wxstar4k_state::vidbd_sub_io(address_map &map)
+void wxstar4k_state::vidbd_sub_data(address_map &map)
 {
 	map(0x0000, 0x07ff).ram();
 	// 1000-17FF - VRAM counter low byte
@@ -185,7 +188,7 @@ void wxstar4k_state::databd_main(address_map &map)
 	map(0x0000, 0x1fff).rom().region("datacpu", 0);
 }
 
-void wxstar4k_state::databd_main_io(address_map &map)
+void wxstar4k_state::databd_main_data(address_map &map)
 {
 	map(0x0000, 0x01ff).ram();
 	// 0200 - UART data
@@ -209,7 +212,7 @@ void wxstar4k_state::iobd_main(address_map &map)
 	map(0x0000, 0x7fff).rom().region("iocpu", 0);
 }
 
-void wxstar4k_state::iobd_main_io(address_map &map)
+void wxstar4k_state::iobd_main_data(address_map &map)
 {
 }
 
@@ -238,15 +241,15 @@ void wxstar4k_state::wxstar4k(machine_config &config)
 
 	I8051(config, m_gfxsubcpu, XTAL(12'000'000));   // 12 MHz crystal connected directly to the CPU
 	m_gfxsubcpu->set_addrmap(AS_PROGRAM, &wxstar4k_state::vidbd_sub);
-	m_gfxsubcpu->set_addrmap(AS_IO, &wxstar4k_state::vidbd_sub_io);
+	m_gfxsubcpu->set_addrmap(AS_DATA, &wxstar4k_state::vidbd_sub_data);
 
 	I8344(config, m_datacpu, XTAL(7'372'800));  // 7.3728 MHz crystal connected directly to the CPU
 	m_datacpu->set_addrmap(AS_PROGRAM, &wxstar4k_state::databd_main);
-	m_datacpu->set_addrmap(AS_IO, &wxstar4k_state::databd_main_io);
+	m_datacpu->set_addrmap(AS_DATA, &wxstar4k_state::databd_main_data);
 
 	I8031(config, m_iocpu, XTAL(11'059'200));   // 11.0592 MHz crystal connected directly to the CPU
 	m_iocpu->set_addrmap(AS_PROGRAM, &wxstar4k_state::iobd_main);
-	m_iocpu->set_addrmap(AS_IO, &wxstar4k_state::iobd_main_io);
+	m_iocpu->set_addrmap(AS_DATA, &wxstar4k_state::iobd_main_data);
 
 	/* video hardware */
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
@@ -283,5 +286,8 @@ ROM_START( wxstar4k )
 	ROM_LOAD16_BYTE( "u42 rom low.bin", 0x000001, 0x008000, CRC(84038ca3) SHA1(b28a0d357d489fb06ff0d5d36ea11ebd1f9612a5) )
 	ROM_LOAD16_BYTE( "u43 rom high.bin", 0x000000, 0x008000, CRC(6f2a7592) SHA1(1aa2394db42b6f28277e35a48a7cef348c213e05) )
 ROM_END
+
+} // anonymous namespace
+
 
 COMP( 1990, wxstar4k, 0, 0, wxstar4k, wxstar4k, wxstar4k_state, empty_init, "Applied Microelectronics Institute/The Weather Channel", "WeatherSTAR 4000", MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )

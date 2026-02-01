@@ -82,6 +82,8 @@
 #include "debugger.h"
 
 
+namespace {
+
 //**************************************************************************
 //  TYPE DEFINITIONS - Alphatronic P1, P2, P2S, P2U and Hell 2069
 //**************************************************************************
@@ -107,14 +109,14 @@ public:
 	void alphatp2(machine_config &config);
 	void alphatp2u(machine_config &config);
 protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 private:
 
 	u32 screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
-	DECLARE_READ_LINE_MEMBER(kbd_matrix_r);
+	int kbd_matrix_r();
 	void kbd_matrix_w(u8 data);
 	u8 kbd_port2_r();
 	void kbd_port2_w(u8 data);
@@ -124,15 +126,15 @@ private:
 	u8 fdc_stat_r();
 	void fdc_cmd_w(u8 data);
 
-	DECLARE_WRITE_LINE_MEMBER(fdcirq_w);
-	DECLARE_WRITE_LINE_MEMBER(fdcdrq_w);
-	DECLARE_WRITE_LINE_MEMBER(fdchld_w);
+	void fdcirq_w(int state);
+	void fdcdrq_w(int state);
+	void fdchld_w(int state);
 	void beep_w(u8 data);
 	void bank_w(u8 data);
 
-	void alphatp2_io(address_map &map);
-	void alphatp2_map(address_map &map);
-	void alphatp2_mem(address_map &map);
+	void alphatp2_io(address_map &map) ATTR_COLD;
+	void alphatp2_map(address_map &map) ATTR_COLD;
+	void alphatp2_mem(address_map &map) ATTR_COLD;
 
 	required_device<address_map_bank_device> m_bankdev;
 	required_device<i8041a_device> m_kbdmcu;
@@ -180,13 +182,13 @@ public:
 	void alphatp3(machine_config &config);
 	void alphatp30(machine_config &config);
 protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 private:
 
 	u32 screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
-	DECLARE_READ_LINE_MEMBER(kbd_matrix_r);
+	int kbd_matrix_r();
 	void kbd_matrix_w(u8 data);
 	u8 kbd_port2_r();
 	void kbd_port2_w(u8 data);
@@ -196,9 +198,9 @@ private:
 	u8 fdc_stat_r();
 	void fdc_cmd_w(u8 data);
 
-	DECLARE_WRITE_LINE_MEMBER(fdcirq_w);
-	DECLARE_WRITE_LINE_MEMBER(fdcdrq_w);
-	DECLARE_WRITE_LINE_MEMBER(fdchld_w);
+	void fdcirq_w(int state);
+	void fdcdrq_w(int state);
+	void fdchld_w(int state);
 	void beep_w(u8 data);
 	void bank_w(u8 data);
 	u8 start88_r(offs_t offset);
@@ -214,11 +216,11 @@ private:
 
 	u8* vramext_addr_xlate(offs_t offset);
 
-	void alphatp30_8088_io(address_map &map);
-	void alphatp30_8088_map(address_map &map);
-	void alphatp3_io(address_map &map);
-	void alphatp3_map(address_map &map);
-	void alphatp3_mem(address_map &map);
+	void alphatp30_8088_io(address_map &map) ATTR_COLD;
+	void alphatp30_8088_map(address_map &map) ATTR_COLD;
+	void alphatp3_io(address_map &map) ATTR_COLD;
+	void alphatp3_map(address_map &map) ATTR_COLD;
+	void alphatp3_mem(address_map &map) ATTR_COLD;
 
 	required_device<address_map_bank_device> m_bankdev;
 	required_device<i8041a_device> m_kbdmcu;
@@ -341,17 +343,20 @@ void alphatp_34_state::alphatp30_8088_io(address_map &map)
 
 u8 alphatp_34_state::start88_r(offs_t offset)
 {
-	if(!offset)
+	if (!machine().side_effects_disabled())
 	{
-		if(m_i8088 && !m_88_started)
+		if (!offset)
 		{
-			m_i8088->resume(SUSPEND_REASON_DISABLE);
-			m_88_started = true;
+			if (m_i8088 && !m_88_started)
+			{
+				m_i8088->resume(SUSPEND_REASON_DISABLE);
+				m_88_started = true;
+			}
+			m_i8088->set_input_line(INPUT_LINE_TEST, ASSERT_LINE);
 		}
-		m_i8088->set_input_line(INPUT_LINE_TEST, ASSERT_LINE);
+		else
+			m_i8088->set_input_line(INPUT_LINE_TEST, CLEAR_LINE);
 	}
-	else
-		m_i8088->set_input_line(INPUT_LINE_TEST, CLEAR_LINE);
 	return 0;
 }
 
@@ -362,28 +367,34 @@ void alphatp_34_state::bank_w(u8 data)
 
 u8 alphatp_34_state::comm88_r(offs_t offset)
 {
-	if(!offset)
+	if (!offset)
 		return (m_85_da ? 0 : 1) | (m_88_da ? 0 : 0x80);
-	if(m_i8088)
-		m_i8088->set_input_line(INPUT_LINE_TEST, ASSERT_LINE);
-	m_85_da = false;
+	if (!machine().side_effects_disabled())
+	{
+		if (m_i8088)
+			m_i8088->set_input_line(INPUT_LINE_TEST, ASSERT_LINE);
+		m_85_da = false;
+	}
 	return m_85_data;
 }
 
 void alphatp_34_state::comm88_w(u8 data)
 {
 	m_88_data = data;
-	if(m_pic)
+	if (m_pic)
 		m_pic->ir2_w(ASSERT_LINE);
 	m_88_da = true;
 }
 
 u8 alphatp_34_state::comm85_r(offs_t offset)
 {
-	if(!offset)
+	if (!offset)
 		return m_88_da ? 0 : 1;
-	m_pic->ir2_w(CLEAR_LINE);
-	m_88_da = false;
+	if (!machine().side_effects_disabled())
+	{
+		m_pic->ir2_w(CLEAR_LINE);
+		m_88_da = false;
+	}
 	return m_88_data;
 }
 
@@ -415,7 +426,7 @@ u8* alphatp_34_state::vramext_addr_xlate(offs_t offset)
 	offset = offset >> 3;
 	int bank = offset >> 7;
 	int offs = offset & 0x7f;
-	if(offs < 80)
+	if (offs < 80)
 		return &m_vramext[(((((m_gfxext2 & 0xf8) << 2) + bank) * 80) + offs) % (371*80)];
 	else
 		return &m_vramchr[(((((m_gfxext2 & 0x8) << 2) ^ bank) * 48) + (offs - 80)) % (256*12)];
@@ -423,23 +434,25 @@ u8* alphatp_34_state::vramext_addr_xlate(offs_t offset)
 
 u8 alphatp_34_state::gfxext_r(offs_t offset)
 {
-	switch(m_gfxext1)
+	switch (m_gfxext1)
 	{
 		case 0x33:
-			m_vramlatch = *vramext_addr_xlate(offset);
+			if (!machine().side_effects_disabled())
+				m_vramlatch = *vramext_addr_xlate(offset);
 			return 0;
 	}
-	logerror("gfxext read offset %x %x\n", offset, m_gfxext1);
+	if (!machine().side_effects_disabled())
+		logerror("gfxext read offset %x %x\n", offset, m_gfxext1);
 	return 0;
 }
 
 void alphatp_34_state::gfxext_w(offs_t offset, u8 data)
 {
-	switch(m_gfxext1)
+	switch (m_gfxext1)
 	{
 		case 5:
 		{
-			if(m_gfxext3 == 0xe0f)
+			if (m_gfxext3 == 0xe0f)
 				data = ~data;
 			u8 mask = 1 << (offset & 7);
 			u8 *addr = vramext_addr_xlate(offset);
@@ -456,7 +469,7 @@ void alphatp_34_state::gfxext_w(offs_t offset, u8 data)
 		default:
 			logerror("gfxext write offset %x %x %x\n", offset, data, m_gfxext1);
 	}
-	if((offset & 0x3ff) > 0x280)
+	if ((offset & 0x3ff) > 0x280)
 		m_gfxdecode->gfx(1)->mark_dirty(((uintptr_t)vramext_addr_xlate(offset) - (uintptr_t)m_vramchr) / 12);
 }
 
@@ -464,7 +477,7 @@ void alphatp_34_state::gfxext_w(offs_t offset, u8 data)
 //  INPUTS -  Alphatronic P1, P2, P2S, P2U and Hell 2069
 //**************************************************************************
 
-READ_LINE_MEMBER(alphatp_12_state::kbd_matrix_r)
+int alphatp_12_state::kbd_matrix_r()
 {
 	return m_kbdread;
 }
@@ -497,7 +510,7 @@ u8 alphatp_12_state::kbd_port2_r()
 //  INPUTS - Alphatronic P3, P4, P30 and P40
 //**************************************************************************
 
-READ_LINE_MEMBER(alphatp_34_state::kbd_matrix_r)
+int alphatp_34_state::kbd_matrix_r()
 {
 	return m_kbdread;
 }
@@ -669,7 +682,7 @@ PORT_START("COL.12")
 PORT_START("COL.13")
 	PORT_BIT(0x0001, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("/ Pad")       PORT_CODE(KEYCODE_SLASH_PAD)PORT_CHAR(UCHAR_MAMEKEY(SLASH_PAD))
 	PORT_BIT(0x0002, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("*")           PORT_CODE(KEYCODE_ASTERISK) PORT_CHAR(UCHAR_MAMEKEY(ASTERISK))  // test ?
-	PORT_BIT(0x0004, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("\xc2\xae /Ctrl")PORT_CODE(KEYCODE_LCONTROL)   PORT_CODE(KEYCODE_LCONTROL)         // scan 6Bh -> C2h funct.
+	PORT_BIT(0x0004, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME(u8"® /Ctrl")   PORT_CODE(KEYCODE_LCONTROL)   PORT_CODE(KEYCODE_LCONTROL)         // scan 6Bh -> C2h funct.
 	PORT_BIT(0x0008, IP_ACTIVE_HIGH, IPT_UNKNOWN)                  // 0xc2 ??
 	PORT_BIT(0x0010, IP_ACTIVE_HIGH, IPT_UNKNOWN)
 	PORT_BIT(0x0080, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("F3")          PORT_CODE(KEYCODE_F3)       PORT_CHAR(UCHAR_MAMEKEY(F3)) // scan:=68h 88h-> F3 ok
@@ -843,7 +856,7 @@ PORT_START("COL.12")
 PORT_START("COL.13")
 	PORT_BIT(0x0001, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("/ Pad")       PORT_CODE(KEYCODE_SLASH_PAD)PORT_CHAR(UCHAR_MAMEKEY(SLASH_PAD))
 	PORT_BIT(0x0002, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("*")           PORT_CODE(KEYCODE_ASTERISK) PORT_CHAR(UCHAR_MAMEKEY(ASTERISK))  // test ?
-	PORT_BIT(0x0004, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("\xc2\xae /Ctrl")PORT_CODE(KEYCODE_LCONTROL)   PORT_CODE(KEYCODE_LCONTROL)         // scan 6Bh -> C2h funct.
+	PORT_BIT(0x0004, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME(u8"® /Ctrl")   PORT_CODE(KEYCODE_LCONTROL)   PORT_CODE(KEYCODE_LCONTROL)         // scan 6Bh -> C2h funct.
 	PORT_BIT(0x0008, IP_ACTIVE_HIGH, IPT_UNKNOWN)                  // 0xc2 ??
 	PORT_BIT(0x0010, IP_ACTIVE_HIGH, IPT_UNKNOWN)
 	PORT_BIT(0x0080, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("F3")          PORT_CODE(KEYCODE_F3)       PORT_CHAR(UCHAR_MAMEKEY(F3)) // scan:=68h 88h-> F3 ok
@@ -907,28 +920,27 @@ u32 alphatp_12_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap,
 	int const start = m_crtc->upscroll_offset();
 	rectangle cursor;
 	m_crtc->cursor_bounds(cursor);
-	for (int y = 0; y < 24; y++)
+	int left = cliprect.left() / 8;
+	int right = cliprect.right() / 8;
+	for (int y = cliprect.top(); y <= cliprect.bottom(); y++)
 	{
-		int const vramy = (start + y) % 24;
-		for (int x = 0; x < 80; x++)
+		int const vramy = (start + y/12) % 24;
+		int const line = y % 12;
+		for (int x = left; x <= right; x++)
 		{
 			u8 code = m_vram[(vramy * 128) + x];   // helwie44 must be 128d is 080h physical display-ram step line
-			// draw 12 lines of the character
-			bool const cursoren = cursor.contains(x * 8, y * 12);
-			for (int line = 0; line < 12; line++)
-			{
-				u8 data = m_gfx[((code & 0x7f) * 16) + line];
-				if (cursoren)
-					data ^= 0xff;
-				bitmap.pix(y * 12 + line, x * 8 + 0) = pen[BIT(data, 0) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 1) = pen[BIT(data, 1) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 2) = pen[BIT(data, 2) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 3) = pen[BIT(data, 3) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 4) = pen[BIT(data, 4) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 5) = pen[BIT(data, 5) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 6) = pen[BIT(data, 6) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 7) = pen[BIT(data, 7) ^ BIT(code, 7)];
-			}
+			bool const cursoren = cursor.contains(x * 8, y);
+			u8 data = m_gfx[((code & 0x7f) * 16) + line];
+			if (cursoren)
+				data ^= 0xff;
+			bitmap.pix(y, x * 8 + 0) = pen[BIT(data, 0) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 1) = pen[BIT(data, 1) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 2) = pen[BIT(data, 2) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 3) = pen[BIT(data, 3) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 4) = pen[BIT(data, 4) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 5) = pen[BIT(data, 5) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 6) = pen[BIT(data, 6) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 7) = pen[BIT(data, 7) ^ BIT(code, 7)];
 		}
 	}
 
@@ -949,40 +961,39 @@ u32 alphatp_34_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap,
 	int const start = m_crtc->upscroll_offset();
 	rectangle cursor;
 	m_crtc->cursor_bounds(cursor);
+	int left = cliprect.left() / 8;
+	int right = cliprect.right() / 8;
 	bool const scrext = m_scncfg->read() ? true : false;
-	for (int y = 0; y < 24; y++)
+	for (int y = cliprect.top(); y <= cliprect.bottom(); y++)
 	{
-		int const vramy = (start + y) % 24;
-		for (int x = 0; x < 80; x++)
+		int const vramy = (start + y/12) % 24;
+		int const line = y % 12;
+		for (int x = left; x <= right; x++)
 		{
 			u8 code = m_vram[(vramy * 128) + x];   // helwie44 must be 128d is 080h physical display-ram step line
-			// draw 12 lines of the character
-			bool const cursoren = cursor.contains(x * 8, y * 12);
-			for (int line = 0; line < 12; line++)
+			bool const cursoren = cursor.contains(x * 8, y);
+			u8 data = 0;
+			if (scrext)
 			{
-				u8 data = 0;
-				if (scrext)
-				{
-					offs_t offset = (((vramy * 12) + line) * 80) + x;
-					if(offset < (371 * 80))
-						data = m_vramext[offset];
-					code = 0;
-				}
-				else
-				{
-					data = m_gfx[((code & 0x7f) * 16) + line];
-					if (cursoren)
-						data ^= 0xff;
-				}
-				bitmap.pix(y * 12 + line, x * 8 + 0) = pen[BIT(data, 0) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 1) = pen[BIT(data, 1) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 2) = pen[BIT(data, 2) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 3) = pen[BIT(data, 3) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 4) = pen[BIT(data, 4) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 5) = pen[BIT(data, 5) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 6) = pen[BIT(data, 6) ^ BIT(code, 7)];
-				bitmap.pix(y * 12 + line, x * 8 + 7) = pen[BIT(data, 7) ^ BIT(code, 7)];
+				offs_t offset = (((vramy * 12) + line) * 80) + x;
+				if (offset < (371 * 80))
+					data = m_vramext[offset];
+				code = 0;
 			}
+			else
+			{
+				data = m_gfx[((code & 0x7f) * 16) + line];
+				if (cursoren)
+					data ^= 0xff;
+			}
+			bitmap.pix(y, x * 8 + 0) = pen[BIT(data, 0) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 1) = pen[BIT(data, 1) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 2) = pen[BIT(data, 2) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 3) = pen[BIT(data, 3) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 4) = pen[BIT(data, 4) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 5) = pen[BIT(data, 5) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 6) = pen[BIT(data, 6) ^ BIT(code, 7)];
+			bitmap.pix(y, x * 8 + 7) = pen[BIT(data, 7) ^ BIT(code, 7)];
 		}
 	}
 
@@ -1011,17 +1022,17 @@ void alphatp_34_state::beep_w(u8 data)
 //  FLOPPY - Alphatronic P1, P2, P2S, P2U and Hell 2069
 //**************************************************************************
 
-WRITE_LINE_MEMBER(alphatp_12_state::fdcirq_w)
+void alphatp_12_state::fdcirq_w(int state)
 {
 	m_fdc_irq = state;
 }
 
-WRITE_LINE_MEMBER(alphatp_12_state::fdcdrq_w)
+void alphatp_12_state::fdcdrq_w(int state)
 {
 	m_fdc_drq = state;
 }
 
-WRITE_LINE_MEMBER(alphatp_12_state::fdchld_w)
+void alphatp_12_state::fdchld_w(int state)
 {
 	m_fdc_hld = state;
 }
@@ -1094,17 +1105,17 @@ void alphatp_12_state::fdc_cmd_w(u8 data)
 //  FLOPPY - Alphatronic P3, P4, P30 and P40
 //**************************************************************************
 
-WRITE_LINE_MEMBER(alphatp_34_state::fdcirq_w)
+void alphatp_34_state::fdcirq_w(int state)
 {
 	m_fdc_irq = state;
 }
 
-WRITE_LINE_MEMBER(alphatp_34_state::fdcdrq_w)
+void alphatp_34_state::fdcdrq_w(int state)
 {
 	m_fdc_drq = state;
 }
 
-WRITE_LINE_MEMBER(alphatp_34_state::fdchld_w)
+void alphatp_34_state::fdchld_w(int state)
 {
 	m_fdc_hld = state;
 }
@@ -1271,7 +1282,7 @@ void alphatp_34_state::machine_start()
 	save_item(NAME(m_vramext));
 
 	m_kbdclk = 0;   // must be initialized here b/c mcs48_reset() causes write of 0xff to all ports
-	if(m_i8088)
+	if (m_i8088)
 		m_gfxdecode->set_gfx(1, std::make_unique<gfx_element>(m_palette, extcharlayout, &m_vramchr[0], 0, 1, 0));
 }
 
@@ -1438,6 +1449,8 @@ ROM_START( alphatp30 ) // P30 add-on card with 8088 needs to be emulated to boot
 	ROM_REGION(0x4000, "16bit", 0)
 	ROM_LOAD("caxp_02_02_13.bin", 0x00000, 0x2000, CRC(e6bf6dd5) SHA1(dc87210bbcd96f3c1370565174a45199e3c1bc70)) // P30 ROM from 8088 card
 ROM_END
+
+} // anonymous namespace
 
 
 //**************************************************************************

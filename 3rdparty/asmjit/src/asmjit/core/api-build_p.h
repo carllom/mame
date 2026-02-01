@@ -1,6 +1,6 @@
 // This file is part of AsmJit project <https://asmjit.com>
 //
-// See asmjit.h or LICENSE.md for license and copyright information
+// See <asmjit/core.h> or LICENSE.md for license and copyright information
 // SPDX-License-Identifier: Zlib
 
 #ifndef ASMJIT_CORE_API_BUILD_P_H_INCLUDED
@@ -27,9 +27,28 @@
     #define NOMINMAX
   #endif
   #include <windows.h>
+#else
+  // Most production code is compiled with large file support, so do the same.
+  #if !defined(_WIN32) && !defined(_LARGEFILE64_SOURCE)
+    #define _LARGEFILE64_SOURCE 1
+  #endif
+
+  // These OSes use 64-bit API by default.
+  #if defined(__APPLE__    ) || \
+      defined(__HAIKU__    ) || \
+      defined(__bsdi__     ) || \
+      defined(__DragonFly__) || \
+      defined(__FreeBSD__  ) || \
+      defined(__NetBSD__   ) || \
+      defined(__OpenBSD__  )
+    #define ASMJIT_FILE64_API(NAME) NAME
+  #else
+    #define ASMJIT_FILE64_API(NAME) NAME##64
+  #endif
+
 #endif
 
-#include "./api-config.h"
+#include "../core/api-config.h"
 
 #if !defined(ASMJIT_BUILD_DEBUG) && defined(__GNUC__) && !defined(__clang__)
   #define ASMJIT_FAVOR_SIZE  __attribute__((__optimize__("Os")))
@@ -49,7 +68,7 @@
 
 // Include a unit testing package if this is a `asmjit_test_unit` build.
 #if defined(ASMJIT_TEST)
-  #include "../../../test/broken.h"
+  #include "../../../testing/tests/broken.h"
 #endif
 
 #endif // ASMJIT_CORE_API_BUILD_P_H_INCLUDED

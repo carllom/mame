@@ -88,6 +88,8 @@ sg1_b.e1       4096     0x92ef3c13      D2732D
 #include "kingdrby.lh"
 
 
+namespace {
+
 class kingdrby_state : public driver_device
 {
 public:
@@ -109,7 +111,7 @@ public:
 	void kingdrby(machine_config &config);
 
 protected:
-	virtual void video_start() override;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	void sc0_vram_w(offs_t offset, uint8_t data);
@@ -128,18 +130,18 @@ private:
 	TILE_GET_INFO_MEMBER(get_sc1_tile_info);
 	void kingdrby_palette(palette_device &palette) const;
 	void kingdrbb_palette(palette_device &palette) const;
-	uint32_t screen_update_kingdrby(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
+	uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 	void draw_sprites(bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
-	void cowrace_sound_io(address_map &map);
-	void cowrace_sound_map(address_map &map);
-	void master_io_map(address_map &map);
-	void master_map(address_map &map);
-	void slave_1986_map(address_map &map);
-	void slave_io_map(address_map &map);
-	void slave_map(address_map &map);
-	void sound_io_map(address_map &map);
-	void sound_map(address_map &map);
+	void cowrace_sound_io(address_map &map) ATTR_COLD;
+	void cowrace_sound_map(address_map &map) ATTR_COLD;
+	void master_io_map(address_map &map) ATTR_COLD;
+	void master_map(address_map &map) ATTR_COLD;
+	void slave_1986_map(address_map &map) ATTR_COLD;
+	void slave_io_map(address_map &map) ATTR_COLD;
+	void slave_map(address_map &map) ATTR_COLD;
+	void sound_io_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
 
 	uint8_t m_sound_cmd = 0;
 	required_shared_ptr<uint8_t> m_vram;
@@ -272,7 +274,7 @@ void kingdrby_state::draw_sprites(bitmap_rgb32 &bitmap, const rectangle &cliprec
 	}
 }
 
-uint32_t kingdrby_state::screen_update_kingdrby(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
+uint32_t kingdrby_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
 	const rectangle &visarea = screen.visible_area();
 	rectangle clip;
@@ -558,7 +560,7 @@ static INPUT_PORTS_START( kingdrby )
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_CUSTOM ) //2p hopper i/o
 
 	PORT_START("IN1")   // ppi0 (5001)
-	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_CUSTOM ) PORT_VBLANK("screen") //?
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("screen", FUNC(screen_device::vblank)) //?
 	PORT_DIPNAME( 0x02, 0x02, "IN1" )
 	PORT_DIPSETTING(    0x02, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
@@ -741,7 +743,7 @@ static INPUT_PORTS_START( kingdrbb )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 
 	PORT_START("IN1")   // ppi0 (5001)
-	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_CUSTOM ) PORT_VBLANK("screen") //?
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("screen", FUNC(screen_device::vblank)) //?
 	PORT_DIPNAME( 0x02, 0x02, "IN1" )
 	PORT_DIPSETTING(    0x02, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
@@ -1008,7 +1010,7 @@ void kingdrby_state::kingdrby(machine_config &config)
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); /* not accurate */
 	screen.set_size(256, 256);
 	screen.set_visarea(0, 256-1, 0, 224-1);    /* controlled by CRTC */
-	screen.set_screen_update(FUNC(kingdrby_state::screen_update_kingdrby));
+	screen.set_screen_update(FUNC(kingdrby_state::screen_update));
 
 	mc6845_device &crtc(MC6845(config, "crtc", CLK_1/32));  /* 53.333 Hz. guess */
 	crtc.set_screen("screen");
@@ -1236,8 +1238,10 @@ ROM_START( kingdrbb2 )
 	ROM_LOAD( "clr", 0x000, 0x200, CRC(ffabacc9) SHA1(9769fb27fc5b6998e6600cb6050086385caa3f96) )
 ROM_END
 
+} // anonymous namespace
+
 
 GAMEL( 1981, kingdrby,  0,        kingdrby, kingdrby, kingdrby_state, empty_init, ROT0, "Tazmi",                        "King Derby (1981)",           MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_COLORS | MACHINE_IMPERFECT_SOUND, layout_kingdrby )
 GAME(  1986, kingdrbb,  kingdrby, kingdrbb, kingdrbb, kingdrby_state, empty_init, ROT0, "bootleg (Casino Electronics)", "King Derby (Taiwan bootleg)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_COLORS )
 GAMEL( 198?, kingdrbb2, kingdrby, kingdrby, kingdrby, kingdrby_state, empty_init, ROT0, "bootleg",                      "King Derby (bootleg set 2)",  MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_COLORS | MACHINE_IMPERFECT_SOUND, layout_kingdrby )
-GAME(  2000, cowrace,   kingdrby, cowrace,  kingdrbb, kingdrby_state, empty_init, ROT0, "bootleg (Gate In)",            "Cow Race (King Derby hack)",  MACHINE_NOT_WORKING | MACHINE_WRONG_COLORS )
+GAME(  2000, cowrace,   kingdrby, cowrace,  kingdrbb, kingdrby_state, empty_init, ROT0, "bootleg (Gate In)",            "Cow Race (hack of King Derby)", MACHINE_NOT_WORKING | MACHINE_WRONG_COLORS )

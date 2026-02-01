@@ -191,22 +191,26 @@
 
 #include "speaker.h"
 
-#define LOG_WARN    (1U<<1)
-#define LOG_CRU     (1U<<4)
-#define LOG_CRUKEY  (1U<<5)
-#define LOG_READ     (1U<<6)
-#define LOG_READG    (1U<<7)
-#define LOG_WRITE    (1U<<8)
-#define LOG_CONFIG   (1U<<9)
-#define LOG_PFM      (1U<<10)
+#define LOG_WARN     (1U << 1)
+#define LOG_CRU      (1U << 2)
+#define LOG_CRUKEY   (1U << 3)
+#define LOG_READ     (1U << 4)
+#define LOG_READG    (1U << 5)
+#define LOG_WRITE    (1U << 6)
+#define LOG_CONFIG   (1U << 7)
+#define LOG_PFM      (1U << 8)
 
 // Minimum log should be settings and warnings
 #define VERBOSE ( LOG_GENERAL | LOG_CONFIG | LOG_WARN )
 
 #include "logmacro.h"
 
+
+namespace {
+
 #define GENEVE_SRAM_TAG  "sram"
 #define GENEVE_SRAMX_TAG "sramexp"
+#define GENEVE_SRAMU_TAG "sramult"
 #define GENEVE_DRAM_TAG  "dram"
 #define GENEVE_CLOCK_TAG "mm58274c"
 #define GENEVE_SOUNDCHIP_TAG   "soundchip"
@@ -221,6 +225,13 @@ enum
 	AMA = 8,
 	FULLGEN = 63,  // AMC,AMB,AMA,AB0,AB1,AB2
 	FULLGNM = 255  // AME,AMD,FULLGEN
+};
+
+enum
+{
+	SRAM32 = 0,
+	SRAM64 = 1,
+	SRAM384 = 2
 };
 
 void geneve_xt_keyboards(device_slot_interface &device)
@@ -243,6 +254,7 @@ public:
 		m_dram(*this, GENEVE_DRAM_TAG),
 		m_sram(*this, GENEVE_SRAM_TAG),
 		m_sramx(*this, GENEVE_SRAMX_TAG),
+		m_sramu(*this, GENEVE_SRAMU_TAG),
 		m_gatearray(*this, GENEVE_GATE_ARRAY_TAG),
 		m_genmod_decoder(*this, GENMOD_DECODER_TAG),
 		m_pal(*this, GENEVE_PAL_TAG),
@@ -255,7 +267,7 @@ public:
 		m_left_button(0),
 		m_pfm_prefix(0),
 		m_pfm_oe(true),
-		m_sram_exp(true),
+		m_sram_size(SRAM64),
 		m_genmod(false)
 	{
 	}
@@ -276,23 +288,23 @@ private:
 
 	// Connections with the system interface TMS9901
 	uint8_t psi_input(offs_t offset);
-	DECLARE_WRITE_LINE_MEMBER(peripheral_bus_reset);
-	DECLARE_WRITE_LINE_MEMBER(VDP_reset);
-	DECLARE_WRITE_LINE_MEMBER(joystick_select);
-	DECLARE_WRITE_LINE_MEMBER(keyboard_reset);
-	DECLARE_WRITE_LINE_MEMBER(video_wait_states);
-	DECLARE_WRITE_LINE_MEMBER(left_mouse_button);
+	void peripheral_bus_reset(int state);
+	void VDP_reset(int state);
+	void joystick_select(int state);
+	void keyboard_reset(int state);
+	void video_wait_states(int state);
+	void left_mouse_button(int state);
 
-	DECLARE_WRITE_LINE_MEMBER(keyboard_clock_line);
-	DECLARE_WRITE_LINE_MEMBER(keyboard_data_line);
+	void keyboard_clock_line(int state);
+	void keyboard_data_line(int state);
 
-	DECLARE_WRITE_LINE_MEMBER(clock_out);
+	void clock_out(int state);
 
 	void external_operation(offs_t offset, uint8_t data);
 
 	void tms9901_interrupt(offs_t offset, uint8_t data);
 
-	DECLARE_WRITE_LINE_MEMBER( keyboard_interrupt );
+	void keyboard_interrupt(int state);
 
 	required_device<tms9995_device>     m_cpu;
 	required_device<tms9901_device>     m_tms9901;
@@ -302,6 +314,7 @@ private:
 	required_device<ram_device>         m_dram;
 	required_device<ram_device>         m_sram;
 	required_device<ram_device>         m_sramx;
+	required_device<ram_device>         m_sramu;
 
 	required_device<bus::ti99::internal::geneve_gate_array_device> m_gatearray;
 	optional_device<bus::ti99::internal::genmod_decoder_device> m_genmod_decoder;
@@ -319,19 +332,19 @@ private:
 	void read_eprom_or_pfm(offs_t offset, uint8_t& value);
 	void write_pfm(offs_t offset, uint8_t data);
 
-	DECLARE_WRITE_LINE_MEMBER( pfm_a17 );
-	DECLARE_WRITE_LINE_MEMBER( pfm_a18 );
-	DECLARE_WRITE_LINE_MEMBER( pfm_oe );
+	void pfm_a17(int state);
+	void pfm_a18(int state);
+	void pfm_oe(int state);
 
 	// Interrupts
-	DECLARE_WRITE_LINE_MEMBER( inta );
-	DECLARE_WRITE_LINE_MEMBER( intb );
-	DECLARE_WRITE_LINE_MEMBER( keyboard_int );
-	DECLARE_WRITE_LINE_MEMBER( int2_from_v9938 );
+	void inta(int state);
+	void intb(int state);
+	void keyboard_int(int state);
+	void int2_from_v9938(int state);
 
 	// READY line contributors
-	DECLARE_WRITE_LINE_MEMBER( extready );
-	DECLARE_WRITE_LINE_MEMBER( sndready );
+	void extready(int state);
+	void sndready(int state);
 
 	// Memory bus
 	void setaddress_debug(bool debug, offs_t address, uint8_t busctrl);
@@ -339,13 +352,13 @@ private:
 	uint8_t memread(offs_t offset);
 	void memwrite(offs_t offset, uint8_t data);
 
-	void crumap(address_map &map);
-	void memmap(address_map &map);
-	void memmap_setaddress(address_map &map);
+	void crumap(address_map &map) ATTR_COLD;
+	void memmap(address_map &map) ATTR_COLD;
+	void memmap_setaddress(address_map &map) ATTR_COLD;
 
 	// General device lifecycle
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 	// Members
 	int  m_inta = 0;
@@ -359,7 +372,7 @@ private:
 
 	// Settings
 	int m_boot_rom = 0;     // Kind of boot ROM (EPROM or PFM512 or PFM512A)
-	bool m_sram_exp;
+	int m_sram_size = SRAM64;
 
 	// Genmod modifications
 	bool m_genmod;
@@ -396,7 +409,7 @@ void geneve_state::crumap(address_map &map)
 static INPUT_PORTS_START(geneve_common)
 
 	PORT_START( "BOOTROM" )
-	PORT_CONFNAME( 0x03, GENEVE_EPROM, "Boot from" ) PORT_CHANGED_MEMBER(DEVICE_SELF, geneve_state, settings_changed, 3)
+	PORT_CONFNAME( 0x03, GENEVE_EPROM, "Boot from" ) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(geneve_state::settings_changed), 3)
 		PORT_CONFSETTING( GENEVE_EPROM, "EPROM" )
 		PORT_CONFSETTING( GENEVE_PFM512, "PFM 512" )
 		PORT_CONFSETTING( GENEVE_PFM512A, "PFM 512A" )
@@ -412,9 +425,10 @@ static INPUT_PORTS_START(geneve)
 	PORT_INCLUDE(geneve_common)
 
 	PORT_START( "SRAM" )
-	PORT_CONFNAME( 0x03, 0x01, "SRAM expansion 32K" )
-		PORT_CONFSETTING( 0x00, "off" )
-		PORT_CONFSETTING( 0x01, "on" )
+	PORT_CONFNAME( 0x03, 0x01, "SRAM size" )
+		PORT_CONFSETTING( SRAM32, "32 KiB" )
+		PORT_CONFSETTING( SRAM64, "64 KiB" )
+		PORT_CONFSETTING( SRAM384, "384 KiB" )
 
 INPUT_PORTS_END
 
@@ -422,10 +436,10 @@ static INPUT_PORTS_START(genmod)
 	PORT_INCLUDE(geneve_common)
 
 	PORT_START( "GENMODDIPS" )
-	PORT_DIPNAME( GENEVE_GM_TURBO, 0x00, "Genmod Turbo mode") PORT_CHANGED_MEMBER(DEVICE_SELF, geneve_state, setgm_changed, 1)
+	PORT_DIPNAME( GENEVE_GM_TURBO, GENEVE_GM_TURBO, "Genmod Turbo mode") PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(geneve_state::setgm_changed), 1)
 		PORT_CONFSETTING( 0x00, DEF_STR( Off ))
 		PORT_CONFSETTING( GENEVE_GM_TURBO, DEF_STR( On ))
-	PORT_DIPNAME( GENEVE_GM_TIM, GENEVE_GM_TIM, "Genmod TI mode") PORT_CHANGED_MEMBER(DEVICE_SELF, geneve_state, setgm_changed, 2)
+	PORT_DIPNAME( GENEVE_GM_TIM, 0, "Genmod TI mode") PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(geneve_state::setgm_changed), 2)
 		PORT_CONFSETTING( 0x00, DEF_STR( Off ))
 		PORT_CONFSETTING( GENEVE_GM_TIM, DEF_STR( On ))
 
@@ -593,19 +607,29 @@ uint8_t geneve_state::memread(offs_t offset)
 	}
 
 	// Expanded SRAM 32K (not in Genmod)
-	if (!m_genmod)
+	if (!m_genmod && m_gatearray->ramenx_out()==ASSERT_LINE)
 	{
-		if (m_gatearray->ramenx_out()==ASSERT_LINE)
+		if (m_sram_size != SRAM32)
 		{
-			if (m_sram_exp)
-			{
-				sramadd = m_gatearray->get_prefix(AB1 | AB2) | addr13;
-				value = m_sramx->pointer()[sramadd];
-				LOGMASKED(LOG_READ, "SRAMX %02x:%04x -> %02x\n", page, addr13, value);
-			}
-			else
-				LOGMASKED(LOG_WARN, "Access to SRAMX page %02x, but no SRAM expansion available\n", page);
+			sramadd = m_gatearray->get_prefix(AB1 | AB2) | addr13;
+			value = m_sramx->pointer()[sramadd];
+			LOGMASKED(LOG_READ, "SRAMX %02x:%04x -> %02x\n", page, addr13, value);
 		}
+		else
+			LOGMASKED(LOG_WARN, "Access to SRAMX page %02x, but no SRAM expansion available\n", page);
+	}
+
+	// Ultimate SRAM expansion (not in Genmod)
+	if (!m_genmod && m_gatearray->ramenu_out()==ASSERT_LINE)
+	{
+		if (m_sram_size == SRAM384)
+		{
+			sramadd = m_gatearray->get_prefix(FULLGEN) | addr13;
+			value = m_sramu->pointer()[sramadd];
+			LOGMASKED(LOG_READ, "SRAMU %02x:%04x -> %02x\n", page, addr13, value);
+		}
+		else
+			LOGMASKED(LOG_WARN, "Access to SRAMU page %02x, but no 384K SRAM expansion available\n", page);
 	}
 
 	// Peripheral box
@@ -700,20 +724,30 @@ void geneve_state::memwrite(offs_t offset, uint8_t data)
 		m_sram->pointer()[sramadd] = data;
 	}
 
-	// Expanded SRAM
-	if (!m_genmod)
+	// Expanded SRAM (not in Genmod)
+	if (!m_genmod && m_gatearray->ramenx_out()==ASSERT_LINE)
 	{
-		if (m_gatearray->ramenx_out()==ASSERT_LINE)
+		if (m_sram_size != SRAM32)
 		{
-			if (m_sram_exp)
-			{
-				sramadd = m_gatearray->get_prefix(AB1 | AB2) | addr13;
-				LOGMASKED(LOG_WRITE, "SRAMX %02x:%04x <- %02x\n", page, addr13, data);
-				m_sramx->pointer()[sramadd] = data;
-			}
-			else
-				LOGMASKED(LOG_WARN, "Access to SRAMX page %02x, but no SRAM expansion available\n", page);
+			sramadd = m_gatearray->get_prefix(AB1 | AB2) | addr13;
+			LOGMASKED(LOG_WRITE, "SRAMX %02x:%04x <- %02x\n", page, addr13, data);
+			m_sramx->pointer()[sramadd] = data;
 		}
+		else
+			LOGMASKED(LOG_WARN, "Access to SRAMX page %02x, but no SRAM expansion available\n", page);
+	}
+
+	// Ultimate SRAM expansion (not in Genmod)
+	if (!m_genmod && m_gatearray->ramenu_out()==ASSERT_LINE)
+	{
+		if (m_sram_size == SRAM384)
+		{
+			sramadd = m_gatearray->get_prefix(FULLGEN) | addr13;
+			LOGMASKED(LOG_READ, "SRAMU %02x:%04x -> %02x\n", page, addr13, data);
+			m_sramu->pointer()[sramadd] = data;
+		}
+		else
+			LOGMASKED(LOG_WARN, "Access to SRAMU page %02x, but no 384K SRAM expansion available\n", page);
 	}
 
 	// Peripheral box
@@ -735,19 +769,19 @@ void geneve_state::memwrite(offs_t offset, uint8_t data)
     PFM handling
 *****************************************************************************/
 
-WRITE_LINE_MEMBER( geneve_state::pfm_a17 )
+void geneve_state::pfm_a17(int state)
 {
 	if (state==ASSERT_LINE) m_pfm_prefix |= 0x20000;
 	else m_pfm_prefix &= ~0x20000;
 }
 
-WRITE_LINE_MEMBER( geneve_state::pfm_a18 )
+void geneve_state::pfm_a18(int state)
 {
 	if (state==ASSERT_LINE) m_pfm_prefix |= 0x40000;
 	else m_pfm_prefix &= ~0x40000;
 }
 
-WRITE_LINE_MEMBER( geneve_state::pfm_oe )
+void geneve_state::pfm_oe(int state)
 {
 	// Negative logic
 	LOGMASKED(LOG_PFM, "PFM output %s\n", (state==0)? "enable" : "disable");
@@ -905,7 +939,7 @@ uint8_t geneve_state::psi_input(offs_t offset)
 	}
 }
 
-WRITE_LINE_MEMBER( geneve_state::left_mouse_button )
+void geneve_state::left_mouse_button(int state)
 {
 	m_left_button = state;
 }
@@ -913,7 +947,7 @@ WRITE_LINE_MEMBER( geneve_state::left_mouse_button )
 /*
     Write PE bus reset line
 */
-WRITE_LINE_MEMBER( geneve_state::peripheral_bus_reset )
+void geneve_state::peripheral_bus_reset(int state)
 {
 	m_peribox->reset_in(state);
 }
@@ -921,7 +955,7 @@ WRITE_LINE_MEMBER( geneve_state::peripheral_bus_reset )
 /*
     Write VDP reset line
 */
-WRITE_LINE_MEMBER( geneve_state::VDP_reset )
+void geneve_state::VDP_reset(int state)
 {
 	m_video->reset_line(state);
 }
@@ -929,7 +963,7 @@ WRITE_LINE_MEMBER( geneve_state::VDP_reset )
 /*
     Write joystick select line. 1 selects joystick 1 (pin 7), 0 selects joystick 2 (pin 2)
 */
-WRITE_LINE_MEMBER( geneve_state::joystick_select )
+void geneve_state::joystick_select(int state)
 {
 	m_joyport->write_port((state==ASSERT_LINE)? 1:2);
 }
@@ -938,10 +972,10 @@ WRITE_LINE_MEMBER( geneve_state::joystick_select )
    Keyboard reset (active low). Most keyboards do not use a dedicated reset
    line but trigger a reset when the clock line is held low for some time.
 */
-WRITE_LINE_MEMBER( geneve_state::keyboard_reset )
+void geneve_state::keyboard_reset(int state)
 {
 	if (state==CLEAR_LINE)
-		LOGMASKED(LOG_GENERAL, "Keyboard reset (line not connected)\n");
+		LOG("Keyboard reset (line not connected)\n");
 }
 
 /*
@@ -963,7 +997,7 @@ void geneve_state::tms9901_interrupt(offs_t offset, uint8_t data)
 /*
     inta is connected to both tms9901 IRQ1 line and to tms9995 INT4/EC line.
 */
-WRITE_LINE_MEMBER( geneve_state::inta )
+void geneve_state::inta(int state)
 {
 	m_inta = (state!=0)? ASSERT_LINE : CLEAR_LINE;
 	m_tms9901->set_int_line(1, state);
@@ -973,7 +1007,7 @@ WRITE_LINE_MEMBER( geneve_state::inta )
 /*
     intb is connected to tms9901 IRQ12 line.
 */
-WRITE_LINE_MEMBER( geneve_state::intb )
+void geneve_state::intb(int state)
 {
 	m_intb = (state!=0)? ASSERT_LINE : CLEAR_LINE;
 	m_tms9901->set_int_line(12, state);
@@ -982,7 +1016,7 @@ WRITE_LINE_MEMBER( geneve_state::intb )
 /*
     set the state of int2 (called by the v9938 core)
 */
-WRITE_LINE_MEMBER(geneve_state::int2_from_v9938)
+void geneve_state::int2_from_v9938(int state)
 {
 	// This method is frequently called without level change, so we only
 	// react on changes
@@ -996,7 +1030,7 @@ WRITE_LINE_MEMBER(geneve_state::int2_from_v9938)
 /*
     Interrupt from the keyboard.
 */
-WRITE_LINE_MEMBER( geneve_state::keyboard_interrupt )
+void geneve_state::keyboard_interrupt(int state)
 {
 	m_keyint = (state!=0)? ASSERT_LINE : CLEAR_LINE;
 	m_tms9901->set_int_line(8, state);
@@ -1005,7 +1039,7 @@ WRITE_LINE_MEMBER( geneve_state::keyboard_interrupt )
 /*
     READY from the box is connected to the Gate Array and the Genmod board.
 */
-WRITE_LINE_MEMBER( geneve_state::extready )
+void geneve_state::extready(int state)
 {
 	m_gatearray->extready_in(state);
 	if (m_genmod)
@@ -1015,7 +1049,7 @@ WRITE_LINE_MEMBER( geneve_state::extready )
 /*
     READY from the sound chip is connected to the Gate Array and the Genmod board.
 */
-WRITE_LINE_MEMBER( geneve_state::sndready )
+void geneve_state::sndready(int state)
 {
 	m_gatearray->sndready_in(state);
 	if (m_genmod)
@@ -1032,7 +1066,7 @@ void geneve_state::external_operation(offs_t offset, uint8_t data)
 /*
     Clock line from the CPU. Used to control wait state generation.
 */
-WRITE_LINE_MEMBER( geneve_state::clock_out )
+void geneve_state::clock_out(int state)
 {
 	m_tms9901->phi_line(state);
 	m_gatearray->clock_in(state);
@@ -1117,16 +1151,14 @@ void geneve_state::machine_reset()
 
 	if (m_genmod)
 	{
-		m_sram_exp = false;
 		m_genmod_decoder->set_turbo((ioport("GENMODDIPS")->read() & GENEVE_GM_TURBO)!=0);
 		m_genmod_decoder->set_timode((ioport("GENMODDIPS")->read() & GENEVE_GM_TIM)!=0);
 	}
 	else
 	{
 		// SRAM expansion
-		// Only separately handled for the standard Geneve; Genmod uses
-		// the Memex instead
-		m_sram_exp = (ioport("SRAM")->read()!=0);
+		// Only applies to the standard Geneve; Genmod uses the Memex instead
+		m_sram_size = (ioport("SRAM")->read());
 	}
 }
 
@@ -1182,12 +1214,12 @@ void geneve_state::geneve_common(machine_config &config)
 	video.int_cb().set(FUNC(geneve_state::int2_from_v9938));
 	video.set_screen(GENEVE_SCREEN_TAG);
 	screen_device& screen(SCREEN(config, GENEVE_SCREEN_TAG, SCREEN_TYPE_RASTER));
-	screen.set_raw(XTAL(21'477'272), \
-		v99x8_device::HTOTAL, \
-		0, \
-		v99x8_device::HVISIBLE - 1, \
-		v99x8_device::VTOTAL_NTSC * 2, \
-		v99x8_device::VERTICAL_ADJUST * 2, \
+	screen.set_raw(XTAL(21'477'272),
+		v99x8_device::HTOTAL,
+		0,
+		v99x8_device::HVISIBLE - 1,
+		v99x8_device::VTOTAL_NTSC * 2,
+		v99x8_device::VERTICAL_ADJUST * 2,
 		v99x8_device::VVISIBLE_NTSC * 2 - 1 - v99x8_device::VERTICAL_ADJUST * 2);
 	screen.set_screen_update(TIGEN_V9938_TAG, FUNC(v99x8_device::screen_update));
 
@@ -1239,6 +1271,9 @@ void geneve_state::geneve_common(machine_config &config)
 	// SRAM
 	RAM(config, GENEVE_SRAM_TAG).set_default_size("32K").set_default_value(0);
 	RAM(config, GENEVE_SRAMX_TAG).set_default_size("32K").set_default_value(0);
+
+	// Ultimate SRAM expansion
+	RAM(config, GENEVE_SRAMU_TAG).set_default_size("384K").set_default_value(0);
 }
 
 /*
@@ -1266,6 +1301,9 @@ ROM_START(genmod)
 	ROM_SYSTEM_BIOS(1, "2.00", "Geneve Mod Boot ROM 2.00 (2021)")
 	ROMX_LOAD("gnmbt200.bin", 0x0000, 0x4000, CRC(0a66c714) SHA1(139ed03d365b21123295cd99c73736ee424dbb74), ROM_BIOS(1))
 ROM_END
+
+} // anonymous namespace
+
 
 //    YEAR  NAME    PARENT  COMPAT  MACHINE      INPUT   CLASS         INIT         COMPANY  FULLNAME       FLAGS
 COMP( 1987, geneve, 0,      0,      geneve,      geneve, geneve_state, init_geneve, "Myarc", "Geneve 9640", MACHINE_SUPPORTS_SAVE)

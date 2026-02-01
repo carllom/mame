@@ -33,18 +33,17 @@ private:
 	enum
 	{
 		ENABLE_SOUND = 1,
-		ENABLE_COMPRESSOR,
 		SAMPLE_RATE,
 		ENABLE_SAMPLES
 	};
 
-	virtual void populate(float &customtop, float &custombottom) override;
-	virtual void handle(event const *ev) override;
+	virtual void populate() override;
+	virtual bool handle(event const *ev) override;
 
 	uint16_t          m_cur_rates;
 	static const int  m_sound_rate[];
 	int               m_sample_rate;
-	bool              m_samples, m_sound, m_compressor;
+	bool              m_samples, m_sound;
 };
 
 } // namespace ui

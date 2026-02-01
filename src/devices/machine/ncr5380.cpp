@@ -2,20 +2,20 @@
 // copyright-holders:Patrick Mackinlay
 
 /*
- * NCR 5380 and 53C80, aka Zilog Z5380, AMD Am5380, Sony CXD1180 and others.
+ * NCR 5380 and 53C80, aka Zilog Z5380, AMD Am5380, Sony CXD1180, National Semiconductor DP8490, Logic Devices L5380 and others.
  *
  * Sources:
  *  - http://bitsavers.org/components/ncr/scsi/SP-1051_NCR_5380-53C80_SCSI_Interface_Chip_Design_Manual_Mar86.pdf
  *
  * TODO:
  *  - target mode
- *  - cxd1180 enhancements
+ *  - CXD1180 enhancements
+ *  - DP8490 enhancements
  */
 
 #include "emu.h"
 #include "ncr5380.h"
 
-#define LOG_GENERAL  (1U << 0)
 #define LOG_REGW     (1U << 1)
 #define LOG_REGR     (1U << 2)
 #define LOG_SCSI     (1U << 3)
@@ -28,6 +28,7 @@
 DEFINE_DEVICE_TYPE(NCR5380,  ncr5380_device,  "ncr5380",  "NCR 5380 SCSI")
 DEFINE_DEVICE_TYPE(NCR53C80, ncr53c80_device, "ncr53c80", "NCR 53C80 SCSI")
 DEFINE_DEVICE_TYPE(CXD1180,  cxd1180_device,  "cxd1180",  "Sony CXD1180")
+DEFINE_DEVICE_TYPE(DP8490,   dp8490_device,   "dp8490",   "National Semiconductor DP8490 EASI")
 
 ALLOW_SAVE_TYPE(ncr5380_device::state);
 
@@ -55,6 +56,11 @@ cxd1180_device::cxd1180_device(machine_config const &mconfig, char const *tag, d
 {
 }
 
+dp8490_device::dp8490_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock)
+	: ncr5380_device(mconfig, DP8490, tag, owner, clock, true)
+{
+}
+
 void ncr5380_device::map(address_map &map)
 {
 	map(0x0, 0x0).rw(FUNC(ncr5380_device::csdata_r), FUNC(ncr5380_device::odata_w));
@@ -69,8 +75,10 @@ void ncr5380_device::map(address_map &map)
 
 void ncr5380_device::device_start()
 {
-	m_irq_handler.resolve_safe();
-	m_drq_handler.resolve_safe();
+	// Need to be cleared here so that set_irq/drq called from reset
+	// does not compare with uninitialized
+	m_irq_state = false;
+	m_drq_state = false;
 
 	m_state_timer = timer_alloc(FUNC(ncr5380_device::state_timer), this);
 

@@ -90,11 +90,11 @@
 #include "bus/multibus/multibus.h"
 #include "bus/multibus/isbc202.h"
 
+
+namespace {
+
 // CPU oscillator of IPC board: 8 MHz
 #define IPC_XTAL_Y2     8_MHz_XTAL
-
-// Y1 oscillator of IPC board: 19.6608 MHz
-#define IPC_XTAL_Y1     19.6608_MHz_XTAL
 
 class imds2_state : public driver_device
 {
@@ -103,11 +103,13 @@ public:
 
 	void imds2(machine_config &config);
 
+	void xack(int state);
+
 private:
 	uint8_t ipc_mem_read(offs_t offset);
 	void ipc_mem_write(offs_t offset, uint8_t data);
 	void ipc_control_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(ipc_intr_w);
+	void ipc_intr_w(int state);
 	uint8_t ipcsyspic_r(offs_t offset);
 	uint8_t ipclocpic_r(offs_t offset);
 	void ipcsyspic_w(offs_t offset, uint8_t data);
@@ -116,8 +118,8 @@ private:
 	virtual void driver_start() override;
 	virtual void driver_reset() override;
 
-	void ipc_io_map(address_map &map);
-	void ipc_mem_map(address_map &map);
+	void ipc_io_map(address_map &map) ATTR_COLD;
+	void ipc_mem_map(address_map &map) ATTR_COLD;
 
 	u8 bus_pio_r(offs_t offset) { return m_bus->space(AS_IO).read_byte(offset); }
 	void bus_pio_w(offs_t offset, u8 data) { m_bus->space(AS_IO).write_byte(offset, data); }
@@ -183,8 +185,8 @@ imds2_state::imds2_state(const machine_config &mconfig, device_type type, const 
 	m_ipcctrl(*this, "ipcctrl"),
 	m_serial(*this, "serial%u", 0U),
 	m_ioc(*this, "ioc"),
-	m_bus(*this, "slot"),
-	m_slot(*this, "slot:1"),
+	m_bus(*this, "bus"),
+	m_slot(*this, "slot1"),
 	m_ram(*this, "ram"),
 	m_boot(*this, "boot")
 {
@@ -205,7 +207,7 @@ void imds2_state::ipc_control_w(uint8_t data)
 		m_boot.disable();
 }
 
-WRITE_LINE_MEMBER(imds2_state::ipc_intr_w)
+void imds2_state::ipc_intr_w(int state)
 {
 	m_ipccpu->set_input_line(I8085_INTR_LINE, (state != 0) && m_ipcctrl->q2_r());
 }
@@ -251,6 +253,9 @@ static void imds2_cards(device_slot_interface &device)
 
 void imds2_state::imds2(machine_config &config)
 {
+	// Y1 oscillator of IPC board: 19.6608 MHz
+	constexpr auto IPC_XTAL_Y1 = 19.6608_MHz_XTAL;
+
 	I8085A(config, m_ipccpu, IPC_XTAL_Y2);  // CLK OUT = 4 MHz
 	m_ipccpu->set_addrmap(AS_PROGRAM, &imds2_state::ipc_mem_map);
 	m_ipccpu->set_addrmap(AS_IO, &imds2_state::ipc_io_map);
@@ -303,8 +308,22 @@ void imds2_state::imds2(machine_config &config)
 	m_ioc->master_intr_cb().set(m_ipclocpic, FUNC(pic8259_device::ir6_w));
 	m_ioc->parallel_int_cb().set(m_ipclocpic, FUNC(pic8259_device::ir5_w));
 
-	MULTIBUS(config, m_bus, 9'830'400);
-	MULTIBUS_SLOT(config, m_slot, m_bus, imds2_cards, nullptr, false); // FIXME: isbc202
+	MULTIBUS(config, m_bus, IPC_XTAL_Y1 / 2);
+	m_bus->xack_cb().set(FUNC(imds2_state::xack));
+	MULTIBUS_SLOT(config, m_slot, m_bus, imds2_cards, nullptr, false, (IPC_XTAL_Y1 / 2).value()); // FIXME: isbc202
+}
+
+void imds2_state::xack(int state)
+{
+	if (state) {
+		// Put CPU in wait state
+		m_ipccpu->spin_until_trigger(1);
+		// Rewind PC so that the "IN" & "OUT" instructions are repeated when CPU is released
+		m_ipccpu->set_pc(m_ipccpu->pc() - 2);
+	} else {
+		// Release CPU from wait state
+		m_ipccpu->trigger(1);
+	}
 }
 
 ROM_START(imds2)
@@ -323,6 +342,9 @@ ROM_START(imds2)
 	ROMX_LOAD("ipc11_a57.bin", 0x0000, 0x0800, CRC(ffb7c036) SHA1(6f60cdfe20621c4b633c972adcb644a1c02eaa39), ROM_BIOS(2))
 	ROMX_LOAD("ipc11_a48.bin", 0x0800, 0x0800, CRC(3696ff28) SHA1(38b435e10a81629430275aec051fb0a55ec1f6fd), ROM_BIOS(2))
 ROM_END
+
+} // anonymous namespace
+
 
 /*    YEAR  NAME   PARENT  COMPAT  MACHINE  INPUT  CLASS        INIT        COMPANY  FULLNAME */
 COMP( 1979, imds2, 0,      0,      imds2,   imds2, imds2_state, empty_init, "Intel", "Intellec MDS-II", 0)

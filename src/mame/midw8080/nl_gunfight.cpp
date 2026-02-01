@@ -1,4 +1,4 @@
-// license:CC0
+// license:CC0-1.0
 // copyright-holders:Colin Douglas Howell
 
 #include "netlist/devices/net_lib.h"
@@ -810,7 +810,7 @@ NETLIST_START(gunfight)
 	ALIAS(IN_RH, I_RIGHT_HIT.Q)
 
 #if USE_FRONTIERS
-	// These frontiers keep the mostly independant halves of the circuit
+	// These frontiers keep the mostly independent halves of the circuit
 	// (left channel and right channel) from affecting each other and the
 	// noise generator, which speeds up processing substantially while
 	// making no audible change in the output. These seem to be the only

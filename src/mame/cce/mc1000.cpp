@@ -92,15 +92,15 @@ private:
 
 	std::unique_ptr<uint8_t[]> m_banked_ram;
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 	uint8_t printer_r();
 	void printer_w(uint8_t data);
 	void mc6845_ctrl_w(uint8_t data);
 	void mc6847_attr_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER( fs_w );
-	DECLARE_WRITE_LINE_MEMBER( hs_w );
+	void fs_w(int state);
+	void hs_w(int state);
 	uint8_t videoram_r(offs_t offset);
 	void keylatch_w(uint8_t data);
 	uint8_t keydata_r();
@@ -124,14 +124,14 @@ private:
 	int m_vsync;
 	uint8_t m_mc6847_attr;
 
-	DECLARE_WRITE_LINE_MEMBER(write_centronics_busy);
+	void write_centronics_busy(int state);
 	int m_centronics_busy;
 
 	void init_mc1000();
 	TIMER_DEVICE_CALLBACK_MEMBER(ne555_tick);
-	void mc1000_banking_mem(address_map &map);
-	void mc1000_io(address_map &map);
-	void mc1000_mem(address_map &map);
+	void mc1000_banking_mem(address_map &map) ATTR_COLD;
+	void mc1000_io(address_map &map) ATTR_COLD;
+	void mc1000_mem(address_map &map) ATTR_COLD;
 };
 
 /* Memory Banking */
@@ -185,7 +185,7 @@ void mc1000_state::bankswitch()
 
 /* Read/Write Handlers */
 
-WRITE_LINE_MEMBER( mc1000_state::write_centronics_busy )
+void mc1000_state::write_centronics_busy(int state)
 {
 	m_centronics_busy = state;
 }
@@ -383,12 +383,12 @@ INPUT_PORTS_END
 
 /* Video */
 
-WRITE_LINE_MEMBER( mc1000_state::fs_w )
+void mc1000_state::fs_w(int state)
 {
 	m_vsync = state;
 }
 
-WRITE_LINE_MEMBER( mc1000_state::hs_w )
+void mc1000_state::hs_w(int state)
 {
 	m_hsync = state;
 }
@@ -568,7 +568,7 @@ void mc1000_state::mc1000(machine_config &config)
 	/* video hardware */
 	SCREEN(config, SCREEN_TAG, SCREEN_TYPE_RASTER);
 
-	MC6847_NTSC(config, m_vdg, XTAL(3'579'545));
+	MC6847(config, m_vdg, XTAL(3'579'545));
 	m_vdg->hsync_wr_callback().set(FUNC(mc1000_state::hs_w));
 	m_vdg->fsync_wr_callback().set(FUNC(mc1000_state::fs_w));
 	m_vdg->input_callback().set(FUNC(mc1000_state::videoram_r));

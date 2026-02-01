@@ -11,11 +11,14 @@
 ****************************************************************************/
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 #include "machine/i8279.h"
 #include "sound/ay8910.h"
 #include "sound/ymopl.h"
 #include "speaker.h"
+
+
+namespace {
 
 class gsspade_state : public driver_device
 {
@@ -29,8 +32,8 @@ public:
 	void gsspade(machine_config &config);
 
 private:
-	void prog_map(address_map &map);
-	void ext_map(address_map &map);
+	void prog_map(address_map &map) ATTR_COLD;
+	void ext_map(address_map &map) ATTR_COLD;
 
 	required_device<mcs51_cpu_device> m_soundcpu;
 };
@@ -67,7 +70,7 @@ void gsspade_state::gsspade(machine_config &config)
 {
 	I8051(config, m_soundcpu, 10.738635_MHz_XTAL); // Intel/Fujitsu P8051AH
 	m_soundcpu->set_addrmap(AS_PROGRAM, &gsspade_state::prog_map);
-	m_soundcpu->set_addrmap(AS_IO, &gsspade_state::ext_map);
+	m_soundcpu->set_addrmap(AS_DATA, &gsspade_state::ext_map);
 	m_soundcpu->port_in_cb<1>().set_ioport("P1");
 
 	I8279(config, "kdc", 1'789'772); // ?
@@ -86,6 +89,8 @@ ROM_START(gsspade)
 	ROM_REGION(0x2000, "soundcpu", 0)
 	ROM_LOAD("spade-gs-dm-5.u2", 0x0000, 0x2000, CRC(c359201b) SHA1(5e5ac815bcd50f918f9c8b7447bcf6cf9426ae74))
 ROM_END
+
+} // anonymous namespace
 
 
 GAME(199?, gsspade, 0, gsspade, gsspade, gsspade_state, empty_init, ROT0, "Guan Shing", "Spade", MACHINE_NOT_WORKING | MACHINE_MECHANICAL)

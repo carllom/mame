@@ -10,12 +10,15 @@
 #include "bus/generic/carts.h"
 #include "bus/generic/slot.h"
 //#include "bus/midi/midi.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 #include "machine/adc0804.h"
 #include "machine/nvram.h"
 #include "pg200.h"
 #include "machine/pit8253.h"
 #include "machine/rescap.h"
+
+
+namespace {
 
 class roland_jx3p_state : public driver_device
 {
@@ -42,12 +45,12 @@ private:
 
 	void if_anlg_mux_w(u8 data);
 
-	void prog_map(address_map &map);
-	void common_ext_map(address_map &map);
-	void jk3p_ext_map(address_map &map);
-	void mks30_ext_map(address_map &map);
-	void if_prog_map(address_map &map);
-	void if_ext_map(address_map &map);
+	void prog_map(address_map &map) ATTR_COLD;
+	void common_ext_map(address_map &map) ATTR_COLD;
+	void jk3p_ext_map(address_map &map) ATTR_COLD;
+	void mks30_ext_map(address_map &map) ATTR_COLD;
+	void if_prog_map(address_map &map) ATTR_COLD;
+	void if_ext_map(address_map &map) ATTR_COLD;
 
 	required_device<mcs51_cpu_device> m_maincpu;
 	optional_device<mcs51_cpu_device> m_ifcpu;
@@ -205,7 +208,7 @@ void roland_jx3p_state::jx3p(machine_config &config)
 {
 	I8031(config, m_maincpu, 12_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_jx3p_state::prog_map);
-	m_maincpu->set_addrmap(AS_IO, &roland_jx3p_state::jk3p_ext_map);
+	m_maincpu->set_addrmap(AS_DATA, &roland_jx3p_state::jk3p_ext_map);
 	m_maincpu->port_out_cb<1>().set(FUNC(roland_jx3p_state::analog_select_w));
 
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0); // TC5517APL + battery
@@ -221,7 +224,7 @@ void roland_jx3p_state::jx3p(machine_config &config)
 void roland_jx3p_state::mks30(machine_config &config)
 {
 	jx3p(config);
-	m_maincpu->set_addrmap(AS_IO, &roland_jx3p_state::mks30_ext_map);
+	m_maincpu->set_addrmap(AS_DATA, &roland_jx3p_state::mks30_ext_map);
 
 	GENERIC_CARTSLOT(config, m_cartslot, generic_plain_slot, nullptr, "mks30_cart");
 }
@@ -232,7 +235,7 @@ void roland_jx3p_state::gr700(machine_config &config)
 
 	I8031(config, m_ifcpu, 12_MHz_XTAL);
 	m_ifcpu->set_addrmap(AS_PROGRAM, &roland_jx3p_state::if_prog_map);
-	m_ifcpu->set_addrmap(AS_IO, &roland_jx3p_state::if_ext_map);
+	m_ifcpu->set_addrmap(AS_DATA, &roland_jx3p_state::if_ext_map);
 	m_ifcpu->port_out_cb<1>().set(FUNC(roland_jx3p_state::if_anlg_mux_w));
 	m_ifcpu->port_in_cb<3>().set("adc", FUNC(adc0803_device::intr_r)).lshift(4);
 
@@ -265,6 +268,9 @@ ROM_START(gr700)
 	ROM_LOAD("if_v1.4.ic17", 0x0000, 0x2000, CRC(56579d31) SHA1(b6d5b02e8952d52eff5a0bf77f7922e6d135454a))
 ROM_END
 
-SYST(1983, jx3p,  0, 0, jx3p,  jx3p,  roland_jx3p_state, empty_init, "Roland", "JX-3P Programmable Preset Polyphonic Synthesizer", MACHINE_IS_SKELETON)
-SYST(1984, mks30, 0, 0, mks30, mks30, roland_jx3p_state, empty_init, "Roland", "MKS-30 Planet-S MIDI Sound Module",                MACHINE_IS_SKELETON)
-SYST(1984, gr700, 0, 0, gr700, mks30, roland_jx3p_state, empty_init, "Roland", "GR-700 Guitar Synthesizer",                        MACHINE_IS_SKELETON)
+} // anonymous namespace
+
+
+SYST(1983, jx3p,  0, 0, jx3p,  jx3p,  roland_jx3p_state, empty_init, "Roland", "JX-3P Programmable Preset Polyphonic Synthesizer", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
+SYST(1984, mks30, 0, 0, mks30, mks30, roland_jx3p_state, empty_init, "Roland", "MKS-30 Planet-S MIDI Sound Module",                MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
+SYST(1984, gr700, 0, 0, gr700, mks30, roland_jx3p_state, empty_init, "Roland", "GR-700 Guitar Synthesizer",                        MACHINE_NO_SOUND | MACHINE_NOT_WORKING)

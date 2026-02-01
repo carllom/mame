@@ -25,14 +25,19 @@
 */
 
 #include "emu.h"
+
 #include "cpu/z80/z80.h"
 #include "machine/74259.h"
+#include "machine/timer.h"
 #include "sound/ay8910.h"
+
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
 #include "tilemap.h"
 
+
+namespace {
 
 class skyarmy_state : public driver_device
 {
@@ -51,8 +56,8 @@ public:
 	void skyarmy(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	required_device<cpu_device> m_maincpu;
@@ -67,12 +72,10 @@ private:
 	tilemap_t* m_tilemap = nullptr;
 	int m_nmi = 0;
 
-	DECLARE_WRITE_LINE_MEMBER(flip_screen_x_w);
-	DECLARE_WRITE_LINE_MEMBER(flip_screen_y_w);
 	void videoram_w(offs_t offset, uint8_t data);
 	void colorram_w(offs_t offset, uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(coin_counter_w);
-	DECLARE_WRITE_LINE_MEMBER(nmi_enable_w);
+	void coin_counter_w(int state);
+	void nmi_enable_w(int state);
 
 	TILE_GET_INFO_MEMBER(get_tile_info);
 
@@ -80,24 +83,14 @@ private:
 
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 
-	INTERRUPT_GEN_MEMBER(nmi_source);
-	void skyarmy_io_map(address_map &map);
-	void skyarmy_map(address_map &map);
+	TIMER_DEVICE_CALLBACK_MEMBER(scanline);
+	void skyarmy_io_map(address_map &map) ATTR_COLD;
+	void skyarmy_map(address_map &map) ATTR_COLD;
 };
 
 void skyarmy_state::machine_start()
 {
 	save_item(NAME(m_nmi));
-}
-
-WRITE_LINE_MEMBER(skyarmy_state::flip_screen_x_w)
-{
-	flip_screen_x_set(state);
-}
-
-WRITE_LINE_MEMBER(skyarmy_state::flip_screen_y_w)
-{
-	flip_screen_y_set(state);
 }
 
 TILE_GET_INFO_MEMBER(skyarmy_state::get_tile_info)
@@ -190,20 +183,27 @@ uint32_t skyarmy_state::screen_update(screen_device &screen, bitmap_ind16 &bitma
 	return 0;
 }
 
-INTERRUPT_GEN_MEMBER(skyarmy_state::nmi_source)
+TIMER_DEVICE_CALLBACK_MEMBER(skyarmy_state::scanline)
 {
-	if (m_nmi)
+	int scanline = param;
+
+	// 16 NMIs per frame
+	if ((scanline & 0xf) == 0 && scanline <= 240 && m_nmi)
 		m_maincpu->set_input_line(INPUT_LINE_NMI, ASSERT_LINE);
+
+	// vblank interrupt
+	if (scanline == 248)
+		m_maincpu->set_input_line(0, HOLD_LINE);
 }
 
 
-WRITE_LINE_MEMBER(skyarmy_state::coin_counter_w)
+void skyarmy_state::coin_counter_w(int state)
 {
 	machine().bookkeeping().coin_counter_w(0, state);
 }
 
 
-WRITE_LINE_MEMBER(skyarmy_state::nmi_enable_w)
+void skyarmy_state::nmi_enable_w(int state)
 {
 	m_nmi = state;
 	if (!m_nmi)
@@ -323,25 +323,22 @@ GFXDECODE_END
 
 void skyarmy_state::skyarmy(machine_config &config)
 {
-	Z80(config, m_maincpu, 4000000);
+	Z80(config, m_maincpu, 18.432_MHz_XTAL / 6);
 	m_maincpu->set_addrmap(AS_PROGRAM, &skyarmy_state::skyarmy_map);
 	m_maincpu->set_addrmap(AS_IO, &skyarmy_state::skyarmy_io_map);
-	m_maincpu->set_vblank_int("screen", FUNC(skyarmy_state::irq0_line_hold));
-	m_maincpu->set_periodic_int(FUNC(skyarmy_state::nmi_source), attotime::from_hz(650));
+
+	TIMER(config, "scanline").configure_scanline(FUNC(skyarmy_state::scanline), "screen", 0, 1);
 
 	ls259_device &latch(LS259(config, "latch")); // 11C
 	latch.q_out_cb<0>().set(FUNC(skyarmy_state::coin_counter_w));
 	latch.q_out_cb<4>().set(FUNC(skyarmy_state::nmi_enable_w)); // ???
-	latch.q_out_cb<5>().set(FUNC(skyarmy_state::flip_screen_x_w));
-	latch.q_out_cb<6>().set(FUNC(skyarmy_state::flip_screen_y_w));
+	latch.q_out_cb<5>().set(FUNC(skyarmy_state::flip_screen_x_set));
+	latch.q_out_cb<6>().set(FUNC(skyarmy_state::flip_screen_y_set));
 	latch.q_out_cb<7>().set_nop(); // video RAM buffering?
 
 	/* video hardware */
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
-	screen.set_refresh_hz(60);
-	screen.set_vblank_time(ATTOSECONDS_IN_USEC(0));
-	screen.set_size(32*8,32*8);
-	screen.set_visarea(0*8,32*8-1,1*8,31*8-1);
+	screen.set_raw(18.432_MHz_XTAL / 3, 384, 0, 256, 264, 8, 248);
 	screen.set_screen_update(FUNC(skyarmy_state::screen_update));
 	screen.set_palette(m_palette);
 
@@ -350,8 +347,8 @@ void skyarmy_state::skyarmy(machine_config &config)
 
 	/* sound hardware */
 	SPEAKER(config, "mono").front_center();
-	AY8910(config, "ay0", 2500000).add_route(ALL_OUTPUTS, "mono", 0.15);
-	AY8910(config, "ay1", 2500000).add_route(ALL_OUTPUTS, "mono", 0.15);
+	AY8910(config, "ay0", 18.432_MHz_XTAL / 12).add_route(ALL_OUTPUTS, "mono", 0.5);
+	AY8910(config, "ay1", 18.432_MHz_XTAL / 12).add_route(ALL_OUTPUTS, "mono", 0.5);
 }
 
 
@@ -373,5 +370,8 @@ ROM_START( skyarmy )
 	ROM_REGION( 0x0020, "proms", 0 )
 	ROM_LOAD( "a6.bin",  0x0000, 0x0020, CRC(c721220b) SHA1(61b3320fb616c0600d56840cb6438616c7e0c6eb) )
 ROM_END
+
+} // anonymous namespace
+
 
 GAME( 1982, skyarmy, 0, skyarmy, skyarmy, skyarmy_state, empty_init, ROT90, "Shoei", "Sky Army", MACHINE_SUPPORTS_SAVE )

@@ -28,26 +28,32 @@
     <enter>
     <enter>
 
+    ABCenix <= D-NIX <= AT&T Unix System V
+
 */
 
 /*
 
     TODO:
 
-    - z80dma.cpp register read must return byte UP counter value (0x200 at end of block, not 0 as it does now)
-    - short/long reset (RSTBUT)
-    - CIO
-        - optimize timers!
-        - port C, open drain output bit PC1 (RTC/NVRAM data)
+    - abcenix panics while booting after commit 78661e9aa92c7e43c9a96039e7dfb3dabc79a287
+    - systest1600 failures
+        - CIO timer (works if CIO clock is 4219000)
+        - DMA (expects to read 0xff from 0x18000..)
+    - loadsys1 core dump (/etc/mkfs -b 1024 -v 69000 /dev/sa40)
+    - crashes after reset
     - connect RS-232 printer port
     - Z80 SCC/DART interrupt chain
-    - Z80 SCC DMA request
     - [:2a:chb] - TX FIFO is full, discarding data
+        [:] SCC write 000003
+        [:2a:chb] void z80scc_channel::data_write(uint8_t): Data Register Write: 17 ' '
 
 */
 
 #include "emu.h"
 #include "abc1600.h"
+
+#include "machine/74259.h"
 #include "softlist_dev.h"
 
 
@@ -55,7 +61,8 @@
 //  CONSTANTS / MACROS
 //**************************************************************************
 
-#define LOG 0
+#define VERBOSE 0
+#include "logmacro.h"
 
 
 #define A1          BIT(offset, 1)
@@ -125,7 +132,7 @@ uint8_t abc1600_state::bus_r(offs_t offset)
 			// EXP
 			data = m_bus0x->exp_r();
 
-			if (LOG) logerror("%s EXP %02x: %02x\n", machine().describe_context(), cs, data);
+			LOG("%s EXP %02x: %02x\n", machine().describe_context(), cs, data);
 		}
 		else
 		{
@@ -169,7 +176,7 @@ uint8_t abc1600_state::bus_r(offs_t offset)
 				data = 0xfc | (m_csb & 0x03);
 			}
 
-			if (LOG) logerror("%s RCSB %02x\n", machine().describe_context(), data);
+			LOG("%s RCSB %02x\n", machine().describe_context(), data);
 		}
 	}
 	else
@@ -190,7 +197,7 @@ uint8_t abc1600_state::bus_r(offs_t offset)
 				data &= m_bus2->read_inp();
 			}
 
-			if (LOG) logerror("%s INP %02x: %02x\n", machine().describe_context(), cs, data);
+			LOG("%s INP %02x: %02x\n", machine().describe_context(), cs, data);
 			break;
 
 		case STAT:
@@ -205,7 +212,7 @@ uint8_t abc1600_state::bus_r(offs_t offset)
 				data &= m_bus2->read_stat();
 			}
 
-			if (LOG) logerror("%s STAT %02x: %02x\n", machine().describe_context(), cs, data);
+			LOG("%s STAT %02x: %02x\n", machine().describe_context(), cs, data);
 			break;
 
 		case OPS:
@@ -220,11 +227,11 @@ uint8_t abc1600_state::bus_r(offs_t offset)
 				data &= m_bus2->ops_r();
 			}
 
-			if (LOG) logerror("%s OPS %02x: %02x\n", machine().describe_context(), cs, data);
+			LOG("%s OPS %02x: %02x\n", machine().describe_context(), cs, data);
 			break;
 
 		default:
-			if (LOG) logerror("%s Unmapped read from virtual I/O %06x\n", machine().describe_context(), offset);
+			LOG("%s Unmapped read from virtual I/O %06x\n", machine().describe_context(), offset);
 		}
 	}
 
@@ -248,7 +255,7 @@ void abc1600_state::bus_w(offs_t offset, uint8_t data)
 	switch ((offset >> 1) & 0x07)
 	{
 	case OUT:
-		if (LOG) logerror("%s OUT %02x: %02x\n", machine().describe_context(), cs, data);
+		LOG("%s OUT %02x: %02x\n", machine().describe_context(), cs, data);
 
 		if (m_bus0)
 		{
@@ -263,7 +270,7 @@ void abc1600_state::bus_w(offs_t offset, uint8_t data)
 		break;
 
 	case C1:
-		if (LOG) logerror("%s C1 %02x: %02x\n", machine().describe_context(), cs, data);
+		LOG("%s C1 %02x: %02x\n", machine().describe_context(), cs, data);
 
 		if (m_bus0)
 		{
@@ -278,7 +285,7 @@ void abc1600_state::bus_w(offs_t offset, uint8_t data)
 		break;
 
 	case C2:
-		if (LOG) logerror("%s C2 %02x: %02x\n", machine().describe_context(), cs, data);
+		LOG("%s C2 %02x: %02x\n", machine().describe_context(), cs, data);
 
 		if (m_bus0)
 		{
@@ -293,7 +300,7 @@ void abc1600_state::bus_w(offs_t offset, uint8_t data)
 		break;
 
 	case C3:
-		if (LOG) logerror("%s C3 %02x: %02x\n", machine().describe_context(), cs, data);
+		LOG("%s C3 %02x: %02x\n", machine().describe_context(), cs, data);
 
 		if (m_bus0)
 		{
@@ -308,7 +315,7 @@ void abc1600_state::bus_w(offs_t offset, uint8_t data)
 		break;
 
 	case C4:
-		if (LOG) logerror("%s C4 %02x: %02x\n", machine().describe_context(), cs, data);
+		LOG("%s C4 %02x: %02x\n", machine().describe_context(), cs, data);
 
 		if (m_bus0)
 		{
@@ -323,7 +330,7 @@ void abc1600_state::bus_w(offs_t offset, uint8_t data)
 		break;
 
 	default:
-		if (LOG) logerror("%s Unmapped write %02x to virtual I/O %06x\n", machine().describe_context(), data, offset);
+		LOG("%s Unmapped write %02x to virtual I/O %06x\n", machine().describe_context(), data, offset);
 	}
 }
 
@@ -349,14 +356,14 @@ void abc1600_state::fw0_w(uint8_t data)
 
 	*/
 
-	if (LOG) logerror("%s FW0 %02x\n", machine().describe_context(), data);
+	LOG("%s FW0 %02x\n", machine().describe_context(), data);
 
 	// drive select
 	floppy_image_device *floppy = nullptr;
 
-	if (BIT(data, 0)) floppy = m_floppy0->get_device();
-	if (BIT(data, 1)) floppy = m_floppy1->get_device();
-	if (BIT(data, 2)) floppy = m_floppy2->get_device();
+	for (int n = 0; n < 3; n++)
+		if (BIT(data, n))
+			floppy = m_floppy[n]->get_device();
 
 	m_fdc->set_floppy(floppy);
 
@@ -375,21 +382,21 @@ void abc1600_state::fw1_w(uint8_t data)
 
 	    bit     description
 
-	    0       MR
-	    1       DDEN
-	    2       HLT
-	    3       MINI
-	    4       HLD
-	    5       P0
-	    6       P1
-	    7       P2
+	    0       MR (FD1797)
+	    1       DDEN (FD1797, 9229B)
+	    2       HLT (FD1797)
+	    3       MINI (9229B)
+	    4       HLD (9229B)
+	    5       P0 (9229B)
+	    6       P1 (9229B)
+	    7       P2 (9229B)
 
 	*/
 
-	if (LOG) logerror("%s FW1 %02x\n", machine().describe_context(), data);
+	LOG("%s FW1 %02x\n", machine().describe_context(), data);
 
 	// FDC master reset
-	if (!BIT(data, 0)) m_fdc->reset();
+	m_fdc->mr_w(BIT(data, 0));
 
 	// density select
 	m_fdc->dden_w(BIT(data, 1));
@@ -397,56 +404,82 @@ void abc1600_state::fw1_w(uint8_t data)
 
 
 //-------------------------------------------------
-//  spec_contr_reg_w -
+//  cs7_w - CS7 output handler
 //-------------------------------------------------
 
-void abc1600_state::spec_contr_reg_w(uint8_t data)
+void abc1600_state::cs7_w(int state)
 {
-	int state = BIT(data, 3);
+	LOG("%s CS7 %d\n", machine().describe_context(), state);
 
-	if (LOG) logerror("%s SPEC CONTR REG %u:%u\n", machine().describe_context(), data & 0x07, state);
+	m_cs7 = state;
+}
 
-	switch (data & 0x07)
-	{
-	case 0: // CS7
-		m_cs7 = state;
-		break;
 
-	case 1:
-		break;
+//-------------------------------------------------
+//  btce_w - _BTCE output handler
+//-------------------------------------------------
 
-	case 2: // _BTCE
-		m_btce = state;
-		break;
+void abc1600_state::btce_w(int state)
+{
+	LOG("%s _BTCE %d\n", machine().describe_context(), state);
 
-	case 3: // _ATCE
-		m_atce = state;
-		break;
+	m_btce = state;
+}
 
-	case 4: // PARTST
-		m_mac->partst_w(state);
-		break;
 
-	case 5: // _DMADIS
-		m_dmadis = state;
-		break;
+//-------------------------------------------------
+//  atce_w - _ATCE output handler
+//-------------------------------------------------
 
-	case 6: // SYSSCC
-		m_sysscc = state;
+void abc1600_state::atce_w(int state)
+{
+	LOG("%s _ATCE %d\n", machine().describe_context(), state);
 
-		m_cio->pb5_w(!state);
+	m_atce = state;
+}
 
-		update_drdy1(0);
-		break;
 
-	case 7: // SYSFS
-		m_sysfs = state;
+//-------------------------------------------------
+//  dmadis_w - _DMADIS output handler
+//-------------------------------------------------
 
-		m_cio->pb6_w(!state);
+void abc1600_state::dmadis_w(int state)
+{
+	LOG("%s _DMADIS %d\n", machine().describe_context(), state);
 
-		update_drdy0(0);
-		break;
-	}
+	m_dmadis = state;
+}
+
+
+//-------------------------------------------------
+//  sysscc_w - SYSSCC output handler
+//-------------------------------------------------
+
+void abc1600_state::sysscc_w(int state)
+{
+	LOG("%s SYSSCC %d\n", machine().describe_context(), state);
+
+	m_sysscc = state;
+
+	m_cio->pb5_w(!state);
+
+	update_drdy1(0);
+}
+
+
+//-------------------------------------------------
+//  sysfs_w - SYSFS output handler
+//-------------------------------------------------
+
+void abc1600_state::sysfs_w(int state)
+{
+	LOG("%s SYSFS %d\n", machine().describe_context(), state);
+
+	m_sysfs = state;
+
+	m_cio->pb6_w(!state);
+
+	update_drdy0(0);
 }
 
 
@@ -491,7 +524,7 @@ void abc1600_state::mac_mem(address_map &map)
 	map(0x1ffb00, 0x1ffb00).mirror(0x7e).w(FUNC(abc1600_state::fw0_w));
 	map(0x1ffb01, 0x1ffb01).mirror(0x7e).w(FUNC(abc1600_state::fw1_w));
 	map(0x1ffd00, 0x1ffd07).mirror(0xf8).w(ABC1600_MAC_TAG, FUNC(abc1600_mac_device::dmamap_w));
-	map(0x1ffe00, 0x1ffe00).mirror(0xff).w(FUNC(abc1600_state::spec_contr_reg_w));
+	map(0x1ffe00, 0x1ffe00).mirror(0xff).w("spec_contr_reg", FUNC(ls259_device::write_nibble_d3));
 }
 
 
@@ -501,11 +534,29 @@ void abc1600_state::mac_mem(address_map &map)
 //**************************************************************************
 
 //-------------------------------------------------
+//  INPUT_CHANGED_MEMBER( reset )
+//-------------------------------------------------
+
+INPUT_CHANGED_MEMBER( abc1600_state::reset )
+{
+	if (!oldval && newval)
+	{
+		machine_reset();
+	}
+
+	m_mac->rstbut_w(newval);
+}
+
+
+//-------------------------------------------------
 //  INPUT_PORTS( abc1600 )
 //-------------------------------------------------
 
 static INPUT_PORTS_START( abc1600 )
-	// inputs defined in machine/abc99.cpp
+	// keyboard inputs defined in machine/abc99.cpp
+
+	PORT_START("RESET")
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_OTHER ) PORT_NAME("Reset") PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(abc1600_state::reset), 0)
 INPUT_PORTS_END
 
 
@@ -517,6 +568,17 @@ INPUT_PORTS_END
 //-------------------------------------------------
 //  Z80DMA 0
 //-------------------------------------------------
+
+void abc1600_state::update_br()
+{
+	// _BR = !_DMADIS || (_DBRQ0 || _DBRQ1 || _DBRQ2)
+	// _IOC = IORQ delayed by 1 clock, or IORQ preceded by 1 clock on MINT2 or MINT5
+	// _BGACK = !_BR && !_BG && _IOC
+	// DMA0.BAI = _BGACK
+
+	// workaround for floppy DMA, this should use the 68000 BR line instead
+	m_dma0->bai_w(!m_dmadis || m_dbrq0 || m_dbrq1 || m_dbrq2);
+}
 
 void abc1600_state::update_pren0(int state)
 {
@@ -550,10 +612,6 @@ void abc1600_state::update_drdy0(int state)
 	}
 }
 
-WRITE_LINE_MEMBER( abc1600_state::dbrq_w )
-{
-	m_maincpu->set_input_line(INPUT_LINE_HALT, state && m_dmadis);
-}
 
 //-------------------------------------------------
 //  Z80DMA 1
@@ -752,7 +810,7 @@ void abc1600_state::cio_pc_w(uint8_t data)
 	int rtc_cs = BIT(data, 2);
 	int nvram_cs = BIT(data, 3);
 
-	if (LOG) logerror("CLK %u DATA %u RTC %u NVRAM %u\n", clock, data_out, rtc_cs, nvram_cs);
+	LOG("CLK %u DATA %u RTC %u NVRAM %u\n", clock, data_out, rtc_cs, nvram_cs);
 
 	m_rtc->cs_w(rtc_cs);
 	m_rtc->dio_w(data_out);
@@ -780,21 +838,13 @@ void abc1600_state::floppy_formats(format_registration &fr)
 //  ABC1600BUS_INTERFACE( abcbus_intf )
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER( abc1600_state::nmi_w )
+void abc1600_state::nmi_w(int state)
 {
 	if (state == ASSERT_LINE)
 	{
 		m_maincpu->set_input_line(M68K_IRQ_7, ASSERT_LINE);
 	}
 }
-
-void abc1600_state::buserr_w(offs_t offset, uint8_t data)
-{
-	m_maincpu->set_buserror_details(offset, data, m_maincpu->get_fc());
-	m_maincpu->set_input_line(M68K_LINE_BUSERROR, ASSERT_LINE);
-	m_maincpu->set_input_line(M68K_LINE_BUSERROR, CLEAR_LINE);
-}
-
 
 
 //**************************************************************************
@@ -815,6 +865,9 @@ void abc1600_state::machine_start()
 	save_item(NAME(m_dmadis));
 	save_item(NAME(m_sysscc));
 	save_item(NAME(m_sysfs));
+	save_item(NAME(m_dbrq0));
+	save_item(NAME(m_dbrq1));
+	save_item(NAME(m_dbrq2));
 	save_item(NAME(m_cs7));
 	save_item(NAME(m_bus0));
 	save_item(NAME(m_csb));
@@ -829,12 +882,6 @@ void abc1600_state::machine_start()
 
 void abc1600_state::machine_reset()
 {
-	// clear special control register
-	for (int i = 0; i < 8; i++)
-	{
-		spec_contr_reg_w(i);
-	}
-
 	// clear floppy registers
 	fw0_w(0);
 	fw1_w(0);
@@ -859,6 +906,7 @@ void abc1600_state::abc1600(machine_config &config)
 	M68008(config, m_maincpu, 64_MHz_XTAL / 8);
 	m_maincpu->set_addrmap(AS_PROGRAM, &abc1600_state::abc1600_mem);
 	m_maincpu->set_addrmap(m68000_base_device::AS_CPU_SPACE, &abc1600_state::cpu_space_map);
+	//m_maincpu->out_bg_callback().set(FUNC(abc1600_state::bg_w));
 
 	// video hardware
 	ABC1600_MOVER(config, ABC1600_MOVER_TAG, 0);
@@ -866,8 +914,7 @@ void abc1600_state::abc1600(machine_config &config)
 	// devices
 	ABC1600_MAC(config, m_mac, 0);
 	m_mac->set_addrmap(AS_PROGRAM, &abc1600_state::mac_mem);
-	m_mac->fc_cb().set(m_maincpu, FUNC(m68000_base_device::get_fc));
-	m_mac->buserr_cb().set(FUNC(abc1600_state::buserr_w));
+	m_mac->set_cpu(m_maincpu);
 	m_mac->in_tren0_cb().set(m_bus0i, FUNC(abcbus_slot_device::read_tren)); // TODO bus0x
 	m_mac->out_tren0_cb().set(m_bus0i, FUNC(abcbus_slot_device::write_tren)); // TODO bus0x
 	m_mac->in_tren1_cb().set(m_bus1, FUNC(abcbus_slot_device::read_tren));
@@ -875,18 +922,26 @@ void abc1600_state::abc1600(machine_config &config)
 	m_mac->in_tren2_cb().set(m_bus2, FUNC(abcbus_slot_device::read_tren));
 	m_mac->out_tren2_cb().set(m_bus2, FUNC(abcbus_slot_device::write_tren));
 
+	ls259_device &spec_contr_reg(LS259(config, "spec_contr_reg")); // Special Control Register @ 13E
+	spec_contr_reg.q_out_cb<0>().set(FUNC(abc1600_state::cs7_w));
+	spec_contr_reg.q_out_cb<2>().set(FUNC(abc1600_state::btce_w));
+	spec_contr_reg.q_out_cb<3>().set(FUNC(abc1600_state::atce_w));
+	spec_contr_reg.q_out_cb<4>().set(m_mac, FUNC(abc1600_mac_device::partst_w));
+	spec_contr_reg.q_out_cb<5>().set(FUNC(abc1600_state::dmadis_w));
+	spec_contr_reg.q_out_cb<6>().set(FUNC(abc1600_state::sysscc_w));
+	spec_contr_reg.q_out_cb<7>().set(FUNC(abc1600_state::sysfs_w));
+
 	Z80DMA(config, m_dma0, 64_MHz_XTAL / 16);
-	m_dma0->out_busreq_callback().set(FUNC(abc1600_state::dbrq_w));
+	m_dma0->out_busreq_callback().set(FUNC(abc1600_state::dbrq0_w));
 	m_dma0->out_bao_callback().set(m_dma1, FUNC(z80dma_device::bai_w));
 	m_dma0->in_mreq_callback().set(m_mac, FUNC(abc1600_mac_device::dma0_mreq_r));
 	m_dma0->out_mreq_callback().set(m_mac, FUNC(abc1600_mac_device::dma0_mreq_w));
-	m_dma0->out_ieo_callback().set(m_bus0i, FUNC(abcbus_slot_device::prac_w)).exor(1);
-	//m_dma0->out_ieo_callback().set(m_bus0x, FUNC(abcbus_slot_device::prac_w)).exor(1);
+	m_dma0->out_ieo_callback().set([this](int state) { m_bus0i->prac_w(state); m_bus0x->prac_w(state); }).exor(1);
 	m_dma0->in_iorq_callback().set(m_mac, FUNC(abc1600_mac_device::dma0_iorq_r));
 	m_dma0->out_iorq_callback().set(m_mac, FUNC(abc1600_mac_device::dma0_iorq_w));
 
 	Z80DMA(config, m_dma1, 64_MHz_XTAL / 16);
-	m_dma1->out_busreq_callback().set(FUNC(abc1600_state::dbrq_w));
+	m_dma1->out_busreq_callback().set(FUNC(abc1600_state::dbrq1_w));
 	m_dma1->out_bao_callback().set(m_dma2, FUNC(z80dma_device::bai_w));
 	m_dma1->in_mreq_callback().set(m_mac, FUNC(abc1600_mac_device::dma1_mreq_r));
 	m_dma1->out_mreq_callback().set(m_mac, FUNC(abc1600_mac_device::dma1_mreq_w));
@@ -895,7 +950,7 @@ void abc1600_state::abc1600(machine_config &config)
 	m_dma1->out_iorq_callback().set(m_mac, FUNC(abc1600_mac_device::dma1_iorq_w));
 
 	Z80DMA(config, m_dma2, 64_MHz_XTAL / 16);
-	m_dma2->out_busreq_callback().set(FUNC(abc1600_state::dbrq_w));
+	m_dma2->out_busreq_callback().set(FUNC(abc1600_state::dbrq2_w));
 	m_dma2->in_mreq_callback().set(m_mac, FUNC(abc1600_mac_device::dma2_mreq_r));
 	m_dma2->out_mreq_callback().set(m_mac, FUNC(abc1600_mac_device::dma2_mreq_w));
 	m_dma2->out_ieo_callback().set(m_bus2, FUNC(abcbus_slot_device::prac_w)).exor(1);
@@ -919,7 +974,7 @@ void abc1600_state::abc1600(machine_config &config)
 	//rs232pr.rts_handler().set(m_dart, FUNC(z80dart_device::ctsa_w));
 	//rs232pr.dtr_handler().set(m_dart, FUNC(z80dart_device::dcda_w));
 
-	SCC8530N(config, m_scc, 64_MHz_XTAL / 16);
+	SCC8530(config, m_scc, 64_MHz_XTAL / 16);
 	m_scc->out_int_callback().set(FUNC(abc1600_state::scc_irq_w));
 	m_scc->out_wreqa_callback().set(FUNC(abc1600_state::sccrq_a_w));
 	m_scc->out_wreqb_callback().set(FUNC(abc1600_state::sccrq_b_w));
@@ -952,15 +1007,16 @@ void abc1600_state::abc1600(machine_config &config)
 
 	NMC9306(config, m_nvram, 0);
 
-	E0516(config, E050_C16PC_TAG, 32.768_kHz_XTAL);
+	E0516(config, m_rtc, 32.768_kHz_XTAL);
+	m_rtc->outsel_rd_cb().set_constant(0);
 
-	FD1797(config, m_fdc, 64_MHz_XTAL / 64);
+	FD1797(config, m_fdc, 64_MHz_XTAL / 64); // clocked by 9229B
 	m_fdc->intrq_wr_callback().set(m_cio, FUNC(z8536_device::pb7_w));
 	m_fdc->drq_wr_callback().set(FUNC(abc1600_state::update_drdy0));
 
-	FLOPPY_CONNECTOR(config, SAB1797_02P_TAG":0", abc1600_floppies, nullptr, abc1600_state::floppy_formats).enable_sound(true);
-	FLOPPY_CONNECTOR(config, SAB1797_02P_TAG":1", abc1600_floppies, nullptr, abc1600_state::floppy_formats).enable_sound(true);
-	FLOPPY_CONNECTOR(config, SAB1797_02P_TAG":2", abc1600_floppies, "525qd", abc1600_state::floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy[0], abc1600_floppies, nullptr, abc1600_state::floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy[1], abc1600_floppies, nullptr, abc1600_state::floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy[2], abc1600_floppies, "525qd", abc1600_state::floppy_formats).enable_sound(true);
 
 	ABCBUS_SLOT(config, m_bus0i, 64_MHz_XTAL / 16, abc1600bus_cards, nullptr);
 	m_bus0i->irq_callback().set(m_cio, FUNC(z8536_device::pa7_w));
@@ -992,6 +1048,7 @@ void abc1600_state::abc1600(machine_config &config)
 
 	// software list
 	SOFTWARE_LIST(config, "flop_list").set_original("abc1600_flop");
+	SOFTWARE_LIST(config, "hdd_list").set_original("abc1600_hdd");
 }
 
 
@@ -1012,6 +1069,9 @@ ROM_START( abc1600 )
 	ROM_LOAD( "1024 6490353-01.12e", 0x514, 0x104, CRC(67f1328a) SHA1(b585495fe14a7ae2fbb29f722dca106d59325002) ) // X36 CHANNEL SELECT TIMER
 	ROM_LOAD( "1025 6490354-01.6e",  0x618, 0x104, CRC(9bda0468) SHA1(ad373995dcc18532274efad76fa80bd13c23df25) ) // X36 Z80A-DMA INTERFACER
 	ROM_LOAD( "1031", 0x71c, 0x144, CRC(0aedc9fc) SHA1(2cbbc7d5cb16b410d296062feb77ed26ff01af24) ) // NS32081 IN ABC1600
+
+	ROM_REGION( 0x20, NMC9306_TAG, 0 )
+	ROM_LOAD( "nmc9306.14c", 0x00, 0x20, CRC(1cb59b6e) SHA1(3c955a667034db86fa1b848f0c0317157a3a48f6) )
 ROM_END
 
 

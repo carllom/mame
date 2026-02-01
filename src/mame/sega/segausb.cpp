@@ -234,7 +234,7 @@ void usb_sound_device::data_w(u8 data)
 	machine().scheduler().synchronize(timer_expired_delegate(FUNC(usb_sound_device::delayed_usb_data_w), this), data);
 
 	// boost the interleave so that sequences can be sent
-	machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(250));
+	machine().scheduler().perfect_quantum(attotime::from_usec(250));
 }
 
 
@@ -299,7 +299,7 @@ void usb_sound_device::p2_w(u8 data)
 }
 
 
-READ_LINE_MEMBER( usb_sound_device::t1_r )
+int usb_sound_device::t1_r()
 {
 	// T1 returns 1 based on the value of the T1 clock; the exact
 	// pattern is determined by one or more jumpers on the board.
@@ -454,12 +454,10 @@ void usb_sound_device::env_w(int which, u8 offset, u8 data)
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
-void usb_sound_device::sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs)
+void usb_sound_device::sound_stream_update(sound_stream &stream)
 {
-	auto &dest = outputs[0];
-
 	// iterate over samples
-	for (int sampindex = 0; sampindex < dest.samples(); sampindex++)
+	for (int sampindex = 0; sampindex < stream.samples(); sampindex++)
 	{
 		/*----------------
 		    Noise Source
@@ -590,7 +588,7 @@ void usb_sound_device::sound_stream_update(sound_stream &stream, std::vector<rea
 		  WEIGHT
 
 		*/
-		dest.put(sampindex, 0.1 * m_final_filter.step_cr(sample));
+		stream.put(0, sampindex, 0.1 * m_final_filter.step_cr(sample));
 	}
 }
 

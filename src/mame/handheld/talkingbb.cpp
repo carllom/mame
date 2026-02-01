@@ -1,7 +1,7 @@
 // license:BSD-3-Clause
 // copyright-holders:hap
 // thanks-to:Kevin Horton
-/******************************************************************************
+/*******************************************************************************
 
 Parker Brothers Starting Lineup Talking Baseball
 
@@ -22,11 +22,8 @@ Players enter a 3-digit code to select the team.
 
 TODO:
 - add cartridge slots
-- Buttons are unresponsive at initial game setup, you need to hold the yes/no button
-  until it responds. The keypad reading routine is at $1A5D, it gets skipped for several
-  seconds at a time. Once in-game, everything is fine though. BTANB or different cause?
 
-*******************************************************************************
+********************************************************************************
 
 Field positions (used when substituting):
 
@@ -101,12 +98,14 @@ Substitutes:
 #28: Fernando Valenzuela, P
 #27: Todd Worrell, P
 
-******************************************************************************/
+*******************************************************************************/
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
-#include "video/pwm.h"
+
+#include "cpu/mcs51/i80c51.h"
 #include "sound/dac.h"
+#include "video/pwm.h"
+
 #include "speaker.h"
 
 // internal artwork
@@ -129,7 +128,7 @@ public:
 	void talkingbb(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 private:
 	// devices/pointers
@@ -138,11 +137,11 @@ private:
 	required_device<pwm_display_device> m_display;
 	required_ioport_array<5> m_inputs;
 
-	void main_map(address_map &map);
-	void main_io(address_map &map);
-
 	u8 m_bank = 0;
 	u8 m_inp_mux = 0;
+
+	void main_map(address_map &map) ATTR_COLD;
+	void main_data(address_map &map) ATTR_COLD;
 
 	// I/O handlers
 	void bank_w(u8 data);
@@ -161,9 +160,9 @@ void talkingbb_state::machine_start()
 
 
 
-/******************************************************************************
+/*******************************************************************************
     I/O
-******************************************************************************/
+*******************************************************************************/
 
 void talkingbb_state::bank_w(u8 data)
 {
@@ -219,9 +218,9 @@ u8 talkingbb_state::switch_r()
 
 
 
-/******************************************************************************
+/*******************************************************************************
     Address Maps
-******************************************************************************/
+*******************************************************************************/
 
 void talkingbb_state::main_map(address_map &map)
 {
@@ -229,7 +228,7 @@ void talkingbb_state::main_map(address_map &map)
 	map(0x8000, 0xffff).r(FUNC(talkingbb_state::bank_r));
 }
 
-void talkingbb_state::main_io(address_map &map)
+void talkingbb_state::main_data(address_map &map)
 {
 	map(0x0000, 0x07ff).mirror(0x7800).ram();
 	map(0x8000, 0x8000).mirror(0x7fff).rw(FUNC(talkingbb_state::input_r), FUNC(talkingbb_state::input_w));
@@ -237,9 +236,9 @@ void talkingbb_state::main_io(address_map &map)
 
 
 
-/******************************************************************************
+/*******************************************************************************
     Input Ports
-******************************************************************************/
+*******************************************************************************/
 
 /* keypad layout:        **** P1 = Batter ****  |  **** P2 = Pitcher ****
                                                 |
@@ -305,25 +304,25 @@ INPUT_PORTS_END
 
 
 
-/******************************************************************************
+/*******************************************************************************
     Machine Configs
-******************************************************************************/
+*******************************************************************************/
 
 void talkingbb_state::talkingbb(machine_config &config)
 {
-	/* basic machine hardware */
+	// basic machine hardware
 	I80C31(config, m_maincpu, 12_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &talkingbb_state::main_map);
-	m_maincpu->set_addrmap(AS_IO, &talkingbb_state::main_io);
+	m_maincpu->set_addrmap(AS_DATA, &talkingbb_state::main_data);
 	m_maincpu->port_out_cb<1>().set("dac", FUNC(dac_8bit_r2r_device::write));
 	m_maincpu->port_out_cb<3>().set(FUNC(talkingbb_state::bank_w));
 	m_maincpu->port_in_cb<3>().set(FUNC(talkingbb_state::switch_r));
 
-	/* video hardware */
+	// video hardware
 	PWM_DISPLAY(config, m_display).set_size(4, 3);
 	config.set_default_layout(layout_talkingbb);
 
-	/* sound hardware */
+	// sound hardware
 	SPEAKER(config, "speaker").front_center();
 	DAC_8BIT_R2R(config, "dac").add_route(ALL_OUTPUTS, "speaker", 0.5);
 }
@@ -347,5 +346,5 @@ ROM_END
     Drivers
 ******************************************************************************/
 
-//    YEAR  NAME        PARENT CMP MACHINE    INPUT      CLASS            INIT        COMPANY, FULLNAME, FLAGS
-CONS( 1988, talkingbb,  0,      0, talkingbb, talkingbb, talkingbb_state, empty_init, "Parker Brothers", "Starting Lineup Talking Baseball", MACHINE_SUPPORTS_SAVE )
+//    YEAR  NAME        PARENT  COMPAT  MACHINE    INPUT      CLASS            INIT        COMPANY, FULLNAME, FLAGS
+SYST( 1988, talkingbb,  0,      0,      talkingbb, talkingbb, talkingbb_state, empty_init, "Parker Brothers", "Starting Lineup Talking Baseball", MACHINE_SUPPORTS_SAVE )

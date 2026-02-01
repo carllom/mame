@@ -13,7 +13,7 @@
  */
 
 #include "emu.h"
-#include "machine/wd7600.h"
+#include "wd7600.h"
 
 #define VERBOSE 1
 #include "logmacro.h"
@@ -81,7 +81,7 @@ void wd7600_device::device_add_mconfig(machine_config & config)
 
 wd7600_device::wd7600_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, WD7600, tag, owner, clock),
-	m_read_ior(*this),
+	m_read_ior(*this, 0),
 	m_write_iow(*this),
 	m_write_tc(*this),
 	m_write_hold(*this),
@@ -100,7 +100,6 @@ wd7600_device::wd7600_device(const machine_config &mconfig, const char *tag, dev
 	m_keybc(*this, finder_base::DUMMY_TAG),
 	m_ram(*this, finder_base::DUMMY_TAG),
 	m_bios(*this, finder_base::DUMMY_TAG),
-	m_isa(*this, finder_base::DUMMY_TAG),
 	m_portb(0x0f),
 	m_iochck(1),
 	m_nmi_mask(1),
@@ -121,17 +120,6 @@ void wd7600_device::device_start()
 	if (!m_ram->started())
 		throw device_missing_dependencies();
 
-	// resolve callbacks
-	m_read_ior.resolve_safe(0);
-	m_write_iow.resolve_safe();
-	m_write_tc.resolve_safe();
-	m_write_hold.resolve_safe();
-	m_write_nmi.resolve_safe();
-	m_write_intr.resolve_safe();
-	m_write_cpureset.resolve_safe();
-	m_write_a20m.resolve_safe();
-	m_write_spkr.resolve_safe();
-
 	m_space = &m_cpu->space(AS_PROGRAM);
 	m_space_io = &m_cpu->space(AS_IO);
 
@@ -146,14 +134,14 @@ void wd7600_device::device_start()
 	// install video BIOS (we should use the VGA BIOS at the beginning of the system BIOS ROM, but that gives a
 	// blank display (but still runs))
 	//m_space->install_rom(0x000c0000, 0x000cffff, &m_bios[0x00000]);
-	m_space->install_rom(0x000c0000, 0x000cffff, m_isa);
+	//m_space->install_rom(0x000c0000, 0x000cffff, m_isa);
 
 	// install BIOS ROM at cpu initial pc
-	m_space->install_rom(0x000f0000, 0x000fffff, &m_bios[0x10000]);
+	m_space->install_rom(0x000e0000, 0x000fffff, &m_bios[0x00000]);
 	if(m_space->addrmask() == 0xffffffff)  // 32-bit address space only
-		m_space->install_rom(0xffff0000, 0xffffffff, &m_bios[0x10000]);
+		m_space->install_rom(0xfffe0000, 0xffffffff, &m_bios[0x00000]);
 	else
-		m_space->install_rom(0x00ff0000, 0x00ffffff, &m_bios[0x10000]);
+		m_space->install_rom(0x00fe0000, 0x00ffffff, &m_bios[0x00000]);
 
 	// install i/o accesses
 	if (m_space_io->data_width() == 16)
@@ -165,7 +153,8 @@ void wd7600_device::device_start()
 		m_space_io->install_readwrite_handler(0x0060, 0x0061, read8smo_delegate(*this, FUNC(wd7600_device::keyb_data_r)), write8smo_delegate(*this, FUNC(wd7600_device::keyb_data_w)), 0x00ff);
 		m_space_io->install_readwrite_handler(0x0060, 0x0061, read8smo_delegate(*this, FUNC(wd7600_device::portb_r)), write8smo_delegate(*this, FUNC(wd7600_device::portb_w)), 0xff00);
 		m_space_io->install_readwrite_handler(0x0064, 0x0065, read8smo_delegate(*this, FUNC(wd7600_device::keyb_status_r)), write8smo_delegate(*this, FUNC(wd7600_device::keyb_cmd_w)), 0x00ff);
-		m_space_io->install_readwrite_handler(0x0070, 0x007f, read8sm_delegate(*m_rtc, FUNC(mc146818_device::read)), write8sm_delegate(*this, FUNC(wd7600_device::rtc_w)), 0xffff);
+		m_space_io->install_write_handler(0x0070, 0x007f, write8smo_delegate(*this, FUNC(wd7600_device::rtc_nmi_w)), 0x00ff);
+		m_space_io->install_readwrite_handler(0x0070, 0x007f, read8smo_delegate(*m_rtc, FUNC(mc146818_device::data_r)), write8smo_delegate(*m_rtc, FUNC(mc146818_device::data_w)), 0xff00);
 		m_space_io->install_readwrite_handler(0x0080, 0x008f, read8sm_delegate(*this, FUNC(wd7600_device::dma_page_r)), write8sm_delegate(*this, FUNC(wd7600_device::dma_page_w)), 0xffff);
 		m_space_io->install_readwrite_handler(0x0092, 0x0093, read8smo_delegate(*this, FUNC(wd7600_device::a20_reset_r)), write8smo_delegate(*this, FUNC(wd7600_device::a20_reset_w)), 0x00ff);
 		m_space_io->install_readwrite_handler(0x00a0, 0x00a3, read8sm_delegate(*m_pic2, FUNC(pic8259_device::read)), write8sm_delegate(*m_pic2, FUNC(pic8259_device::write)), 0xffff);
@@ -187,7 +176,8 @@ void wd7600_device::device_start()
 		m_space_io->install_readwrite_handler(0x0060, 0x0063, read8smo_delegate(*this, FUNC(wd7600_device::keyb_data_r)), write8smo_delegate(*this, FUNC(wd7600_device::keyb_data_w)), 0x000000ff);
 		m_space_io->install_readwrite_handler(0x0060, 0x0063, read8smo_delegate(*this, FUNC(wd7600_device::portb_r)), write8smo_delegate(*this, FUNC(wd7600_device::portb_w)), 0x0000ff00);
 		m_space_io->install_readwrite_handler(0x0064, 0x0067, read8smo_delegate(*this, FUNC(wd7600_device::keyb_status_r)), write8smo_delegate(*this, FUNC(wd7600_device::keyb_cmd_w)), 0x000000ff);
-		m_space_io->install_readwrite_handler(0x0070, 0x007f, read8sm_delegate(*m_rtc, FUNC(mc146818_device::read)), write8sm_delegate(*this, FUNC(wd7600_device::rtc_w)), 0x0000ffff);
+		m_space_io->install_write_handler(0x0070, 0x007f, write8smo_delegate(*this, FUNC(wd7600_device::rtc_nmi_w)), 0x000000ff);
+		m_space_io->install_readwrite_handler(0x0070, 0x007f, read8smo_delegate(*m_rtc, FUNC(mc146818_device::data_r)), write8smo_delegate(*m_rtc, FUNC(mc146818_device::data_w)), 0x0000ff00);
 		m_space_io->install_readwrite_handler(0x0080, 0x008f, read8sm_delegate(*this, FUNC(wd7600_device::dma_page_r)), write8sm_delegate(*this, FUNC(wd7600_device::dma_page_w)), 0xffffffff);
 		m_space_io->install_readwrite_handler(0x0090, 0x0093, read8smo_delegate(*this, FUNC(wd7600_device::a20_reset_r)), write8smo_delegate(*this, FUNC(wd7600_device::a20_reset_w)), 0x00ff0000);
 		m_space_io->install_readwrite_handler(0x00a0, 0x00a3, read8sm_delegate(*m_pic2, FUNC(pic8259_device::read)), write8sm_delegate(*m_pic2, FUNC(pic8259_device::write)), 0x0000ffff);
@@ -219,7 +209,7 @@ void wd7600_device::device_reset()
 }
 
 
-WRITE_LINE_MEMBER( wd7600_device::iochck_w )
+void wd7600_device::iochck_w(int state)
 {
 	if (BIT(m_portb, 3) == 0)
 	{
@@ -255,15 +245,12 @@ void wd7600_device::keyboard_gatea20(int state)
 	a20m();
 }
 
-void wd7600_device::rtc_w(offs_t offset, uint8_t data)
+void wd7600_device::rtc_nmi_w(uint8_t data)
 {
-	if (offset == 0)
-	{
-		m_nmi_mask = !BIT(data, 7);
-		data &= 0x7f;
-	}
+	m_nmi_mask = !BIT(data, 7);
+	data &= 0x7f;
 
-	m_rtc->write(offset, data);
+	m_rtc->address_w(data);
 }
 
 uint8_t wd7600_device::pic1_slave_ack_r(offs_t offset)
@@ -275,13 +262,13 @@ uint8_t wd7600_device::pic1_slave_ack_r(offs_t offset)
 }
 
 // Timer outputs
-WRITE_LINE_MEMBER( wd7600_device::ctc_out1_w )
+void wd7600_device::ctc_out1_w(int state)
 {
 	m_refresh_toggle ^= state;
 	m_portb = (m_portb & 0xef) | (m_refresh_toggle << 4);
 }
 
-WRITE_LINE_MEMBER( wd7600_device::ctc_out2_w )
+void wd7600_device::ctc_out2_w(int state)
 {
 	m_write_spkr(!(state));
 	m_portb = (m_portb & 0xdf) | (state << 5);
@@ -387,12 +374,12 @@ void wd7600_device::dma_write_word(offs_t offset, uint8_t data)
 	m_space->write_word((page_offset() & 0xfe0000) | (offset << 1), (m_dma_high_byte << 8) | data);
 }
 
-WRITE_LINE_MEMBER( wd7600_device::dma2_dack0_w )
+void wd7600_device::dma2_dack0_w(int state)
 {
 	m_dma1->hack_w(state ? 0 : 1); // inverted?
 }
 
-WRITE_LINE_MEMBER( wd7600_device::dma1_eop_w )
+void wd7600_device::dma1_eop_w(int state)
 {
 	m_dma_eop = state;
 	if (m_dma_channel != -1)
@@ -420,12 +407,12 @@ void wd7600_device::set_dma_channel(int channel, bool state)
 	}
 }
 
-WRITE_LINE_MEMBER( wd7600_device::gatea20_w )
+void wd7600_device::gatea20_w(int state)
 {
 	keyboard_gatea20(state);
 }
 
-WRITE_LINE_MEMBER( wd7600_device::kbrst_w )
+void wd7600_device::kbrst_w(int state)
 {
 	// convert to active low signal (gets inverted in at_keybc.c)
 	state = (state == ASSERT_LINE ? 0 : 1);

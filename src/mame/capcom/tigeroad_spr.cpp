@@ -51,6 +51,7 @@ void tigeroad_spr_device::device_reset()
 {
 }
 
+
 /*
    4  words per sprite
 
@@ -65,7 +66,6 @@ void tigeroad_spr_device::device_reset()
    3  ---- ---y yyyy yyyy = y pos (signed)
 
 */
-
 
 void tigeroad_spr_device::draw_sprites(bitmap_ind16 &bitmap, const rectangle &cliprect, u16* ram, u32 size, bool flip_screen, bool rev_y)
 {
@@ -102,7 +102,7 @@ void tigeroad_spr_device::draw_sprites(bitmap_ind16 &bitmap, const rectangle &cl
 		tile_number,
 		color,
 		flipx, flipy,
-		sx+128, sy+6, 15);
+		sx, sy, 15);
 
 		source -= 4;
 	}

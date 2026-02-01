@@ -6,8 +6,8 @@
 
 ***************************************************************************/
 
-#ifndef MAME_INCLUDES_CPS1_H
-#define MAME_INCLUDES_CPS1_H
+#ifndef MAME_CAPCOM_CPS1_H
+#define MAME_CAPCOM_CPS1_H
 
 #pragma once
 
@@ -18,7 +18,6 @@
 #include "machine/timer.h"
 #include "sound/msm5205.h"
 #include "sound/okim6295.h"
-#include "sound/qsound.h"
 
 #include "emupal.h"
 #include "screen.h"
@@ -148,13 +147,14 @@ public:
 	void varthb2(machine_config &config);
 	void varthb3(machine_config &config);
 
-	void init_cps1();
+	void init_cps1mult();
 	void init_sf2ee();
 	void init_wof();
 	void init_dino();
 	void init_punisher();
 	void init_slammast();
 	void init_pang3();
+	void init_rasters();
 	void init_ganbare();
 	void init_pang3b();
 	void init_pang3b4();
@@ -215,30 +215,33 @@ protected:
 	TILE_GET_INFO_MEMBER(get_tile0_info);
 	TILE_GET_INFO_MEMBER(get_tile1_info);
 	TILE_GET_INFO_MEMBER(get_tile2_info);
-	virtual void video_start() override;
+	virtual void video_start() override ATTR_COLD;
 
 	INTERRUPT_GEN_MEMBER(cps1_interrupt);
-	TIMER_DEVICE_CALLBACK_MEMBER(ganbare_interrupt);
+	TIMER_DEVICE_CALLBACK_MEMBER(raster_scanline);
+	TIMER_CALLBACK_MEMBER(raster_irq);
+	uint16_t irqack_r(offs_t offset);
 
 	virtual void render_layers(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	uint32_t screen_update_cps1(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
-	DECLARE_WRITE_LINE_MEMBER(screen_vblank_cps1);
+	void screen_vblank_cps1(int state);
+	void cps1_objram_latch(int state);
 
 	void kabuki_setup(void (*decode)(uint8_t *src, uint8_t *dst));
 
 	/* maps */
-	void cpu_space_map(address_map &map);
-	void main_map(address_map &map);
-	void forgottn_map(address_map &map);
-	void qsound_main_map(address_map &map);
-	void qsound_decrypted_opcodes_map(address_map &map);
-	void sub_map(address_map &map);
-	void qsound_sub_map(address_map &map);
-	void sf2m3_map(address_map &map);
-	void sf2cems6_map(address_map &map);
-	void sf2m10_map(address_map &map);
-	void varthb2_map(address_map &map);
-	void varthb3_map(address_map &map);
+	void main_map(address_map &map) ATTR_COLD;
+	void cpu_space_map(address_map &map) ATTR_COLD;
+	void forgottn_map(address_map &map) ATTR_COLD;
+	void qsound_main_map(address_map &map) ATTR_COLD;
+	void qsound_decrypted_opcodes_map(address_map &map) ATTR_COLD;
+	void sub_map(address_map &map) ATTR_COLD;
+	void qsound_sub_map(address_map &map) ATTR_COLD;
+	void sf2m3_map(address_map &map) ATTR_COLD;
+	void sf2cems6_map(address_map &map) ATTR_COLD;
+	void sf2m10_map(address_map &map) ATTR_COLD;
+	void varthb2_map(address_map &map) ATTR_COLD;
+	void varthb3_map(address_map &map) ATTR_COLD;
 
 	// game-specific
 	uint16_t m_sf2ceblp_prot = 0;
@@ -246,9 +249,9 @@ protected:
 
 	/* video-related */
 	tilemap_t *m_bg_tilemap[3]{};
-	int m_scanline1 = 0;
-	int m_scanline2 = 0;
-	int m_scancalls = 0;
+	uint16_t m_raster_counter[3]{};
+	uint16_t m_raster_reload[3]{};
+	emu_timer *m_raster_irq = nullptr;
 
 	int m_scroll1x = 0;
 	int m_scroll1y = 0;
@@ -333,4 +336,4 @@ INPUT_PORTS_EXTERN( varth );
 INPUT_PORTS_EXTERN( captcomm );
 INPUT_PORTS_EXTERN( wof );
 
-#endif // MAME_INCLUDES_CPS1_H
+#endif // MAME_CAPCOM_CPS1_H

@@ -1,7 +1,7 @@
 // license:BSD-3-Clause
 // copyright-holders:Bryan McPhail, Acho A. Tang, Nicola Salmoria
-#ifndef MAME_VIDEO_SNK68_SPR_H
-#define MAME_VIDEO_SNK68_SPR_H
+#ifndef MAME_SHARED_SNK68_SPR_H
+#define MAME_SHARED_SNK68_SPR_H
 
 #pragma once
 
@@ -32,8 +32,8 @@ public:
 	void set_flip(bool flip);
 
 protected:
-	virtual void device_start() override;
-	virtual void device_reset() override;
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 
 private:
 	tile_indirection_delegate m_newtilecb;
@@ -42,11 +42,11 @@ private:
 	required_device<screen_device> m_screen;
 	bool m_flipscreen;
 	int m_partialupdates; // the original hardware needs this, the cloned hardware does not.
-	u8  m_xpos_shift = 0;
-	u16 m_color_entry_mask = 0;
+	u8 m_xpos_shift;
+	u16 m_color_entry_mask;
 };
 
 
 DECLARE_DEVICE_TYPE(SNK68_SPR, snk68_spr_device)
 
-#endif // MAME_VIDEO_SNK68_SPR_H
+#endif // MAME_SHARED_SNK68_SPR_H

@@ -15,7 +15,6 @@
 
 #include "cpu/drcfe.h"
 #include "cpu/drcuml.h"
-#include "cpu/drcumlsh.h"
 
 
 //**************************************************************************
@@ -74,8 +73,8 @@ public:
 
 protected:
 	// device-level overrides
-	virtual void device_start() override;
-	virtual void device_reset() override;
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 
 	// device_execute_interface overrides
 	virtual uint32_t execute_min_cycles() const noexcept override;
@@ -93,8 +92,8 @@ protected:
 	// device_disasm_interface overrides
 	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
 
-	void code_map(address_map &map);
-	void data_map(address_map &map);
+	void code_map(address_map &map) ATTR_COLD;
+	void data_map(address_map &map) ATTR_COLD;
 
 	enum
 	{
@@ -243,7 +242,9 @@ private:
 
 		// External control registers
 		uint32_t    m_dspx_control;
-	} * m_core;
+	};
+	dspp_internal_state* m_core;
+	dspp_internal_state m_local_core; // for non-DRC mode
 
 	// DMA
 	struct fifo_dma
@@ -319,7 +320,7 @@ private:
 	};
 
 public: // TODO
-	void alloc_handle(drcuml_state *drcuml, uml::code_handle **handleptr, const char *name);
+	void alloc_handle(uml::code_handle **handleptr, const char *name);
 	void load_fast_iregs(drcuml_block &block);
 	void save_fast_iregs(drcuml_block &block);
 //  void arm7_drc_init();

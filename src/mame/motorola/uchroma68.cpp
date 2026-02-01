@@ -125,12 +125,14 @@ expansion.
 #include "machine/timer.h"
 #include "video/mc6847.h"
 #include "imagedev/cassette.h"
-#include "sound/wave.h"
 #include "speaker.h"
 
 #include "machine/terminal.h"
 #include "video/mc6845.h"
 #include "screen.h"
+
+
+namespace {
 
 #define XTAL_UCHROMA68 3.579545_MHz_XTAL
 
@@ -154,10 +156,10 @@ public:
 	void uchroma68(machine_config &config);
 
 private:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
-	void uchroma68_mem(address_map &map);
+	void uchroma68_mem(address_map &map) ATTR_COLD;
 
 	TIMER_CALLBACK_MEMBER(kbd_strobe);
 
@@ -172,11 +174,11 @@ private:
 	bool m_video_inv;
 
 	TIMER_DEVICE_CALLBACK_MEMBER(kansas_r);
-	DECLARE_WRITE_LINE_MEMBER(kansas_w);
+	void kansas_w(int state);
 
 	required_device<cpu_device> m_maincpu;
 	required_device<mc6846_device> m_mc6846;
-	required_device<mc6847_ntsc_device> m_mc6847;
+	required_device<mc6847_device> m_mc6847;
 	required_device<pia6821_device> m_pia;
 	required_device<acia6850_device> m_acia;
 	required_device<clock_device> m_acia_tx_clock;
@@ -355,7 +357,7 @@ TIMER_DEVICE_CALLBACK_MEMBER(uchroma68_state::kansas_r)
 		m_acia->write_rxc(1);
 }
 
-WRITE_LINE_MEMBER(uchroma68_state::kansas_w)
+void uchroma68_state::kansas_w(int state)
 {
 	// The Kansas City cassette format encodes a '0' bit by four cycles of
 	// a 1200 Hz sine wave, and a '1' bit as eight cycles of 2400 Hz,
@@ -450,11 +452,11 @@ void uchroma68_state::uchroma68(machine_config &config)
 
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
 
-	MC6847_NTSC(config, m_mc6847, XTAL_UCHROMA68);
+	MC6847(config, m_mc6847, XTAL_UCHROMA68);
 	m_mc6847->set_screen(m_screen);
 	m_mc6847->input_callback().set(FUNC(uchroma68_state::mc6847_videoram_r));
 
-	PIA6821(config, m_pia, 0);
+	PIA6821(config, m_pia);
 	m_pia->readpa_handler().set(FUNC(uchroma68_state::pia_pa_r));
 	m_pia->readpb_handler().set(FUNC(uchroma68_state::pia_pb_r));
 
@@ -481,6 +483,9 @@ ROM_START(uchroma68)
 	ROM_LOAD("tvbug.rom", 0xf800, 0x0800, CRC(47f721e4) SHA1(31ea8d596f1f99ee26c4bea694245448bfdc3ee6))
 	ROM_LOAD("uch68s19.rom", 0xe800, 0x0400, CRC(8932484f) SHA1(231098ab10185d400032415cf9b7273d736d3b87))
 ROM_END
+
+} // anonymous namespace
+
 
 /***************************************************************************
 

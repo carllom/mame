@@ -45,7 +45,7 @@ DEFINE_DEVICE_TYPE(MIDWAY_TURBO_CHEAP_SQUEAK, midway_turbo_cheap_squeak_device, 
 
 midway_ssio_device::midway_ssio_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, MIDWAY_SSIO, tag, owner, clock)
-	, device_mixer_interface(mconfig, *this, 2)
+	, device_mixer_interface(mconfig, *this)
 	, m_cpu(*this, "cpu")
 	, m_ay0(*this, "ay0")
 	, m_ay1(*this, "ay1")
@@ -62,7 +62,7 @@ midway_ssio_device::midway_ssio_device(const machine_config &mconfig, const char
 	std::fill(std::begin(m_overall), std::end(m_overall), 0);
 	for (auto &duty_cycle : m_duty_cycle)
 		std::fill(std::begin(duty_cycle), std::end(duty_cycle), 0);
-	std::fill(std::begin(m_ayvolume_lookup), std::end(m_ayvolume_lookup), 0);
+	std::fill(std::begin(m_ayvolume_lookup), std::end(m_ayvolume_lookup), 0.0f);
 }
 
 
@@ -100,7 +100,7 @@ void midway_ssio_device::write(offs_t offset, uint8_t data)
 //  reset_write - write to the reset line
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER(midway_ssio_device::reset_write)
+void midway_ssio_device::reset_write(int state)
 {
 	if (state)
 	{
@@ -126,7 +126,7 @@ uint8_t midway_ssio_device::ioport_read(offs_t offset)
 	uint8_t result = m_ports[offset].read_safe(0xff);
 	if (!m_custom_input[offset].isnull())
 		result = (result & ~m_custom_input_mask[offset]) |
-					(m_custom_input[offset]() & m_custom_input_mask[offset]);
+				(m_custom_input[offset]() & m_custom_input_mask[offset]);
 	return result;
 }
 
@@ -206,7 +206,7 @@ void midway_ssio_device::compute_ay8910_modulation()
 		}
 
 		// treat the duty cycle as a volume
-		m_ayvolume_lookup[15 - volval] = curclock * 100 / 160;
+		m_ayvolume_lookup[15 - volval] = curclock / 160.0f;
 	}
 }
 
@@ -330,12 +330,12 @@ void midway_ssio_device::portb1_w(uint8_t data)
 
 void midway_ssio_device::update_volumes()
 {
-	m_ay0->set_volume(0, m_mute ? 0 : m_ayvolume_lookup[m_duty_cycle[0][0]]);
-	m_ay0->set_volume(1, m_mute ? 0 : m_ayvolume_lookup[m_duty_cycle[0][1]]);
-	m_ay0->set_volume(2, m_mute ? 0 : m_ayvolume_lookup[m_duty_cycle[0][2]]);
-	m_ay1->set_volume(0, m_mute ? 0 : m_ayvolume_lookup[m_duty_cycle[1][0]]);
-	m_ay1->set_volume(1, m_mute ? 0 : m_ayvolume_lookup[m_duty_cycle[1][1]]);
-	m_ay1->set_volume(2, m_mute ? 0 : m_ayvolume_lookup[m_duty_cycle[1][2]]);
+	m_ay0->set_output_gain(0, m_mute ? 0.0 : m_ayvolume_lookup[m_duty_cycle[0][0]]);
+	m_ay0->set_output_gain(1, m_mute ? 0.0 : m_ayvolume_lookup[m_duty_cycle[0][1]]);
+	m_ay0->set_output_gain(2, m_mute ? 0.0 : m_ayvolume_lookup[m_duty_cycle[0][2]]);
+	m_ay1->set_output_gain(0, m_mute ? 0.0 : m_ayvolume_lookup[m_duty_cycle[1][0]]);
+	m_ay1->set_output_gain(1, m_mute ? 0.0 : m_ayvolume_lookup[m_duty_cycle[1][1]]);
+	m_ay1->set_output_gain(2, m_mute ? 0.0 : m_ayvolume_lookup[m_duty_cycle[1][2]]);
 }
 
 //-------------------------------------------------
@@ -410,12 +410,12 @@ void midway_ssio_device::device_add_mconfig(machine_config &config)
 	AY8910(config, m_ay0, DERIVED_CLOCK(1, 2*4));
 	m_ay0->port_a_write_callback().set(FUNC(midway_ssio_device::porta0_w));
 	m_ay0->port_b_write_callback().set(FUNC(midway_ssio_device::portb0_w));
-	m_ay0->add_route(ALL_OUTPUTS, *this, 0.33, AUTO_ALLOC_INPUT, 0);
+	m_ay0->add_route(ALL_OUTPUTS, *this, 0.33, 0);
 
 	AY8910(config, m_ay1, DERIVED_CLOCK(1, 2*4));
 	m_ay1->port_a_write_callback().set(FUNC(midway_ssio_device::porta1_w));
 	m_ay1->port_b_write_callback().set(FUNC(midway_ssio_device::portb1_w));
-	m_ay1->add_route(ALL_OUTPUTS, *this, 0.33, AUTO_ALLOC_INPUT, 1);
+	m_ay1->add_route(ALL_OUTPUTS, *this, 0.33, 1);
 }
 
 
@@ -481,13 +481,13 @@ TIMER_CALLBACK_MEMBER(midway_ssio_device::synced_write)
 
 midway_sounds_good_device::midway_sounds_good_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, MIDWAY_SOUNDS_GOOD, tag, owner, clock)
-		, device_mixer_interface(mconfig, *this)
-		, m_cpu(*this, "cpu")
-		, m_pia(*this, "pia")
-		, m_dac(*this, "dac")
-		, m_dac_filter(*this, "dac_filter%u", 0U)
-		, m_status(0)
-		, m_dacval(0)
+	, device_mixer_interface(mconfig, *this)
+	, m_cpu(*this, "cpu")
+	, m_pia(*this, "pia")
+	, m_dac(*this, "dac")
+	, m_dac_filter(*this, "dac_filter%u", 0U)
+	, m_status(0)
+	, m_dacval(0)
 {
 }
 
@@ -517,9 +517,9 @@ void midway_sounds_good_device::write(uint8_t data)
 //  reset_write - write to the reset line
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER(midway_sounds_good_device::reset_write)
+void midway_sounds_good_device::reset_write(int state)
 {
-//if (state) osd_printf_debug("SG Reset\n");
+	//if (state) osd_printf_debug("SG Reset\n");
 	m_cpu->set_input_line(INPUT_LINE_RESET, state ? ASSERT_LINE : CLEAR_LINE);
 }
 
@@ -555,7 +555,7 @@ void midway_sounds_good_device::portb_w(uint8_t data)
 //  irq_w - IRQ line state changes
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER(midway_sounds_good_device::irq_w)
+void midway_sounds_good_device::irq_w(int state)
 {
 	int combined_state = m_pia->irq_a_state() | m_pia->irq_b_state();
 	m_cpu->set_input_line(4, combined_state ? ASSERT_LINE : CLEAR_LINE);
@@ -608,13 +608,13 @@ void midway_sounds_good_device::device_add_mconfig(machine_config &config)
 	M68000(config, m_cpu, DERIVED_CLOCK(1, 2));
 	m_cpu->set_addrmap(AS_PROGRAM, &midway_sounds_good_device::soundsgood_map);
 
-	PIA6821(config, m_pia, 0);
+	PIA6821(config, m_pia);
 	m_pia->writepa_handler().set(FUNC(midway_sounds_good_device::porta_w));
 	m_pia->writepb_handler().set(FUNC(midway_sounds_good_device::portb_w));
 	m_pia->irqa_handler().set(FUNC(midway_sounds_good_device::irq_w));
 	m_pia->irqb_handler().set(FUNC(midway_sounds_good_device::irq_w));
 
-	AD7533(config, m_dac, 0); /// ad7533jn.u10
+	AD7533(config, m_dac); /// ad7533jn.u10
 
 	// The DAC filters here are identical to those on the "Turbo Cheap Squeak" and "Cheap Squeak Deluxe" boards.
 	//LM359 @U2.2, 2nd order MFB low-pass (fc = 5404.717733, Q = 0.625210, gain = -1.000000)
@@ -661,7 +661,7 @@ TIMER_CALLBACK_MEMBER(midway_sounds_good_device::synced_write)
 
 	// oftentimes games will write one nibble at a time; the sync on this is very
 	// important, so we boost the interleave briefly while this happens
-	machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(250));
+	machine().scheduler().perfect_quantum(attotime::from_usec(250));
 }
 
 
@@ -676,13 +676,13 @@ TIMER_CALLBACK_MEMBER(midway_sounds_good_device::synced_write)
 
 midway_turbo_cheap_squeak_device::midway_turbo_cheap_squeak_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, MIDWAY_TURBO_CHEAP_SQUEAK, tag, owner, clock)
-		, device_mixer_interface(mconfig, *this)
-		, m_cpu(*this, "cpu")
-		, m_pia(*this, "pia")
-		, m_dac(*this, "dac")
-		, m_dac_filter(*this, "dac_filter%u", 0U)
-		, m_status(0)
-		, m_dacval(0)
+	, device_mixer_interface(mconfig, *this)
+	, m_cpu(*this, "cpu")
+	, m_pia(*this, "pia")
+	, m_dac(*this, "dac")
+	, m_dac_filter(*this, "dac_filter%u", 0U)
+	, m_status(0)
+	, m_dacval(0)
 {
 }
 
@@ -712,7 +712,7 @@ void midway_turbo_cheap_squeak_device::write(uint8_t data)
 //  reset_write - write to the reset line
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER(midway_turbo_cheap_squeak_device::reset_write)
+void midway_turbo_cheap_squeak_device::reset_write(int state)
 {
 	m_cpu->set_input_line(INPUT_LINE_RESET, state ? ASSERT_LINE : CLEAR_LINE);
 }
@@ -745,7 +745,7 @@ void midway_turbo_cheap_squeak_device::portb_w(uint8_t data)
 //  irq_w - IRQ line state changes
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER(midway_turbo_cheap_squeak_device::irq_w)
+void midway_turbo_cheap_squeak_device::irq_w(int state)
 {
 	int combined_state = m_pia->irq_a_state() | m_pia->irq_b_state();
 	m_cpu->set_input_line(M6809_IRQ_LINE, combined_state ? ASSERT_LINE : CLEAR_LINE);
@@ -775,13 +775,13 @@ void midway_turbo_cheap_squeak_device::device_add_mconfig(machine_config &config
 	MC6809E(config, m_cpu, DERIVED_CLOCK(1, 4));
 	m_cpu->set_addrmap(AS_PROGRAM, &midway_turbo_cheap_squeak_device::turbocs_map);
 
-	PIA6821(config, m_pia, 0);
+	PIA6821(config, m_pia);
 	m_pia->writepa_handler().set(FUNC(midway_turbo_cheap_squeak_device::porta_w));
 	m_pia->writepb_handler().set(FUNC(midway_turbo_cheap_squeak_device::portb_w));
 	m_pia->irqa_handler().set(FUNC(midway_turbo_cheap_squeak_device::irq_w));
 	m_pia->irqb_handler().set(FUNC(midway_turbo_cheap_squeak_device::irq_w));
 
-	AD7533(config, m_dac, 0); /// ad7533jn.u11
+	AD7533(config, m_dac); /// ad7533jn.u11
 
 	// The DAC filters here are identical to those on the "Sounds Good" and "Cheap Squeak Deluxe" boards.
 	//LM359 @U14.2, 2nd order MFB low-pass (fc = 5404.717733, Q = 0.625210, gain = -1.000000)
@@ -828,5 +828,5 @@ TIMER_CALLBACK_MEMBER(midway_turbo_cheap_squeak_device::synced_write)
 
 	// oftentimes games will write one nibble at a time; the sync on this is very
 	// important, so we boost the interleave briefly while this happens
-	machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(100));
+	machine().scheduler().perfect_quantum(attotime::from_usec(100));
 }

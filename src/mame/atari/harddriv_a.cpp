@@ -9,7 +9,6 @@
 #include "emu.h"
 #include "harddriv.h"
 
-#include "cpu/tms32010/tms32010.h"
 #include "speaker.h"
 
 
@@ -197,35 +196,35 @@ void harddriv_sound_board_device::hdsnd68k_latches_w(offs_t offset, uint16_t dat
 }
 
 
-WRITE_LINE_MEMBER(harddriv_sound_board_device::speech_write_w)
+void harddriv_sound_board_device::speech_write_w(int state)
 {
 	// data == 0 means high, 1 means low
 	logerror("%06X:SPWR=%d\n", m_soundcpu->pcbase(), state);
 }
 
 
-WRITE_LINE_MEMBER(harddriv_sound_board_device::speech_reset_w)
+void harddriv_sound_board_device::speech_reset_w(int state)
 {
 	// data == 0 means low, 1 means high
 	logerror("%06X:SPRES=%d\n", m_soundcpu->pcbase(), state);
 }
 
 
-WRITE_LINE_MEMBER(harddriv_sound_board_device::speech_rate_w)
+void harddriv_sound_board_device::speech_rate_w(int state)
 {
 	// data == 0 means 8kHz, 1 means 10kHz
 	logerror("%06X:SPRATE=%d\n", m_soundcpu->pcbase(), state);
 }
 
 
-WRITE_LINE_MEMBER(harddriv_sound_board_device::cram_enable_w)
+void harddriv_sound_board_device::cram_enable_w(int state)
 {
 	// data == 0 means disable 68k access to COM320, 1 means enable
 	m_cramen = state;
 }
 
 
-WRITE_LINE_MEMBER(harddriv_sound_board_device::led_w)
+void harddriv_sound_board_device::led_w(int state)
 {
 }
 
@@ -246,7 +245,7 @@ void harddriv_sound_board_device::hdsnd68k_irqclr_w(uint16_t data)
 
 /*************************************
  *
- *  TMS32010 access
+ *  TMS320C10 access
  *
  *************************************/
 
@@ -296,11 +295,11 @@ void harddriv_sound_board_device::hdsnd68k_320com_w(offs_t offset, uint16_t data
 
 /*************************************
  *
- *  TMS32010 interrupts
+ *  TMS320C10 interrupts
  *
  *************************************/
 
-READ_LINE_MEMBER(harddriv_sound_board_device::hdsnddsp_get_bio)
+int harddriv_sound_board_device::hdsnddsp_get_bio()
 {
 	uint64_t cycles_since_last_bio = m_sounddsp->total_cycles() - m_last_bio_cycles;
 	int32_t cycles_until_bio = CYCLES_PER_BIO - cycles_since_last_bio;
@@ -320,7 +319,7 @@ READ_LINE_MEMBER(harddriv_sound_board_device::hdsnddsp_get_bio)
 
 /*************************************
  *
- *  TMS32010 ports
+ *  TMS320C10 ports
  *
  *************************************/
 
@@ -411,7 +410,7 @@ void harddriv_sound_board_device::driversnd_dsp_program_map(address_map &map)
 }
 
 
-/* $000 - 08F  TMS32010 Internal Data RAM in Data Address Space */
+/* $000 - 08F  TMS320C10 Internal Data RAM in Data Address Space */
 
 void harddriv_sound_board_device::driversnd_dsp_io_map(address_map &map)
 {
@@ -444,7 +443,7 @@ void harddriv_sound_board_device::device_add_mconfig(machine_config &config)
 	m_latch->q_out_cb<4>().set_inputline(m_sounddsp, INPUT_LINE_HALT).invert(); // RES320
 	m_latch->q_out_cb<7>().set(FUNC(harddriv_sound_board_device::led_w));
 
-	TMS32010(config, m_sounddsp, XTAL(20'000'000));
+	TMS320C10(config, m_sounddsp, XTAL(20'000'000));
 	m_sounddsp->set_addrmap(AS_PROGRAM, &harddriv_sound_board_device::driversnd_dsp_program_map);
 	/* Data Map is internal to the CPU */
 	m_sounddsp->set_addrmap(AS_IO, &harddriv_sound_board_device::driversnd_dsp_io_map);

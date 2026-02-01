@@ -37,6 +37,8 @@ TODO:
 #include "speaker.h"
 
 
+namespace {
+
 class cpzodiac_state : public driver_device
 {
 public:
@@ -50,15 +52,15 @@ public:
 	void cpzodiac(machine_config &config);
 
 private:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 	required_device<z80_device> m_maincpu;
 	required_device<cpu_device> m_audiocpu;
 	required_memory_bank m_bank;
 
-	void main_map(address_map &map);
-	void main_io_map(address_map &map);
-	void sound_map(address_map &map);
+	void main_map(address_map &map) ATTR_COLD;
+	void main_io_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
 };
 
 
@@ -188,19 +190,18 @@ void cpzodiac_state::cpzodiac(machine_config &config)
 	// TODO
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610b_device &ymsnd(YM2610B(config, "ymsnd", 16_MHz_XTAL/2));
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
-	ymsnd.add_route(1, "lspeaker", 1.0);
-	ymsnd.add_route(2, "rspeaker", 1.0);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
+	ymsnd.add_route(1, "speaker", 1.0, 0);
+	ymsnd.add_route(2, "speaker", 1.0, 1);
 
 	tc0140syt_device &syt(TC0140SYT(config, "syt", 0));
-	syt.set_master_tag(m_maincpu);
-	syt.set_slave_tag(m_audiocpu);
+	syt.nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	syt.reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 
@@ -240,6 +241,8 @@ ROM_START( cpzodiacj )
 	ROM_REGION( 0x1000, "pals", 0 )
 	ROM_LOAD( "d52-02.ic38", 0x0000, 0x0aee, CRC(6be9b935) SHA1(d36af591b03873aee3098b7c74b53ac6370ca064) ) // PAL16L8BCN
 ROM_END
+
+} // anonymous namespace
 
 
 //    YEAR  NAME       PARENT    MACHINE   INPUT     STATE           INIT        SCREEN  COMPANY              FULLNAME                  FLAGS

@@ -1,7 +1,7 @@
 // license:BSD-3-Clause
 // copyright-holders:Kevin Horton, Jonathan Gevaryahu, Sandro Ronco, hap
 // thanks-to:Berger, yoyo_chessboard
-/******************************************************************************
+/*******************************************************************************
 
 Fidelity CSC(and derived) hardware
 - Champion Sensory Chess Challenger
@@ -13,11 +13,9 @@ TODO:
 - do ca1_w/cb1_w better, it's annoying since it's going through sensorboard_device
   (it works fine though, since PIA interrupts are not connected)
 - hook up csce I/O properly, it doesn't have PIAs
-- verify csc/super9cc irq duration, it was measured 73.425us but that's too long,
-  so it's using the one from csce for now instead
-- is super9cc 101-1024B03 really 2KB? rom chip looks the same as the other ones
+- verify super9cc maskrom dump
 
-*******************************************************************************
+================================================================================
 
 Champion Sensory Chess Challenger (CSC)
 ---------------------------------------
@@ -41,9 +39,11 @@ FE00-FFFF: 512 byte 74S474 or N82S141N PROM
 and "64 greatest games", as well as some Z80 code. Obviously the latter is unused
 on the CSC. Also seen with 101-1025A04 label, same ROM contents.
 
+Labels with 1024A0x instead of 1025A0x were also found, with the same ROM contents.
 101-1025A03 might be optional, one (untampered) Spanish PCB was seen with a socket
 instead of this ROM. Most of the opening book is in here.
 
+PCB label: 510-1326B01
 CPU is a 6502 running at 1.95MHz (3.9MHz resonator, divided by 2)
 
 NMI is not used.
@@ -150,7 +150,7 @@ LED display:
 -----
 88:88
 
-The LED display is four 7 segment digits.  normal ABCDEFG lettering is used for segments.
+The LED display is four 7 segment digits. Normal ABCDEFG lettering is used for segments.
 
 The upper dot is connected to digit 3 common
 The lower dot is connected to digit 4 common
@@ -158,12 +158,18 @@ The lone LED is connected to digit 1 common
 
 All three of the above are called "segment H".
 
-*******************************************************************************
+Printer:
+--------
+It's the same printer port as VSC. It expects a baud rate of 600, 7 data bits,
+1 stop bit, and no parity.
+
+================================================================================
 
 Elite Champion Challenger (ELITE)
 This is a limited-release chess computer based on the CSC. They removed the PIAs
 and did the I/O with TTL instead (PIAs will still work from software point of view).
 ---------------------------------
+PCB label: 510-1041B01
 MPS 6502C CPU @ 4MHz
 20KB total ROM size, 4KB RAM(8*HM6147P)
 
@@ -171,7 +177,7 @@ The "Fidelity X" that won the 1981 Travemünde contest is also on this hardware,
 a 5MHz CPU and 32KB total ROM size. In the 90s, Wilfried Bucke provided an upgrade
 kit for csce to make it similar to this version, CPU was changed to a R65C02P4.
 
-*******************************************************************************
+================================================================================
 
 Super 9 Sensory Chess Challenger (SU9/DS9)
 This is basically the Fidelity Elite A/S program on CSC hardware.
@@ -185,27 +191,31 @@ built-in CB9 module
 
 See CSC description above for more information.
 
-*******************************************************************************
+Like with EAS, the new game command for SU9 is: RE -> D6 (or D8) -> CL.
+
+================================================================================
 
 Reversi Sensory Challenger (RSC)
 The 1st version came out in 1980, a program revision was released in 1981.
 Another distinction is the board color and layout, the 1981 version is green.
 Not sure if the 1st version was even released, or just a prototype.
 ---------------------------------
-8*(8+1) buttons, 8*8+1 LEDs
-1KB RAM(2*2114), 4KB ROM
+PCB label: 510-1035A01
 MOS MPS 6502B CPU, frequency unknown
 MOS MPS 6520 PIA, I/O is nearly same as CSC's PIA 0
-PCB label 510-1035A01
+1KB RAM(2*2114), 4KB ROM
+8*(8+1) buttons, 8*8+1 LEDs
 
 To play it on MAME with the sensorboard device, it is recommended to set up
 keyboard shortcuts for the spawn inputs. Then hold the spawn input down while
-clicking on the game board.
+clicking on the game board. Alternatively, it's also possible to flip pieces
+that are on the board by clicking while holding ALT.
 
-******************************************************************************/
+*******************************************************************************/
 
 #include "emu.h"
 
+#include "bus/rs232/rs232.h"
 #include "cpu/m6502/m6502.h"
 #include "machine/6821pia.h"
 #include "machine/clock.h"
@@ -217,14 +227,12 @@ clicking on the game board.
 #include "speaker.h"
 
 // internal artwork
-#include "fidel_csc.lh" // clickable
-#include "fidel_rsc.lh" // clickable
-#include "fidel_su9.lh" // clickable
+#include "fidel_csc.lh"
+#include "fidel_rsc.lh"
+#include "fidel_su9.lh"
 
 
 namespace {
-
-// CSC / shared
 
 class csc_state : public driver_device
 {
@@ -237,59 +245,62 @@ public:
 		m_display(*this, "display"),
 		m_dac(*this, "dac"),
 		m_speech(*this, "speech"),
-		m_speech_rom(*this, "speech"),
 		m_language(*this, "language"),
-		m_inputs(*this, "IN.%u", 0)
+		m_inputs(*this, "IN.%u", 0),
+		m_board_inp(*this, "BOARD")
 	{ }
 
 	// machine drivers
 	void csc(machine_config &config);
 	void csce(machine_config &config);
 	void cscet(machine_config &config);
+	void su9(machine_config &config);
 	void rsc(machine_config &config);
 
+	DECLARE_INPUT_CHANGED_MEMBER(su9_change_cpu_freq);
 	DECLARE_INPUT_CHANGED_MEMBER(rsc_init_board);
 
 protected:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 	// devices/pointers
 	required_device<cpu_device> m_maincpu;
 	optional_device_array<pia6821_device, 2> m_pia;
 	required_device<sensorboard_device> m_board;
 	required_device<pwm_display_device> m_display;
-	required_device<dac_bit_interface> m_dac;
+	required_device<dac_1bit_device> m_dac;
 	optional_device<s14001a_device> m_speech;
-	optional_region_ptr<u8> m_speech_rom;
 	optional_region_ptr<u8> m_language;
 	optional_ioport_array<9> m_inputs;
-
-	// address maps
-	void csc_map(address_map &map);
-	void csce_map(address_map &map);
-	void rsc_map(address_map &map);
-
-	// I/O handlers
-	u16 read_inputs();
-	void update_display();
-	void update_sound();
-	u8 speech_r(offs_t offset);
-
-	u8 pia0_read(offs_t offset);
-	void pia0_pa_w(u8 data);
-	void pia0_pb_w(u8 data);
-	u8 pia0_pa_r();
-	DECLARE_WRITE_LINE_MEMBER(pia0_ca2_w);
-	DECLARE_WRITE_LINE_MEMBER(pia0_cb2_w);
-	void pia1_pa_w(u8 data);
-	void pia1_pb_w(u8 data);
-	u8 pia1_pb_r();
-	DECLARE_WRITE_LINE_MEMBER(pia1_ca2_w);
+	optional_ioport m_board_inp;
 
 	u8 m_led_data = 0;
 	u8 m_7seg_data = 0;
 	u8 m_inp_mux = 0;
-	u8 m_speech_bank = 0;
+
+	// address maps
+	void csc_map(address_map &map) ATTR_COLD;
+	void csce_map(address_map &map) ATTR_COLD;
+	void rsc_map(address_map &map) ATTR_COLD;
+
+	u8 rsc_board_sensor_cb(offs_t offset);
+
+	// I/O handlers
+	u16 read_inputs();
+	void update_inputs();
+	void update_display();
+	void update_sound();
+
+	u8 pia0_read(offs_t offset);
+	void pia0_write(offs_t offset, u8 data);
+	void pia0_pa_w(u8 data);
+	void pia0_pb_w(u8 data);
+	u8 pia0_pa_r();
+	void pia0_ca2_w(int state);
+	void pia0_cb2_w(int state);
+	void pia1_pa_w(u8 data);
+	void pia1_pb_w(u8 data);
+	u8 pia1_pb_r();
 };
 
 void csc_state::machine_start()
@@ -298,47 +309,20 @@ void csc_state::machine_start()
 	save_item(NAME(m_led_data));
 	save_item(NAME(m_7seg_data));
 	save_item(NAME(m_inp_mux));
-	save_item(NAME(m_speech_bank));
 }
 
-// SU9
-
-class su9_state : public csc_state
-{
-public:
-	su9_state(const machine_config &mconfig, device_type type, const char *tag) :
-		csc_state(mconfig, type, tag)
-	{ }
-
-	void su9(machine_config &config);
-
-	DECLARE_INPUT_CHANGED_MEMBER(su9_cpu_freq) { su9_set_cpu_freq(); }
-
-protected:
-	virtual void machine_reset() override;
-	void su9_set_cpu_freq();
-};
-
-void su9_state::machine_reset()
-{
-	csc_state::machine_reset();
-	su9_set_cpu_freq();
-}
-
-void su9_state::su9_set_cpu_freq()
+INPUT_CHANGED_MEMBER(csc_state::su9_change_cpu_freq)
 {
 	// SU9 CPU is clocked 1.95MHz, DS9 is 2.5MHz, SCC is 3MHz
-	u8 inp = ioport("FAKE")->read();
-	m_maincpu->set_unscaled_clock((inp & 2) ? (3_MHz_XTAL) : ((inp & 1) ? (5_MHz_XTAL/2) : (3.9_MHz_XTAL/2)));
+	static const XTAL xtal[3] = { 3.9_MHz_XTAL/2, 5_MHz_XTAL/2, 3_MHz_XTAL };
+	m_maincpu->set_unscaled_clock(xtal[newval % 3]);
 }
 
 
 
-/******************************************************************************
-    I/O
-******************************************************************************/
-
-// sensorboard handlers
+/*******************************************************************************
+    Sensorboard
+*******************************************************************************/
 
 INPUT_CHANGED_MEMBER(csc_state::rsc_init_board)
 {
@@ -368,6 +352,27 @@ INPUT_CHANGED_MEMBER(csc_state::rsc_init_board)
 	m_board->refresh();
 }
 
+u8 csc_state::rsc_board_sensor_cb(offs_t offset)
+{
+	if (~m_board_inp->read() & 4)
+		return 0;
+
+	u8 x = offset & 0xf;
+	u8 y = offset >> 4 & 0xf;
+	u8 piece = m_board->read_piece(x, y);
+
+	// flip piece
+	if (piece && offset != m_board->get_handpos())
+		m_board->write_piece(x, y, (piece & 1) + 1);
+
+	return 3;
+}
+
+
+
+/*******************************************************************************
+    I/O
+*******************************************************************************/
 
 // misc handlers
 
@@ -386,6 +391,16 @@ u16 csc_state::read_inputs()
 	return ~data;
 }
 
+void csc_state::update_inputs()
+{
+	// PIA 0 CA1/CB1: button row 6/7
+	if (!machine().side_effects_disabled())
+	{
+		m_pia[0]->ca1_w(BIT(read_inputs(), 6));
+		m_pia[0]->cb1_w(BIT(read_inputs(), 7));
+	}
+}
+
 void csc_state::update_display()
 {
 	// 7442 0-8: led select (also input mux)
@@ -399,26 +414,19 @@ void csc_state::update_sound()
 	m_dac->write(BIT(1 << m_inp_mux, 9));
 }
 
-u8 csc_state::speech_r(offs_t offset)
-{
-	return m_speech_rom[m_speech_bank << 12 | offset];
-}
-
 
 // 6821 PIA 0
 
 u8 csc_state::pia0_read(offs_t offset)
 {
-	// CA1/CB1: button row 6/7
-	if (!machine().side_effects_disabled())
-	{
-		if (offset == 1)
-			m_pia[0]->ca1_w(BIT(read_inputs(), 6));
-		else if (offset == 3)
-			m_pia[0]->cb1_w(BIT(read_inputs(), 7));
-	}
-
+	update_inputs();
 	return m_pia[0]->read(offset);
+}
+
+void csc_state::pia0_write(offs_t offset, u8 data)
+{
+	update_inputs();
+	m_pia[0]->write(offset, data);
 }
 
 u8 csc_state::pia0_pa_r()
@@ -442,7 +450,7 @@ void csc_state::pia0_pb_w(u8 data)
 	update_display();
 }
 
-WRITE_LINE_MEMBER(csc_state::pia0_cb2_w)
+void csc_state::pia0_cb2_w(int state)
 {
 	// 7442 A2
 	m_inp_mux = (m_inp_mux & ~4) | (state ? 4 : 0);
@@ -450,7 +458,7 @@ WRITE_LINE_MEMBER(csc_state::pia0_cb2_w)
 	update_sound();
 }
 
-WRITE_LINE_MEMBER(csc_state::pia0_ca2_w)
+void csc_state::pia0_ca2_w(int state)
 {
 	// 7442 A3
 	m_inp_mux = (m_inp_mux & ~8) | (state ? 8 : 0);
@@ -463,7 +471,7 @@ WRITE_LINE_MEMBER(csc_state::pia0_ca2_w)
 
 void csc_state::pia1_pa_w(u8 data)
 {
-	// d0-d5: TSI C0-C5
+	// d0-d5: S14001A C0-C5
 	m_speech->data_w(data & 0x3f);
 
 	// d0-d7: data for the 4 7seg leds, bits are ABFGHCDE (H is extra led)
@@ -474,42 +482,36 @@ void csc_state::pia1_pa_w(u8 data)
 void csc_state::pia1_pb_w(u8 data)
 {
 	// d0: speech ROM A12
-	m_speech->force_update(); // update stream to now
-	m_speech_bank = data & 1;
+	m_speech->set_rom_bank(data & 1);
 
-	// d1: TSI START line
-	m_speech->start_w(data >> 1 & 1);
+	// d1: S14001A start pin
+	m_speech->start_w(BIT(data, 1));
 
-	// d4: lower TSI volume
+	// d4: lower S14001A volume
 	m_speech->set_output_gain(0, (data & 0x10) ? 0.25 : 1.0);
 }
 
 u8 csc_state::pia1_pb_r()
 {
-	// d2: printer?
+	// d2: printer busy?
 	u8 data = 0x04;
 
-	// d3: TSI BUSY line
+	// d3: S14001A busy pin
 	if (m_speech->busy_r())
 		data |= 0x08;
 
 	// d5: button row 8
 	data |= (read_inputs() >> 3 & 0x20);
 
-	// d6,d7: language switches(hardwired with 2 resistors/jumpers)
+	// d6,d7: language jumpers (hardwired)
 	return data | (*m_language << 6 & 0xc0);
 }
 
-WRITE_LINE_MEMBER(csc_state::pia1_ca2_w)
-{
-	// printer?
-}
 
 
-
-/******************************************************************************
+/*******************************************************************************
     Address Maps
-******************************************************************************/
+*******************************************************************************/
 
 void csc_state::csc_map(address_map &map)
 {
@@ -517,7 +519,7 @@ void csc_state::csc_map(address_map &map)
 	map(0x0000, 0x07ff).mirror(0x4000).ram();
 	map(0x0800, 0x0bff).mirror(0x4400).ram();
 	map(0x1000, 0x1003).mirror(0x47fc).rw(m_pia[1], FUNC(pia6821_device::read), FUNC(pia6821_device::write));
-	map(0x1800, 0x1803).mirror(0x47fc).w(m_pia[0], FUNC(pia6821_device::write)).r(FUNC(csc_state::pia0_read));
+	map(0x1800, 0x1803).mirror(0x47fc).rw(FUNC(csc_state::pia0_read), FUNC(csc_state::pia0_write));
 	map(0x2000, 0x3fff).mirror(0x4000).rom();
 	map(0xa000, 0xafff).mirror(0x1000).rom();
 	map(0xc000, 0xffff).rom();
@@ -528,7 +530,7 @@ void csc_state::csce_map(address_map &map)
 	map.unmap_value_high();
 	map(0x0000, 0x0fff).ram();
 	map(0x1000, 0x1003).rw(m_pia[1], FUNC(pia6821_device::read), FUNC(pia6821_device::write));
-	map(0x1800, 0x1803).w(m_pia[0], FUNC(pia6821_device::write)).r(FUNC(csc_state::pia0_read));
+	map(0x1800, 0x1803).rw(FUNC(csc_state::pia0_read), FUNC(csc_state::pia0_write));
 	map(0x2000, 0x3fff).rom();
 	map(0xa000, 0xffff).rom();
 }
@@ -537,15 +539,15 @@ void csc_state::rsc_map(address_map &map)
 {
 	map.unmap_value_high();
 	map(0x0000, 0x03ff).ram();
-	map(0x2000, 0x2003).w(m_pia[0], FUNC(pia6821_device::write)).r(FUNC(csc_state::pia0_read));
+	map(0x2000, 0x2003).rw(FUNC(csc_state::pia0_read), FUNC(csc_state::pia0_write));
 	map(0xf000, 0xffff).rom();
 }
 
 
 
-/******************************************************************************
+/*******************************************************************************
     Input Ports
-******************************************************************************/
+*******************************************************************************/
 
 static INPUT_PORTS_START( csc )
 	PORT_START("IN.0")
@@ -573,8 +575,8 @@ static INPUT_PORTS_START( csc )
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_4) PORT_CODE(KEYCODE_4_PAD) PORT_NAME("Bishop")
 	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_5) PORT_CODE(KEYCODE_5_PAD) PORT_NAME("Queen")
 	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_6) PORT_CODE(KEYCODE_6_PAD) PORT_NAME("King")
-	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_DEL) PORT_NAME("CL")
-	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_R) PORT_NAME("RE")
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_DEL) PORT_CODE(KEYCODE_BACKSPACE) PORT_NAME("CL")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_R) PORT_CODE(KEYCODE_N) PORT_NAME("RE")
 INPUT_PORTS_END
 
 static INPUT_PORTS_START( su9 )
@@ -588,8 +590,8 @@ static INPUT_PORTS_START( su9 )
 	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_5) PORT_CODE(KEYCODE_5_PAD) PORT_NAME("PV / Queen")
 	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_6) PORT_CODE(KEYCODE_6_PAD) PORT_NAME("PB / King")
 
-	PORT_START("FAKE")
-	PORT_CONFNAME( 0x03, 0x00, "CPU Frequency" ) PORT_CHANGED_MEMBER(DEVICE_SELF, su9_state, su9_cpu_freq, 0) // factory set
+	PORT_START("CPU")
+	PORT_CONFNAME( 0x03, 0x00, "CPU Frequency" ) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(csc_state::su9_change_cpu_freq), 0) // factory set
 	PORT_CONFSETTING(    0x00, "1.95MHz (original)" )
 	PORT_CONFSETTING(    0x01, "2.5MHz (Deluxe)" )
 	PORT_CONFSETTING(    0x02, "3MHz (Septennial)" )
@@ -604,55 +606,57 @@ static INPUT_PORTS_START( rsc )
 	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_5) PORT_CODE(KEYCODE_5_PAD) PORT_NAME("LV")
 	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_6) PORT_CODE(KEYCODE_6_PAD) PORT_NAME("PV")
 	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_SPACE) PORT_NAME("Speaker")
-	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_R) PORT_NAME("RE")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_KEYPAD) PORT_CODE(KEYCODE_R) PORT_CODE(KEYCODE_N) PORT_NAME("RE")
 
 	PORT_START("BOARD")
-	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_CHANGED_MEMBER(DEVICE_SELF, csc_state, rsc_init_board, 0) PORT_NAME("Board Reset A")
-	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OTHER) PORT_CHANGED_MEMBER(DEVICE_SELF, csc_state, rsc_init_board, 1) PORT_NAME("Board Reset B")
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(csc_state::rsc_init_board), 0) PORT_NAME("Board Reset A")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OTHER) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(csc_state::rsc_init_board), 1) PORT_NAME("Board Reset B")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OTHER) PORT_CODE(KEYCODE_LALT) PORT_CODE(KEYCODE_RALT) PORT_NAME("Modifier 3 / Flip Piece")
 INPUT_PORTS_END
 
 
 
-/******************************************************************************
+/*******************************************************************************
     Machine Configs
-******************************************************************************/
+*******************************************************************************/
 
 void csc_state::csc(machine_config &config)
 {
-	/* basic machine hardware */
+	// basic machine hardware
 	M6502(config, m_maincpu, 3.9_MHz_XTAL/2); // from 3.9MHz resonator
 	m_maincpu->set_addrmap(AS_PROGRAM, &csc_state::csc_map);
 
 	auto &irq_clock(CLOCK(config, "irq_clock", 38.4_kHz_XTAL/64)); // through 4060 IC, 600Hz
-	irq_clock.set_pulse_width(attotime::from_nsec(10480)); // 74LS221 (4.7K, 5nF), measured ~10.48us
+	irq_clock.set_pulse_width(attotime::from_nsec(42750)); // measured ~42.75us
 	irq_clock.signal_handler().set_inputline(m_maincpu, M6502_IRQ_LINE);
 
-	PIA6821(config, m_pia[0], 0);
+	PIA6821(config, m_pia[0]);
 	m_pia[0]->readpa_handler().set(FUNC(csc_state::pia0_pa_r));
 	m_pia[0]->writepa_handler().set(FUNC(csc_state::pia0_pa_w));
 	m_pia[0]->writepb_handler().set(FUNC(csc_state::pia0_pb_w));
 	m_pia[0]->ca2_handler().set(FUNC(csc_state::pia0_ca2_w));
 	m_pia[0]->cb2_handler().set(FUNC(csc_state::pia0_cb2_w));
 
-	PIA6821(config, m_pia[1], 0);
+	PIA6821(config, m_pia[1]);
 	m_pia[1]->readpb_handler().set(FUNC(csc_state::pia1_pb_r));
 	m_pia[1]->writepa_handler().set(FUNC(csc_state::pia1_pa_w));
 	m_pia[1]->writepb_handler().set(FUNC(csc_state::pia1_pb_w));
-	m_pia[1]->ca2_handler().set(FUNC(csc_state::pia1_ca2_w));
+	m_pia[1]->ca2_handler().set("rs232", FUNC(rs232_port_device::write_txd)).invert();
+
+	RS232_PORT(config, "rs232", default_rs232_devices, nullptr);
 
 	SENSORBOARD(config, m_board).set_type(sensorboard_device::BUTTONS);
 	m_board->init_cb().set(m_board, FUNC(sensorboard_device::preset_chess));
 	m_board->set_delay(attotime::from_msec(200));
 
-	/* video hardware */
+	// video hardware
 	PWM_DISPLAY(config, m_display).set_size(9, 16);
 	m_display->set_segmask(0xf, 0x7f);
 	config.set_default_layout(layout_fidel_csc);
 
-	/* sound hardware */
+	// sound hardware
 	SPEAKER(config, "speaker").front_center();
 	S14001A(config, m_speech, 25000); // R/C circuit, around 25khz
-	m_speech->ext_read().set(FUNC(csc_state::speech_r));
 	m_speech->add_route(ALL_OUTPUTS, "speaker", 0.75);
 
 	DAC_1BIT(config, m_dac).add_route(ALL_OUTPUTS, "speaker", 0.25);
@@ -662,38 +666,36 @@ void csc_state::csce(machine_config &config)
 {
 	csc(config);
 
-	/* basic machine hardware */
 	m_maincpu->set_clock(4_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &csc_state::csce_map);
+
+	// shorter irq, 74LS221 (4.7K, 5nF), measured ~10.48us
+	subdevice<clock_device>("irq_clock")->set_pulse_width(attotime::from_nsec(10480));
 }
 
 void csc_state::cscet(machine_config &config)
 {
 	csce(config);
-
-	/* basic machine hardware */
 	m_maincpu->set_clock(5_MHz_XTAL);
 }
 
-void su9_state::su9(machine_config &config)
+void csc_state::su9(machine_config &config)
 {
 	csc(config);
-
-	/* basic machine hardware */
 	config.set_default_layout(layout_fidel_su9);
 }
 
 void csc_state::rsc(machine_config &config)
 {
-	/* basic machine hardware */
-	M6502(config, m_maincpu, 1800000); // measured approx 1.81MHz
+	// basic machine hardware
+	M6502(config, m_maincpu, 1'800'000); // measured approx 1.81MHz
 	m_maincpu->set_addrmap(AS_PROGRAM, &csc_state::rsc_map);
 
 	auto &irq_clock(CLOCK(config, "irq_clock", 546)); // from 555 timer, measured
 	irq_clock.set_pulse_width(attotime::from_usec(38)); // active for 38us
 	irq_clock.signal_handler().set_inputline(m_maincpu, M6502_IRQ_LINE);
 
-	PIA6821(config, m_pia[0], 0); // MOS 6520
+	PIA6821(config, m_pia[0]); // MOS 6520
 	m_pia[0]->readpa_handler().set(FUNC(csc_state::pia0_pa_r));
 	m_pia[0]->writepa_handler().set(FUNC(csc_state::pia0_pa_w));
 	m_pia[0]->writepb_handler().set(FUNC(csc_state::pia0_pb_w));
@@ -701,23 +703,24 @@ void csc_state::rsc(machine_config &config)
 	m_pia[0]->cb2_handler().set(FUNC(csc_state::pia0_cb2_w));
 
 	SENSORBOARD(config, m_board).set_type(sensorboard_device::BUTTONS);
+	m_board->sensor_cb().set(FUNC(csc_state::rsc_board_sensor_cb));
 	m_board->set_spawnpoints(2);
 	m_board->set_delay(attotime::from_msec(300));
 
-	/* video hardware */
+	// video hardware
 	PWM_DISPLAY(config, m_display).set_size(9, 16);
 	config.set_default_layout(layout_fidel_rsc);
 
-	/* sound hardware */
+	// sound hardware
 	SPEAKER(config, "speaker").front_center();
 	DAC_1BIT(config, m_dac).add_route(ALL_OUTPUTS, "speaker", 0.25);
 }
 
 
 
-/******************************************************************************
+/*******************************************************************************
     ROM Definitions
-******************************************************************************/
+*******************************************************************************/
 
 ROM_START( csc )
 	ROM_REGION( 0x10000, "maincpu", 0 )
@@ -855,15 +858,15 @@ ROM_END
 
 
 
-/******************************************************************************
+/*******************************************************************************
     Drivers
-******************************************************************************/
+*******************************************************************************/
 
-//    YEAR  NAME      PARENT CMP MACHINE  INPUT  STATE      INIT        COMPANY, FULLNAME, FLAGS
-CONS( 1981, csc,      0,      0, csc,      csc,  csc_state, empty_init, "Fidelity Electronics", "Champion Sensory Chess Challenger", MACHINE_SUPPORTS_SAVE | MACHINE_CLICKABLE_ARTWORK )
-CONS( 1981, csce,     0,      0, csce,     csc,  csc_state, empty_init, "Fidelity Electronics", "Elite Champion Challenger", MACHINE_SUPPORTS_SAVE | MACHINE_CLICKABLE_ARTWORK )
-CONS( 1981, cscet,    csce,   0, cscet,    csc,  csc_state, empty_init, "Fidelity Electronics", u8"Elite Champion Challenger (Travemünde TM version)", MACHINE_SUPPORTS_SAVE | MACHINE_CLICKABLE_ARTWORK )
+//    YEAR  NAME      PARENT  COMPAT  MACHINE  INPUT  CLASS      INIT        COMPANY, FULLNAME, FLAGS
+SYST( 1981, csc,      0,      0,      csc,     csc,   csc_state, empty_init, "Fidelity Electronics", "Champion Sensory Chess Challenger", MACHINE_SUPPORTS_SAVE )
+SYST( 1981, csce,     0,      0,      csce,    csc,   csc_state, empty_init, "Fidelity Electronics", "Elite Champion Challenger", MACHINE_SUPPORTS_SAVE )
+SYST( 1981, cscet,    csce,   0,      cscet,   csc,   csc_state, empty_init, "Fidelity Electronics", u8"Elite Champion Challenger (WMCCC 1981 Travemünde TM)", MACHINE_SUPPORTS_SAVE )
 
-CONS( 1983, super9cc, 0,      0, su9,      su9,  su9_state, empty_init, "Fidelity Electronics", "Super \"9\" Sensory Chess Challenger", MACHINE_SUPPORTS_SAVE | MACHINE_CLICKABLE_ARTWORK )
+SYST( 1983, super9cc, 0,      0,      su9,     su9,   csc_state, empty_init, "Fidelity Electronics", "Super \"9\" Sensory Chess Challenger", MACHINE_SUPPORTS_SAVE )
 
-CONS( 1981, reversic, 0,      0, rsc,      rsc,  csc_state, empty_init, "Fidelity Electronics", "Reversi Sensory Challenger", MACHINE_SUPPORTS_SAVE | MACHINE_CLICKABLE_ARTWORK )
+SYST( 1981, reversic, 0,      0,      rsc,     rsc,   csc_state, empty_init, "Fidelity Electronics", "Reversi Sensory Challenger", MACHINE_SUPPORTS_SAVE )

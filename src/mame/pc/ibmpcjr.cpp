@@ -1,6 +1,20 @@
 // license:BSD-3-Clause
 // copyright-holders:Wilbert Pol
+/*
+TODO:
+* POST gives "ERROR H" with 64K RAM (you can press Enter to get past
+  it).
+* Cartridge BASIC always rejects "SCREEN 4" (320*200 4BPP) and
+  "SCREEN 5" (640*200 2BPP).  These are graphics modes that require at
+  least 128K RAM.  However, it does accept "WIDTH 80" when 128K or more
+  RAM is present, so it isn't just failing to detect the RAM size
+  altogether.
+* IBM JX (5510) is a completely different machine and should be moved
+  out of this driver and emulated properly.
+*/
 #include "emu.h"
+
+#include "pc_t1t.h"
 
 #include "cpu/i86/i86.h"
 #include "imagedev/cassette.h"
@@ -13,7 +27,6 @@
 #include "machine/ram.h"
 #include "sound/sn76496.h"
 #include "sound/spkrdev.h"
-#include "pc_t1t.h"
 
 #include "bus/generic/carts.h"
 #include "bus/generic/slot.h"
@@ -29,16 +42,20 @@
 #include "speaker.h"
 
 
+namespace {
+
 class pcjr_state : public driver_device
 {
 public:
 	pcjr_state(const machine_config &mconfig, device_type type, const char *tag) :
 		driver_device(mconfig, type, tag),
 		m_maincpu(*this, "maincpu"),
+		m_video(*this, "pcvideo_pcjr"),
 		m_pic8259(*this, "pic8259"),
 		m_pit8253(*this, "pit8253"),
 		m_speaker(*this, "speaker"),
 		m_cassette(*this, "cassette"),
+		m_sn76496(*this, "sn76496"),
 		m_cart1(*this, "cartslot1"),
 		m_cart2(*this, "cartslot2"),
 		m_ram(*this, RAM_TAG),
@@ -50,36 +67,37 @@ public:
 	void ibmpcjr(machine_config &config);
 
 private:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void driver_init() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
-	void ibmpcjr_io(address_map &map);
-	void ibmpcjr_map(address_map &map);
-	void ibmpcjx_io(address_map &map);
-	void ibmpcjx_map(address_map &map);
+	void ibmpcjr_io(address_map &map) ATTR_COLD;
+	void ibmpcjr_map(address_map &map) ATTR_COLD;
+	void ibmpcjx_io(address_map &map) ATTR_COLD;
+	void ibmpcjx_map(address_map &map) ATTR_COLD;
 
 	TIMER_CALLBACK_MEMBER(delayed_irq);
 	TIMER_CALLBACK_MEMBER(watchdog_expired);
 	TIMER_CALLBACK_MEMBER(kb_signal);
 
 	required_device<cpu_device> m_maincpu;
+	required_device<pcvideo_pcjr_device> m_video;
 	required_device<pic8259_device> m_pic8259;
 	required_device<pit8253_device> m_pit8253;
 	required_device<speaker_sound_device> m_speaker;
 	required_device<cassette_image_device> m_cassette;
+	required_device<sn76496_device> m_sn76496;
 	required_device<generic_slot_device> m_cart1;
 	required_device<generic_slot_device> m_cart2;
 	required_device<ram_device> m_ram;
 	required_device<upd765a_device> m_fdc;
 	required_device<pc_keyboard_device> m_keyboard;
 
-	DECLARE_WRITE_LINE_MEMBER(out2_changed);
-	DECLARE_WRITE_LINE_MEMBER(keyb_interrupt);
+	void out2_changed(int state);
+	void keyb_interrupt(int state);
 
 	void pc_nmi_enable_w(uint8_t data);
 	uint8_t pcjr_nmi_enable_r();
-	DECLARE_WRITE_LINE_MEMBER(pic8259_set_int_line);
+	void pic8259_set_int_line(int state);
 
 	void pcjr_ppi_portb_w(uint8_t data);
 	uint8_t pcjr_ppi_portc_r();
@@ -88,7 +106,7 @@ private:
 	void pcjx_port_1ff_w(uint8_t data);
 	void pcjx_set_bank(int unk1, int unk2, int unk3);
 
-	image_init_result load_cart(device_image_interface &image, generic_slot_device *slot);
+	std::pair<std::error_condition, std::string> load_cart(device_image_interface &image, generic_slot_device *slot);
 	DECLARE_DEVICE_IMAGE_LOAD_MEMBER(cart1_load) { return load_cart(image, m_cart1); }
 	DECLARE_DEVICE_IMAGE_LOAD_MEMBER(cart2_load) { return load_cart(image, m_cart2); }
 	void pc_speaker_set_spkrdata(uint8_t data);
@@ -99,7 +117,7 @@ private:
 	uint8_t m_pcjx_1ff_count = 0;
 	uint8_t m_pcjx_1ff_val = 0;
 	uint8_t m_pcjx_1ff_bankval = 0;
-	uint8_t m_pcjx_1ff_bank[20][2]{};
+	uint8_t m_pcjx_1ff_bank[0x20][2]{};
 	int m_ppi_portc_switch_high = 0;
 	uint8_t m_ppi_portb = 0;
 
@@ -118,20 +136,41 @@ private:
 static INPUT_PORTS_START( ibmpcjr )
 	PORT_START("IN0") /* IN0 */
 	PORT_BIT ( 0xf0, 0xf0,   IPT_UNUSED )
-	PORT_BIT ( 0x08, 0x08,   IPT_CUSTOM ) PORT_VBLANK("pcvideo_pcjr:screen")
+	PORT_BIT ( 0x08, 0x08,   IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("pcvideo_pcjr:screen", FUNC(screen_device::vblank))
 	PORT_BIT ( 0x07, 0x07,   IPT_UNUSED )
 INPUT_PORTS_END
 
-void pcjr_state::driver_init()
-{
-	m_maincpu->space(AS_PROGRAM).install_ram(0, m_ram->size() - 1, m_ram->pointer());
-}
-
 void pcjr_state::machine_start()
 {
+	auto const ramsize = m_ram->size();
+	address_space &mem_space = m_maincpu->space(AS_PROGRAM);
+	address_space &vram_space = m_video->space(0);
+	assert(mem_space.data_width() == vram_space.data_width());
+
+	if (ramsize > (64 * 1024))
+		mem_space.install_ram(0, ramsize - 1, m_ram->pointer());
+	else
+		mem_space.install_ram(0, ramsize - 1, 0x010000, m_ram->pointer());
+
 	m_pc_int_delay_timer = timer_alloc(FUNC(pcjr_state::delayed_irq), this);
 	m_pcjr_watchdog = timer_alloc(FUNC(pcjr_state::watchdog_expired), this);
 	m_keyb_signal_timer = timer_alloc(FUNC(pcjr_state::kb_signal), this);
+
+	// TODO: JX isn't emulated properly at all, and should be moved to a separate driver
+	memory_share *const vram = memshare("vram");
+	if (vram)
+	{
+		m_video->set_16bit(true);
+		vram_space.install_ram(0, std::min<offs_t>((128 * 1024) - 1, vram->bytes() - 1), &vram[0]);
+	}
+	else
+	{
+		m_video->set_16bit(ramsize > (64 * 1024));
+		if (ramsize > (64 * 1024))
+			vram_space.install_ram(0, std::min<offs_t>((128 * 1024) - 1, ramsize - 1), m_ram->pointer());
+		else
+			vram_space.install_ram(0, ramsize - 1, 0x010000, m_ram->pointer());
+	}
 }
 
 void pcjr_state::machine_reset()
@@ -194,10 +233,10 @@ TIMER_CALLBACK_MEMBER(pcjr_state::kb_signal)
  *
  *************************************************************/
 
-WRITE_LINE_MEMBER(pcjr_state::pic8259_set_int_line)
+void pcjr_state::pic8259_set_int_line(int state)
 {
 	uint32_t pc = m_maincpu->pc();
-	if ( (pc == 0xF0453) || (pc == 0xFF196) )
+	if ( (pc == 0xf0453) || (pc == 0xff196) )
 	{
 		m_pc_int_delay_timer->adjust( m_maincpu->cycles_to_attotime(20), state );
 	}
@@ -218,7 +257,7 @@ void pcjr_state::pc_speaker_set_spkrdata(uint8_t data)
 	m_speaker->level_w(m_pc_spkrdata & m_pit_out2);
 }
 
-WRITE_LINE_MEMBER(pcjr_state::out2_changed)
+void pcjr_state::out2_changed(int state)
 {
 	m_pit_out2 = state ? 1 : 0;
 	m_speaker->level_w(m_pc_spkrdata & m_pit_out2);
@@ -263,7 +302,7 @@ WRITE_LINE_MEMBER(pcjr_state::out2_changed)
  *
  *************************************************************/
 
-WRITE_LINE_MEMBER(pcjr_state::keyb_interrupt)
+void pcjr_state::keyb_interrupt(int state)
 {
 	int data;
 
@@ -327,6 +366,15 @@ void pcjr_state::pcjr_ppi_portb_w(uint8_t data)
 	pc_speaker_set_spkrdata(data & 0x02);
 
 	m_cassette->change_state((data & 0x08) ? CASSETTE_MOTOR_DISABLED : CASSETTE_MOTOR_ENABLED, CASSETTE_MASK_MOTOR);
+
+	// PB5 & PB6 control MC14529B Dual 4-Channel Analog Data Selector:
+	// X0 - TIMER AUDIO
+	// X1 - CASS AUDIO TO MUX
+	// X2 - AUDIO INPUT
+	// X3 - SN76496N AUDIO
+	m_speaker->set_output_gain(0, (data & 0x60) == 0x00 ? 1.0 : 0.0);
+	m_cassette->set_output_gain(0, (data & 0x60) == 0x20 ? 1.0 : 0.0);
+	m_sn76496->set_output_gain(0, (data & 0x60) == 0x60 ? 1.0 : 0.0);
 }
 
 /*
@@ -448,7 +496,9 @@ uint8_t pcjr_state::pcjx_port_1ff_r()
 	return 0x60; // expansion?
 }
 
-image_init_result pcjr_state::load_cart(device_image_interface &image, generic_slot_device *slot)
+std::pair<std::error_condition, std::string> pcjr_state::load_cart(
+		device_image_interface &image,
+		generic_slot_device *slot)
 {
 	uint32_t size = slot->common_get_size("rom");
 	bool imagic_hack = false;
@@ -467,12 +517,11 @@ image_init_result pcjr_state::load_cart(device_image_interface &image, generic_s
 				header_size = 0x200;
 				break;
 			default:
-				image.seterror(image_error::INVALIDIMAGE, "Invalid header size");
-				return image_init_result::FAIL;
+				return std::make_pair(image_error::INVALIDIMAGE, "Invalid header length (must be 128 bytes or 512 bytes)");
 		}
-		if (size - header_size == 0xa000)
+		if ((size - header_size) == 0xa000)
 		{
-			// alloc 64K for the imagic carts, so to handle the necessary mirroring
+			// alloc 64K for the imagic carts, so as to handle the necessary mirroring
 			size += 0x6000;
 			imagic_hack = true;
 		}
@@ -499,7 +548,8 @@ image_init_result pcjr_state::load_cart(device_image_interface &image, generic_s
 		memcpy(ROM + 0x4000, ROM, 0x2000);
 		memcpy(ROM + 0x2000, ROM, 0x2000);
 	}
-	return image_init_result::PASS;
+
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 
@@ -554,7 +604,7 @@ GFXDECODE_END
 void pcjr_state::ibmpcjr_map(address_map &map)
 {
 	map.unmap_value_high();
-	map(0xb8000, 0xbffff).m("pcvideo_pcjr:vram", FUNC(address_map_bank_device::amap8));
+	map(0xb8000, 0xbffff).rw(m_video, FUNC(pcvideo_pcjr_device::vram_window_r), FUNC(pcvideo_pcjr_device::vram_window_w));
 	map(0xd0000, 0xdffff).r(m_cart2, FUNC(generic_slot_device::read_rom));
 	map(0xe0000, 0xeffff).r(m_cart1, FUNC(generic_slot_device::read_rom));
 	map(0xf0000, 0xfffff).rom().region("bios", 0);
@@ -568,13 +618,13 @@ void pcjr_state::ibmpcjr_io(address_map &map)
 	map(0x0040, 0x0043).rw(m_pit8253, FUNC(pit8253_device::read), FUNC(pit8253_device::write));
 	map(0x0060, 0x0063).rw("ppi8255", FUNC(i8255_device::read), FUNC(i8255_device::write));
 	map(0x00a0, 0x00a0).rw(FUNC(pcjr_state::pcjr_nmi_enable_r), FUNC(pcjr_state::pc_nmi_enable_w));
-	map(0x00c0, 0x00c0).w("sn76496", FUNC(sn76496_device::write));
+	map(0x00c0, 0x00c0).w(m_sn76496, FUNC(sn76496_device::write));
 	map(0x00f2, 0x00f2).w(FUNC(pcjr_state::pcjr_fdc_dor_w));
 	map(0x00f4, 0x00f5).m(m_fdc, FUNC(upd765a_device::map));
 	map(0x0200, 0x0207).rw("pc_joy", FUNC(pc_joy_device::joy_port_r), FUNC(pc_joy_device::joy_port_w));
 	map(0x02f8, 0x02ff).rw("ins8250", FUNC(ins8250_device::ins8250_r), FUNC(ins8250_device::ins8250_w));
 	map(0x0378, 0x037b).rw("lpt_0", FUNC(pc_lpt_device::read), FUNC(pc_lpt_device::write));
-	map(0x03d0, 0x03df).r("pcvideo_pcjr", FUNC(pcvideo_pcjr_device::read)).w("pcvideo_pcjr", FUNC(pcvideo_pcjr_device::write));
+	map(0x03d0, 0x03df).rw(m_video, FUNC(pcvideo_pcjr_device::read), FUNC(pcvideo_pcjr_device::write));
 }
 
 void pcjr_state::ibmpcjx_map(address_map &map)
@@ -582,7 +632,7 @@ void pcjr_state::ibmpcjx_map(address_map &map)
 	map.unmap_value_high();
 	map(0x80000, 0x9ffff).ram().share("vram"); // TODO: remove this part of vram hack
 	map(0x80000, 0xb7fff).rom().region("kanji", 0);
-	map(0xb8000, 0xbffff).m("pcvideo_pcjr:vram", FUNC(address_map_bank_device::amap8));
+	map(0xb8000, 0xbffff).rw(m_video, FUNC(pcvideo_pcjr_device::vram_window_r), FUNC(pcvideo_pcjr_device::vram_window_w));
 	map(0xd0000, 0xdffff).r(m_cart1, FUNC(generic_slot_device::read_rom));
 	map(0xe0000, 0xfffff).rom().region("bios", 0);
 }
@@ -602,11 +652,8 @@ void pcjr_state::ibmpcjr(machine_config &config)
 	m_maincpu->set_addrmap(AS_IO, &pcjr_state::ibmpcjr_io);
 	m_maincpu->set_irq_acknowledge_callback("pic8259", FUNC(pic8259_device::inta_cb));
 
-/*
-  On the PC Jr the input for clock 1 seems to be selectable
-  based on bit 4(/5?) written to output port A0h. This is not
-  supported yet.
- */
+	// On the PC Jr the input for clock 1 seems to be selectable based on bit 4(/5?) written to output port A0h.
+	// This is not supported yet.
 	PIT8253(config, m_pit8253, 0);
 	m_pit8253->set_clk<0>(XTAL(14'318'181)/12);
 	m_pit8253->out_handler<0>().set(m_pic8259, FUNC(pic8259_device::ir0_w));
@@ -636,14 +683,17 @@ void pcjr_state::ibmpcjr(machine_config &config)
 	serport.cts_handler().set("ins8250", FUNC(ins8250_uart_device::cts_w));
 
 	/* video hardware */
-	PCVIDEO_PCJR(config, "pcvideo_pcjr", 0).set_screen("pcvideo_pcjr:screen");
+	PCVIDEO_PCJR(config, m_video, 0);
+	m_video->set_screen("pcvideo_pcjr:screen");
+	m_video->set_chr_gen_tag("gfx1");
+	m_video->vsync_callback().set(m_pic8259, FUNC(pic8259_device::ir5_w));
 
-	GFXDECODE(config, "gfxdecode", "pcvideo_pcjr:palette", gfx_pcjr);
+	GFXDECODE(config, "gfxdecode", "pcvideo_pcjr", gfx_pcjr);
 
 	/* sound hardware */
 	SPEAKER(config, "mono").front_center();
-	SPEAKER_SOUND(config, "speaker").add_route(ALL_OUTPUTS, "mono", 0.80);
-	SN76496(config, "sn76496", XTAL(14'318'181)/4).add_route(ALL_OUTPUTS, "mono", 0.80);
+	SPEAKER_SOUND(config, m_speaker).add_route(ALL_OUTPUTS, "mono", 0.80);
+	SN76496(config, m_sn76496, XTAL(14'318'181)/4).add_route(ALL_OUTPUTS, "mono", 0.80);
 
 	/* printer */
 	pc_lpt_device &lpt0(PC_LPT(config, "lpt_0"));
@@ -656,7 +706,7 @@ void pcjr_state::ibmpcjr(machine_config &config)
 	m_cassette->set_default_state(CASSETTE_PLAY | CASSETTE_MOTOR_DISABLED | CASSETTE_SPEAKER_ENABLED);
 	m_cassette->add_route(ALL_OUTPUTS, "mono", 0.05);
 
-	UPD765A(config, m_fdc, 8'000'000, false, false);
+	UPD765A(config, m_fdc, 16_MHz_XTAL / 4, false, false); // clocked through SED9420C
 
 	FLOPPY_CONNECTOR(config, "fdc:0", pcjr_floppies, "525dd", isa8_fdc_device::floppy_formats, true);
 
@@ -668,7 +718,7 @@ void pcjr_state::ibmpcjr(machine_config &config)
 	GENERIC_CARTSLOT(config, "cartslot2", generic_plain_slot, "ibmpcjr_cart", "bin,jrc").set_device_load(FUNC(pcjr_state::cart2_load));
 
 	/* internal ram */
-	RAM(config, m_ram).set_default_size("640K").set_extra_options("128K, 256K, 512K");
+	RAM(config, m_ram).set_default_size("640K").set_extra_options("64K, 128K, 256K, 512K");
 
 	/* Software lists */
 	SOFTWARE_LIST(config, "cart_list").set_original("ibmpcjr_cart");
@@ -688,6 +738,8 @@ void pcjr_state::ibmpcjx(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &pcjr_state::ibmpcjx_map);
 	m_maincpu->set_addrmap(AS_IO, &pcjr_state::ibmpcjx_io);
 
+	m_video->set_kanji_tag("kanji");
+
 	config.device_remove("fdc:0");
 	FLOPPY_CONNECTOR(config, "fdc:0", pcjr_floppies, "35dd", isa8_fdc_device::floppy_formats, true);
 	FLOPPY_CONNECTOR(config, "fdc:1", pcjr_floppies, "35dd", isa8_fdc_device::floppy_formats, true);
@@ -696,6 +748,9 @@ void pcjr_state::ibmpcjx(machine_config &config)
 
 	/* internal ram */
 	m_ram->set_default_size("512K").set_extra_options(""); // only boots with 512k currently
+
+	/* Software lists */
+	SOFTWARE_LIST(config, "jx_list").set_original("ibmpcjx");
 }
 
 
@@ -727,6 +782,9 @@ ROM_START( ibmpcjx )
 	ROM_LOAD("kanji.rom",     0x00000, 0x38000, BAD_DUMP CRC(eaa6e3c3) SHA1(35554587d02d947fae8446964b1886fff5c9d67f)) // hand-made rom
 ROM_END
 
-//    YEAR  NAME     PARENT   COMPAT  MACHINE  INPUT    CLASS       INIT        COMPANY                            FULLNAME     FLAGS
-COMP( 1983, ibmpcjr, ibm5150, 0,      ibmpcjr, ibmpcjr, pcjr_state, empty_init, "International Business Machines", "IBM PC Jr", MACHINE_IMPERFECT_COLORS )
-COMP( 1985, ibmpcjx, ibm5150, 0,      ibmpcjx, ibmpcjr, pcjr_state, empty_init, "International Business Machines", "IBM PC JX", MACHINE_IMPERFECT_COLORS | MACHINE_NOT_WORKING)
+} // anonymous namespace
+
+
+//    YEAR  NAME     PARENT   COMPAT  MACHINE  INPUT    CLASS       INIT        COMPANY                            FULLNAME           FLAGS
+COMP( 1983, ibmpcjr, ibm5150, 0,      ibmpcjr, ibmpcjr, pcjr_state, empty_init, "International Business Machines", "IBM PCjr (4860)", MACHINE_IMPERFECT_COLORS )
+COMP( 1985, ibmpcjx, ibm5150, 0,      ibmpcjx, ibmpcjr, pcjr_state, empty_init, "International Business Machines", "IBM JX (5510)",   MACHINE_IMPERFECT_COLORS | MACHINE_NOT_WORKING )

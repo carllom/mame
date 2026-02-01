@@ -17,26 +17,26 @@
       game videos)
     - verify controls
     - implement game linking (after MAME supports network)
-    - current implementation of 68010 <-> tms32010 is a little bit hacky, after
-      tms32010 is started by 68010, 68010 is suspended until tms32010 reads command
+    - current implementation of 68010 <-> TMS320C10 is a little bit hacky, after
+      TMS320C10 is started by 68010, 68010 is suspended until TMS320C10 reads command
       and starts executing
-    - hook up tms5220 - it is currently not used at all
+    - hook up TMS5220 - it is currently not used at all
 
 */
 
 #include "emu.h"
 
-#include "cpu/m68000/m68000.h"
-#include "cpu/tms32010/tms32010.h"
+#include "cpu/m68000/m68010.h"
+#include "cpu/tms320c1x/tms320c1x.h"
 #include "cpu/m6502/m6502.h"
 #include "video/avgdvg.h"
 #include "video/vector.h"
 #include "machine/74259.h"
 #include "machine/adc0808.h"
+#include "machine/mos6530.h"
 #include "machine/timekpr.h"
 #include "machine/nvram.h"
 #include "machine/watchdog.h"
-#include "machine/6532riot.h"
 #include "sound/pokey.h"
 #include "sound/tms5220.h"
 #include "sound/ymopm.h"
@@ -66,23 +66,23 @@ private:
 	void adcon_w(uint8_t data);
 	uint16_t tomcat_inputs_r(offs_t offset, uint16_t mem_mask = ~0);
 	void main_latch_w(offs_t offset, uint16_t data);
-	DECLARE_WRITE_LINE_MEMBER(lnkmode_w);
-	DECLARE_WRITE_LINE_MEMBER(err_w);
-	DECLARE_WRITE_LINE_MEMBER(ack_w);
-	DECLARE_WRITE_LINE_MEMBER(txbuff_w);
-	DECLARE_WRITE_LINE_MEMBER(sndres_w);
-	DECLARE_WRITE_LINE_MEMBER(mres_w);
+	void lnkmode_w(int state);
+	void err_w(int state);
+	void ack_w(int state);
+	void txbuff_w(int state);
+	void sndres_w(int state);
+	void mres_w(int state);
 	void tomcat_irqclr_w(uint16_t data);
 	uint16_t tomcat_inputs2_r();
 	uint16_t tomcat_320bio_r();
 	uint8_t tomcat_nvram_r(offs_t offset);
 	void tomcat_nvram_w(offs_t offset, uint8_t data);
-	DECLARE_READ_LINE_MEMBER(dsp_bio_r);
+	int dsp_bio_r();
 	void soundlatches_w(offs_t offset, uint8_t data);
-	virtual void machine_start() override;
-	void dsp_map(address_map &map);
-	void sound_map(address_map &map);
-	void tomcat_map(address_map &map);
+	virtual void machine_start() override ATTR_COLD;
+	void dsp_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
+	void tomcat_map(address_map &map) ATTR_COLD;
 
 	required_device<tms5220_device> m_tms;
 	required_shared_ptr<uint16_t> m_shared_ram;
@@ -91,7 +91,7 @@ private:
 	int m_dsp_idle = 0;
 
 	required_device<cpu_device> m_maincpu;
-	required_device<tms32010_device> m_dsp;
+	required_device<tms320c10_device> m_dsp;
 	required_device<adc0808_device> m_adc;
 	required_device<ls259_device> m_mainlatch;
 };
@@ -119,36 +119,36 @@ void tomcat_state::main_latch_w(offs_t offset, uint16_t data)
 	m_mainlatch->write_bit(offset & 7, BIT(offset, 3));
 }
 
-WRITE_LINE_MEMBER(tomcat_state::lnkmode_w)
+void tomcat_state::lnkmode_w(int state)
 {
 	// Link Mode
 	// When Low: Master does not respond to Interrupts
 }
 
-WRITE_LINE_MEMBER(tomcat_state::err_w)
+void tomcat_state::err_w(int state)
 {
 	// Link Error Flag
 }
 
-WRITE_LINE_MEMBER(tomcat_state::ack_w)
+void tomcat_state::ack_w(int state)
 {
 	// Link ACK Flag
 }
 
-WRITE_LINE_MEMBER(tomcat_state::txbuff_w)
+void tomcat_state::txbuff_w(int state)
 {
 	// Link Buffer Control
 	// When High: Turn off TX (Link) Buffer
 }
 
-WRITE_LINE_MEMBER(tomcat_state::sndres_w)
+void tomcat_state::sndres_w(int state)
 {
 	// Sound Reset
 	// When Low: Reset Sound System
 	// When High: Release reset of sound system
 }
 
-WRITE_LINE_MEMBER(tomcat_state::mres_w)
+void tomcat_state::mres_w(int state)
 {
 	// 320 Reset
 	// When Low: Reset TMS320
@@ -186,7 +186,7 @@ uint16_t tomcat_state::tomcat_320bio_r()
 	return 0;
 }
 
-READ_LINE_MEMBER(tomcat_state::dsp_bio_r)
+int tomcat_state::dsp_bio_r()
 {
 	if (m_dsp->pc() == 0x0001)
 	{
@@ -270,8 +270,8 @@ void tomcat_state::sound_map(address_map &map)
 	map(0x2000, 0x2001).rw("ymsnd", FUNC(ym2151_device::read), FUNC(ym2151_device::write));
 	map(0x3000, 0x30df).w(FUNC(tomcat_state::soundlatches_w));
 	map(0x30e0, 0x30e0).noprw(); // COINRD Inputs: D7 = Coin L, D6 = Coin R, D5 = SOUNDFLAG
-	map(0x5000, 0x507f).ram(); // 6532 ram
-	map(0x5080, 0x509f).rw("riot", FUNC(riot6532_device::read), FUNC(riot6532_device::write));
+	map(0x5000, 0x507f).m("riot", FUNC(mos6532_device::ram_map));
+	map(0x5080, 0x509f).m("riot", FUNC(mos6532_device::io_map));
 	map(0x6000, 0x601f).rw("pokey1", FUNC(pokey_device::read), FUNC(pokey_device::write));
 	map(0x7000, 0x701f).rw("pokey2", FUNC(pokey_device::read), FUNC(pokey_device::write));
 	map(0x8000, 0xffff).noprw(); // main sound program rom
@@ -279,7 +279,7 @@ void tomcat_state::sound_map(address_map &map)
 
 static INPUT_PORTS_START( tomcat )
 	PORT_START("IN0")   /* INPUTS */
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("avg", avg_device, done_r)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("avg", FUNC(avg_device::done_r))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW,  IPT_UNUSED ) // SPARE
 	PORT_BIT( 0x04, IP_ACTIVE_LOW,  IPT_BUTTON5 ) // DIAGNOSTIC
 	PORT_SERVICE( 0x08, IP_ACTIVE_LOW )
@@ -318,7 +318,7 @@ void tomcat_state::tomcat(machine_config &config)
 	m_maincpu->set_periodic_int(FUNC(tomcat_state::irq1_line_assert), attotime::from_hz(5*60));
 	//m_maincpu->set_periodic_int(FUNC(tomcat_state::irq1_line_assert), attotime::from_hz(12.096_MHz_XTAL / 16 / 16 / 16 / 12));
 
-	TMS32010(config, m_dsp, 16_MHz_XTAL);
+	TMS320C10(config, m_dsp, 16_MHz_XTAL);
 	m_dsp->set_addrmap(AS_PROGRAM, &tomcat_state::dsp_map);
 	m_dsp->bio().set(FUNC(tomcat_state::dsp_bio_r));
 
@@ -330,7 +330,7 @@ void tomcat_state::tomcat(machine_config &config)
 	m_adc->in_callback<0>().set_ioport("STICKY");
 	m_adc->in_callback<1>().set_ioport("STICKX");
 
-	RIOT6532(config, "riot", 14.318181_MHz_XTAL / 8);
+	MOS6532(config, "riot", 14.318181_MHz_XTAL / 8);
 	/*
 	 PA0 = /WS   OUTPUT  (TMS-5220 WRITE STROBE)
 	 PA1 = /RS   OUTPUT  (TMS-5220 READ STROBE)
@@ -376,17 +376,16 @@ void tomcat_state::tomcat(machine_config &config)
 	avg.set_vector("vector");
 	avg.set_memory(m_maincpu, AS_PROGRAM, 0x800000);
 
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
-	POKEY(config, "pokey1", XTAL(14'318'181) / 8).add_route(ALL_OUTPUTS, "lspeaker", 0.20);
+	SPEAKER(config, "speaker", 2).front();
+	POKEY(config, "pokey1", XTAL(14'318'181) / 8).add_route(ALL_OUTPUTS, "speaker", 0.20, 0);
 
-	POKEY(config, "pokey2", XTAL(14'318'181) / 8).add_route(ALL_OUTPUTS, "rspeaker", 0.20);
+	POKEY(config, "pokey2", XTAL(14'318'181) / 8).add_route(ALL_OUTPUTS, "speaker", 0.20, 1);
 
 	TMS5220(config, m_tms, 325000);
-	m_tms->add_route(ALL_OUTPUTS, "lspeaker", 0.50);
-	m_tms->add_route(ALL_OUTPUTS, "rspeaker", 0.50);
+	m_tms->add_route(ALL_OUTPUTS, "speaker", 0.50, 0);
+	m_tms->add_route(ALL_OUTPUTS, "speaker", 0.50, 1);
 
-	YM2151(config, "ymsnd", XTAL(14'318'181)/4).add_route(0, "lspeaker", 0.60).add_route(1, "rspeaker", 0.60);
+	YM2151(config, "ymsnd", XTAL(14'318'181)/4).add_route(0, "speaker", 0.60, 0).add_route(1, "speaker", 0.60, 1);
 }
 
 ROM_START( tomcat )

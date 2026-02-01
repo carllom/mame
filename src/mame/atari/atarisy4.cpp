@@ -18,11 +18,13 @@
 
 #include "emu.h"
 #include "cpu/m68000/m68000.h"
-#include "cpu/tms32010/tms32010.h"
+#include "cpu/tms320c1x/tms320c1x.h"
 #include "video/poly.h"
 #include "emupal.h"
 #include "screen.h"
 
+
+namespace {
 
 class atarisy4_state : public driver_device
 {
@@ -124,13 +126,13 @@ protected:
 	void m68k_shared_1_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
 	uint16_t dsp0_status_r();
 	void dsp0_control_w(uint16_t data);
-	DECLARE_READ_LINE_MEMBER(dsp0_bio_r);
+	int dsp0_bio_r();
 	void dsp0_bank_w(uint16_t data);
 	uint16_t analog_r();
 
-	virtual void machine_reset() override;
-	virtual void video_start() override;
-	virtual void video_reset() override;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
+	virtual void video_reset() override ATTR_COLD;
 
 	uint32_t screen_update_atarisy4(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
@@ -142,12 +144,12 @@ protected:
 	void load_ldafile(address_space &space, const uint8_t *file);
 	void load_hexfile(address_space &space, const uint8_t *file);
 
-	void main_map(address_map &map);
-	void dsp0_map(address_map &map);
-	void dsp0_io_map(address_map &map);
+	void main_map(address_map &map) ATTR_COLD;
+	void dsp0_map(address_map &map) ATTR_COLD;
+	void dsp0_io_map(address_map &map) ATTR_COLD;
 
 	required_device<cpu_device> m_maincpu;
-	required_device<tms32010_device> m_dsp0;
+	required_device<tms320c10_device> m_dsp0;
 
 	required_memory_bank m_dsp0_bank1;
 
@@ -191,17 +193,17 @@ public:
 protected:
 	uint16_t dsp1_status_r();
 	void dsp1_control_w(uint16_t data);
-	DECLARE_READ_LINE_MEMBER(dsp1_bio_r);
+	int dsp1_bio_r();
 	void dsp1_bank_w(uint16_t data);
 
-	virtual void machine_reset() override;
+	virtual void machine_reset() override ATTR_COLD;
 
-	void airrace_map(address_map &map);
-	void dsp1_map(address_map &map);
-	void dsp1_io_map(address_map &map);
+	void airrace_map(address_map &map) ATTR_COLD;
+	void dsp1_map(address_map &map) ATTR_COLD;
+	void dsp1_io_map(address_map &map) ATTR_COLD;
 
 private:
-	required_device<tms32010_device> m_dsp1;
+	required_device<tms320c10_device> m_dsp1;
 	required_memory_bank m_dsp1_bank1;
 };
 
@@ -639,7 +641,7 @@ void atarisy4_state::dsp0_control_w(uint16_t data)
 	m_csr[0] = data;
 }
 
-READ_LINE_MEMBER(atarisy4_state::dsp0_bio_r)
+int atarisy4_state::dsp0_bio_r()
 {
 	return BIT(m_csr[0], 2);
 }
@@ -673,7 +675,7 @@ void airrace_state::dsp1_control_w(uint16_t data)
 	m_csr[1] = data;
 }
 
-READ_LINE_MEMBER(airrace_state::dsp1_bio_r)
+int airrace_state::dsp1_bio_r()
 {
 	return BIT(m_csr[1], 2);
 }
@@ -807,17 +809,17 @@ INPUT_PORTS_END
 
 void atarisy4_state::atarisy4(machine_config &config)
 {
-	M68000(config, m_maincpu, 8000000);
+	M68000(config, m_maincpu, 8'000'000);
 	m_maincpu->set_addrmap(AS_PROGRAM, &atarisy4_state::main_map);
 	m_maincpu->set_vblank_int("screen", FUNC(atarisy4_state::vblank_int));
 
-	TMS32010(config, m_dsp0, 16000000);
+	TMS320C10(config, m_dsp0, 16'000'000);
 	m_dsp0->set_addrmap(AS_PROGRAM, &atarisy4_state::dsp0_map);
 	m_dsp0->set_addrmap(AS_IO, &atarisy4_state::dsp0_io_map);
 	m_dsp0->bio().set(FUNC(atarisy4_state::dsp0_bio_r));
 
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
-	m_screen->set_raw(32000000/2, 660, 0, 512, 404, 0, 384);
+	m_screen->set_raw(32'000'000/2, 660, 0, 512, 404, 0, 384);
 	m_screen->set_video_attributes(VIDEO_UPDATE_AFTER_VBLANK);
 	m_screen->set_screen_update(FUNC(atarisy4_state::screen_update_atarisy4));
 
@@ -830,7 +832,7 @@ void airrace_state::airrace(machine_config &config)
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &airrace_state::airrace_map);
 
-	TMS32010(config, m_dsp1, 16000000);
+	TMS320C10(config, m_dsp1, 16'000'000);
 	m_dsp1->set_addrmap(AS_PROGRAM, &airrace_state::dsp1_map);
 	m_dsp1->set_addrmap(AS_IO, &airrace_state::dsp1_io_map);
 	m_dsp1->bio().set(FUNC(airrace_state::dsp1_bio_r));
@@ -1097,6 +1099,8 @@ void airrace_state::machine_reset()
 	m_dsp1->set_input_line(INPUT_LINE_RESET, ASSERT_LINE);
 }
 
+} // anonymous namespace
+
 
 /*************************************
  *
@@ -1104,5 +1108,5 @@ void airrace_state::machine_reset()
  *
  *************************************/
 
-GAME( 1984, laststar, 0, atarisy4, atarisy4, atarisy4_state, init_laststar, ROT0, "Atari Games", "The Last Starfighter (prototype)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_NO_SOUND_HW )
-GAME( 1985, airrace,  0, airrace,  atarisy4, airrace_state,  init_airrace,  ROT0, "Atari Games", "Air Race (prototype)",             MACHINE_IMPERFECT_GRAPHICS | MACHINE_NO_SOUND_HW )
+GAME( 1984, laststar, 0, atarisy4, atarisy4, atarisy4_state, init_laststar, ROT0, "Atari Games", "The Last Starfighter (prototype)", MACHINE_IS_INCOMPLETE | MACHINE_IMPERFECT_GRAPHICS | MACHINE_NO_SOUND_HW )
+GAME( 1985, airrace,  0, airrace,  atarisy4, airrace_state,  init_airrace,  ROT0, "Atari Games", "Air Race (prototype)",             MACHINE_IS_INCOMPLETE | MACHINE_IMPERFECT_GRAPHICS | MACHINE_NO_SOUND_HW )

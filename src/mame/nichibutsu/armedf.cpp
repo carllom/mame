@@ -311,16 +311,17 @@ Notes:
       LM324   - Texas Instruments LM324 Quad Operational Amplifier with True Differential Inputs
       MB3730  - Fujitsu MB3730 12W BTL Single Channel Amplifier
 
-
 ***********************************************************************/
 
 #include "emu.h"
 #include "armedf.h"
 
 #include "cpu/m68000/m68000.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 #include "cpu/z80/z80.h"
+#include "machine/rescap.h"
 #include "sound/dac.h"
+#include "sound/flt_biquad.h"
 #include "sound/ymopl.h"
 #include "speaker.h"
 
@@ -418,7 +419,7 @@ void armedf_state::common_map(address_map &map)
 {
 	map(0x000000, 0x05ffff).rom();
 	map(0x064000, 0x064fff).ram().w(m_palette, FUNC(palette_device::write16)).share("palette");
-	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::text_videoram_w)).umask16(0x00ff);
+	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::terraf_text_videoram_w)).umask16(0x00ff);
 	map(0x06a000, 0x06a9ff).ram();
 	map(0x06c000, 0x06cfff).ram().share("spr_pal_clut");
 	map(0x070000, 0x070fff).ram().w(FUNC(armedf_state::fg_videoram_w)).share("fg_videoram");
@@ -438,8 +439,8 @@ void armedf_state::common_map(address_map &map)
 void armedf_state::terraf_common_map(address_map &map)
 {
 	common_map(map);
-	map(0x060000, 0x0603ff).ram().share("spriteram");
-	map(0x060400, 0x063fff).ram();
+	map(0x060000, 0x0605ff).ram().share("spriteram");
+	map(0x060600, 0x063fff).ram();
 }
 
 void armedf_state::terraf_map(address_map &map)
@@ -479,7 +480,7 @@ void armedf_state::cclimbr2_map(address_map &map)
 	map(0x060000, 0x060fff).ram().share("spriteram");
 	map(0x061000, 0x063fff).ram();
 	map(0x064000, 0x064fff).ram().w(m_palette, FUNC(palette_device::write16)).share("palette");
-	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::text_videoram_w)).umask16(0x00ff);
+	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::terraf_text_videoram_w)).umask16(0x00ff);
 	map(0x06a000, 0x06a9ff).ram();
 	map(0x06c000, 0x06cfff).ram().share("spr_pal_clut");
 	map(0x070000, 0x070fff).ram().w(FUNC(armedf_state::fg_videoram_w)).share("fg_videoram");
@@ -521,7 +522,7 @@ void armedf_state::legion_map(address_map &map)
 {
 	legion_common_map(map);
 
-	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::text_videoram_w)).umask16(0x00ff);
+	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::terraf_text_videoram_w)).umask16(0x00ff);
 	map(0x07c000, 0x07c001).w(FUNC(armedf_state::terraf_io_w));
 }
 
@@ -539,7 +540,7 @@ void armedf_state::legionjb_map(address_map &map)
 	legion_common_map(map);
 
 	map(0x040000, 0x04003f).w(FUNC(armedf_state::legionjb_fg_scroll_w)).umask16(0x00ff);
-	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::text_videoram_w)).umask16(0x00ff);
+	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::terraf_text_videoram_w)).umask16(0x00ff);
 	map(0x07c000, 0x07c001).w(FUNC(armedf_state::armedf_io_w));
 }
 
@@ -548,7 +549,7 @@ void armedf_state::legionjb2_map(address_map &map)
 	legion_common_map(map);
 
 	map(0x000000, 0x00003f).w(FUNC(armedf_state::legionjb_fg_scroll_w)).umask16(0x00ff);
-	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::text_videoram_w)).umask16(0x00ff);
+	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::terraf_text_videoram_w)).umask16(0x00ff);
 	map(0x07c000, 0x07c001).w(FUNC(armedf_state::armedf_io_w));
 	//also writes to 7c0010 / 70c020 / 70c030. These could possibly be the scroll registers on this bootleg and the writes to 000000 - 00003f could just be leftovers.
 }
@@ -560,7 +561,7 @@ void armedf_state::armedf_map(address_map &map)
 	map(0x061000, 0x065fff).ram();
 	map(0x066000, 0x066fff).ram().w(FUNC(armedf_state::bg_videoram_w)).share("bg_videoram");
 	map(0x067000, 0x067fff).ram().w(FUNC(armedf_state::fg_videoram_w)).share("fg_videoram");
-	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::text_videoram_w)).umask16(0x00ff);
+	map(0x068000, 0x069fff).rw(FUNC(armedf_state::text_videoram_r), FUNC(armedf_state::armedf_text_videoram_w)).umask16(0x00ff);
 	map(0x06a000, 0x06afff).ram().w(m_palette, FUNC(palette_device::write16)).share("palette");
 	map(0x06b000, 0x06bfff).ram().share("spr_pal_clut");
 	map(0x06c000, 0x06c7ff).ram();
@@ -609,7 +610,7 @@ void bigfghtr_state::bigfghtr_map(address_map &map)
 	map(0x084000, 0x085fff).ram(); //work ram
 	map(0x086000, 0x086fff).ram().w(FUNC(bigfghtr_state::bg_videoram_w)).share("bg_videoram");
 	map(0x087000, 0x087fff).ram().w(FUNC(bigfghtr_state::fg_videoram_w)).share("fg_videoram");
-	map(0x088000, 0x089fff).rw(FUNC(bigfghtr_state::text_videoram_r), FUNC(bigfghtr_state::text_videoram_w)).umask16(0x00ff);
+	map(0x088000, 0x089fff).rw(FUNC(bigfghtr_state::text_videoram_r), FUNC(bigfghtr_state::armedf_text_videoram_w)).umask16(0x00ff);
 	map(0x08a000, 0x08afff).ram().w(m_palette, FUNC(palette_device::write16)).share("palette");
 	map(0x08b000, 0x08bfff).ram().share("spr_pal_clut");
 	map(0x08c000, 0x08c001).portr("P1");
@@ -633,29 +634,24 @@ void bigfghtr_state::bigfghtr_mcu_map(address_map &map)
 	map(0x0000, 0x0fff).rom();
 }
 
-void bigfghtr_state::bigfghtr_mcu_io_map(address_map &map)
+void bigfghtr_state::bigfghtr_mcu_data_map(address_map &map)
 {
 	map(0x00000, 0x005ff).w(FUNC(bigfghtr_state::mcu_spritelist_w)); //Sprite RAM, guess shared as well
 	map(0x00600, 0x03fff).ram().share("sharedram");
 }
 
+// common sound map for the terra force bottom pcb, also used on armed f, tatakae big fighter, etc
 void armedf_state::sound_map(address_map &map)
 {
 	map(0x0000, 0xf7ff).rom();
 	map(0xf800, 0xffff).ram();
 }
 
+// common sound map for the crazy climber 2 and legion bottom pcbs
 void armedf_state::cclimbr2_soundmap(address_map &map)
 {
 	map(0x0000, 0xbfff).rom();
 	map(0xc000, 0xffff).ram();
-}
-
-void armedf_state::blitter_txram_w(offs_t offset, u8 data)
-{
-	m_text_videoram[offset] = data;
-	if (offset < 0x1000)
-		m_tx_tilemap->mark_tile_dirty(offset & 0x7ff);
 }
 
 void armedf_state::terrafjb_fg_scrollx_w(u8 data)
@@ -678,7 +674,7 @@ void armedf_state::terrafjb_fg_scroll_msb_w(u8 data)
 void armedf_state::terrafjb_extraz80_map(address_map &map)
 {
 	map(0x0000, 0x3fff).rom();
-	map(0x4000, 0x4fff).ram().w(FUNC(armedf_state::blitter_txram_w)).share("text_videoram");
+	map(0x4000, 0x4fff).ram().w(FUNC(armedf_state::terraf_text_videoram_w)).share("text_videoram");
 	map(0x5000, 0x5fff).ram();
 	map(0x8000, 0x87ff).ram();
 }
@@ -1104,22 +1100,81 @@ void armedf_state::video_config(machine_config &config, int hchar_start, int vst
 	BUFFERED_SPRITERAM16(config, m_spriteram);
 }
 
-void armedf_state::sound_config(machine_config &config)
+void armedf_state::sound_config_common(machine_config &config) // common amongst all pcbs
 {
-	z80_device &audiocpu(Z80(config, "audiocpu", XTAL(24'000'000)/6));      // 4mhz
-	audiocpu.set_addrmap(AS_PROGRAM, &armedf_state::sound_map);
-	audiocpu.set_addrmap(AS_IO, &armedf_state::sound_portmap);
-	audiocpu.set_periodic_int(FUNC(armedf_state::irq0_line_hold), attotime::from_hz(XTAL(8'000'000)/2/512));    // ?
+	Z80(config, m_audiocpu, XTAL(24'000'000)/6);      // 4mhz
+	m_audiocpu->set_periodic_int(FUNC(armedf_state::irq0_line_hold), attotime::from_hz(XTAL(8'000'000)/2/512));    // ?
 
 	SPEAKER(config, "speaker").front_center();
 
 	GENERIC_LATCH_8(config, m_soundlatch);
 
-	YM3812(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, "speaker", 0.5);  // 4mhz
+	// Note: Component locations here come from the common terra force/sky robo
+	// /takakae! big fighter sound pcb; the locations and components are not
+	// yet verified for other sound pcbs, although from pictures of a legion
+	// pcb, while the component locations are different, the values appear
+	// to be the same.
+	// The 3 mixing resistors for YM, DAC1 and DAC2 are all identical (1K).
+	// However, the actual volume output by the ym3014 dac and the r2r resistors
+	//  is not the same range on each!
+	// The YM3014 dac has a DC offset of 1/2 VDD, then +- 1/4 VDD of signal,
+	//  so min of 1.25v and max of 3.75v, vpp of 2.5v
+	// The R2R dacs are full range, min of 0v and max of (almost) 5v, vpp of ~5.0v
+	// Because of this, we have to compensate as MAME's ymfm core outputs full range.
+	// Math::
+	//  YMFM:  0.3333 * 0.5 = 0.16665
+	//  DAC1:  0.3333 * 1.0 = 0.3333
+	//  DAC2:  0.3333 * 1.0 = 0.3333
+	//  Sum:                  0.83325
+	//  Multiply all 3 values by 1 / 0.83325 (i.e. 1.20012):
+	// Final values are: ym: 0.2; dac1: 0.4; dac2: 0.4
 
-	DAC_8BIT_R2R(config, "dac1", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // 10-pin SIP with 74HC374P latch
-	DAC_8BIT_R2R(config, "dac2", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // 10-pin SIP with 74HC374P latch
+	// R17, R16, nothing(infinite resistance), wire(short), C82, C68
+	FILTER_BIQUAD(config, m_ymfilter).opamp_sk_lowpass_setup(RES_K(4.7), RES_K(4.7), RES_M(999.99), RES_R(0.001), CAP_N(3.3), CAP_N(1.0));
+	m_ymfilter->add_route(ALL_OUTPUTS, "speaker", 1.0);
+
+	// R15, R10, nothing(infinite resistance), wire(short), C81, C60
+	FILTER_BIQUAD(config, m_dacfilter1).opamp_sk_lowpass_setup(RES_K(10), RES_K(10), RES_M(999.99), RES_R(0.001), CAP_N(10), CAP_N(4.7));
+	m_dacfilter1->add_route(ALL_OUTPUTS, "speaker", 1.0);
+
+	// R13, R9, nothing(infinite resistance), wire(short), C66, C61
+	FILTER_BIQUAD(config, m_dacfilter2).opamp_sk_lowpass_setup(RES_K(10), RES_K(10), RES_M(999.99), RES_R(0.001), CAP_N(10), CAP_N(4.7));
+	m_dacfilter2->add_route(ALL_OUTPUTS, "speaker", 1.0);
+
+	DAC_8BIT_R2R(config, "dac1", 0).add_route(ALL_OUTPUTS, m_dacfilter1, 0.4); // SIP R2R DAC @ G11-1 with 74HC374P latch
+	DAC_8BIT_R2R(config, "dac2", 0).add_route(ALL_OUTPUTS, m_dacfilter2, 0.4); // SIP R2R DAC @ G11-2 with 74HC374P latch
 }
+
+void armedf_state::sound_config(machine_config &config) // 3812, used on all pcbs and bootlegs except for legion (and maybe cclimbr2)
+{
+	sound_config_common(config);
+
+	m_audiocpu->set_addrmap(AS_PROGRAM, &armedf_state::sound_map);
+	m_audiocpu->set_addrmap(AS_IO, &armedf_state::sound_portmap);
+
+	YM3812(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, m_ymfilter, 0.2);
+}
+
+void armedf_state::sound_config_legion(machine_config &config) // 3526, used on non-bootleg legion and maybe cclimbr2, needs verification
+{
+	sound_config_common(config);
+
+	m_audiocpu->set_addrmap(AS_PROGRAM, &armedf_state::cclimbr2_soundmap);
+	m_audiocpu->set_addrmap(AS_IO, &armedf_state::sound_3526_portmap);
+
+	YM3526(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, m_ymfilter, 0.2);
+}
+
+void armedf_state::sound_config_legion_3812(machine_config &config) // 3812, used on legion bootlegs and maybe cclimbr2, needs verification
+{
+	sound_config_common(config);
+
+	m_audiocpu->set_addrmap(AS_PROGRAM, &armedf_state::cclimbr2_soundmap);
+	m_audiocpu->set_addrmap(AS_IO, &armedf_state::sound_portmap);
+
+	YM3812(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, m_ymfilter, 0.2);
+}
+
 
 void armedf_state::terraf(machine_config &config)
 {
@@ -1130,6 +1185,7 @@ void armedf_state::terraf(machine_config &config)
 	NB1414M4(config, m_nb1414m4, 0);
 
 	video_config(config, 12, 8, 248);
+
 	MCFG_VIDEO_START_OVERRIDE(armedf_state,terraf)
 
 	/* sound hardware */
@@ -1142,27 +1198,16 @@ void armedf_state::terrafjb(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &armedf_state::terrafjb_map);
 	m_maincpu->set_vblank_int("screen", FUNC(armedf_state::irq1_line_assert));
 
-	z80_device &audiocpu(Z80(config, "audiocpu", XTAL(24'000'000)/6));      // 4mhz
-	audiocpu.set_addrmap(AS_PROGRAM, &armedf_state::sound_map);
-	audiocpu.set_addrmap(AS_IO, &armedf_state::sound_portmap);
-	audiocpu.set_periodic_int(FUNC(armedf_state::irq0_line_hold), attotime::from_hz(XTAL(8'000'000)/2/512));    // ?
-
 	Z80(config, m_extra, XTAL(16'000'000)/4);         // 4mhz?
 	m_extra->set_addrmap(AS_PROGRAM, &armedf_state::terrafjb_extraz80_map);
 	m_extra->set_addrmap(AS_IO, &armedf_state::terrafjb_extraz80_portmap);
 
 	video_config(config, 12, 8, 248);
+
 	MCFG_VIDEO_START_OVERRIDE(armedf_state,terraf)
 
 	/* sound hardware */
-	SPEAKER(config, "speaker").front_center();
-
-	GENERIC_LATCH_8(config, m_soundlatch);
-
-	YM3812(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, "speaker", 0.5);      // 4mhz
-
-	DAC_8BIT_R2R(config, "dac1", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // unknown DAC
-	DAC_8BIT_R2R(config, "dac2", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // unknown DAC
+	sound_config(config);
 }
 
 void armedf_state::terrafb(machine_config &config)
@@ -1194,23 +1239,12 @@ void armedf_state::armedf(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &armedf_state::armedf_map);
 	m_maincpu->set_vblank_int("screen", FUNC(armedf_state::irq1_line_assert));
 
-	z80_device &audiocpu(Z80(config, "audiocpu", XTAL(24'000'000)/6));      // 4mhz
-	audiocpu.set_addrmap(AS_PROGRAM, &armedf_state::sound_map);
-	audiocpu.set_addrmap(AS_IO, &armedf_state::sound_portmap);
-	audiocpu.set_periodic_int(FUNC(armedf_state::irq0_line_hold), attotime::from_hz(XTAL(8'000'000)/2/512));    // ?
-
 	video_config(config, 12, 8, 248);
+
 	MCFG_VIDEO_START_OVERRIDE(armedf_state,armedf)
 
 	/* sound hardware */
-	SPEAKER(config, "speaker").front_center();
-
-	GENERIC_LATCH_8(config, m_soundlatch);
-
-	YM3812(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, "speaker", 0.5);      // 4mhz
-
-	DAC_8BIT_R2R(config, "dac1", 0).add_route(ALL_OUTPUTS, "speaker", 1.0); // unknown DAC
-	DAC_8BIT_R2R(config, "dac2", 0).add_route(ALL_OUTPUTS, "speaker", 1.0); // unknown DAC
+	sound_config(config);
 }
 
 void armedf_state::cclimbr2(machine_config &config)
@@ -1219,25 +1253,14 @@ void armedf_state::cclimbr2(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &armedf_state::cclimbr2_map);
 	m_maincpu->set_vblank_int("screen", FUNC(armedf_state::irq2_line_assert));
 
-	z80_device &audiocpu(Z80(config, "audiocpu", XTAL(24'000'000)/6));      // 4mhz
-	audiocpu.set_addrmap(AS_PROGRAM, &armedf_state::cclimbr2_soundmap);
-	audiocpu.set_addrmap(AS_IO, &armedf_state::sound_portmap);
-	audiocpu.set_periodic_int(FUNC(armedf_state::irq0_line_hold), attotime::from_hz(XTAL(8'000'000)/2/512));    // ?
-
 	NB1414M4(config, m_nb1414m4, 0);
 
 	video_config(config, 14, 16, 240);
+
 	MCFG_VIDEO_START_OVERRIDE(armedf_state,terraf)
 
 	/* sound hardware */
-	SPEAKER(config, "speaker").front_center();
-
-	GENERIC_LATCH_8(config, m_soundlatch);
-
-	YM3812(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, "speaker", 0.5); // or YM3526?
-
-	DAC_8BIT_R2R(config, "dac1", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // unknown DAC
-	DAC_8BIT_R2R(config, "dac2", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // unknown DAC
+	sound_config_legion(config);
 }
 
 void armedf_state::legion_common(machine_config &config)
@@ -1245,20 +1268,9 @@ void armedf_state::legion_common(machine_config &config)
 	M68000(config, m_maincpu, XTAL(16'000'000)/2);   // 8mhz
 	m_maincpu->set_vblank_int("screen", FUNC(armedf_state::irq2_line_assert));
 
-	z80_device &audiocpu(Z80(config, "audiocpu", XTAL(24'000'000)/6));      // 4mhz
-	audiocpu.set_addrmap(AS_PROGRAM, &armedf_state::cclimbr2_soundmap);
-	audiocpu.set_periodic_int(FUNC(armedf_state::irq0_line_hold), attotime::from_hz(XTAL(8'000'000)/2/512));    // ?
-
 	video_config(config, 14, 16, 240);
+
 	MCFG_VIDEO_START_OVERRIDE(armedf_state,terraf)
-
-	/* sound hardware */
-	SPEAKER(config, "speaker").front_center();
-
-	GENERIC_LATCH_8(config, m_soundlatch);
-
-	DAC_8BIT_R2R(config, "dac1", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // 10-pin SIP with 74HC374P latch
-	DAC_8BIT_R2R(config, "dac2", 0).add_route(ALL_OUTPUTS, "speaker", 0.8); // 10-pin SIP with 74HC374P latch
 }
 
 void armedf_state::legion(machine_config &config)
@@ -1267,11 +1279,10 @@ void armedf_state::legion(machine_config &config)
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &armedf_state::legion_map);
 
-	subdevice<z80_device>("audiocpu")->set_addrmap(AS_IO, &armedf_state::sound_3526_portmap);
-
 	NB1414M4(config, m_nb1414m4, 0);
 
-	YM3526(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, "speaker", 0.5);      // 4mhz
+	/* sound hardware */
+	sound_config_legion(config);
 }
 
 void armedf_state::legionjb(machine_config &config)
@@ -1280,9 +1291,8 @@ void armedf_state::legionjb(machine_config &config)
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &armedf_state::legionjb_map);
 
-	subdevice<z80_device>("audiocpu")->set_addrmap(AS_IO, &armedf_state::sound_portmap);
-
-	YM3812(config, "ymsnd", XTAL(24'000'000)/6).add_route(ALL_OUTPUTS, "speaker", 0.5); // or YM3526?
+	/* sound hardware */
+	sound_config_legion_3812(config);
 }
 
 void armedf_state::legionjb2(machine_config &config)
@@ -1300,14 +1310,16 @@ void bigfghtr_state::bigfghtr(machine_config &config)
 
 	i8751_device &mcu(I8751(config, "mcu", XTAL(16'000'000)/2));   // verified
 	mcu.set_addrmap(AS_PROGRAM, &bigfghtr_state::bigfghtr_mcu_map);
-	mcu.set_addrmap(AS_IO, &bigfghtr_state::bigfghtr_mcu_io_map);
+	mcu.set_addrmap(AS_DATA, &bigfghtr_state::bigfghtr_mcu_data_map);
 	mcu.port_in_cb<1>().set_constant(0xdf); // bit 5: bus contention related?
 
 	video_config(config, 12, 8, 248);
+
 	MCFG_VIDEO_START_OVERRIDE(bigfghtr_state,armedf)
 
 	sound_config(config);
 }
+
 
 /*************************************
  *
@@ -1488,7 +1500,7 @@ ROM_START( terraf )
 	ROM_LOAD( "n82s129an.11j", 0x0000, 0x0100, CRC(81244757) SHA1(6324f63e571f0f7a0bb9eb97f9994809db79493f) ) /* N82S129AN or compatible labled "TF" */
 ROM_END
 
-ROM_START( terrafu ) /* Bootleg of the USA version?, uses some roms common to bootlegs that differ to the orginal board sets */
+ROM_START( terrafu ) /* Bootleg of the USA version?, uses some roms common to bootlegs that differ to the original board sets */
 	ROM_REGION( 0x60000, "maincpu", ROMREGION_ERASEFF ) /* 64K*8 for 68000 code */
 	ROM_LOAD16_BYTE( "tf-8.6e", 0x00000, 0x10000, CRC(fea6dd64) SHA1(682eae338ce14808f134897f594fae1c69e75a1a) )
 	ROM_LOAD16_BYTE( "tf-3.6h", 0x00001, 0x10000, CRC(02f9d05a) SHA1(88985373bc3cffbc838e0b701ecd732a417975a1) )
@@ -1520,6 +1532,40 @@ ROM_START( terrafu ) /* Bootleg of the USA version?, uses some roms common to bo
 
 	ROM_REGION( 0x0100, "proms", 0 )    /* Unknown use */
 	ROM_LOAD( "n82s129an.11j", 0x0000, 0x0100, CRC(81244757) SHA1(6324f63e571f0f7a0bb9eb97f9994809db79493f) ) /* N82S129AN or compatible labled "TF" */
+ROM_END
+
+ROM_START( terrafua ) // from an original PCB set: TF-1A + TF-2A PCBs. It's the same as the set above but with a different sound ROM (different first level BGM)
+	ROM_REGION( 0x60000, "maincpu", ROMREGION_ERASEFF )
+	ROM_LOAD16_BYTE( "8.6e", 0x00000, 0x10000, CRC(fea6dd64) SHA1(682eae338ce14808f134897f594fae1c69e75a1a) )
+	ROM_LOAD16_BYTE( "3.6h", 0x00001, 0x10000, CRC(02f9d05a) SHA1(88985373bc3cffbc838e0b701ecd732a417975a1) )
+	ROM_LOAD16_BYTE( "7.4e", 0x20000, 0x10000, CRC(fde8de7e) SHA1(6b0d27ec49c8c0609c110ad97938bec8c077ad18) )
+	ROM_LOAD16_BYTE( "2.4h", 0x20001, 0x10000, CRC(db987414) SHA1(0a1734794c626cf9083d7854c9000c5daadfc3fd) )
+	ROM_LOAD16_BYTE( "6.3e", 0x40000, 0x10000, CRC(962585bf) SHA1(795c53d6d303872f08d242a30dd3add507ac4355) ) // 1xxxxxxxxxxxxxxx = 0xFF
+	ROM_LOAD16_BYTE( "1.3h", 0x40001, 0x10000, CRC(3f060451) SHA1(26220a8a7052adc62ff1309e96f20d9bd05b4b10) ) // 1xxxxxxxxxxxxxxx = 0xFF
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "11.17k", 0x00000, 0x10000, CRC(d4d60a51) SHA1(2e38a2f0e0ec7fe2906475d24db7462f835c694c) )
+
+	ROM_REGION( 0x08000, "text", 0 )
+	ROM_LOAD( "9.11e", 0x00000, 0x08000, CRC(bc6f7cbc) SHA1(20b8a34de4bfa0c2fdcd2f7743a0ab35141f4bf9) )
+
+	ROM_REGION( 0x20000, "foreground", 0 )
+	ROM_LOAD( "5.15h", 0x00000, 0x10000, CRC(25d23dfd) SHA1(da32895c1aca403209b7fb181fa4fa23a8e74d32) )
+	ROM_LOAD( "4.13h", 0x10000, 0x10000, CRC(b9b0fe27) SHA1(983c48239ba1524b517f89f281f2b70564bea1e9) )
+
+	ROM_REGION( 0x20000, "background", 0 )
+	ROM_LOAD( "15.8a", 0x00000, 0x10000, CRC(2144d8e0) SHA1(ed89da11abf3d79753b478603009970c2600ab60) )
+	ROM_LOAD( "14.6a", 0x10000, 0x10000, CRC(744f5c9e) SHA1(696223a087bb575c7cfaba11e682b221ada461e4) )
+
+	ROM_REGION( 0x20000, "sprite", 0 )
+	ROM_LOAD16_BYTE( "12.7d", 0x00000, 0x10000, CRC(d74085a1) SHA1(3f6ba85dbd6e48a502c115b2d322a586fc4f56c9) )
+	ROM_LOAD16_BYTE( "13.9d", 0x00001, 0x10000, CRC(148aa0c5) SHA1(8d8a565540e91b384a9c154522501921b7da4d4e) )
+
+	ROM_REGION( 0x4000, "nb1414m4", 0 )    /* data for mcu/blitter */
+	ROM_LOAD( "10.11c", 0x0000, 0x4000, CRC(ac705812) SHA1(65be46ee959d8478cb6dffb25e61f7742276997b) )
+
+	ROM_REGION( 0x0100, "proms", 0 )    /* Unknown use */
+	ROM_LOAD( "0302.11j", 0x0000, 0x0100, CRC(0dc8cb70) SHA1(c0001e36f183b2e366b9ea0ad237b60ff62dd1ef) ) // N82S129AN
 ROM_END
 
 ROM_START( terrafj )
@@ -1886,6 +1932,51 @@ ROM_START( bigfghtr )
 	ROM_LOAD( "tf.13h", 0x0000, 0x0100, CRC(81244757) SHA1(6324f63e571f0f7a0bb9eb97f9994809db79493f) ) /* Prom is a N82S129AN type */
 ROM_END
 
+// bootleg 2-PCB set with CPU riser board. Very minor changes to the original, but uses a D8748 instead of the C8751
+// MCU check can be bypassed with bp 3f07e,{PC=3f080},g
+ROM_START( skyrobobl )
+	ROM_REGION( 0x80000, "maincpu", 0 ) // all on top board, but the last two which are on the CPU riser board
+	ROM_LOAD16_BYTE( "d3", 0x00000, 0x10000, CRC(f29e3c2f) SHA1(6be6f4c8a3dca66ac2a91e1ddfb42488870e615f) )
+	ROM_LOAD16_BYTE( "f3", 0x00001, 0x10000, CRC(b8f2ea33) SHA1(5c0a6836224cc5fb933d43785aa22d5d3f364854) )
+	ROM_LOAD16_BYTE( "d5", 0x20000, 0x10000, CRC(7a01c2cd) SHA1(ad0b7c11bf1e7fafffcb934aab05e1ce2d5b7977) )
+	ROM_LOAD16_BYTE( "f5", 0x20001, 0x10000, CRC(070ab490) SHA1(7b5a0204fbb287e2301ee3ad7e9938ca604aed75) )
+	ROM_LOAD16_BYTE( "d6", 0x40000, 0x10000, CRC(509b4bbd) SHA1(6913a0d8b8898955665e6a91c6e3b70b11a1169d) )
+	ROM_LOAD16_BYTE( "f6", 0x40001, 0x10000, CRC(8fa134a3) SHA1(f1aeeeced945e04f0370ff5f0f6b1f3ca3cccf6a) )
+	ROM_LOAD16_BYTE( "r",  0x60000, 0x10000, CRC(efcacce6) SHA1(9a0c6ddab33aa15fcba7a231514a5036a32b28c8) )
+	ROM_LOAD16_BYTE( "l",  0x60001, 0x10000, CRC(eb53ab48) SHA1(013cef0fba5740a556238532e88c69143cbf32ef) )
+
+	ROM_REGION( 0x10000, "audiocpu", 0 ) // same as the original
+	ROM_LOAD( "8.17k", 0x00000, 0x10000, CRC(0aeab61e) SHA1(165e0ad58542b65383fef714578da21f62df7b74) )
+
+	ROM_REGION( 0x1000, "mcu", ROMREGION_ERASE00 ) // read protected
+	ROM_LOAD( "d8748hd", 0x000, 0x400, NO_DUMP )
+
+	ROM_REGION( 0x08000, "text", 0 ) // same as the original
+	ROM_LOAD( "7", 0x00000, 0x08000, CRC(f556ef28) SHA1(2acb83cdf23356091056f2cfbbc2b9828ee25b6f) )
+
+	ROM_REGION( 0x30000, "foreground", 0 )
+	ROM_LOAD( "5.13f", 0x00000, 0x20000, CRC(c9015e2e) SHA1(1545c67bd9023f8df4a4da55b8417a7f732a4e57) ) // slight changes from the original
+	ROM_LOAD( "6.15f", 0x20000, 0x10000, CRC(27469a76) SHA1(ebf2c60e1f70a589680c05adf10771ac2097b9d0) )
+
+	ROM_REGION( 0x20000, "background", 0 ) // same as the original
+	ROM_LOAD( "12.8a", 0x00000, 0x10000, CRC(a5694ea9) SHA1(ea94174495b3a65b3797932074a94df3b55fa0a2) )
+	ROM_LOAD( "11.6a", 0x10000, 0x10000, CRC(10b74e2c) SHA1(e3ec68726e7f277dc2043424f2e4d863eb01b3dc) )
+
+	ROM_REGION( 0x40000, "sprite", 0 ) // same as the original
+	ROM_LOAD16_BYTE( "9.8d",  0x00000, 0x20000, CRC(fe67800e) SHA1(0d3c4c3cb185270260fa691a97cddf082d6a056e) )
+	ROM_LOAD16_BYTE( "10.9d", 0x00001, 0x20000, CRC(dcb828c4) SHA1(607bc86580a6fe6e15e91131532b0eecd8b7a0cb) )
+
+	ROM_REGION( 0x0200, "proms", 0 )
+	ROM_LOAD( "tf.13h",     0x0000, 0x0100, CRC(81244757) SHA1(6324f63e571f0f7a0bb9eb97f9994809db79493f) ) // on top board
+	ROM_LOAD( "82s129.cpu", 0x0100, 0x0100, CRC(9cc0933c) SHA1(dc90541170c4c21b92a351f5894712e4e2b29c64) ) // on CPU riser board
+
+	ROM_REGION( 0x800, "plds", ROMREGION_ERASE00 )
+	ROM_LOAD( "pal16l8.b1", 0x000, 0x104, CRC(c3af3134) SHA1(464a2fd5b13138a680f130d683e863460267c35b) ) // on top board
+	ROM_LOAD( "pal16r8.b3", 0x200, 0x104, CRC(e57b5f18) SHA1(7edc28e6ed92ddc667bf7a05f70f341b3e9e0528) ) // on top board
+	ROM_LOAD( "pal16l8.b6", 0x400, 0x104, CRC(0cd264f8) SHA1(93db1ae7fdf82baaca0b0767c3a7d0b2e821ea34) ) // on top board
+	ROM_LOAD( "pal16r4.e6", 0x600, 0x104, CRC(d5575cc0) SHA1(a078be6c61deba2fcba11fe2b47b6b2094b6999c) ) // on bottom board
+ROM_END
+
 /*************************************
  *
  *  Driver initialization
@@ -1962,6 +2053,7 @@ GAME( 1987, legionjb2, legion,   legionjb2, legion,   armedf_state,   init_legio
 
 GAME( 1987, terraf,    0,        terraf,    terraf,   armedf_state,   init_terraf,   ROT0,   "Nichibutsu",                    "Terra Force", MACHINE_SUPPORTS_SAVE )
 GAME( 1987, terrafu,   terraf,   terraf,    terraf,   armedf_state,   init_terraf,   ROT0,   "Nichibutsu USA",                "Terra Force (US)", MACHINE_SUPPORTS_SAVE )
+GAME( 1987, terrafua,  terraf,   terraf,    terraf,   armedf_state,   init_terraf,   ROT0,   "Nichibutsu USA",                "Terra Force (US, alternate sound)", MACHINE_SUPPORTS_SAVE )
 GAME( 1987, terrafj,   terraf,   terraf,    terraf,   armedf_state,   init_terraf,   ROT0,   "Nichibutsu Japan",              "Terra Force (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1987, terrafjb,  terraf,   terrafjb,  terraf,   armedf_state,   init_terraf,   ROT0,   "bootleg",                       "Terra Force (Japan, bootleg with additional Z80)", MACHINE_SUPPORTS_SAVE )
 GAME( 1987, terrafb,   terraf,   terrafb,   terraf,   armedf_state,   init_terraf,   ROT0,   "bootleg",                       "Terra Force (Japan, bootleg set 2)", MACHINE_SUPPORTS_SAVE )
@@ -1976,3 +2068,4 @@ GAME( 1988, armedff,   armedf,   armedf,    armedf,   armedf_state,   init_armed
 
 GAME( 1989, skyrobo,   0,        bigfghtr,  bigfghtr, bigfghtr_state, init_armedf,   ROT0,   "Nichibutsu",                    "Sky Robo", MACHINE_SUPPORTS_SAVE )
 GAME( 1989, bigfghtr,  skyrobo,  bigfghtr,  bigfghtr, bigfghtr_state, init_armedf,   ROT0,   "Nichibutsu",                    "Tatakae! Big Fighter (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1989, skyrobobl, skyrobo,  bigfghtr,  bigfghtr, bigfghtr_state, init_armedf,   ROT0,   "bootleg",                       "Sky Robo (bootleg)", MACHINE_NOT_WORKING | MACHINE_SUPPORTS_SAVE ) // undumped MCU

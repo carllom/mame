@@ -1,9 +1,16 @@
 // license:BSD-3-Clause
 // copyright-holders:Olivier Galibert
-/***************************************************************************
+/*******************************************************************************
 
     G.I. Joe  (c) 1992 Konami
 
+TODO:
+- sprite gaps (K053247 zoom fraction rounding)
+- shadow masking (eg. the shadow of Baroness' aircraft should not project on the sky)
+- improve K056832 linemap emulation, it shouldn't (ab)use the tilemap pixmap as a
+  render buffer, gijoe is the only game that uses it
+
+********************************************************************************
 
 G.I. Joe
 Konami 1992
@@ -71,52 +78,256 @@ Notes:
       HSync - 15.2036kHz
       VSync - 59.6374Hz
 
-
-****************************************************************************
-
-Change Log
-----------
-
-AT070403:
-
-tilemap.h,tilemap.cpp
-- added tilemap_get_transparency_data() for transparency cache manipulation
-
-video\konamiic.cpp
-- added preliminary K056832 tilemap<->linemap switching and tileline code
-
-drivers\gijoe.cpp
-- updated video settings, memory map and irq handler
-- added object blitter
-
-video\gijoe.cpp
-- completed K054157 to K056832 migration
-- added ground scroll emulation
-- fixed sprite and BG priority
-- improved shadows and layer alignment
-
-
-Known Issues
-------------
-
-- sprite gaps (K053247 zoom fraction rounding)
-- shadow masking (eg. the shadow of Baroness' aircraft should not project on the sky)
-
-***************************************************************************/
+*******************************************************************************/
 
 #include "emu.h"
-#include "gijoe.h"
+
+#include "k053251.h"
+#include "k054156_k054157_k056832.h"
+#include "k053246_k053247_k055673.h"
 #include "konamipt.h"
+#include "konami_helper.h"
 
 #include "cpu/m68000/m68000.h"
 #include "cpu/z80/z80.h"
 #include "machine/eepromser.h"
+#include "machine/k054321.h"
 #include "sound/k054539.h"
+
+#include "emupal.h"
 #include "speaker.h"
 
 
+namespace {
+
 #define JOE_DEBUG 0
 #define JOE_DMADELAY (attotime::from_nsec(42700 + 341300))
+
+
+class gijoe_state : public driver_device
+{
+public:
+	gijoe_state(const machine_config &mconfig, device_type type, const char *tag) :
+		driver_device(mconfig, type, tag),
+		m_spriteram(*this, "spriteram"),
+		m_workram(*this, "workram"),
+		m_maincpu(*this, "maincpu"),
+		m_audiocpu(*this, "audiocpu"),
+		m_k054539(*this, "k054539"),
+		m_k056832(*this, "k056832"),
+		m_k053246(*this, "k053246"),
+		m_k053251(*this, "k053251"),
+		m_palette(*this, "palette"),
+		m_k054321(*this, "k054321")
+	{ }
+
+	void gijoe(machine_config &config);
+
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
+
+private:
+	/* memory pointers */
+	required_shared_ptr<uint16_t> m_spriteram;
+	required_shared_ptr<uint16_t> m_workram;
+
+	/* video-related */
+	int32_t     m_avac_bits[4]{};
+	int32_t     m_avac_occupancy[4]{};
+	uint16_t    m_layer_colorbase[4]{};
+	int32_t     m_layer_pri[4]{};
+	int32_t     m_avac_vrc = 0;
+	uint16_t    m_sprite_colorbase = 0;
+
+	/* misc */
+	uint16_t    m_cur_control2 = 0U;
+	emu_timer   *m_dmadelay_timer = nullptr;
+
+	/* devices */
+	required_device<cpu_device> m_maincpu;
+	required_device<cpu_device> m_audiocpu;
+	required_device<k054539_device> m_k054539;
+	required_device<k056832_device> m_k056832;
+	required_device<k053247_device> m_k053246;
+	required_device<k053251_device> m_k053251;
+	required_device<palette_device> m_palette;
+	required_device<k054321_device> m_k054321;
+
+	uint16_t control2_r();
+	void control2_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
+	void sound_irq_w(uint16_t data);
+	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+	INTERRUPT_GEN_MEMBER(interrupt);
+	TIMER_CALLBACK_MEMBER(dmaend_callback);
+	void object_dma();
+	K056832_CB_MEMBER(tile_callback);
+	K053246_CB_MEMBER(sprite_callback);
+	void main_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
+};
+
+
+K053246_CB_MEMBER(gijoe_state::sprite_callback)
+{
+	int pri = (color & 0x03e0) >> 4;
+
+	if (pri <= m_layer_pri[3])
+		priority_mask = 0;
+	else if (pri >  m_layer_pri[3] && pri <= m_layer_pri[2])
+		priority_mask = 0xff00;
+	else if (pri >  m_layer_pri[2] && pri <= m_layer_pri[1])
+		priority_mask = 0xff00 | 0xf0f0;
+	else if (pri >  m_layer_pri[1] && pri <= m_layer_pri[0])
+		priority_mask = 0xff00 | 0xf0f0 | 0xcccc;
+	else
+		priority_mask = 0xff00 | 0xf0f0 | 0xcccc | 0xaaaa;
+
+	color = m_sprite_colorbase | (color & 0x001f);
+}
+
+K056832_CB_MEMBER(gijoe_state::tile_callback)
+{
+	int tile = code;
+
+	if (tile >= 0xf000 && tile <= 0xf4ff)
+	{
+		tile &= 0x0fff;
+		if (tile < 0x0310)
+		{
+			m_avac_occupancy[layer] |= 0x0f00;
+			tile |= m_avac_bits[0];
+		}
+		else if (tile < 0x0470)
+		{
+			m_avac_occupancy[layer] |= 0xf000;
+			tile |= m_avac_bits[1];
+		}
+		else
+		{
+			m_avac_occupancy[layer] |= 0x00f0;
+			tile |= m_avac_bits[2];
+		}
+		code = tile;
+	}
+
+	color = (color >> 2 & 0x0f) | m_layer_colorbase[layer];
+}
+
+void gijoe_state::video_start()
+{
+	for (int i = 0; i < 4; i++)
+	{
+		m_avac_occupancy[i] = 0;
+		m_avac_bits[i] = 0;
+		m_layer_colorbase[i] = 0;
+		m_layer_pri[i] = 0;
+	}
+
+	m_avac_vrc = 0xffff;
+
+	save_item(NAME(m_avac_vrc));
+	save_item(NAME(m_sprite_colorbase));
+	save_item(NAME(m_avac_occupancy));
+	save_item(NAME(m_avac_bits)); // these could possibly be re-created at postload k056832 elements
+	save_item(NAME(m_layer_colorbase));
+	save_item(NAME(m_layer_pri));
+}
+
+uint32_t gijoe_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+{
+	static const int K053251_CI[4] = { k053251_device::CI1, k053251_device::CI2, k053251_device::CI3, k053251_device::CI4 };
+	int layer[4];
+	int vrc_mode, vrc_new, colorbase_new, /*primode,*/ dirty;
+	int mask = 0;
+
+	// update tile offsets
+	m_k056832->read_avac(vrc_mode, vrc_new);
+
+	if (vrc_mode)
+	{
+		for (dirty = 0xf000; dirty; dirty >>= 4)
+			if ((m_avac_vrc & dirty) != (vrc_new & dirty))
+				mask |= dirty;
+
+		m_avac_vrc = vrc_new;
+		m_avac_bits[0] = vrc_new << 4  & 0xf000;
+		m_avac_bits[1] = vrc_new       & 0xf000;
+		m_avac_bits[2] = vrc_new << 8  & 0xf000;
+		m_avac_bits[3] = vrc_new << 12 & 0xf000;
+	}
+	else
+		m_avac_bits[3] = m_avac_bits[2] = m_avac_bits[1] = m_avac_bits[0] = 0xf000;
+
+	// update color info and refresh tilemaps
+	m_sprite_colorbase = m_k053251->get_palette_index(k053251_device::CI0);
+
+	for (int i = 0; i < 4; i++)
+	{
+		dirty = 0;
+		colorbase_new = m_k053251->get_palette_index(K053251_CI[i]);
+		if (m_layer_colorbase[i] != colorbase_new)
+		{
+			m_layer_colorbase[i] = colorbase_new;
+			dirty = 1;
+		}
+		if (m_avac_occupancy[i] & mask)
+			dirty = 1;
+
+		if (dirty)
+		{
+			m_avac_occupancy[i] = 0;
+			m_k056832->mark_plane_dirty(i);
+		}
+	}
+
+	/*
+	    Layer A is supposed to be a non-scrolling status display with static X-offset.
+	    The weird thing is tilemap alignment only follows the 832 standard when 2 is
+	    written to the layer's X-scroll register otherwise the chip expects totally
+	    different alignment values.
+	*/
+	if (m_k056832->word_r(0x14) == 2)
+	{
+		m_k056832->set_layer_offs(0,  2, 0);
+		m_k056832->set_layer_offs(1,  4, 0);
+		m_k056832->set_layer_offs(2,  6, 0); // 7?
+		m_k056832->set_layer_offs(3,  8, 0);
+	}
+	else
+	{
+		m_k056832->set_layer_offs(0,  0, 0);
+		m_k056832->set_layer_offs(1,  8, 0);
+		m_k056832->set_layer_offs(2, 14, 0);
+		m_k056832->set_layer_offs(3, 16, 0); // smaller?
+	}
+
+	// seems to switch the K053251 between different priority modes, detail unknown
+	// primode = m_k053251->get_priority(k053251_device::CI1);
+
+	layer[0] = 0;
+	m_layer_pri[0] = 0; // not sure
+	layer[1] = 1;
+	m_layer_pri[1] = m_k053251->get_priority(k053251_device::CI2);
+	layer[2] = 2;
+	m_layer_pri[2] = m_k053251->get_priority(k053251_device::CI3);
+	layer[3] = 3;
+	m_layer_pri[3] = m_k053251->get_priority(k053251_device::CI4);
+
+	konami_sortlayers4(layer, m_layer_pri);
+
+	bitmap.fill(m_palette->black_pen(), cliprect);
+	screen.priority().fill(0, cliprect);
+
+	m_k056832->tilemap_draw(screen, bitmap, cliprect, layer[0], 0, 1);
+	m_k056832->tilemap_draw(screen, bitmap, cliprect, layer[1], 0, 2);
+	m_k056832->tilemap_draw(screen, bitmap, cliprect, layer[2], 0, 4);
+	m_k056832->tilemap_draw(screen, bitmap, cliprect, layer[3], 0, 8);
+
+	m_k053246->k053247_sprites_draw(bitmap, cliprect);
+	return 0;
+}
 
 
 uint16_t gijoe_state::control2_r()
@@ -128,28 +339,29 @@ void gijoe_state::control2_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	if (ACCESSING_BITS_0_7)
 	{
-		/* bit 0  is data */
-		/* bit 1  is cs (active low) */
-		/* bit 2  is clock (active high) */
-		/* bit 3  (unknown: coin) */
-		/* bit 5  is enable irq 6 */
-		/* bit 7  (unknown: enable irq 5?) */
+		// bit 0 = data
+		// bit 1 = cs (active low)
+		// bit 2 = clock (active high)
+		// bit 3 = (unknown: coin)
+		// bit 5 = enable irq 6
+		// bit 7 = (unknown: enable irq 5?)
 		ioport("EEPROMOUT")->write(data, 0xff);
 
 		m_cur_control2 = data;
 
-		/* bit 6 = enable sprite ROM reading */
-		m_k053246->k053246_set_objcha_line( (data & 0x0040) ? ASSERT_LINE : CLEAR_LINE);
+		// bit 6 = enable sprite ROM reading
+		m_k053246->k053246_set_objcha_line((data & 0x0040) ? ASSERT_LINE : CLEAR_LINE);
 	}
 }
 
-void gijoe_state::gijoe_objdma(  )
+void gijoe_state::object_dma()
 {
+	// TODO: implement sprite dma in k053246_k053247_k055673.cpp
 	uint16_t *src_head, *src_tail, *dst_head, *dst_tail;
 
 	src_head = m_spriteram;
 	src_tail = m_spriteram + 255 * 8;
-	m_k053246->k053247_get_ram( &dst_head);
+	m_k053246->k053247_get_ram(&dst_head);
 	dst_tail = dst_head + 255 * 8;
 
 	for (; src_head <= src_tail; src_head += 8)
@@ -173,7 +385,7 @@ TIMER_CALLBACK_MEMBER(gijoe_state::dmaend_callback)
 		m_maincpu->set_input_line(6, HOLD_LINE);
 }
 
-INTERRUPT_GEN_MEMBER(gijoe_state::gijoe_interrupt)
+INTERRUPT_GEN_MEMBER(gijoe_state::interrupt)
 {
 	// global interrupt masking (*this game only)
 	if (!m_k056832->is_irq_enabled(0))
@@ -181,7 +393,7 @@ INTERRUPT_GEN_MEMBER(gijoe_state::gijoe_interrupt)
 
 	if (m_k053246->k053246_is_irq_enabled())
 	{
-		gijoe_objdma();
+		object_dma();
 
 		// 42.7us(clr) + 341.3us(xfer) delay at 6Mhz dotclock
 		m_dmadelay_timer->adjust(JOE_DMADELAY);
@@ -197,7 +409,7 @@ void gijoe_state::sound_irq_w(uint16_t data)
 	m_audiocpu->set_input_line(0, HOLD_LINE);
 }
 
-void gijoe_state::gijoe_map(address_map &map)
+void gijoe_state::main_map(address_map &map)
 {
 	map(0x000000, 0x0fffff).rom();
 	map(0x100000, 0x100fff).ram().share("spriteram");                               // Sprites
@@ -241,14 +453,14 @@ static INPUT_PORTS_START( gijoe )
 	PORT_BIT( 0x0002, IP_ACTIVE_LOW,  IPT_START2 )
 	PORT_BIT( 0x0004, IP_ACTIVE_LOW,  IPT_START3 )
 	PORT_BIT( 0x0008, IP_ACTIVE_LOW,  IPT_START4 )
-	PORT_BIT( 0x0100, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_er5911_device, do_read)
-	PORT_BIT( 0x0200, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_er5911_device, ready_read)
+	PORT_BIT( 0x0100, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_er5911_device::do_read))
+	PORT_BIT( 0x0200, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_er5911_device::ready_read))
 	PORT_SERVICE_NO_TOGGLE( 0x0800, IP_ACTIVE_LOW )
 
 	PORT_START("EEPROMOUT")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_er5911_device, di_write)
-	PORT_BIT( 0x02, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_er5911_device, cs_write)
-	PORT_BIT( 0x04, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_er5911_device, clk_write)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_er5911_device::di_write))
+	PORT_BIT( 0x02, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_er5911_device::cs_write))
+	PORT_BIT( 0x04, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_er5911_device::clk_write))
 
 	PORT_START("SYSTEM")
 	PORT_BIT( 0x0001, IP_ACTIVE_LOW,  IPT_COIN1 )
@@ -261,21 +473,21 @@ static INPUT_PORTS_START( gijoe )
 	PORT_BIT( 0x0800, IP_ACTIVE_LOW,  IPT_SERVICE4 )
 
 	PORT_START("P1_P2")
-	KONAMI16_LSB_40(1, IPT_BUTTON3 ) PORT_OPTIONAL
+	KONAMI16_LSB_40(1, IPT_BUTTON3 )
 	PORT_DIPNAME( 0x0080, 0x0000, "Sound" )         PORT_DIPLOCATION("SW1:1")
 	PORT_DIPSETTING(      0x0080, DEF_STR( Mono ) )
 	PORT_DIPSETTING(      0x0000, DEF_STR( Stereo ) )
-	KONAMI16_MSB_40(2, IPT_BUTTON3 ) PORT_OPTIONAL
+	KONAMI16_MSB_40(2, IPT_BUTTON3 )
 	PORT_DIPNAME( 0x8000, 0x8000, "Coin mechanism" )    PORT_DIPLOCATION("SW1:2")
 	PORT_DIPSETTING(      0x8000, "Common" )
 	PORT_DIPSETTING(      0x0000, "Independent" )
 
 	PORT_START("P3_P4")
-	KONAMI16_LSB_40(3, IPT_BUTTON3 ) PORT_OPTIONAL
+	KONAMI16_LSB_40(3, IPT_BUTTON3 )
 	PORT_DIPNAME( 0x0080, 0x0080, DEF_STR( Players ) )  PORT_DIPLOCATION("SW1:3")
 	PORT_DIPSETTING(      0x0080, "2" )
 	PORT_DIPSETTING(      0x0000, "4" )
-	KONAMI16_MSB_40(4, IPT_BUTTON3 ) PORT_OPTIONAL
+	KONAMI16_MSB_40(4, IPT_BUTTON3 )
 	PORT_DIPUNUSED_DIPLOC( 0x8000, 0x8000, "SW1:4" )    /* Listed as "Unused" */
 INPUT_PORTS_END
 
@@ -294,23 +506,19 @@ void gijoe_state::machine_reset()
 void gijoe_state::gijoe(machine_config &config)
 {
 	/* basic machine hardware */
-	M68000(config, m_maincpu, XTAL(32'000'000)/2);   /* 16MHz Confirmed */
-	m_maincpu->set_addrmap(AS_PROGRAM, &gijoe_state::gijoe_map);
-	m_maincpu->set_vblank_int("screen", FUNC(gijoe_state::gijoe_interrupt));
+	M68000(config, m_maincpu, 32_MHz_XTAL / 2); // 16MHz Confirmed
+	m_maincpu->set_addrmap(AS_PROGRAM, &gijoe_state::main_map);
+	m_maincpu->set_vblank_int("screen", FUNC(gijoe_state::interrupt));
 
-	Z80(config, m_audiocpu, XTAL(32'000'000)/4);     /* Amuse & confirmed. Z80E at 8MHz */
+	Z80(config, m_audiocpu, 32_MHz_XTAL / 4); // Amuse & confirmed. Z80E at 8MHz
 	m_audiocpu->set_addrmap(AS_PROGRAM, &gijoe_state::sound_map);
 
 	EEPROM_ER5911_8BIT(config, "eeprom");
 
 	/* video hardware */
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
-	screen.set_video_attributes(VIDEO_UPDATE_BEFORE_VBLANK);
-	screen.set_refresh_hz(60);
-	screen.set_vblank_time(ATTOSECONDS_IN_USEC(0));
-	screen.set_size(64*8, 32*8);
-	screen.set_visarea(24, 24+288-1, 16, 16+224-1);
-	screen.set_screen_update(FUNC(gijoe_state::screen_update_gijoe));
+	screen.set_raw(24_MHz_XTAL / 4, 384, 24, 312, 262, 16, 240); // measured 59.637Hz
+	screen.set_screen_update(FUNC(gijoe_state::screen_update));
 	screen.set_palette("palette");
 
 	PALETTE(config, "palette").set_format(palette_device::xBGR_555, 2048).enable_shadows();
@@ -318,6 +526,7 @@ void gijoe_state::gijoe(machine_config &config)
 	K056832(config, m_k056832, 0);
 	m_k056832->set_tile_callback(FUNC(gijoe_state::tile_callback));
 	m_k056832->set_config(K056832_BPP_4, 1, 0);
+	m_k056832->set_linemap_enable(true);
 	m_k056832->set_palette(m_palette);
 
 	K053246(config, m_k053246, 0);
@@ -328,15 +537,14 @@ void gijoe_state::gijoe(machine_config &config)
 	K053251(config, m_k053251, 0);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
-	K054321(config, m_k054321, "lspeaker", "rspeaker");
+	K054321(config, m_k054321, "speaker");
 
-	k054539_device &k054539(K054539(config, "k054539", XTAL(18'432'000)));
+	k054539_device &k054539(K054539(config, "k054539", 18.432_MHz_XTAL));
 	k054539.timer_handler().set_inputline("audiocpu", INPUT_LINE_NMI);
-	k054539.add_route(0, "rspeaker", 1.0);
-	k054539.add_route(1, "lspeaker", 1.0);
+	k054539.add_route(0, "speaker", 1.0, 1);
+	k054539.add_route(1, "speaker", 1.0, 0);
 }
 
 
@@ -545,8 +753,10 @@ ROM_START( gijoea )
 	ROM_LOAD( "er5911.7d", 0x0000, 0x080, CRC(6363513c) SHA1(181cbf2bd4960740d437c714dc70bb7e64c95348) ) // sldh
 ROM_END
 
+} // anonymous namespace
 
-GAME( 1992, gijoe,   0,     gijoe, gijoe, gijoe_state, empty_init, ROT0, "Konami", "G.I. Joe (World, EAB, set 1)", MACHINE_SUPPORTS_SAVE )
+
+GAME( 1992, gijoe,   0,     gijoe, gijoe, gijoe_state, empty_init, ROT0, "Konami", "G.I. Joe (World, EAB)", MACHINE_SUPPORTS_SAVE )
 GAME( 1992, gijoeea, gijoe, gijoe, gijoe, gijoe_state, empty_init, ROT0, "Konami", "G.I. Joe (World, EB8, prototype?)", MACHINE_SUPPORTS_SAVE )
 GAME( 1992, gijoeu,  gijoe, gijoe, gijoe, gijoe_state, empty_init, ROT0, "Konami", "G.I. Joe (US, UAB)", MACHINE_SUPPORTS_SAVE )
 GAME( 1992, gijoeua, gijoe, gijoe, gijoe, gijoe_state, empty_init, ROT0, "Konami", "G.I. Joe (US, UAA)", MACHINE_SUPPORTS_SAVE )

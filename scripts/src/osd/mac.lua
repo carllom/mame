@@ -23,6 +23,7 @@ BASE_TARGETOS       = "unix"
 local os_version = str_to_version(backtick("sw_vers -productVersion"))
 links {
 	"Cocoa.framework",
+	"IOKit.framework"
 }
 linkoptions {
 	"-framework QuartzCore",
@@ -102,6 +103,8 @@ project ("osd_" .. _OPTIONS["osd"])
 		MAME_DIR .. "src/osd/modules/debugger/osx/disassemblyview.h",
 		MAME_DIR .. "src/osd/modules/debugger/osx/errorlogviewer.mm",
 		MAME_DIR .. "src/osd/modules/debugger/osx/errorlogviewer.h",
+		MAME_DIR .. "src/osd/modules/debugger/osx/exceptionpointsview.mm",
+		MAME_DIR .. "src/osd/modules/debugger/osx/exceptionpointsview.h",
 		MAME_DIR .. "src/osd/modules/debugger/osx/memoryview.mm",
 		MAME_DIR .. "src/osd/modules/debugger/osx/memoryview.h",
 		MAME_DIR .. "src/osd/modules/debugger/osx/memoryviewer.mm",

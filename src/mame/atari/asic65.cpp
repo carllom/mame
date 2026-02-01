@@ -189,7 +189,7 @@ void asic65_device::data_w(offs_t offset, u16 data)
 	if (m_asic65_type == ASIC65_ROMBASED)
 	{
 		m_synced_write_timer->adjust(attotime::zero, data | (offset << 16));
-		machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(20));
+		machine().scheduler().perfect_quantum(attotime::from_usec(20));
 		return;
 	}
 
@@ -228,7 +228,7 @@ u16 asic65_device::read()
 		if (!machine().side_effects_disabled())
 		{
 			m_68full = 0;
-			machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(5));
+			machine().scheduler().perfect_quantum(attotime::from_usec(5));
 		}
 		return m_68data;
 	}
@@ -461,7 +461,7 @@ u16 asic65_device::io_r()
 		/* bit 13 = XFLG */
 		/* bit 12 = controlled by jumper */
 		if (!machine().side_effects_disabled())
-			machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(5));
+			machine().scheduler().perfect_quantum(attotime::from_usec(5));
 		return (m_tfull << 15) | (m_68full << 14) | (m_xflg << 13) | 0x0000;
 	}
 	else
@@ -475,7 +475,7 @@ u16 asic65_device::io_r()
 
 /*************************************
  *
- *  Read/write handlers for TMS32015
+ *  Read/write handlers for TMS320C15
  *
  *************************************/
 
@@ -514,7 +514,7 @@ u16 asic65_device::stat_r()
 }
 
 
-READ_LINE_MEMBER( asic65_device::get_bio )
+int asic65_device::get_bio()
 {
 	if (!machine().side_effects_disabled())
 	{
@@ -528,7 +528,7 @@ READ_LINE_MEMBER( asic65_device::get_bio )
 
 /*************************************
  *
- *  Address maps for TMS32015
+ *  Address maps for TMS320C15
  *
  *************************************/
 
@@ -552,7 +552,7 @@ void asic65_device::asic65_io_map(address_map &map)
 void asic65_device::device_add_mconfig(machine_config &config)
 {
 	/* ASIC65 */
-	TMS32010(config, m_ourcpu, 20000000);
+	TMS320C10(config, m_ourcpu, 20'000'000);
 	m_ourcpu->set_addrmap(AS_PROGRAM, &asic65_device::asic65_program_map);
 	m_ourcpu->set_addrmap(AS_IO, &asic65_device::asic65_io_map);
 	m_ourcpu->bio().set(FUNC(asic65_device::get_bio));

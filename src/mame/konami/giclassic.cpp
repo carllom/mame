@@ -44,15 +44,21 @@
 ***************************************************************************/
 
 #include "emu.h"
-#include "cpu/m68000/m68000.h"
-#include "machine/k053252.h"
+
 #include "k055555.h"
 #include "k054156_k054157_k056832.h"
 #include "k053246_k053247_k055673.h"
 #include "konami_helper.h"
+
+#include "cpu/m68000/m68000.h"
+#include "machine/k053252.h"
+
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
+
+
+namespace {
 
 class giclassic_state : public driver_device
 {
@@ -66,23 +72,25 @@ public:
 
 	void giclassic(machine_config &config);
 
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
+
 private:
 	required_device<cpu_device> m_maincpu;
 	required_device<k056832_device> m_k056832;
 	required_device<palette_device> m_palette;
 
-	INTERRUPT_GEN_MEMBER(giclassic_interrupt);
+	INTERRUPT_GEN_MEMBER(interrupt);
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
-	uint32_t screen_update_giclassic(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	K056832_CB_MEMBER(tile_callback);
 
 	void control_w(uint16_t data);
 	uint16_t vrom_r(offs_t offset);
 
-	void satellite_main(address_map &map);
+	void satellite_main(address_map &map) ATTR_COLD;
 
 	uint8_t m_control = 0;
 };
@@ -93,14 +101,14 @@ private:
 
 K056832_CB_MEMBER(giclassic_state::tile_callback)
 {
-	*color = (*color & 0xf);
+	color = (color & 0xf);
 }
 
 void giclassic_state::video_start()
 {
 }
 
-uint32_t giclassic_state::screen_update_giclassic(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+uint32_t giclassic_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	bitmap.fill(0, cliprect);
 	screen.priority().fill(0, cliprect);
@@ -113,7 +121,7 @@ uint32_t giclassic_state::screen_update_giclassic(screen_device &screen, bitmap_
 	return 0;
 }
 
-INTERRUPT_GEN_MEMBER(giclassic_state::giclassic_interrupt)
+INTERRUPT_GEN_MEMBER(giclassic_state::interrupt)
 {
 	if (m_control & 2)
 	{
@@ -154,8 +162,8 @@ void giclassic_state::satellite_main(address_map &map)
 	map(0xb00000, 0xb01fff).r(FUNC(giclassic_state::vrom_r));
 	map(0xc00000, 0xc00001).w(FUNC(giclassic_state::control_w));
 	map(0xd00000, 0xd0003f).ram(); // these must read/write or 26S (LCD controller) fails
-	map(0xe00000, 0xe0001f).w(m_k056832, FUNC(k056832_device::b_w)).umask16(0xff00);
-	map(0xf00000, 0xf00001).noprw().nopw(); // watchdog reset
+	map(0xe00000, 0xe00007).w(m_k056832, FUNC(k056832_device::b_w)).umask16(0xff00); // ?
+	map(0xf00000, 0xf00001).noprw(); // watchdog reset
 }
 
 static INPUT_PORTS_START( giclassic )
@@ -163,6 +171,7 @@ INPUT_PORTS_END
 
 void giclassic_state::machine_start()
 {
+	save_item(NAME(m_control));
 }
 
 void giclassic_state::machine_reset()
@@ -176,33 +185,37 @@ void giclassic_state::machine_reset()
 class giclassicsvr_state : public driver_device
 {
 public:
-	giclassicsvr_state(const machine_config &mconfig, device_type type, const char *tag)
-		: driver_device(mconfig, type, tag),
+	giclassicsvr_state(const machine_config &mconfig, device_type type, const char *tag) :
+		driver_device(mconfig, type, tag),
 		m_maincpu(*this, "maincpu"),
 		m_k056832(*this, "k056832"),
 		m_k055673(*this, "k055673"),
 		m_palette(*this, "palette")
 	{ }
 
+	void giclassvr(machine_config &config);
+
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+
+private:
 	required_device<cpu_device> m_maincpu;
 	required_device<k056832_device> m_k056832;
 	required_device<k055673_device> m_k055673;
 	required_device<palette_device> m_palette;
 
-	INTERRUPT_GEN_MEMBER(giclassicsvr_interrupt);
+	INTERRUPT_GEN_MEMBER(interrupt);
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	uint32_t screen_update_giclassicsvr(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	K056832_CB_MEMBER(tile_callback);
 	K055673_CB_MEMBER(sprite_callback);
 
 	void control_w(uint16_t data);
 	uint16_t control_r();
 
-	void giclassvr(machine_config &config);
-	void server_main(address_map &map);
-private:
+	void server_main(address_map &map) ATTR_COLD;
+
 	uint16_t m_control = 0;
 };
 
@@ -216,7 +229,7 @@ uint16_t giclassicsvr_state::control_r()
 	return m_control;
 }
 
-INTERRUPT_GEN_MEMBER(giclassicsvr_state::giclassicsvr_interrupt)
+INTERRUPT_GEN_MEMBER(giclassicsvr_state::interrupt)
 {
 	//if (m_control & 2)
 	{
@@ -231,16 +244,16 @@ K056832_CB_MEMBER(giclassicsvr_state::tile_callback)
 
 K055673_CB_MEMBER(giclassicsvr_state::sprite_callback)
 {
-	int c = *color;
+	int c = color;
 
-	*color = (c & 0x001f);
+	color = (c & 0x001f);
 	//int pri = (c >> 5) & 7;
 	// .... .... ...x xxxx - Color
 	// .... .... xxx. .... - Priority?
 	// .... ..x. .... .... - ?
 	// ..x. .... .... .... - ?
 
-	*priority_mask = 0;
+	priority_mask = 0;
 
 	// 0 - Sprites over everything
 	// f0 -
@@ -253,7 +266,7 @@ K055673_CB_MEMBER(giclassicsvr_state::sprite_callback)
 }
 
 
-uint32_t giclassicsvr_state::screen_update_giclassicsvr(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+uint32_t giclassicsvr_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	bitmap.fill(0, cliprect);
 	screen.priority().fill(0, cliprect);
@@ -289,6 +302,7 @@ INPUT_PORTS_END
 
 void giclassicsvr_state::machine_start()
 {
+	save_item(NAME(m_control));
 }
 
 void giclassicsvr_state::machine_reset()
@@ -300,7 +314,7 @@ void giclassic_state::giclassic(machine_config &config)
 	/* basic machine hardware */
 	M68000(config, m_maincpu, XTAL(20'000'000) / 2); // PCB is marked "68000 12 MHz", but only visible osc is 20 MHz
 	m_maincpu->set_addrmap(AS_PROGRAM, &giclassic_state::satellite_main);
-	m_maincpu->set_vblank_int("screen", FUNC(giclassic_state::giclassic_interrupt));
+	m_maincpu->set_vblank_int("screen", FUNC(giclassic_state::interrupt));
 
 	/* video hardware */
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
@@ -308,10 +322,10 @@ void giclassic_state::giclassic(machine_config &config)
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(0));
 	screen.set_size(600, 384);
 	screen.set_visarea_full();
-	screen.set_screen_update(FUNC(giclassic_state::screen_update_giclassic));
+	screen.set_screen_update(FUNC(giclassic_state::screen_update));
 	screen.set_palette(m_palette);
 
-	PALETTE(config, m_palette).set_format(palette_device::xBGR_444, 256);
+	PALETTE(config, m_palette).set_format(palette_device::xBGR_444, 2048);
 	m_palette->enable_shadows();
 
 	K056832(config, m_k056832, 0);
@@ -325,14 +339,14 @@ void giclassicsvr_state::giclassvr(machine_config &config)
 	/* basic machine hardware */
 	M68000(config, m_maincpu, XTAL(16'000'000)); // unknown speed
 	m_maincpu->set_addrmap(AS_PROGRAM, &giclassicsvr_state::server_main);
-	m_maincpu->set_vblank_int("screen", FUNC(giclassicsvr_state::giclassicsvr_interrupt));
+	m_maincpu->set_vblank_int("screen", FUNC(giclassicsvr_state::interrupt));
 
 	/* video hardware */
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
 	screen.set_refresh_hz(59.62);
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(0));
 	screen.set_visarea_full();
-	screen.set_screen_update(FUNC(giclassicsvr_state::screen_update_giclassicsvr));
+	screen.set_screen_update(FUNC(giclassicsvr_state::screen_update));
 	screen.set_palette(m_palette);
 
 	PALETTE(config, m_palette).set_format(palette_device::xBGR_444, 16384);
@@ -373,6 +387,9 @@ ROM_START( giclassvr )
 	ROM_LOAD32_WORD( "gsgu_760_ad02.34j", 0x000000, 0x080000, CRC(6d33c720) SHA1(35da3e1f0133a76480d2078fae89ea87b841ffc7) )
 	ROM_LOAD32_WORD( "gsgu_760_ad02.34k", 0x000002, 0x080000, CRC(8057a417) SHA1(82d4a1d84729e9f0a8aff4c219a19601b89caf15) )
 ROM_END
+
+} // anonymous namespace
+
 
 GAME( 1998, giclasex, 0, giclassic, giclassic, giclassic_state,    empty_init, 0, "Konami", "GI-Classic EX (satellite terminal)", MACHINE_NOT_WORKING|MACHINE_NO_SOUND_HW)
 GAME( 1998, giclassvr,0, giclassvr, giclassvr, giclassicsvr_state, empty_init, 0, "Konami", "GI-Classic EX (server)",             MACHINE_NOT_WORKING|MACHINE_NO_SOUND_HW)

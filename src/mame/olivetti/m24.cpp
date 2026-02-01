@@ -23,6 +23,7 @@
 
 #include "bus/isa/isa.h"
 #include "bus/isa/isa_cards.h"
+#include "bus/rs232/rs232.h"
 #include "cpu/i86/i86.h"
 #include "cpu/tms7000/tms7000.h"
 #include "imagedev/floppy.h"
@@ -37,7 +38,6 @@
 #include "sound/spkrdev.h"
 #include "speaker.h"
 
-#include "formats/pc_dsk.h"
 #include "formats/naslite_dsk.h"
 #include "formats/m20_dsk.h"
 
@@ -68,20 +68,20 @@ public:
 	void olivetti(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 private:
 	void dma_segment_w(offs_t offset, u8 data);
-	DECLARE_WRITE_LINE_MEMBER(dma_hrq_w);
+	void dma_hrq_w(int state);
 	u8 dma_memory_read(offs_t offset);
 	void dma_memory_write(offs_t offset, u8 data);
 	template <int Channel> u8 dma_io_read(offs_t offset);
 	template <int Channel> void dma_io_write(offs_t offset, u8 data);
-	template <int Channel> DECLARE_WRITE_LINE_MEMBER(dma_dack_w);
-	DECLARE_WRITE_LINE_MEMBER(dma_tc_w);
-	DECLARE_WRITE_LINE_MEMBER(dreq0_ck_w);
-	DECLARE_WRITE_LINE_MEMBER(speaker_ck_w);
+	template <int Channel> void dma_dack_w(int state);
+	void dma_tc_w(int state);
+	void dreq0_ck_w(int state);
+	void speaker_ck_w(int state);
 	void update_speaker();
 
 	u8 keyboard_data_r();
@@ -93,8 +93,8 @@ private:
 	u8 ctrlport_b_r();
 
 	void alt_w(u8 data);
-	DECLARE_WRITE_LINE_MEMBER(chck_w);
-	DECLARE_WRITE_LINE_MEMBER(int87_w);
+	void chck_w(int state);
+	void int87_w(int state);
 	void nmi_enable_w(u8 data);
 	void update_nmi();
 
@@ -129,15 +129,16 @@ private:
 	void pb_w(u8 data);
 	u8 kbcdata_r();
 	void kbcdata_w(u8 data);
-	DECLARE_WRITE_LINE_MEMBER(kbcin_w);
-	DECLARE_WRITE_LINE_MEMBER(int_w);
-	DECLARE_WRITE_LINE_MEMBER(halt_i86_w);
+	void kbcin_w(int state);
+	void int_w(int state);
+	void halt_i86_w(int state);
 	static void floppy_formats(format_registration &fr);
 
 	static void cfg_m20_format(device_t *device);
-	void kbc_map(address_map &map);
-	void m24_io(address_map &map);
-	void m24_map(address_map &map);
+	static void cfg_no_serial_mouse(device_t *device);
+	void kbc_map(address_map &map) ATTR_COLD;
+	void m24_io(address_map &map) ATTR_COLD;
+	void m24_map(address_map &map) ATTR_COLD;
 };
 
 void m24_state::machine_start()
@@ -192,7 +193,7 @@ void m24_state::dma_segment_w(offs_t offset, u8 data)
 	m_dma_segment[offset] = data & 0x0f;
 }
 
-WRITE_LINE_MEMBER(m24_state::dma_hrq_w)
+void m24_state::dma_hrq_w(int state)
 {
 	if(!m_i86_halt)
 		m_maincpu->set_input_line(INPUT_LINE_HALT, state ? ASSERT_LINE : CLEAR_LINE);
@@ -228,7 +229,7 @@ void m24_state::dma_io_write(offs_t offset, u8 data)
 }
 
 template <int Channel>
-WRITE_LINE_MEMBER(m24_state::dma_dack_w)
+void m24_state::dma_dack_w(int state)
 {
 	m_isabus->dack_line_w(Channel, state);
 
@@ -248,7 +249,7 @@ WRITE_LINE_MEMBER(m24_state::dma_dack_w)
 	}
 }
 
-WRITE_LINE_MEMBER(m24_state::dma_tc_w)
+void m24_state::dma_tc_w(int state)
 {
 	m_tc = (state == ASSERT_LINE);
 	for (int channel = 0; channel < 4; channel++)
@@ -256,7 +257,7 @@ WRITE_LINE_MEMBER(m24_state::dma_tc_w)
 			m_isabus->eop_w(channel, state);
 }
 
-WRITE_LINE_MEMBER(m24_state::dreq0_ck_w)
+void m24_state::dreq0_ck_w(int state)
 {
 	if (state && !m_dreq0_ck && !BIT(m_dma_active, 0))
 		m_dmac->dreq0_w(1);
@@ -264,7 +265,7 @@ WRITE_LINE_MEMBER(m24_state::dreq0_ck_w)
 	m_dreq0_ck = state;
 }
 
-WRITE_LINE_MEMBER(m24_state::speaker_ck_w)
+void m24_state::speaker_ck_w(int state)
 {
 	if (state)
 		m_ctrlport_b |= 0x20;
@@ -364,7 +365,7 @@ void m24_state::alt_w(u8 data)
 	m_i86_halt_perm = true;
 }
 
-WRITE_LINE_MEMBER(m24_state::chck_w)
+void m24_state::chck_w(int state)
 {
 	m_chck_active = (state == 0);
 	if (m_chck_active)
@@ -379,7 +380,7 @@ WRITE_LINE_MEMBER(m24_state::chck_w)
 		m_ctrlport_b &= 0xbf;
 }
 
-WRITE_LINE_MEMBER(m24_state::int87_w)
+void m24_state::int87_w(int state)
 {
 	m_87int = state;
 	update_nmi();
@@ -425,12 +426,12 @@ void m24_state::kbcdata_w(u8 data)
 	m_kbcout = data;
 }
 
-WRITE_LINE_MEMBER(m24_state::kbcin_w)
+void m24_state::kbcin_w(int state)
 {
 	m_kbdata = state;
 }
 
-WRITE_LINE_MEMBER(m24_state::int_w)
+void m24_state::int_w(int state)
 {
 	if(!m_i86_halt)
 		m_maincpu->set_input_line(INPUT_LINE_IRQ0, state ? ASSERT_LINE : CLEAR_LINE);
@@ -438,7 +439,7 @@ WRITE_LINE_MEMBER(m24_state::int_w)
 		m_z8000_apb->int_w(state ? ASSERT_LINE : CLEAR_LINE);
 }
 
-WRITE_LINE_MEMBER(m24_state::halt_i86_w)
+void m24_state::halt_i86_w(int state)
 {
 	if(m_i86_halt_perm)
 		return;
@@ -532,6 +533,12 @@ void m24_state::cfg_m20_format(device_t *device)
 	device->subdevice<floppy_connector>("fdc:1")->set_formats(m24_state::floppy_formats);
 }
 
+void m24_state::cfg_no_serial_mouse(device_t *device)
+{
+	/* Don't attach serial mouse, since there's a proprietary mouse */
+	device->subdevice<rs232_port_device>("serport0")->set_default_option(nullptr);
+}
+
 void m24_state::olivetti(machine_config &config)
 {
 	/* basic machine hardware */
@@ -595,9 +602,9 @@ void m24_state::olivetti(machine_config &config)
 	ISA8_SLOT(config, "mb1", 0, m_isabus, pc_isa8_cards, "cga_m24", true);
 	ISA8_SLOT(config, "mb2", 0, m_isabus, pc_isa8_cards, "fdc_xt", true).set_option_machine_config("fdc_xt", cfg_m20_format);
 	ISA8_SLOT(config, "mb3", 0, m_isabus, pc_isa8_cards, "lpt", true);
-	ISA8_SLOT(config, "mb4", 0, m_isabus, pc_isa8_cards, "com", true);
+	ISA8_SLOT(config, "mb4", 0, m_isabus, pc_isa8_cards, "com", true).set_option_machine_config("com", cfg_no_serial_mouse);
 
-	ISA8_SLOT(config, "isa1", 0, m_isabus, pc_isa8_cards, nullptr, false);
+	ISA8_SLOT(config, "isa1", 0, m_isabus, pc_isa8_cards, "hdc", false);
 	ISA8_SLOT(config, "isa2", 0, m_isabus, pc_isa8_cards, nullptr, false);
 	ISA8_SLOT(config, "isa3", 0, m_isabus, pc_isa8_cards, nullptr, false);
 

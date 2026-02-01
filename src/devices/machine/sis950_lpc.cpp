@@ -2,34 +2,38 @@
 // copyright-holders: Angelo Salese
 /**************************************************************************************************
 
-    SiS950 LPC implementation (Super I/O & southbridge)
+SiS950 LPC implementation (Super I/O & southbridge)
 
-    TODO:
-    - Convert most stuff declared here to generic interfaces;
-    - Flash ROM handling
-      \- Doesn't survive a soft reset;
-    - Fix EISA;
-    - INIT register (reset & A20 control + fast gates + fast reset timing control);
-    - Override PS/2 ports if USB legacy mode is enabled;
-    - NMI & SMI handling;
-    - SMBus handling;
-    - RTC extended bank enable;
-      \- Doesn't survive a CMOS write after fast reset;
-    - Shadow registers for PIC and PIT;
-    - IRQ remaps
-      \- INTA GUI
-      \- INTB AUDIO and MODEM
-      \- INTC ethernet
-      \- INTD USB
-    - IRQ software traps ($6e-$6f);
-      \- Documentation mentions that those can be read-back too, huh?
-    - Understand what's the caveat of "changing device ID number" via BIOS control $40 bit 6;
+TODO:
+- Convert most stuff declared here to generic interfaces;
+  \- Despite what the datasheet claims it really looks like that a separate Super I/O provides
+     the usual x86 resources;
+- Flash ROM handling
+  \- Doesn't survive a soft reset;
+- Fix EISA;
+- INIT register (reset & A20 control + fast gates + fast reset timing control);
+- Override PS/2 ports if USB legacy mode is enabled;
+- NMI & SMI handling;
+- SMBus handling;
+- RTC extended bank enable;
+  \- Doesn't survive a CMOS write after fast reset;
+- Shadow registers for PIC and PIT;
+- IRQ remaps for PCI_SLOT
+  \- INTA GUI
+  \- INTB AUDIO and MODEM
+  \- INTC ethernet
+  \- INTD USB
+- IRQ software traps ($6e-$6f);
+  \- Documentation mentions that those can be read-back too, huh?
+- Understand what's the catch of "changing device ID number" via BIOS control $40 bit 6;
 
 **************************************************************************************************/
 
 #include "emu.h"
 #include "sis950_lpc.h"
+
 #include "bus/pc_kbd/keyboards.h"
+#include "machine/pckeybrd.h"
 #include "speaker.h"
 
 #define LOG_IO     (1U << 1) // log PCI register accesses
@@ -61,22 +65,15 @@ sis950_lpc_device::sis950_lpc_device(const machine_config &mconfig, const char *
 	, m_dmac_slave(*this, "dmac_slave")
 	, m_pit(*this, "pit")
 	, m_keybc(*this, "keybc")
+	, m_isabus(*this, "isabus")
 	, m_speaker(*this, "speaker")
 	, m_rtc(*this, "rtc")
 	, m_ps2_con(*this, "ps2_con")
 	, m_aux_con(*this, "aux_con")
-	, m_uart(*this, "uart")
 	, m_acpi(*this, "acpi")
 	, m_smbus(*this, "smbus")
 	, m_fast_reset_cb(*this)
 {
-}
-
-void sis950_lpc_device::device_start()
-{
-	pci_device::device_start();
-
-	m_fast_reset_cb.resolve_safe();
 }
 
 void sis950_lpc_device::device_reset()
@@ -102,7 +99,7 @@ void sis950_lpc_device::device_reset()
 	remap_cb();
 }
 
-WRITE_LINE_MEMBER(sis950_lpc_device::cpu_a20_w)
+void sis950_lpc_device::cpu_a20_w(int state)
 {
 	// TODO: confirm "A20M# being always high"
 //  if (BIT(m_init_reg, 1))
@@ -110,7 +107,7 @@ WRITE_LINE_MEMBER(sis950_lpc_device::cpu_a20_w)
 	m_host_cpu->set_input_line(INPUT_LINE_A20, state);
 }
 
-WRITE_LINE_MEMBER(sis950_lpc_device::cpu_reset_w)
+void sis950_lpc_device::cpu_reset_w(int state)
 {
 	// TODO: masked via INIT $46 bit 0
 	m_host_cpu->set_input_line(INPUT_LINE_RESET, state);
@@ -135,16 +132,36 @@ void sis950_lpc_device::device_add_mconfig(machine_config &config)
 	// TODO: unknown part #
 	AM9517A(config, m_dmac_master, lpc_pit_clock / 3);
 	m_dmac_master->out_hreq_callback().set(m_dmac_slave, FUNC(am9517a_device::dreq0_w));
-//  m_dmac_master->out_eop_callback().set(FUNC(sis950_lpc_device::at_dma8237_out_eop));
+	m_dmac_master->out_eop_callback().set(FUNC(sis950_lpc_device::at_dma8237_out_eop));
 	m_dmac_master->in_memr_callback().set(FUNC(sis950_lpc_device::pc_dma_read_byte));
 	m_dmac_master->out_memw_callback().set(FUNC(sis950_lpc_device::pc_dma_write_byte));
-	// TODO: ior/iow/dack/eop callbacks
+	m_dmac_master->in_ior_callback<0>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_r<0>));
+	m_dmac_master->in_ior_callback<1>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_r<1>));
+	m_dmac_master->in_ior_callback<2>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_r<2>));
+	m_dmac_master->in_ior_callback<3>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_r<3>));
+	m_dmac_master->out_iow_callback<0>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_w<0>));
+	m_dmac_master->out_iow_callback<1>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_w<1>));
+	m_dmac_master->out_iow_callback<2>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_w<2>));
+	m_dmac_master->out_iow_callback<3>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_w<3>));
+	m_dmac_master->out_dack_callback<0>().set(FUNC(sis950_lpc_device::pc_dack0_w));
+	m_dmac_master->out_dack_callback<1>().set(FUNC(sis950_lpc_device::pc_dack1_w));
+	m_dmac_master->out_dack_callback<2>().set(FUNC(sis950_lpc_device::pc_dack2_w));
+	m_dmac_master->out_dack_callback<3>().set(FUNC(sis950_lpc_device::pc_dack3_w));
 
 	AM9517A(config, m_dmac_slave, lpc_pit_clock / 3);
 	m_dmac_slave->out_hreq_callback().set(FUNC(sis950_lpc_device::pc_dma_hrq_changed));
 	m_dmac_slave->in_memr_callback().set(FUNC(sis950_lpc_device::pc_dma_read_word));
 	m_dmac_slave->out_memw_callback().set(FUNC(sis950_lpc_device::pc_dma_write_word));
-	// TODO: ior/iow/dack callbacks
+	m_dmac_slave->in_ior_callback<1>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_r<5>));
+	m_dmac_slave->in_ior_callback<2>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_r<6>));
+	m_dmac_slave->in_ior_callback<3>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_r<7>));
+	m_dmac_slave->out_iow_callback<1>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_w<5>));
+	m_dmac_slave->out_iow_callback<2>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_w<6>));
+	m_dmac_slave->out_iow_callback<3>().set(FUNC(sis950_lpc_device::pc_dma8237_dack_w<7>));
+	m_dmac_slave->out_dack_callback<0>().set(FUNC(sis950_lpc_device::pc_dack4_w));
+	m_dmac_slave->out_dack_callback<1>().set(FUNC(sis950_lpc_device::pc_dack5_w));
+	m_dmac_slave->out_dack_callback<2>().set(FUNC(sis950_lpc_device::pc_dack6_w));
+	m_dmac_slave->out_dack_callback<3>().set(FUNC(sis950_lpc_device::pc_dack7_w));
 
 	// Confirmed 82C59s
 	PIC8259(config, m_pic_master, 0);
@@ -165,17 +182,8 @@ void sis950_lpc_device::device_add_mconfig(machine_config &config)
 
 	// TODO: EISA, from virtual bridge
 
-	PC_KBDC(config, m_ps2_con, pc_at_keyboards, STR_KBD_MICROSOFT_NATURAL);
-	m_ps2_con->out_clock_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::kbd_clk_w));
-	m_ps2_con->out_data_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::kbd_data_w));
-
-	PC_KBDC(config, m_aux_con, ps2_mice, STR_HLE_PS2_MOUSE);
-	m_aux_con->out_clock_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::aux_clk_w));
-	m_aux_con->out_data_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::aux_data_w));
-
-	// TODO: selectable between PCI clock / 4 (33 MHz) or 7.159 MHz, via reg $47 bit 5
+	// TODO: selectable between PCI clock / 4 or 7.159 MHz, via reg $47 bit 5
 	PS2_KEYBOARD_CONTROLLER(config, m_keybc, DERIVED_CLOCK(1, 4));
-	// TODO: default ibm BIOS doesn't cope with this too well
 	m_keybc->set_default_bios_tag("compaq");
 	m_keybc->hot_res().set(FUNC(sis950_lpc_device::cpu_reset_w));
 	m_keybc->gate_a20().set(FUNC(sis950_lpc_device::cpu_a20_w));
@@ -186,31 +194,54 @@ void sis950_lpc_device::device_add_mconfig(machine_config &config)
 	m_keybc->aux_clk().set(m_aux_con, FUNC(pc_kbdc_device::clock_write_from_mb));
 	m_keybc->aux_data().set(m_aux_con, FUNC(pc_kbdc_device::data_write_from_mb));
 
+	PC_KBDC(config, m_ps2_con, pc_at_keyboards, STR_KBD_MICROSOFT_NATURAL);
+	m_ps2_con->out_clock_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::kbd_clk_w));
+	m_ps2_con->out_data_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::kbd_data_w));
+
+	// TODO: doesn't work (wrong PS/2 BIOS?), worked around by disabling for now
+	PC_KBDC(config, m_aux_con, ps2_mice, nullptr);
+	m_aux_con->out_clock_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::aux_clk_w));
+	m_aux_con->out_data_cb().set(m_keybc, FUNC(ps2_keyboard_controller_device::aux_data_w));
+
 	// TODO: unknown RTC type
 	// Has external RTC bank select at $48, using this one as convenience
 	DS12885EXT(config, m_rtc, XTAL(32'768));
 	m_rtc->irq().set(m_pic_slave, FUNC(pic8259_device::ir0_w));
 	m_rtc->set_century_index(0x32);
 
-	// serial fragment
-	// TODO: unconfirmed type / clock
-	INS8250(config, m_uart, XTAL(18'432'000) / 10);
-	m_uart->out_tx_callback().set("com1", FUNC(rs232_port_device::write_txd));
-	m_uart->out_dtr_callback().set("com1", FUNC(rs232_port_device::write_dtr));
-	m_uart->out_rts_callback().set("com1", FUNC(rs232_port_device::write_rts));
-//  m_uart->out_int_callback().set()
-//  m_uart->out_baudout_callback().set([this](int state){ if (m_8251dtr_state) m_uart->rclk_w(state); }); // TODO: Fix INS8250 BAUDOUT pin support
-
-	rs232_port_device &rs232(RS232_PORT(config, "com1", default_rs232_devices, nullptr));
-	rs232.rxd_handler().set(m_uart, FUNC(ins8250_uart_device::rx_w));
-	rs232.dcd_handler().set(m_uart, FUNC(ins8250_uart_device::dcd_w));
-	rs232.dsr_handler().set(m_uart, FUNC(ins8250_uart_device::dsr_w));
-	rs232.ri_handler().set(m_uart, FUNC(ins8250_uart_device::ri_w));
-	rs232.cts_handler().set(m_uart, FUNC(ins8250_uart_device::cts_w));
-
 	// TODO: left/right speaker connection
 	SPEAKER(config, "mono").front_center();
 	SPEAKER_SOUND(config, m_speaker).add_route(ALL_OUTPUTS, "mono", 0.50);
+
+	ISA16(config, m_isabus, 0);
+	m_isabus->irq3_callback().set(FUNC(sis950_lpc_device::pc_irq3_w));
+	m_isabus->irq4_callback().set(FUNC(sis950_lpc_device::pc_irq4_w));
+	m_isabus->irq5_callback().set(FUNC(sis950_lpc_device::pc_irq5_w));
+	m_isabus->irq6_callback().set(FUNC(sis950_lpc_device::pc_irq6_w));
+	m_isabus->irq7_callback().set(FUNC(sis950_lpc_device::pc_irq7_w));
+	m_isabus->irq2_callback().set(FUNC(sis950_lpc_device::pc_irq9_w));
+	m_isabus->irq10_callback().set(FUNC(sis950_lpc_device::pc_irq10_w));
+	m_isabus->irq11_callback().set(FUNC(sis950_lpc_device::pc_irq11_w));
+	m_isabus->irq12_callback().set(FUNC(sis950_lpc_device::pc_irq12m_w));
+	m_isabus->irq14_callback().set(FUNC(sis950_lpc_device::pc_irq14_w));
+	m_isabus->irq15_callback().set(FUNC(sis950_lpc_device::pc_irq15_w));
+	m_isabus->drq0_callback().set(m_dmac_master, FUNC(am9517a_device::dreq0_w));
+	m_isabus->drq1_callback().set(m_dmac_master, FUNC(am9517a_device::dreq1_w));
+	m_isabus->drq2_callback().set(m_dmac_master, FUNC(am9517a_device::dreq2_w));
+	m_isabus->drq3_callback().set(m_dmac_master, FUNC(am9517a_device::dreq3_w));
+	m_isabus->drq5_callback().set(m_dmac_slave, FUNC(am9517a_device::dreq1_w));
+	m_isabus->drq6_callback().set(m_dmac_slave, FUNC(am9517a_device::dreq2_w));
+	m_isabus->drq7_callback().set(m_dmac_slave, FUNC(am9517a_device::dreq3_w));
+	m_isabus->iochck_callback().set(FUNC(sis950_lpc_device::iochck_w));
+}
+
+void sis950_lpc_device::device_config_complete()
+{
+	auto isabus = m_isabus.finder_target();
+	isabus.first.subdevice<isa16_device>(isabus.second)->set_memspace(m_host_cpu, AS_PROGRAM);
+	isabus.first.subdevice<isa16_device>(isabus.second)->set_iospace(m_host_cpu, AS_IO);
+
+	pci_device::device_config_complete();
 }
 
 void sis950_lpc_device::config_map(address_map &map)
@@ -420,13 +451,13 @@ void sis950_lpc_device::io_map(address_map &map)
 	// map(0x0000, 0x000f) DMA1
 	map(0x0000, 0x001f).rw(m_dmac_master, FUNC(am9517a_device::read), FUNC(am9517a_device::write));
 	// map(0x0020, 0x0021) INT1
-	map(0x0020, 0x003f).rw(m_pic_master, FUNC(pic8259_device::read), FUNC(pic8259_device::write));
+	map(0x0020, 0x0021).rw(m_pic_master, FUNC(pic8259_device::read), FUNC(pic8259_device::write));
 	// map(0x0040, 0x0043) PIT
 	map(0x0040, 0x0043).rw(m_pit, FUNC(pit8254_device::read), FUNC(pit8254_device::write));
 	map(0x0060, 0x0060).rw(m_keybc, FUNC(ps2_keyboard_controller_device::data_r), FUNC(ps2_keyboard_controller_device::data_w));
 	// map(0x0061, 0x0061) NMI Status Register
 	map(0x0061, 0x0061).rw(FUNC(sis950_lpc_device::nmi_status_r), FUNC(sis950_lpc_device::nmi_control_w));
-	// undocumented but read, assume LPC complaint
+	// undocumented but read, assume LPC compliant
 	map(0x0064, 0x0064).rw(m_keybc, FUNC(ps2_keyboard_controller_device::status_r), FUNC(ps2_keyboard_controller_device::command_w));
 	// map(0x0070, 0x0070) CMOS and NMI Mask
 	map(0x0070, 0x0070).w(FUNC(sis950_lpc_device::rtc_index_w));
@@ -436,14 +467,16 @@ void sis950_lpc_device::io_map(address_map &map)
 	// map(0x0092, 0x0092) INIT and A20
 	map(0x0092, 0x0092).rw(FUNC(sis950_lpc_device::lpc_fast_init_r), FUNC(sis950_lpc_device::lpc_fast_init_w));
 	// map(0x00a0, 0x00a1) INT2
-	map(0x00a0, 0x00bf).rw(m_pic_slave, FUNC(pic8259_device::read), FUNC(pic8259_device::write));
+	map(0x00a0, 0x00a1).rw(m_pic_slave, FUNC(pic8259_device::read), FUNC(pic8259_device::write));
 	// map(0x00c0, 0x00df) DMA2
 	map(0x00c0, 0x00df).lrw8(
 		NAME([this] (offs_t offset) { return m_dmac_slave->read( offset / 2 ); }),
 		NAME([this] (offs_t offset, u8 data) { m_dmac_slave->write( offset / 2, data ); })
 	);
 
-	map(0x00e0, 0x00ef).noprw();
+	// map(0x00e0, 0x00ef) MCA bus (cfr. Bochs) or PnP
+	map(0x00eb, 0x00eb).lw8(NAME([] (offs_t offset, u8 data) { }));
+
 	// map(0x00f0, 0x00f0) COPRO error
 	// map(0x0480, 0x048f) DMA high page registers
 	// map(0x04d0, 0x04d1) IRQ edge/level control registers
@@ -474,6 +507,8 @@ void sis950_lpc_device::io_map(address_map &map)
 
 	// map(0x0278, 0x027f) parallel port 2 & PnP
 	// map(0x02e8, 0x02ef) serial 3
+	// unmap high: beos5 keeps PnP here for a COM3 that doesn't exist in shutms11
+	map(0x02e8, 0x02ef).lr8(NAME([] () { return 0xff; }));
 	// map(0x02f8, 0x02ff) serial 1
 
 	// map(0x0300, 0x0301) - MIDI ($330 as shutms11 default)
@@ -489,7 +524,7 @@ void sis950_lpc_device::io_map(address_map &map)
 	// map(0x03bc, 0x03bf) parallel port 3
 	// map(0x03e8, 0x03ef) serial 4
 	// map(0x03f0, 0x03f7) FDC 1
-	map(0x03f8, 0x03ff).rw(m_uart, FUNC(ins8250_device::ins8250_r), FUNC(ins8250_device::ins8250_w)); // COM1
+	// map(0x03f8, 0x03ff).rw(m_uart, FUNC(ins8250_device::ins8250_r), FUNC(ins8250_device::ins8250_w)); // COM1
 
 	// map(0x0530, 0x0537) - MSS (TCP Maximum Segment Size?)
 	// map(0x0604, 0x060b) /
@@ -504,6 +539,8 @@ void sis950_lpc_device::io_map(address_map &map)
 void sis950_lpc_device::map_extra(uint64_t memory_window_start, uint64_t memory_window_end, uint64_t memory_offset, address_space *memory_space,
 							uint64_t io_window_start, uint64_t io_window_end, uint64_t io_offset, address_space *io_space)
 {
+	m_isabus->remap(AS_PROGRAM, 0, 1 << 24);
+	m_isabus->remap(AS_IO, 0, 0xffff);
 	io_space->install_device(0, 0x07ff, *this, &sis950_lpc_device::io_map);
 
 	LOGMAP("LPC Remapping table (BIOS: %02x, flash: %02x)\n", m_bios_control, m_flash_control);
@@ -566,21 +603,39 @@ void sis950_lpc_device::unmap_log_w(offs_t offset, u8 data)
 }
 
 /*
+ * IRQ sharing
+ */
+
+void sis950_lpc_device::pc_irq1_w(int state)   { m_pic_master->ir1_w(state); }
+void sis950_lpc_device::pc_irq3_w(int state)   { m_pic_master->ir3_w(state); }
+void sis950_lpc_device::pc_irq4_w(int state)   { m_pic_master->ir4_w(state); }
+void sis950_lpc_device::pc_irq5_w(int state)   { m_pic_master->ir5_w(state); }
+void sis950_lpc_device::pc_irq6_w(int state)   { m_pic_master->ir6_w(state); }
+void sis950_lpc_device::pc_irq7_w(int state)   { m_pic_master->ir7_w(state); }
+void sis950_lpc_device::pc_irq8n_w(int state)  { m_pic_slave->ir0_w(state); }
+void sis950_lpc_device::pc_irq9_w(int state)   { m_pic_slave->ir1_w(state); }
+void sis950_lpc_device::pc_irq10_w(int state)  { m_pic_slave->ir2_w(state); }
+void sis950_lpc_device::pc_irq11_w(int state)  { m_pic_slave->ir3_w(state); }
+void sis950_lpc_device::pc_irq12m_w(int state) { m_pic_slave->ir4_w(state); }
+void sis950_lpc_device::pc_irq14_w(int state)  { m_pic_slave->ir6_w(state); }
+void sis950_lpc_device::pc_irq15_w(int state)  { m_pic_slave->ir7_w(state); }
+
+/*
  * Start of legacy handling, to be moved out
  */
 
-WRITE_LINE_MEMBER( sis950_lpc_device::pit_out0 )
+void sis950_lpc_device::pit_out0(int state)
 {
 	m_pic_master->ir0_w(state);
 }
 
-WRITE_LINE_MEMBER( sis950_lpc_device::pit_out1 )
+void sis950_lpc_device::pit_out1(int state)
 {
 	if(state)
 		m_refresh = !m_refresh;
 }
 
-WRITE_LINE_MEMBER( sis950_lpc_device::pit_out2 )
+void sis950_lpc_device::pit_out2(int state)
 {
 	m_pit_out2 = state ? 1 : 0;
 	m_speaker->level_w(m_at_spkrdata & m_pit_out2);
@@ -697,7 +752,7 @@ void sis950_lpc_device::at_page8_w(offs_t offset, uint8_t data)
 	}
 }
 
-WRITE_LINE_MEMBER( sis950_lpc_device::pc_dma_hrq_changed )
+void sis950_lpc_device::pc_dma_hrq_changed(int state)
 {
 	m_host_cpu->set_input_line(INPUT_LINE_HALT, state ? ASSERT_LINE : CLEAR_LINE);
 
@@ -705,14 +760,12 @@ WRITE_LINE_MEMBER( sis950_lpc_device::pc_dma_hrq_changed )
 	m_dmac_slave->hack_w( state );
 }
 
-#if 0
-WRITE_LINE_MEMBER( sis950_lpc_device::iochck_w )
+void sis950_lpc_device::iochck_w(int state)
 {
 //  if (!state && !m_channel_check && m_nmi_enabled)
 	if (!state && !m_channel_check)
 		m_host_cpu->set_input_line(INPUT_LINE_NMI, ASSERT_LINE);
 }
-#endif
 
 uint8_t sis950_lpc_device::pc_dma_read_byte(offs_t offset)
 {
@@ -762,3 +815,51 @@ void sis950_lpc_device::pc_dma_write_word(offs_t offset, uint8_t data)
 
 	prog_space.write_word((page_offset & 0xfe0000) | (offset << 1), m_dma_high_byte | data);
 }
+
+template <unsigned Which>
+uint8_t sis950_lpc_device::pc_dma8237_dack_r()
+{
+	return m_isabus->dack_r(Which);
+}
+
+template <unsigned Which>
+void sis950_lpc_device::pc_dma8237_dack_w(uint8_t data)
+{
+	m_isabus->dack_w(Which, data);
+}
+
+void sis950_lpc_device::at_dma8237_out_eop(int state)
+{
+	m_cur_eop = state == ASSERT_LINE;
+	if (m_dma_channel != -1)
+		m_isabus->eop_w(m_dma_channel, m_cur_eop ? ASSERT_LINE : CLEAR_LINE);
+}
+
+void sis950_lpc_device::pc_select_dma_channel(int channel, bool state)
+{
+	m_isabus->dack_line_w(channel, state);
+
+	if (!state)
+	{
+		m_dma_channel = channel;
+		if (m_cur_eop)
+			m_isabus->eop_w(channel, ASSERT_LINE);
+	}
+	else if (m_dma_channel == channel)
+	{
+		m_dma_channel = -1;
+		if (m_cur_eop)
+			m_isabus->eop_w(channel, CLEAR_LINE);
+	}
+}
+
+void sis950_lpc_device::pc_dack0_w(int state) { pc_select_dma_channel(0, state); }
+void sis950_lpc_device::pc_dack1_w(int state) { pc_select_dma_channel(1, state); }
+void sis950_lpc_device::pc_dack2_w(int state) { pc_select_dma_channel(2, state); }
+void sis950_lpc_device::pc_dack3_w(int state) { pc_select_dma_channel(3, state); }
+void sis950_lpc_device::pc_dack4_w(int state) { m_dmac_master->hack_w( state ? 0 : 1); } // it's inverted
+void sis950_lpc_device::pc_dack5_w(int state) { pc_select_dma_channel(5, state); }
+void sis950_lpc_device::pc_dack6_w(int state) { pc_select_dma_channel(6, state); }
+void sis950_lpc_device::pc_dack7_w(int state) { pc_select_dma_channel(7, state); }
+
+

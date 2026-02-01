@@ -25,22 +25,34 @@ TODO:
 #include "cdicdic.h"
 
 #include "cdrom.h"
-#include "romload.h"
 #include "sound/cdda.h"
 
-#define LOG_DECODES     (1 << 1)
-#define LOG_SAMPLES     (1 << 2)
-#define LOG_COMMANDS    (1 << 3)
-#define LOG_SECTORS     (1 << 4)
-#define LOG_IRQS        (1 << 5)
-#define LOG_READS       (1 << 6)
-#define LOG_WRITES      (1 << 7)
-#define LOG_UNKNOWNS    (1 << 8)
-#define LOG_RAM         (1 << 9)
+#include <algorithm>
+
+#define LOG_DECODES     (1U << 1)
+#define LOG_SAMPLES     (1U << 2)
+#define LOG_COMMANDS    (1U << 3)
+#define LOG_SECTORS     (1U << 4)
+#define LOG_IRQS        (1U << 5)
+#define LOG_READS       (1U << 6)
+#define LOG_WRITES      (1U << 7)
+#define LOG_UNKNOWNS    (1U << 8)
+#define LOG_RAM         (1U << 9)
 #define LOG_ALL         (LOG_DECODES | LOG_SAMPLES | LOG_COMMANDS | LOG_SECTORS | LOG_IRQS | LOG_READS | LOG_WRITES | LOG_UNKNOWNS | LOG_RAM)
 
 #define VERBOSE         (0)
 #include "logmacro.h"
+
+
+namespace {
+
+constexpr int16_t clip_int16(int32_t sample)
+{
+	return int16_t(std::clamp<int32_t>(sample, -32768, 32767));
+}
+
+} // anonymous namespace
+
 
 // device type definition
 DEFINE_DEVICE_TYPE(CDI_CDIC, cdicdic_device, "cdicdic", "CD-i CDIC")
@@ -257,248 +269,38 @@ const uint8_t cdicdic_device::s_sector_scramble[2448] =
 //  MEMBER FUNCTIONS
 //**************************************************************************
 
-void cdicdic_device::decode_xa_mono(int16_t *cdic_xa_last, const uint8_t *xa, int16_t *dp)
+void cdicdic_device::decode_xa_unit(const uint8_t param, int16_t sample, int16_t &sample0, int16_t &sample1, int16_t &out_buffer)
 {
-	int16_t l0 = cdic_xa_last[0];
-	int16_t l1 = cdic_xa_last[1];
+	const int16_t *const filter = s_xa_filter_coef[(param >> 4) & 3]; // High bits are reserved.
+	const uint8_t range = std::min<uint8_t>(param & 0xf, 12); // Should be at most 8. Some decoders set 13..15 to 9.
 
-	for (int32_t b = 0; b < 18; b++)
-	{
-		for (int32_t s = 0; s < 4; s++)
-		{
-			uint8_t flags = xa[4 + (s << 1)];
-			uint8_t shift = flags & 0xf;
-			uint8_t filter = (flags >> 4) & 3;
-			int16_t f0 = s_xa_filter_coef[filter][0];
-			int16_t f1 = s_xa_filter_coef[filter][1];
+	int32_t sample32 = sample; // Work in 32-bit, clamp to avoid peaking audio.
+	sample32 = (sample32 >> range) + ((int32_t(filter[0]) * sample0 + int32_t(filter[1]) * sample1 + 128) >> 8);
 
-			for (int32_t i = 0; i < 28; i++)
-			{
-				int16_t d = (xa[16 + (i << 2) + s] & 0xf) << 12;
-				d = (d >> shift) + (((l0 * f0) + (l1 * f1) + 128) >> 8);
-				*dp = d;
-				dp++;
-				l1 = l0;
-				l0 = d;
-			}
-
-			flags = xa[5 + (s << 1)];
-			shift = flags & 0xf;
-			filter = flags >> 4;
-			f0 = s_xa_filter_coef[filter][0];
-			f1 = s_xa_filter_coef[filter][1];
-
-			for (int32_t i = 0; i < 28; i++)
-			{
-				int16_t d = (xa[16 + (i << 2) + s] >> 4) << 12;
-				d = (d >> shift) + (((l0 * f0) + (l1 * f1) + 128) >> 8);
-				*dp = d;
-				dp++;
-				l1 = l0;
-				l0 = d;
-			}
-		}
-
-		xa += 128;
-	}
-
-	cdic_xa_last[0] = l0;
-	cdic_xa_last[1] = l1;
-}
-
-void cdicdic_device::decode_xa_mono8(int16_t *cdic_xa_last, const unsigned char *xa, signed short *dp)
-{
-	int16_t l0 = cdic_xa_last[0];
-	int16_t l1 = cdic_xa_last[1];
-
-	for (int32_t b = 0; b < 18; b++)
-	{
-		for (int32_t s = 0; s < 4; s++)
-		{
-			uint8_t flags = xa[4 + s];
-			uint8_t shift = flags & 0xf;
-			uint8_t filter = (flags >> 4) & 3;
-			int16_t f0 = s_xa_filter_coef[filter][0];
-			int16_t f1 = s_xa_filter_coef[filter][1];
-
-			for (int32_t i = 0; i < 28; i++)
-			{
-				int16_t d = (xa[16 + (i << 2) + s] << 8);
-				d = (d >> shift) + (((l0 * f0) + (l1 * f1) + 128) >> 8);
-				*dp = d;
-				dp++;
-				l1 = l0;
-				l0 = d;
-			}
-		}
-
-		xa += 128;
-	}
-
-	cdic_xa_last[0] = l0;
-	cdic_xa_last[1] = l1;
-}
-
-void cdicdic_device::decode_xa_stereo(int16_t *cdic_xa_last, const uint8_t *xa, int16_t *dp)
-{
-	int16_t l0 = cdic_xa_last[0];
-	int16_t l1 = cdic_xa_last[1];
-	int16_t l2 = cdic_xa_last[2];
-	int16_t l3 = cdic_xa_last[3];
-
-	for (int32_t b = 0; b < 18; b++)
-	{
-		for (int32_t s = 0; s < 4; s++)
-		{
-			uint8_t flags0 = xa[4 + (s << 1)];
-			uint8_t shift0 = flags0 & 0xf;
-			uint8_t filter0 = (flags0 >> 4) & 3;
-			uint8_t flags1 = xa[5 + (s << 1)];
-			uint8_t shift1 = flags1 & 0xf;
-			uint8_t filter1 = (flags1 >> 4) & 3;
-
-			int16_t f0 = s_xa_filter_coef[filter0][0];
-			int16_t f1 = s_xa_filter_coef[filter0][1];
-			int16_t f2 = s_xa_filter_coef[filter1][0];
-			int16_t f3 = s_xa_filter_coef[filter1][1];
-
-			for (int32_t i = 0; i < 28; i++)
-			{
-				int16_t d = xa[16 + (i << 2) + s];
-				int16_t d0 = (d & 0xf) << 12;
-				int16_t d1 = (d >> 4) << 12;
-				d0 = (d0 >> shift0) + (((l0 * f0) + (l1 * f1) + 128) >> 8);
-				*dp = d0;
-				dp++;
-				l1 = l0;
-				l0 = d0;
-
-				d1 = (d1 >> shift1) + (((l2 * f2) + (l3 * f3) + 128) >> 8);
-				*dp = d1;
-				dp++;
-				l3 = l2;
-				l2 = d1;
-			}
-		}
-
-		xa += 128;
-	}
-
-	cdic_xa_last[0] = l0;
-	cdic_xa_last[1] = l1;
-	cdic_xa_last[2] = l2;
-	cdic_xa_last[3] = l3;
-}
-
-void cdicdic_device::decode_xa_stereo8(int16_t *cdic_xa_last, const uint8_t *xa, int16_t *dp)
-{
-	int16_t l0 = cdic_xa_last[0];
-	int16_t l1 = cdic_xa_last[1];
-	int16_t l2 = cdic_xa_last[2];
-	int16_t l3 = cdic_xa_last[3];
-
-	for (int32_t b = 0; b < 18; b++)
-	{
-		for (int32_t s = 0; s < 4; s += 2)
-		{
-			uint8_t flags0 = xa[4 + s];
-			uint8_t shift0 = flags0 & 0xf;
-			uint8_t filter0 = (flags0 >> 4) & 3;
-			uint8_t flags1 = xa[5 + s];
-			uint8_t shift1 = flags1 & 0xf;
-			uint8_t filter1 = (flags1 >> 4) & 3;
-			int16_t f0 = s_xa_filter_coef[filter0][0];
-			int16_t f1 = s_xa_filter_coef[filter0][1];
-			int16_t f2 = s_xa_filter_coef[filter1][0];
-			int16_t f3 = s_xa_filter_coef[filter1][1];
-
-			for (int32_t i = 0; i < 28; i++)
-			{
-				int16_t d0 = (xa[16 + (i << 2) + s + 0] << 8);
-				int16_t d1 = (xa[16 + (i << 2) + s + 1] << 8);
-
-				d0 = (d0 >> shift0) + (((l0 * f0) + (l1 * f1) + 128) >> 8);
-				*dp = d0;
-				dp++;
-				l1 = l0;
-				l0 = d0;
-
-				d1 = (d1 >> shift1) + (((l2 * f2) + (l3 * f3) + 128) >> 8);
-				*dp = d1;
-				dp++;
-				l3 = l2;
-				l2 = d1;
-			}
-		}
-
-		xa += 128;
-	}
-
-	cdic_xa_last[0] = l0;
-	cdic_xa_last[1] = l1;
-	cdic_xa_last[2] = l2;
-	cdic_xa_last[3] = l3;
+	sample = clip_int16(sample32);
+	sample1 = std::exchange(sample0, sample);
+	out_buffer = sample;
 }
 
 void cdicdic_device::decode_8bit_xa_unit(int channel, uint8_t param, const uint8_t *data, int16_t *out_buffer)
 {
-	int gain_shift = 8 - (param & 0xf);
-
-	const int16_t *filter = s_xa_filter_coef[(param >> 4) & 3];
-	int16_t *old_samples = &m_xa_last[channel << 1];
-
+	int16_t *const old_samples = &m_xa_last[channel << 1];
 	for (int i = 0; i < 28; i++)
 	{
-		int32_t sample = *data;
-		if (sample >= 128)
-			sample -= 256;
+		int16_t sample = int16_t(uint16_t(*data) << 8);
+		decode_xa_unit(param, sample, old_samples[0], old_samples[1], out_buffer[i]);
 		data += 4;
-
-		sample <<= gain_shift;
-
-		sample += (filter[0] * old_samples[0] + filter[1] * old_samples[1] + 128) / 256;
-
-		int16_t sample16 = (int16_t)sample;
-		if (sample < -32768)
-			sample16 = -32768;
-		else if (sample > 32767)
-			sample16 = 32767;
-
-		old_samples[1] = old_samples[0];
-		old_samples[0] = sample16;
-
-		out_buffer[i] = sample16;
 	}
 }
 
 void cdicdic_device::decode_4bit_xa_unit(int channel, uint8_t param, const uint8_t *data, uint8_t shift, int16_t *out_buffer)
 {
-	int gain_shift = 12 - (param & 0xf);
-
-	const int16_t *filter = s_xa_filter_coef[(param >> 4) & 3];
-	int16_t *old_samples = &m_xa_last[channel << 1];
-
+	int16_t *const old_samples = &m_xa_last[channel << 1];
 	for (int i = 0; i < 28; i++)
 	{
-		int32_t sample = (*data >> shift) & 0xf;
-		if (BIT(sample, 3))
-			sample -= 16;
+		int16_t sample = int16_t(uint16_t((*data >> shift) & 0xf) << 12);
+		decode_xa_unit(param, sample, old_samples[0], old_samples[1], out_buffer[i]);
 		data += 4;
-
-		sample <<= gain_shift;
-
-		sample += (filter[0] * old_samples[0] + filter[1] * old_samples[1] + 128) / 256;
-
-		int16_t sample16 = (int16_t)(uint16_t)(sample & 0xffff);
-		if (sample < -32768)
-			sample16 = -32768;
-		else if (sample > 32767)
-			sample16 = 32767;
-
-		old_samples[1] = old_samples[0];
-		old_samples[0] = sample16;
-
-		out_buffer[i] = sample16;
 	}
 }
 
@@ -507,7 +309,7 @@ void cdicdic_device::play_raw_group(const uint8_t *data)
 	int16_t samples[28];
 	for (int i = 0; i < 28; i++)
 	{
-		samples[i] = (int16_t)((data[1] << 8) | data[0]);
+		samples[i] = int16_t((uint16_t(data[1]) << 8) | data[0]);
 		data += 4;
 	}
 
@@ -517,8 +319,8 @@ void cdicdic_device::play_raw_group(const uint8_t *data)
 
 void cdicdic_device::play_xa_group(const uint8_t coding, const uint8_t *data)
 {
-	static const uint16_t s_4bit_header_offsets[8] = { 0, 1, 2, 3, 8, 9, 10, 11 };
-	static const uint16_t s_8bit_header_offsets[4] = { 0, 1, 2, 3 };
+	static const uint16_t s_4bit_header_offsets[8] = { 4, 5, 6, 7, 12, 13, 14, 15 };
+	static const uint16_t s_8bit_header_offsets[4] = { 4, 5, 6, 7 };
 	static const uint16_t s_4bit_data_offsets[8] = { 16, 16, 17, 17, 18, 18, 19, 19 };
 	static const uint16_t s_8bit_data_offsets[4] = { 16, 17, 18, 19 };
 
@@ -707,7 +509,7 @@ void cdicdic_device::process_audio_map()
 	else
 	{
 		m_decode_addr = 0xffff;
-		m_audio_sector_counter = m_audio_format_sectors;
+		m_audio_sector_counter = 0;
 	}
 
 	if (was_decoding)
@@ -931,7 +733,7 @@ void cdicdic_device::process_disc_sector()
 	LOGMASKED(LOG_SECTORS, "Disc sector, current LBA: %08x, MSF: %02x %02x %02x\n", real_lba, mins_bcd, secs_bcd, frac_bcd);
 
 	uint8_t buffer[2560] = { 0 };
-	m_cd->read_data(m_curr_lba, buffer, cdrom_file::CD_TRACK_RAW_DONTCARE);
+	m_cdrom->read_data(m_curr_lba, buffer, cdrom_file::CD_TRACK_RAW_DONTCARE);
 
 	// Detect (badly) if we're dealing with a byteswapped loose-bin image
 	if (buffer[0] == 0xff && buffer[1] == 0x00)
@@ -1022,7 +824,7 @@ void cdicdic_device::process_disc_sector()
 	if (m_disc_mode == DISC_TOC)
 	{
 		uint8_t *toc_buffer = buffer;
-		const cdrom_file::toc &toc = m_cd->get_toc();
+		const cdrom_file::toc &toc = m_cdrom->get_toc();
 		uint32_t entry_count = 0;
 
 		// Determine total frame count for data, and total audio track count
@@ -1313,10 +1115,10 @@ void cdicdic_device::regs_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 			uint16_t *ram = (uint16_t *)m_ram.get();
 			LOGMASKED(LOG_WRITES, "%s: cdic_w: DMA Control Register = %04x & %04x\n", machine().describe_context(), data, mem_mask);
 			LOGMASKED(LOG_WRITES, "%s: Memory address counter: %08x\n", machine().describe_context(), m_scc->dma().channel[0].memory_address_counter);
-			LOGMASKED(LOG_WRITES, "%s: Doing copy, transferring %04x bytes %s\n", machine().describe_context(), count * 2, (m_scc->dma().channel[0].operation_control & OCR_D) ? "to main RAM" : "to device RAM");
+			LOGMASKED(LOG_WRITES, "%s: Doing copy, transferring %04x bytes %s\n", machine().describe_context(), count * 2, (m_scc->dma().channel[0].operation_control & SCC68070_OCR_D) ? "to main RAM" : "to device RAM");
 			for (uint32_t index = start / 2; index < (start / 2 + count); index++)
 			{
-				if (m_scc->dma().channel[0].operation_control & OCR_D)
+				if (m_scc->dma().channel[0].operation_control & SCC68070_OCR_D)
 				{
 					m_memory_space->write_word(index * 2, ram[device_index++]);
 				}
@@ -1473,20 +1275,9 @@ cdicdic_device::cdicdic_device(const machine_config &mconfig, const char *tag, d
 	, m_memory_space(*this, ":maincpu", AS_PROGRAM)
 	, m_dmadac(*this, ":dac%u", 1U)
 	, m_scc(*this, ":maincpu")
-	, m_cdrom_dev(*this, ":cdrom")
+	, m_cdrom(*this, ":cdrom")
 	, m_clock2(clock)
 {
-}
-
-//-------------------------------------------------
-//  device_resolve_objects - resolve objects that
-//  may be needed for other devices to set
-//  initial conditions at start time
-//-------------------------------------------------
-
-void cdicdic_device::device_resolve_objects()
-{
-	m_intreq_callback.resolve_safe();
 }
 
 //-------------------------------------------------
@@ -1563,17 +1354,6 @@ void cdicdic_device::device_reset()
 	m_audio_format_sectors = 0;
 	m_decoding_audio_map = false;
 	m_decode_addr = 0;
-
-	if (m_cdrom_dev)
-	{
-		// Console case (has CDROM device)
-		m_cd = m_cdrom_dev->get_cdrom_file();
-	}
-	else
-	{
-		// Arcade case
-		m_cd = new cdrom_file(machine().rom_load().get_disk_handle(":cdrom"));
-	}
 
 	m_audio_timer->adjust(attotime::from_hz(75), 0, attotime::from_hz(75));
 	m_sector_timer->adjust(attotime::from_hz(75), 0, attotime::from_hz(75));

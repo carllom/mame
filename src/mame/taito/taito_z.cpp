@@ -254,7 +254,7 @@ M4300099A CHASE HQ DX (sticker for DX cabinet)
 |                                          |TC0100SCN|      43256        |-|
 |             16MHz                        |         |                   |
 |                           TMM2063        |---------|      43256        |
-|          TC0050DCA                   |---------|                       |-|
+|          TC0060DCA                   |---------|                       |-|
 |            Y3016-F        TMM2063    |TAITO    | |------|              | |
 |                                      |TC0170ABT| |TAITO |              | |
 |        TL074 TL074                   |         | |TC0110|   B52-01.IC7 | |
@@ -1298,21 +1298,17 @@ void taitoz_state::cpua_ctrl_w(offs_t offset, u16 data, u16 mem_mask)
 
 	m_cpua_ctrl = data;
 	parse_cpu_control();
-}
 
-void chasehq_state::chasehq_cpua_ctrl_w(offs_t offset, u16 data, u16 mem_mask)
-{
-	cpua_ctrl_w(offset, data, mem_mask);
+	/* this is also used for misc. outputs in some games, send to genoutX where X = 0-7
 
-	m_lamps[0] = BIT(m_cpua_ctrl, 5);
-	m_lamps[1] = BIT(m_cpua_ctrl, 6);
-}
-
-void dblaxle_state::dblaxle_cpua_ctrl_w(offs_t offset, u16 data, u16 mem_mask)
-{
-	cpua_ctrl_w(offset, data, mem_mask);
-
-	m_wheel_vibration = BIT(data, 2);
+	known outputs here:
+	- bshark: 2: vibration/lamp
+	- chasehq: 5, 6: lamps
+	- dblaxle: 2: wheel vibration
+	- sci: 6: lamp, 7: vibration?
+	*/
+	for (int i = 0; i < 8; i++)
+		m_cpua_out[i] = BIT(m_cpua_ctrl, i);
 }
 
 
@@ -1347,26 +1343,6 @@ INTERRUPT_GEN_MEMBER(sci_state::sci_interrupt)
                               EEPROM
 ******************************************************************/
 
-static const u16 spacegun_default_eeprom[64]=
-{
-	0x0000,0x00ff,0x0001,0x4141,0x0000,0x00ff,0x0000,0xf0f0,
-	0x0000,0x00ff,0x0001,0x4141,0x0000,0x00ff,0x0000,0xf0f0,
-	0x0080,0x0080,0x0080,0x0080,0x0001,0x4000,0x0000,0xf000,
-	0x0001,0x4285,0x0000,0xf1e3,0x0001,0x4000,0x0000,0xf000,
-	0x0001,0x4285,0x0000,0xf1e3,0xcccb,0xffff,0xffff,0xffff,
-	0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,
-	0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,
-	0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff
-};
-
-
-#if 0
-u16 taitoz_state::eep_latch_r()
-{
-	return m_eep_latch;
-}
-#endif
-
 void spacegun_state::spacegun_eeprom_w(u8 data)
 {
 /*          0000xxxx    (unused)
@@ -1375,7 +1351,6 @@ void spacegun_state::spacegun_eeprom_w(u8 data)
             0x000000    eeprom data
             x0000000    (unused)                  */
 
-	m_eep_latch = data;
 	m_io_eepromout->write(data, 0xff);
 }
 
@@ -1384,20 +1359,20 @@ void spacegun_state::spacegun_eeprom_w(u8 data)
                        GAME INPUTS
 **********************************************************/
 
-CUSTOM_INPUT_MEMBER(taitoz_state::gas_pedal_r)
+ioport_value taitoz_state::gas_pedal_r()
 {
 	static const u8 retval[8] = { 0,1,3,2,6,7,5,4 };
 	return retval[m_gas.read_safe(0) & 7];
 }
 
-CUSTOM_INPUT_MEMBER(taitoz_state::brake_pedal_r)
+ioport_value taitoz_state::brake_pedal_r()
 {
 	static const u8 retval[8] = { 0,1,3,2,6,7,5,4 };
 	return retval[m_brake.read_safe(0) & 7];
 }
 
 // enforceja only, 3 bits applied on both pots
-template <int axis> CUSTOM_INPUT_MEMBER(taitoz_state::adstick_r)
+template <int axis> ioport_value taitoz_state::adstick_r()
 {
 	static const u8 retval[8] = { 0,1,3,2,6,7,5,4 };
 	u8 raw_value = ((axis == 0 ? m_stickx : m_sticky).read_safe(0) >> 5) & 7;
@@ -1572,7 +1547,12 @@ void nightstr_state::nightstr_motor_w(offs_t offset, u16 data)
 		m_motor_debug = data;
 		break;
 	}
+}
 
+void nightstr_state::nightstr_lamps_w(u8 data)
+{
+	for (int i = 0; i < 8; i++)
+		m_lamps[i] = BIT(data, i);
 }
 
 
@@ -1604,7 +1584,7 @@ void taitoz_z80_sound_state::sound_bankswitch_w(u8 data)
 /**** sound pan control ****/
 void taitoz_state::pancontrol_w(offs_t offset, u8 data)
 {
-	m_filter[offset & 3]->flt_volume_set_volume(data / 255.0f);
+	m_filter[offset & 3]->set_gain(data / 255.0f);
 }
 
 
@@ -1619,7 +1599,7 @@ void contcirc_state::contcirc_map(address_map &map)
 	map(0x080000, 0x083fff).ram();
 	map(0x084000, 0x087fff).ram().share("share1");
 	map(0x090001, 0x090001).w(FUNC(contcirc_state::contcirc_out_w));    /* road palette bank, sub CPU reset, 3d glasses control */
-	map(0x100000, 0x100007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_rbswap_word_w));   /* palette */
+	map(0x100000, 0x100007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));   /* palette */
 	map(0x200000, 0x20ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    /* tilemaps */
 	map(0x220000, 0x22000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
 	map(0x300000, 0x301fff).rw(m_tc0150rod, FUNC(tc0150rod_device::word_r), FUNC(tc0150rod_device::word_w));    /* "root ram" */
@@ -1646,10 +1626,10 @@ void chasehq_state::chasehq_map(address_map &map)
 	map(0x10c000, 0x10ffff).ram();
 	map(0x400001, 0x400001).r(FUNC(chasehq_state::chasehq_input_bypass_r)).w(m_tc0040ioc, FUNC(tc0040ioc_device::portreg_w)).umask16(0x00ff);
 	map(0x400003, 0x400003).rw(m_tc0040ioc, FUNC(tc0040ioc_device::watchdog_r), FUNC(tc0040ioc_device::port_w));
-	map(0x800000, 0x800001).w(FUNC(chasehq_state::chasehq_cpua_ctrl_w));
+	map(0x800000, 0x800001).w(FUNC(chasehq_state::cpua_ctrl_w));
 	map(0x820001, 0x820001).w(m_tc0140syt, FUNC(tc0140syt_device::master_port_w));
 	map(0x820003, 0x820003).rw(m_tc0140syt, FUNC(tc0140syt_device::master_comm_r), FUNC(tc0140syt_device::master_comm_w));
-	map(0xa00000, 0xa00007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_word_w));  /* palette */
+	map(0xa00000, 0xa00007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));  /* palette */
 	map(0xc00000, 0xc0ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    /* tilemaps */
 	map(0xc20000, 0xc2000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
 	map(0xd00000, 0xd007ff).ram().share("spriteram");
@@ -1673,7 +1653,7 @@ void contcirc_state::enforce_map(address_map &map)
 	map(0x200001, 0x200001).w(FUNC(contcirc_state::contcirc_out_w));
 	map(0x300000, 0x3006ff).ram().share("spriteram");
 	map(0x400000, 0x401fff).rw(m_tc0150rod, FUNC(tc0150rod_device::word_r), FUNC(tc0150rod_device::word_w));    /* "root ram" ??? */
-	map(0x500000, 0x500007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_rbswap_word_w));   /* palette */
+	map(0x500000, 0x500007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));   /* palette */
 	map(0x600000, 0x60ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    /* tilemaps */
 	map(0x620000, 0x62000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
 }
@@ -1739,7 +1719,7 @@ void sci_state::sci_map(address_map &map)
 	map(0x10c000, 0x10ffff).ram();
 	map(0x200000, 0x20000f).rw(m_tc0220ioc, FUNC(tc0220ioc_device::read), FUNC(tc0220ioc_device::write)).umask16(0x00ff);
 	map(0x200010, 0x20001f).r(FUNC(sci_state::sci_steer_input_r));
-//  map(0x400000, 0x400001).w(FUNC(sci_state::cpua_ctrl_w));  // ?? doesn't seem to fit what's written
+	map(0x400000, 0x400001).w(FUNC(sci_state::cpua_ctrl_w));
 	map(0x420001, 0x420001).w(m_tc0140syt, FUNC(tc0140syt_device::master_port_w));
 	map(0x420003, 0x420003).rw(m_tc0140syt, FUNC(tc0140syt_device::master_comm_r), FUNC(tc0140syt_device::master_comm_w));
 	map(0x800000, 0x801fff).ram().w("palette", FUNC(palette_device::write16)).share("palette");
@@ -1767,7 +1747,7 @@ void nightstr_state::nightstr_map(address_map &map)
 	map(0x800000, 0x800001).w(FUNC(nightstr_state::cpua_ctrl_w));
 	map(0x820001, 0x820001).w(m_tc0140syt, FUNC(tc0140syt_device::master_port_w));
 	map(0x820003, 0x820003).rw(m_tc0140syt, FUNC(tc0140syt_device::master_comm_r), FUNC(tc0140syt_device::master_comm_w));
-	map(0xa00000, 0xa00007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_word_w));  /* palette */
+	map(0xa00000, 0xa00007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));  /* palette */
 	map(0xc00000, 0xc0ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    /* tilemaps */
 	map(0xc20000, 0xc2000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
 	map(0xd00000, 0xd007ff).ram().share("spriteram");
@@ -1790,7 +1770,7 @@ void taitoz_z80_sound_state::aquajack_map(address_map &map)
 	map(0x100000, 0x103fff).ram();
 	map(0x104000, 0x107fff).ram().share("share1");
 	map(0x200000, 0x200001).w(FUNC(taitoz_z80_sound_state::cpua_ctrl_w));  // not needed, but it's probably like the others
-	map(0x300000, 0x300007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_word_w));  /* palette */
+	map(0x300000, 0x300007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));  /* palette */
 	map(0x800000, 0x801fff).rw(m_tc0150rod, FUNC(tc0150rod_device::word_r), FUNC(tc0150rod_device::word_w));
 	map(0xa00000, 0xa0ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    /* tilemaps */
 	map(0xa20000, 0xa2000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
@@ -1819,7 +1799,7 @@ void spacegun_state::spacegun_map(address_map &map)
 	map(0x500000, 0x5005ff).ram().share("spriteram");
 	map(0x900000, 0x90ffff).rw(m_tc0100scn, FUNC(tc0100scn_device::ram_r), FUNC(tc0100scn_device::ram_w));    /* tilemaps */
 	map(0x920000, 0x92000f).rw(m_tc0100scn, FUNC(tc0100scn_device::ctrl_r), FUNC(tc0100scn_device::ctrl_w));
-	map(0xb00000, 0xb00007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::step1_rbswap_word_w));   /* palette */
+	map(0xb00000, 0xb00007).rw(m_tc0110pcr, FUNC(tc0110pcr_device::word_r), FUNC(tc0110pcr_device::word_w));   /* palette */
 }
 
 void spacegun_state::spacegun_cpub_map(address_map &map)
@@ -1837,14 +1817,14 @@ void spacegun_state::spacegun_cpub_map(address_map &map)
 }
 
 
-void dblaxle_state::dblaxle_map(address_map &map)
+void taitoz_z80_sound_state::dblaxle_map(address_map &map)
 {
 	map(0x000000, 0x07ffff).rom();
 	map(0x200000, 0x203fff).ram();
 	map(0x210000, 0x21ffff).ram().share("share1");
 	map(0x400000, 0x40000f).rw(m_tc0510nio, FUNC(tc0510nio_device::halfword_wordswap_r), FUNC(tc0510nio_device::halfword_wordswap_w));
-	map(0x400010, 0x40001f).r(FUNC(dblaxle_state::dblaxle_steer_input_r));
-	map(0x600000, 0x600001).w(FUNC(dblaxle_state::dblaxle_cpua_ctrl_w));  /* could this be causing int6 ? */
+	map(0x400010, 0x40001f).r(FUNC(taitoz_z80_sound_state::dblaxle_steer_input_r));
+	map(0x600000, 0x600001).w(FUNC(taitoz_z80_sound_state::cpua_ctrl_w));  /* could this be causing int6 ? */
 	map(0x620001, 0x620001).w(m_tc0140syt, FUNC(tc0140syt_device::master_port_w));
 	map(0x620003, 0x620003).rw(m_tc0140syt, FUNC(tc0140syt_device::master_comm_r), FUNC(tc0140syt_device::master_comm_w));
 	map(0x800000, 0x801fff).ram().w("palette", FUNC(palette_device::write16)).share("palette");
@@ -1852,10 +1832,10 @@ void dblaxle_state::dblaxle_map(address_map &map)
 	map(0xa00000, 0xa0ffff).rw(m_tc0480scp, FUNC(tc0480scp_device::ram_r), FUNC(tc0480scp_device::ram_w));      /* tilemaps */
 	map(0xa30000, 0xa3002f).rw(m_tc0480scp, FUNC(tc0480scp_device::ctrl_r), FUNC(tc0480scp_device::ctrl_w));
 	map(0xc00000, 0xc03fff).ram().share("spriteram"); /* mostly unused ? */
-	//map(0xc08000, 0xc08001).rw(FUNC(dblaxle_state::sci_spriteframe_r), FUNC(dblaxle_state::sci_spriteframe_w)); /* set in int6, seems to stay zero */
+	//map(0xc08000, 0xc08001).rw(FUNC(taitoz_z80_sound_state::sci_spriteframe_r), FUNC(taitoz_z80_sound_state::sci_spriteframe_w)); /* set in int6, seems to stay zero */
 }
 
-void dblaxle_state::dblaxle_cpub_map(address_map &map)
+void taitoz_z80_sound_state::dblaxle_cpub_map(address_map &map)
 {
 	map(0x000000, 0x03ffff).rom();
 	map(0x100000, 0x103fff).ram();
@@ -2214,7 +2194,7 @@ static INPUT_PORTS_START( contcirc )
 	PORT_BIT( 0x04, IP_ACTIVE_HIGH, IPT_COIN2 )
 	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_COIN1 )
 	PORT_BIT( 0x10, IP_ACTIVE_LOW,  IPT_SERVICE1 )
-	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(taitoz_state, gas_pedal_r) PORT_CONDITION("DSWA", 0x01, EQUALS, 0x01)
+	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(taitoz_state::gas_pedal_r)) PORT_CONDITION("DSWA", 0x01, EQUALS, 0x01)
 	PORT_BIT( 0xe0, IP_ACTIVE_LOW,  IPT_BUTTON1 ) PORT_NAME("Gas Switch") PORT_CONDITION("DSWA", 0x01, EQUALS, 0x00)
 
 	PORT_START("IN1")
@@ -2223,7 +2203,7 @@ static INPUT_PORTS_START( contcirc )
 	PORT_BIT( 0x04, IP_ACTIVE_LOW,  IPT_TILT )
 	PORT_BIT( 0x08, IP_ACTIVE_LOW,  IPT_START1 )
 	PORT_BIT( 0x10, IP_ACTIVE_LOW,  IPT_BUTTON3 ) PORT_NAME("Shifter") PORT_TOGGLE
-	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(taitoz_state, brake_pedal_r) PORT_CONDITION("DSWA", 0x01, EQUALS, 0x01)
+	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(taitoz_state::brake_pedal_r)) PORT_CONDITION("DSWA", 0x01, EQUALS, 0x01)
 	PORT_BIT( 0xe0, IP_ACTIVE_LOW,  IPT_BUTTON2 ) PORT_NAME("Brake Switch") PORT_CONDITION("DSWA", 0x01, EQUALS, 0x00) // no function?
 
 	PORT_START("IN2")   /* unused */
@@ -2296,7 +2276,7 @@ static INPUT_PORTS_START( chasehq ) // IN3-6 perhaps used with cockpit setup? //
 	PORT_BIT( 0x04, IP_ACTIVE_HIGH, IPT_COIN1 )
 	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_COIN2 )
 	PORT_BIT( 0x10, IP_ACTIVE_LOW,  IPT_SERVICE1 )
-	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(taitoz_state, brake_pedal_r) PORT_CONDITION("DSWA", 0x02, EQUALS, 0x00)
+	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(taitoz_state::brake_pedal_r)) PORT_CONDITION("DSWA", 0x02, EQUALS, 0x00)
 	PORT_BIT( 0x20, IP_ACTIVE_LOW,  IPT_BUTTON2 ) PORT_NAME("Brake Switch") PORT_CONDITION("DSWA", 0x02, EQUALS, 0x02)
 
 	PORT_START("IN1")
@@ -2305,7 +2285,7 @@ static INPUT_PORTS_START( chasehq ) // IN3-6 perhaps used with cockpit setup? //
 	PORT_BIT( 0x04, IP_ACTIVE_LOW,  IPT_SERVICE2 ) PORT_NAME("Calibrate") // ?
 	PORT_BIT( 0x08, IP_ACTIVE_LOW,  IPT_START1 )
 	PORT_BIT( 0x10, IP_ACTIVE_LOW,  IPT_BUTTON4 ) PORT_NAME("Shifter") PORT_TOGGLE
-	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(taitoz_state, gas_pedal_r) PORT_CONDITION("DSWA", 0x02, EQUALS, 0x00)
+	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(taitoz_state::gas_pedal_r)) PORT_CONDITION("DSWA", 0x02, EQUALS, 0x00)
 	PORT_BIT( 0x20, IP_ACTIVE_LOW,  IPT_BUTTON1 ) PORT_NAME("Gas Switch") PORT_CONDITION("DSWA", 0x02, EQUALS, 0x02)
 
 	PORT_START("IN2")   /* unused */
@@ -2428,10 +2408,10 @@ static INPUT_PORTS_START( enforceja )
 	PORT_BIT( 0x04, IP_ACTIVE_HIGH, IPT_COIN2 )
 	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_COIN1 )
 	PORT_BIT( 0x10, IP_ACTIVE_LOW,  IPT_SERVICE1 )
-	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(taitoz_state, adstick_r<0>);
+	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(taitoz_state::adstick_r<0>));
 
 	PORT_MODIFY("IN1")
-	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(taitoz_state, adstick_r<1>);
+	PORT_BIT( 0xe0, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(taitoz_state::adstick_r<1>));
 
 	PORT_MODIFY("IN2")
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_BUTTON3 ) PORT_NAME("P1 Shifter") PORT_TOGGLE PORT_PLAYER(1)
@@ -2570,8 +2550,8 @@ static INPUT_PORTS_START( bsharkjjs )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_START2 )
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_UP ) PORT_8WAY PORT_PLAYER(1)
 	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN ) PORT_8WAY PORT_PLAYER(1)
-	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_8WAY PORT_PLAYER(1)
-	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT ) PORT_8WAY PORT_PLAYER(1)
+	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT ) PORT_8WAY PORT_PLAYER(1)
+	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_8WAY PORT_PLAYER(1)
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_BUTTON1 ) PORT_NAME("Fire") PORT_PLAYER(1)   /* "Fire" */
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_BUTTON2 ) PORT_NAME("Warp") PORT_PLAYER(1)   /* Same as Fire, but called "Warp" in Service Mode */
 INPUT_PORTS_END
@@ -2730,6 +2710,10 @@ static INPUT_PORTS_START( nghtstru )
 	TAITO_COINAGE_US_LOC(SW A)
 INPUT_PORTS_END
 
+// default all off but Cabinet: Upright according to Jp manual.
+// jp manual also shows a Yoke-like analog test mode, and demo sounds with reversed meaning,
+// (off position -> with sounds), undumped revision?
+// NOTE: setting to Cockpit dip doesn't seem to do anything compared to Upright.
 static INPUT_PORTS_START( aquajack )
 	PORT_START("DSWA")
 	PORT_DIPNAME( 0x80, 0x00, DEF_STR( Cabinet ) ) PORT_DIPLOCATION("SW A:1")
@@ -2797,8 +2781,8 @@ static INPUT_PORTS_START( aquajack )
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_BUTTON1 ) PORT_PLAYER(1)
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_UNKNOWN )
 
-	PORT_START("IN2")   /* what is it ??? */
-	PORT_BIT( 0xff, 0x00, IPT_DIAL ) PORT_SENSITIVITY(50) PORT_KEYDELTA(10) PORT_PLAYER(1)
+	PORT_START("IN2")
+	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_UNKNOWN )
 INPUT_PORTS_END
 
 static INPUT_PORTS_START( aquajckj )
@@ -2866,9 +2850,9 @@ static INPUT_PORTS_START( spacegun )
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_UNKNOWN )
 
 	PORT_START( "EEPROMOUT" )
-	PORT_BIT( 0x10, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_93cxx_device, cs_write)
-	PORT_BIT( 0x20, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_93cxx_device, clk_write)
-	PORT_BIT( 0x40, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_93cxx_device, di_write)
+	PORT_BIT( 0x10, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_93cxx_device::cs_write))
+	PORT_BIT( 0x20, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_93cxx_device::clk_write))
+	PORT_BIT( 0x40, IP_ACTIVE_HIGH, IPT_OUTPUT ) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_93cxx_device::di_write))
 
 	PORT_START("STICKX1")
 	PORT_BIT( 0xff, 0x80, IPT_AD_STICK_X ) PORT_CROSSHAIR(X, 1.0, 0.0, 0) PORT_SENSITIVITY(25) PORT_KEYDELTA(13) PORT_CENTERDELTA(0) PORT_REVERSE PORT_PLAYER(1)
@@ -3127,6 +3111,7 @@ void taitoz_state::device_post_load()
 void taitoz_state::machine_start()
 {
 	save_item(NAME(m_cpua_ctrl));
+	m_cpua_out.resolve();
 }
 
 void taitoz_z80_sound_state::machine_start()
@@ -3150,13 +3135,6 @@ void contcirc_state::machine_start()
 	save_item(NAME(m_shutter_control));
 }
 
-void chasehq_state::machine_start()
-{
-	taitoz_z80_sound_state::machine_start();
-
-	m_lamps.resolve();
-}
-
 void sci_state::machine_start()
 {
 	taitoz_z80_sound_state::machine_start();
@@ -3173,6 +3151,7 @@ void nightstr_state::machine_start()
 	m_motor_dir.resolve();
 	m_motor_speed.resolve();
 	m_motor_debug.resolve();
+	m_lamps.resolve();
 }
 
 void spacegun_state::machine_start()
@@ -3180,17 +3159,6 @@ void spacegun_state::machine_start()
 	taitoz_state::machine_start();
 
 	m_recoil.resolve();
-
-	m_eep_latch = 0;
-
-	save_item(NAME(m_eep_latch));
-}
-
-void dblaxle_state::machine_start()
-{
-	taitoz_z80_sound_state::machine_start();
-
-	m_wheel_vibration.resolve();
 }
 
 void taitoz_state::machine_reset()
@@ -3249,15 +3217,17 @@ void contcirc_state::contcirc(machine_config &config) //OSC: 26.686, 24.000, 16.
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	TC0110PCR(config, m_tc0110pcr, 0);
+	m_tc0110pcr->set_shift(0);
+	m_tc0110pcr->set_color_callback(FUNC(contcirc_state::color_xrgb555));
 
 	/* sound hardware */
 	SPEAKER(config, "front").front_center();
 	SPEAKER(config, "rear").rear_center();
-	SPEAKER(config, "subwoofer").set_position(0.0, 0.0, 0.0); // FIXME: where is this speaker located?
+	SPEAKER(config, "subwoofer").lfe();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(16'000'000)/2));    // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "subwoofer", 0.20);
+	ymsnd.add_route(0, "subwoofer", 0.60);
 	ymsnd.add_route(1, "2610.1.l", 2.0);
 	ymsnd.add_route(1, "2610.1.r", 2.0);
 	ymsnd.add_route(2, "2610.2.l", 2.0);
@@ -3269,8 +3239,8 @@ void contcirc_state::contcirc(machine_config &config) //OSC: 26.686, 24.000, 16.
 	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "front", 1.0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void chasehq_state::chasehq(machine_config &config) //OSC: 26.686, 24.000, 16.000
@@ -3308,15 +3278,17 @@ void chasehq_state::chasehq(machine_config &config) //OSC: 26.686, 24.000, 16.00
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	TC0110PCR(config, m_tc0110pcr, 0);
+	m_tc0110pcr->set_shift(0);
+	m_tc0110pcr->set_color_callback(FUNC(chasehq_state::color_xbgr555));
 
 	/* sound hardware */
 	SPEAKER(config, "front").front_center();
 	SPEAKER(config, "rear").rear_center();
-	SPEAKER(config, "subwoofer").set_position(0.0, 0.0, 0.0); // FIXME: where is this speaker located?
+	SPEAKER(config, "subwoofer").lfe();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(16'000'000)/2));    // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "subwoofer", 0.20);
+	ymsnd.add_route(0, "subwoofer", 0.60);
 	ymsnd.add_route(1, "2610.1.l", 1.0);
 	ymsnd.add_route(1, "2610.1.r", 1.0);
 	ymsnd.add_route(2, "2610.2.l", 1.0);
@@ -3328,8 +3300,8 @@ void chasehq_state::chasehq(machine_config &config) //OSC: 26.686, 24.000, 16.00
 	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "front", 1.0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void contcirc_state::enforce(machine_config &config)
@@ -3370,28 +3342,29 @@ void contcirc_state::enforce(machine_config &config)
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	TC0110PCR(config, m_tc0110pcr, 0);
+	m_tc0110pcr->set_shift(0);
+	m_tc0110pcr->set_color_callback(FUNC(contcirc_state::color_xrgb555));
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(16'000'000)/2));    // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
 	ymsnd.add_route(1, "2610.1.l", 20.0);
 	ymsnd.add_route(1, "2610.1.r", 20.0);
 	ymsnd.add_route(2, "2610.2.l", 20.0);
 	ymsnd.add_route(2, "2610.2.r", 20.0);
 
-	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void taitoz_state::bshark_base(machine_config &config)
@@ -3428,22 +3401,21 @@ void taitoz_state::bshark_base(machine_config &config)
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", 16000000/2));
 	//ymsnd.irq_handler().set_inputline(m_audiocpu, 0); // DG: this is probably specific to Z80 and wrong?
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
 	ymsnd.add_route(1, "2610.1.l", 28.0);
 	ymsnd.add_route(1, "2610.1.r", 28.0);
 	ymsnd.add_route(2, "2610.2.l", 28.0);
 	ymsnd.add_route(2, "2610.2.r", 28.0);
 
-	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
 }
 
 void taitoz_state::bshark(machine_config &config)
@@ -3503,26 +3475,25 @@ void sci_state::sci(machine_config &config)
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(32'000'000)/4));    // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
 	ymsnd.add_route(1, "2610.1.l", 2.0);
 	ymsnd.add_route(1, "2610.1.r", 2.0);
 	ymsnd.add_route(2, "2610.2.l", 2.0);
 	ymsnd.add_route(2, "2610.2.r", 2.0);
 
-	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void nightstr_state::nightstr(machine_config &config) //OSC: 26.686, 24.000, 16.000
@@ -3553,6 +3524,7 @@ void nightstr_state::nightstr(machine_config &config) //OSC: 26.686, 24.000, 16.
 	m_tc0220ioc->read_1_callback().set_ioport("DSWB");
 	m_tc0220ioc->read_2_callback().set_ioport("IN0");
 	m_tc0220ioc->read_3_callback().set_ioport("IN1");
+	m_tc0220ioc->write_3_callback().set(FUNC(nightstr_state::nightstr_lamps_w));
 	m_tc0220ioc->write_4_callback().set(FUNC(nightstr_state::coin_control_w));
 	m_tc0220ioc->read_7_callback().set_ioport("IN2");
 
@@ -3569,15 +3541,17 @@ void nightstr_state::nightstr(machine_config &config) //OSC: 26.686, 24.000, 16.
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	TC0110PCR(config, m_tc0110pcr, 0);
+	m_tc0110pcr->set_shift(0);
+	m_tc0110pcr->set_color_callback(FUNC(nightstr_state::color_xbgr555));
 
 	/* sound hardware */
 	SPEAKER(config, "front").front_center();
 	SPEAKER(config, "rear").rear_center();
-	SPEAKER(config, "subwoofer").set_position(0.0, 0.0, 0.0); // FIXME: where is this located in the cabinet?
+	SPEAKER(config, "subwoofer").lfe();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(16'000'000)/2));    // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "subwoofer", 0.20);
+	ymsnd.add_route(0, "subwoofer", 0.60);
 	ymsnd.add_route(1, "2610.1.l", 2.0);
 	ymsnd.add_route(1, "2610.1.r", 2.0);
 	ymsnd.add_route(2, "2610.2.l", 2.0);
@@ -3589,8 +3563,8 @@ void nightstr_state::nightstr(machine_config &config) //OSC: 26.686, 24.000, 16.
 	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "front", 1.0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void taitoz_z80_sound_state::aquajack(machine_config &config) //OSC: 26.686, 24.000, 16.000
@@ -3630,28 +3604,29 @@ void taitoz_z80_sound_state::aquajack(machine_config &config) //OSC: 26.686, 24.
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	TC0110PCR(config, m_tc0110pcr, 0);
+	m_tc0110pcr->set_shift(0);
+	m_tc0110pcr->set_color_callback(FUNC(taitoz_z80_sound_state::color_xbgr555));
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(16'000'000)/2));    // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
 	ymsnd.add_route(1, "2610.1.l", 2.0);
 	ymsnd.add_route(1, "2610.1.r", 2.0);
 	ymsnd.add_route(2, "2610.2.l", 2.0);
 	ymsnd.add_route(2, "2610.2.r", 2.0);
 
-	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void spacegun_state::spacegun(machine_config &config) //OSC: 26.686, 24.000, 16.000
@@ -3665,7 +3640,9 @@ void spacegun_state::spacegun(machine_config &config) //OSC: 26.686, 24.000, 16.
 	m_subcpu->set_addrmap(AS_PROGRAM, &spacegun_state::spacegun_cpub_map);
 	m_subcpu->set_vblank_int("screen", FUNC(spacegun_state::irq4_line_hold));
 
-	EEPROM_93C46_16BIT(config, m_eeprom).default_data(spacegun_default_eeprom, 128);
+	config.set_maximum_quantum(attotime::from_hz(6000));
+
+	EEPROM_93C46_16BIT(config, m_eeprom);
 
 	adc0809_device &adc(ADC0809(config, "adc", 500000)); // clock unknown
 	adc.eoc_ff_callback().set_inputline("sub", 5);
@@ -3695,39 +3672,40 @@ void spacegun_state::spacegun(machine_config &config) //OSC: 26.686, 24.000, 16.
 	m_tc0100scn->set_palette(m_tc0110pcr);
 
 	TC0110PCR(config, m_tc0110pcr, 0);
+	m_tc0110pcr->set_shift(0);
+	m_tc0110pcr->set_color_callback(FUNC(spacegun_state::color_xrgb555));
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(16'000'000)/2));    // 8 MHz
 	//ymsnd.irq_handler().set_inputline(m_audiocpu, 0); // DG: this is probably specific to Z80 and wrong?
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
 	ymsnd.add_route(1, "2610.1.l", 8.0);
 	ymsnd.add_route(1, "2610.1.r", 8.0);
 	ymsnd.add_route(2, "2610.2.l", 8.0);
 	ymsnd.add_route(2, "2610.2.r", 8.0);
 
-	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
 }
 
-void dblaxle_state::dblaxle(machine_config &config)
+void taitoz_z80_sound_state::dblaxle(machine_config &config)
 {
 	/* basic machine hardware */
 	M68000(config, m_maincpu, XTAL(32'000'000)/2);   // 16 MHz
-	m_maincpu->set_addrmap(AS_PROGRAM, &dblaxle_state::dblaxle_map);
-	m_maincpu->set_vblank_int("screen", FUNC(dblaxle_state::irq4_line_hold));
+	m_maincpu->set_addrmap(AS_PROGRAM, &taitoz_z80_sound_state::dblaxle_map);
+	m_maincpu->set_vblank_int("screen", FUNC(taitoz_z80_sound_state::irq4_line_hold));
 
 	Z80(config, m_audiocpu, XTAL(32'000'000)/8);   // 4 MHz
-	m_audiocpu->set_addrmap(AS_PROGRAM, &dblaxle_state::z80_sound_map);
+	m_audiocpu->set_addrmap(AS_PROGRAM, &taitoz_z80_sound_state::z80_sound_map);
 
 	M68000(config, m_subcpu, XTAL(32'000'000)/2);   // 16 MHz
-	m_subcpu->set_addrmap(AS_PROGRAM, &dblaxle_state::dblaxle_cpub_map);
-	m_subcpu->set_vblank_int("screen", FUNC(dblaxle_state::irq4_line_hold));
+	m_subcpu->set_addrmap(AS_PROGRAM, &taitoz_z80_sound_state::dblaxle_cpub_map);
+	m_subcpu->set_vblank_int("screen", FUNC(taitoz_z80_sound_state::irq4_line_hold));
 
 	// make quantum time to be a multiple of the xtal (fixes road layer stuck on continue)
 	config.set_maximum_quantum(attotime::from_hz(XTAL(32'000'000)/1024));
@@ -3737,12 +3715,12 @@ void dblaxle_state::dblaxle(machine_config &config)
 	m_tc0510nio->read_1_callback().set_ioport("DSWB");
 	m_tc0510nio->read_2_callback().set_ioport("IN0");
 	m_tc0510nio->read_3_callback().set_ioport("IN1");
-	m_tc0510nio->write_4_callback().set(FUNC(dblaxle_state::coin_control_w));
+	m_tc0510nio->write_4_callback().set(FUNC(taitoz_z80_sound_state::coin_control_w));
 	m_tc0510nio->read_7_callback().set_ioport("IN2");
 
 	/* video hardware */
 	screen_config(config, 16, 256);
-	m_screen->set_screen_update(FUNC(dblaxle_state::screen_update_dblaxle));
+	m_screen->set_screen_update(FUNC(taitoz_z80_sound_state::screen_update_dblaxle));
 	m_screen->set_palette("palette");
 
 	GFXDECODE(config, m_gfxdecode, "palette", gfx_taitoz);
@@ -3755,26 +3733,25 @@ void dblaxle_state::dblaxle(machine_config &config)
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(32'000'000)/4));   // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
 	ymsnd.add_route(1, "2610.1.l", 8.0);
 	ymsnd.add_route(1, "2610.1.r", 8.0);
 	ymsnd.add_route(2, "2610.2.l", 8.0);
 	ymsnd.add_route(2, "2610.2.r", 8.0);
 
-	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 void sci_state::racingb(machine_config &config)
@@ -3816,26 +3793,25 @@ void sci_state::racingb(machine_config &config)
 	TC0150ROD(config, m_tc0150rod, 0);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ym2610_device &ymsnd(YM2610(config, "ymsnd", XTAL(32'000'000)/4));   // 8 MHz
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.25);
-	ymsnd.add_route(0, "rspeaker", 0.25);
+	ymsnd.add_route(0, "speaker", 0.75, 0);
+	ymsnd.add_route(0, "speaker", 0.75, 1);
 	ymsnd.add_route(1, "2610.1.l", 8.0);
 	ymsnd.add_route(1, "2610.1.r", 8.0);
 	ymsnd.add_route(2, "2610.2.l", 8.0);
 	ymsnd.add_route(2, "2610.2.r", 8.0);
 
-	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "rspeaker", 1.0);
-	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "lspeaker", 1.0);
+	FILTER_VOLUME(config, "2610.1.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.1.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	FILTER_VOLUME(config, "2610.2.r").add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
+	FILTER_VOLUME(config, "2610.2.l").add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
 
 	TC0140SYT(config, m_tc0140syt, 0);
-	m_tc0140syt->set_master_tag(m_subcpu);
-	m_tc0140syt->set_slave_tag(m_audiocpu);
+	m_tc0140syt->nmi_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
+	m_tc0140syt->reset_callback().set_inputline(m_audiocpu, INPUT_LINE_RESET);
 }
 
 
@@ -4503,8 +4479,19 @@ ROM_START( bshark )
 	ROM_LOAD( "c34_20.89", 0x00000, 0x00100, CRC(fbf81f30) SHA1(c868452c334792345dcced075f6df69cff9e31ca) ) // road A/B internal priority
 	ROM_LOAD( "c34_21.7",  0x00000, 0x00400, CRC(10728853) SHA1(45d7cc8e06fbe01295cc2194bca9586f0ef8b12b) )
 	ROM_LOAD( "c34_22.8",  0x00000, 0x00400, CRC(643e8bfc) SHA1(a6e6086fb8fbd102e01ec72fe60a4232f5909565) )
+
+	ROM_REGION( 0xc00, "pld", ROMREGION_ERASE00 )
+	ROM_LOAD( "c34-23.ic27", 0x000, 0x104, CRC(82942887) SHA1(6405a43f459c8fbdc3aec0d91ecf8eb2652f597d) ) // PAL16L8
+	ROM_LOAD( "c34-24.ic65", 0x200, 0x104, CRC(be080005) SHA1(1a721b300b0d4cb12b55429849154143aec4fa3a) ) // PAL16L8
+	ROM_LOAD( "c34-25.ic66", 0x400, 0x144, CRC(d0ee97ee) SHA1(3d88e44d9bb5824a9a513c020b254a0ff82cf871) ) // PAL20L8
+	ROM_LOAD( "c34-26.ic67", 0x600, 0x144, CRC(022ee90f) SHA1(a9f7d25a8fd74ae2305bf2286f8807fa4c51d018) ) // PAL20L8
+	ROM_LOAD( "c34-27.ic94", 0x800, 0x144, CRC(a503352a) SHA1(5cc92eab18685dadf912d0f52457bc091b6446cd) ) // PAL20L8
+	ROM_LOAD( "c34-28.ic95", 0xa00, 0x144, CRC(bf7c2a41) SHA1(59fe561e9ff509c72e8ae8f22a75b6911d150de0) ) // PAL20L8
 ROM_END
 
+
+// Battle Shark PCB# - Z SYSTEM K1100540A J1100223A
+// Sticker - K1100541A
 ROM_START( bsharku )
 	ROM_REGION( 0x80000, "maincpu", 0 ) /* 512K for 68000 code (CPU A) */
 	ROM_LOAD16_BYTE( "c34_71.98", 0x00000, 0x20000, CRC(df1fa629) SHA1(6cb207e577fac85da654f3dc56e2f9f25c38a76d) )
@@ -4545,6 +4532,64 @@ ROM_START( bsharku )
 	ROM_LOAD( "c34_20.89", 0x00000, 0x00100, CRC(fbf81f30) SHA1(c868452c334792345dcced075f6df69cff9e31ca) ) // road A/B internal priority
 	ROM_LOAD( "c34_21.7",  0x00000, 0x00400, CRC(10728853) SHA1(45d7cc8e06fbe01295cc2194bca9586f0ef8b12b) )
 	ROM_LOAD( "c34_22.8",  0x00000, 0x00400, CRC(643e8bfc) SHA1(a6e6086fb8fbd102e01ec72fe60a4232f5909565) )
+
+	ROM_REGION( 0xc00, "pld", ROMREGION_ERASE00 )
+	ROM_LOAD( "c34-23.ic27", 0x000, 0x104, CRC(82942887) SHA1(6405a43f459c8fbdc3aec0d91ecf8eb2652f597d) ) // PAL16L8
+	ROM_LOAD( "c34-24.ic65", 0x200, 0x104, CRC(be080005) SHA1(1a721b300b0d4cb12b55429849154143aec4fa3a) ) // PAL16L8
+	ROM_LOAD( "c34-25.ic66", 0x400, 0x144, CRC(d0ee97ee) SHA1(3d88e44d9bb5824a9a513c020b254a0ff82cf871) ) // PAL20L8
+	ROM_LOAD( "c34-26.ic67", 0x600, 0x144, CRC(022ee90f) SHA1(a9f7d25a8fd74ae2305bf2286f8807fa4c51d018) ) // PAL20L8
+	ROM_LOAD( "c34-27.ic94", 0x800, 0x144, CRC(a503352a) SHA1(5cc92eab18685dadf912d0f52457bc091b6446cd) ) // PAL20L8
+	ROM_LOAD( "c34-28.ic95", 0xa00, 0x144, CRC(bf7c2a41) SHA1(59fe561e9ff509c72e8ae8f22a75b6911d150de0) ) // PAL20L8
+ROM_END
+
+ROM_START( bsharkuo )
+	ROM_REGION( 0x80000, "maincpu", 0 ) /* 512K for 68000 code (CPU A) */
+	ROM_LOAD16_BYTE( "c34_13.98", 0x00000, 0x20000, CRC(bc55fc14) SHA1(e598023482c2df856a98ca05d9680917e62e7f3f) )
+	ROM_LOAD16_BYTE( "c34_11.75", 0x00001, 0x20000, CRC(decb522c) SHA1(e9fff03fac2d093821e88cf12ee558375b33b046) )
+	ROM_LOAD16_BYTE( "c34_12.97", 0x40000, 0x20000, CRC(30394013) SHA1(bd028eaecc93a7181f57d05824b50847ad733afd) )
+	ROM_LOAD16_BYTE( "c34_10.74", 0x40001, 0x20000, CRC(3a852420) SHA1(e905d97348e774284c4cec269f40a2ad1061c74e) )
+
+	ROM_REGION( 0x80000, "sub", 0 ) /* 512K for 68000 code (CPU B) */
+	ROM_LOAD16_BYTE( "c34_16.128", 0x00000, 0x20000, CRC(6869fa99) SHA1(16221f25c865a81ca4f6a987b6de02a3ccf3208c) )
+	ROM_LOAD16_BYTE( "c34_14.112", 0x00001, 0x20000, CRC(c09c0f91) SHA1(32c78924617328abb11c094f89a90a92e72ed5e6) )
+	ROM_LOAD16_BYTE( "c34_17.129", 0x40000, 0x20000, CRC(4798358f) SHA1(de943d7ac1db1de5696845496d00654840233502) )
+	ROM_LOAD16_BYTE( "c34_15.113", 0x40001, 0x20000, CRC(451d9053) SHA1(9af1942516591297ba184fa6f9edc02a6c8a7030) )
+
+	ROM_REGION( 0x80000, "tc0100scn", 0 )
+	ROM_LOAD16_WORD_SWAP( "c34_05.3", 0x00000, 0x80000, CRC(596b83da) SHA1(826cf1e48a017a0cbfcc4a4f507dfb285594178b) )  /* SCR 8x8 */
+
+	ROM_REGION( 0x200000, "sprites", 0 )
+	ROM_LOAD64_WORD_SWAP( "c34_04.17", 0x000000, 0x080000, CRC(2446b0da) SHA1(bce5c73533e2bb7dfa7f18fad510f818cf1a542a) )    /* OBJ 16x8 */
+	ROM_LOAD64_WORD_SWAP( "c34_03.16", 0x000002, 0x080000, CRC(a18eab78) SHA1(155f0efbfe73e18355804477d4b8954bb47bf1ef) )
+	ROM_LOAD64_WORD_SWAP( "c34_02.15", 0x000004, 0x080000, CRC(8488ba10) SHA1(60f8f0dc9d4bc6bc452527250221c9915e9dfe6e) )
+	ROM_LOAD64_WORD_SWAP( "c34_01.14", 0x000006, 0x080000, CRC(3ebe8c63) SHA1(fa7403bf895c041cb64234209c944683ae372e57) )
+
+	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
+	ROM_LOAD16_WORD( "c34_07.42", 0x00000, 0x80000, CRC(edb07808) SHA1(f32b4b93e9125536376d96fbca76c2b2f5f78656) ) /* ROD, road lines */
+
+	ROM_REGION16_LE( 0x80000, "spritemap", 0 )
+	ROM_LOAD16_WORD( "c34_06.12", 0x00000, 0x80000, CRC(d200b6eb) SHA1(6bfe3a7dde8d4e983521877d2bb176f5d126b763) )  /* STY spritemap */
+
+	ROM_REGION( 0x80000, "ymsnd:adpcma", 0 )   /* ADPCM samples */
+	ROM_LOAD( "c34_08.127", 0x00000, 0x80000, CRC(89a30450) SHA1(96b96ca5a3e20cdceb9ac5ddf377fb21a9a529fb) )
+
+	ROM_REGION( 0x80000, "ymsnd:adpcmb", 0 )    /* Delta-T samples */
+	ROM_LOAD( "c34_09.126", 0x00000, 0x80000, CRC(39d12b50) SHA1(5c5d1369597604376943e4825f6c09cc28d66047) )
+
+	ROM_REGION( 0x10000, "user2", 0 )   /* unused ROMs */
+	ROM_LOAD( "c34_18.22", 0x00000, 0x10000, CRC(7245a6f6) SHA1(5bdde4e3bcde8c59dc84478c3cc079d7ef8ee9c5) )
+	ROM_LOAD( "c34_19.72", 0x00000, 0x00100, CRC(2ee9c404) SHA1(3a2ddaaaf7abe9f47f7e062b002fd3a61c80f60b) ) // road/sprite priority and palette select
+	ROM_LOAD( "c34_20.89", 0x00000, 0x00100, CRC(fbf81f30) SHA1(c868452c334792345dcced075f6df69cff9e31ca) ) // road A/B internal priority
+	ROM_LOAD( "c34_21.7",  0x00000, 0x00400, CRC(10728853) SHA1(45d7cc8e06fbe01295cc2194bca9586f0ef8b12b) )
+	ROM_LOAD( "c34_22.8",  0x00000, 0x00400, CRC(643e8bfc) SHA1(a6e6086fb8fbd102e01ec72fe60a4232f5909565) )
+
+	ROM_REGION( 0xc00, "pld", ROMREGION_ERASE00 )
+	ROM_LOAD( "c34-23.ic27", 0x000, 0x104, CRC(82942887) SHA1(6405a43f459c8fbdc3aec0d91ecf8eb2652f597d) ) // PAL16L8
+	ROM_LOAD( "c34-24.ic65", 0x200, 0x104, CRC(be080005) SHA1(1a721b300b0d4cb12b55429849154143aec4fa3a) ) // PAL16L8
+	ROM_LOAD( "c34-25.ic66", 0x400, 0x144, CRC(d0ee97ee) SHA1(3d88e44d9bb5824a9a513c020b254a0ff82cf871) ) // PAL20L8
+	ROM_LOAD( "c34-26.ic67", 0x600, 0x144, CRC(022ee90f) SHA1(a9f7d25a8fd74ae2305bf2286f8807fa4c51d018) ) // PAL20L8
+	ROM_LOAD( "c34-27.ic94", 0x800, 0x144, CRC(a503352a) SHA1(5cc92eab18685dadf912d0f52457bc091b6446cd) ) // PAL20L8
+	ROM_LOAD( "c34-28.ic95", 0xa00, 0x144, CRC(bf7c2a41) SHA1(59fe561e9ff509c72e8ae8f22a75b6911d150de0) ) // PAL20L8
 ROM_END
 
 ROM_START( bsharkj )
@@ -4587,6 +4632,14 @@ ROM_START( bsharkj )
 	ROM_LOAD( "c34_20.89", 0x00000, 0x00100, CRC(fbf81f30) SHA1(c868452c334792345dcced075f6df69cff9e31ca) ) // road A/B internal priority
 	ROM_LOAD( "c34_21.7",  0x00000, 0x00400, CRC(10728853) SHA1(45d7cc8e06fbe01295cc2194bca9586f0ef8b12b) )
 	ROM_LOAD( "c34_22.8",  0x00000, 0x00400, CRC(643e8bfc) SHA1(a6e6086fb8fbd102e01ec72fe60a4232f5909565) )
+
+	ROM_REGION( 0xc00, "pld", ROMREGION_ERASE00 )
+	ROM_LOAD( "c34-23.ic27", 0x000, 0x104, CRC(82942887) SHA1(6405a43f459c8fbdc3aec0d91ecf8eb2652f597d) ) // PAL16L8
+	ROM_LOAD( "c34-24.ic65", 0x200, 0x104, CRC(be080005) SHA1(1a721b300b0d4cb12b55429849154143aec4fa3a) ) // PAL16L8
+	ROM_LOAD( "c34-25.ic66", 0x400, 0x144, CRC(d0ee97ee) SHA1(3d88e44d9bb5824a9a513c020b254a0ff82cf871) ) // PAL20L8
+	ROM_LOAD( "c34-26.ic67", 0x600, 0x144, CRC(022ee90f) SHA1(a9f7d25a8fd74ae2305bf2286f8807fa4c51d018) ) // PAL20L8
+	ROM_LOAD( "c34-27.ic94", 0x800, 0x144, CRC(a503352a) SHA1(5cc92eab18685dadf912d0f52457bc091b6446cd) ) // PAL20L8
+	ROM_LOAD( "c34-28.ic95", 0xa00, 0x144, CRC(bf7c2a41) SHA1(59fe561e9ff509c72e8ae8f22a75b6911d150de0) ) // PAL20L8
 ROM_END
 
 ROM_START( bsharkjjs )
@@ -4629,6 +4682,14 @@ ROM_START( bsharkjjs )
 	ROM_LOAD( "c34_20.89", 0x00000, 0x00100, CRC(fbf81f30) SHA1(c868452c334792345dcced075f6df69cff9e31ca) ) // road A/B internal priority
 	ROM_LOAD( "c34_21.7",  0x00000, 0x00400, CRC(10728853) SHA1(45d7cc8e06fbe01295cc2194bca9586f0ef8b12b) )
 	ROM_LOAD( "c34_22.8",  0x00000, 0x00400, CRC(643e8bfc) SHA1(a6e6086fb8fbd102e01ec72fe60a4232f5909565) )
+
+	ROM_REGION( 0xc00, "pld", ROMREGION_ERASE00 )
+	ROM_LOAD( "c34-23.ic27", 0x000, 0x104, CRC(82942887) SHA1(6405a43f459c8fbdc3aec0d91ecf8eb2652f597d) ) // PAL16L8
+	ROM_LOAD( "c34-24.ic65", 0x200, 0x104, CRC(be080005) SHA1(1a721b300b0d4cb12b55429849154143aec4fa3a) ) // PAL16L8
+	ROM_LOAD( "c34-25.ic66", 0x400, 0x144, CRC(d0ee97ee) SHA1(3d88e44d9bb5824a9a513c020b254a0ff82cf871) ) // PAL20L8
+	ROM_LOAD( "c34-26.ic67", 0x600, 0x144, CRC(022ee90f) SHA1(a9f7d25a8fd74ae2305bf2286f8807fa4c51d018) ) // PAL20L8
+	ROM_LOAD( "c34-27.ic94", 0x800, 0x144, CRC(a503352a) SHA1(5cc92eab18685dadf912d0f52457bc091b6446cd) ) // PAL20L8
+	ROM_LOAD( "c34-28.ic95", 0xa00, 0x144, CRC(bf7c2a41) SHA1(59fe561e9ff509c72e8ae8f22a75b6911d150de0) ) // PAL20L8
 ROM_END
 
 ROM_START( sci )
@@ -4650,8 +4711,8 @@ ROM_START( sci )
 
 	ROM_REGION( 0x200000, "sprites", 0 )
 	ROM_LOAD64_WORD_SWAP( "c09-04.52", 0x000000, 0x080000, CRC(2cbb3c9b) SHA1(9e3d95f76f5f5d385b6a9516af781aefef1eb0ca) )    /* OBJ 16x8 */
-	ROM_LOAD64_WORD_SWAP( "c09-02.53", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
-	ROM_LOAD64_WORD_SWAP( "c09-03.54", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
+	ROM_LOAD64_WORD_SWAP( "c09-02.54", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
+	ROM_LOAD64_WORD_SWAP( "c09-03.53", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
 	ROM_LOAD64_WORD_SWAP( "c09-01.55", 0x000006, 0x080000, CRC(64bfea10) SHA1(15ea43092027b1717d0f24fbe6ac2cdf11a7ddc6) )
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
@@ -4701,8 +4762,8 @@ ROM_START( scia )
 
 	ROM_REGION( 0x200000, "sprites", 0 )
 	ROM_LOAD64_WORD_SWAP( "c09-04.52", 0x000000, 0x080000, CRC(2cbb3c9b) SHA1(9e3d95f76f5f5d385b6a9516af781aefef1eb0ca) )    /* OBJ 16x8 */
-	ROM_LOAD64_WORD_SWAP( "c09-02.53", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
-	ROM_LOAD64_WORD_SWAP( "c09-03.54", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
+	ROM_LOAD64_WORD_SWAP( "c09-02.54", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
+	ROM_LOAD64_WORD_SWAP( "c09-03.53", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
 	ROM_LOAD64_WORD_SWAP( "c09-01.55", 0x000006, 0x080000, CRC(64bfea10) SHA1(15ea43092027b1717d0f24fbe6ac2cdf11a7ddc6) )
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
@@ -4752,8 +4813,8 @@ ROM_START( scij )
 
 	ROM_REGION( 0x200000, "sprites", 0 )
 	ROM_LOAD64_WORD_SWAP( "c09-04.52", 0x000000, 0x080000, CRC(2cbb3c9b) SHA1(9e3d95f76f5f5d385b6a9516af781aefef1eb0ca) )    /* OBJ 16x8 */
-	ROM_LOAD64_WORD_SWAP( "c09-02.53", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
-	ROM_LOAD64_WORD_SWAP( "c09-03.54", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
+	ROM_LOAD64_WORD_SWAP( "c09-02.54", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
+	ROM_LOAD64_WORD_SWAP( "c09-03.53", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
 	ROM_LOAD64_WORD_SWAP( "c09-01.55", 0x000006, 0x080000, CRC(64bfea10) SHA1(15ea43092027b1717d0f24fbe6ac2cdf11a7ddc6) )
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
@@ -4803,8 +4864,8 @@ ROM_START( sciu )
 
 	ROM_REGION( 0x200000, "sprites", 0 )
 	ROM_LOAD64_WORD_SWAP( "c09-04.52", 0x000000, 0x080000, CRC(2cbb3c9b) SHA1(9e3d95f76f5f5d385b6a9516af781aefef1eb0ca) )    /* OBJ 16x8 */
-	ROM_LOAD64_WORD_SWAP( "c09-02.53", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
-	ROM_LOAD64_WORD_SWAP( "c09-03.54", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
+	ROM_LOAD64_WORD_SWAP( "c09-02.54", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
+	ROM_LOAD64_WORD_SWAP( "c09-03.53", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
 	ROM_LOAD64_WORD_SWAP( "c09-01.55", 0x000006, 0x080000, CRC(64bfea10) SHA1(15ea43092027b1717d0f24fbe6ac2cdf11a7ddc6) )
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
@@ -4854,8 +4915,8 @@ ROM_START( scin )
 
 	ROM_REGION( 0x200000, "sprites", 0 )
 	ROM_LOAD64_WORD_SWAP( "c09-04.52", 0x000000, 0x080000, CRC(2cbb3c9b) SHA1(9e3d95f76f5f5d385b6a9516af781aefef1eb0ca) )    /* OBJ 16x8 */
-	ROM_LOAD64_WORD_SWAP( "c09-02.53", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
-	ROM_LOAD64_WORD_SWAP( "c09-03.54", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
+	ROM_LOAD64_WORD_SWAP( "c09-02.54", 0x000002, 0x080000, CRC(a83a0389) SHA1(932788b5b5f01326d0fbb2b9fdb94a8c7c004db3) )
+	ROM_LOAD64_WORD_SWAP( "c09-03.53", 0x000004, 0x080000, CRC(a31d0e80) SHA1(dfeff1b89dd7b3f19b26e77f2d66f6448cb00553) )
 	ROM_LOAD64_WORD_SWAP( "c09-01.55", 0x000006, 0x080000, CRC(64bfea10) SHA1(15ea43092027b1717d0f24fbe6ac2cdf11a7ddc6) )
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
@@ -4884,7 +4945,6 @@ ROM_START( scin )
 	ROM_LOAD( "c09-24_pal20l8b.ic22", 0x00000, 0x00144, CRC(2ff83694) SHA1(c6594b1cfd3958d9b4ddb8d68d506929cfa0a759) ) // MMI PAL20L8B
 	ROM_LOAD( "c09-25_pal20l8b.ic25", 0x00000, 0x00144, CRC(c69bf3fc) SHA1(83f1cc9f475aed47e969b77059f3332ef5068981) ) // MMI PAL20L8B
 	ROM_LOAD( "c09-26_pal16l8b.ic26", 0x00000, 0x00104, CRC(36a8eb27) SHA1(8ec25c860e6568a3d1a7e7a8ed6a6397f135455c) ) // MMI PAL16L8B
-
 ROM_END
 
 ROM_START( nightstr )
@@ -5202,6 +5262,9 @@ ROM_START( spacegun )
 	ROM_LOAD( "pal20l8-c57-12.61", 0x0600, 0x0144, CRC(debddb13) SHA1(47be25b3bb157d37b9813737544a56a2090f85ba) )
 	ROM_LOAD( "pal16l8-c57-13.72", 0x0800, 0x0104, CRC(1369f23e) SHA1(bbc960cfc3edd07e89134e1b876aa7a6c0cba5ac) )
 	ROM_LOAD( "pal16r4-c57-14.96", 0x0a00, 0x0104, CRC(75e1bf61) SHA1(e8358329a78ec0ab87641b2ecaec0b2b67c6ca30) )
+
+	ROM_REGION16_BE( 0x80, "eeprom", 0 )
+	ROM_LOAD("93c46.ic93", 0x0000, 0x0080, CRC(4900416b) SHA1(30b1cc90a3c3d719cc053f2cb2631fe4dec25020) )
 ROM_END
 
 ROM_START( spacegunu )
@@ -5240,6 +5303,9 @@ ROM_START( spacegunu )
 	ROM_LOAD( "pal20l8-c57-12.61", 0x0600, 0x0144, CRC(debddb13) SHA1(47be25b3bb157d37b9813737544a56a2090f85ba) )
 	ROM_LOAD( "pal16l8-c57-13.72", 0x0800, 0x0104, CRC(1369f23e) SHA1(bbc960cfc3edd07e89134e1b876aa7a6c0cba5ac) )
 	ROM_LOAD( "pal16r4-c57-14.96", 0x0a00, 0x0104, CRC(75e1bf61) SHA1(e8358329a78ec0ab87641b2ecaec0b2b67c6ca30) )
+
+	ROM_REGION16_BE( 0x80, "eeprom", 0 )
+	ROM_LOAD("93c46.ic93", 0x0000, 0x0080, CRC(4900416b) SHA1(30b1cc90a3c3d719cc053f2cb2631fe4dec25020) )
 ROM_END
 
 ROM_START( spacegunj )
@@ -5278,6 +5344,9 @@ ROM_START( spacegunj )
 	ROM_LOAD( "pal20l8-c57-12.61", 0x0600, 0x0144, CRC(debddb13) SHA1(47be25b3bb157d37b9813737544a56a2090f85ba) )
 	ROM_LOAD( "pal16l8-c57-13.72", 0x0800, 0x0104, CRC(1369f23e) SHA1(bbc960cfc3edd07e89134e1b876aa7a6c0cba5ac) )
 	ROM_LOAD( "pal16r4-c57-14.96", 0x0a00, 0x0104, CRC(75e1bf61) SHA1(e8358329a78ec0ab87641b2ecaec0b2b67c6ca30) )
+
+	ROM_REGION16_BE( 0x80, "eeprom", 0 )
+	ROM_LOAD("93c46.ic93", 0x0000, 0x0080, CRC(4900416b) SHA1(30b1cc90a3c3d719cc053f2cb2631fe4dec25020) )
 ROM_END
 
 ROM_START( dblaxle ) /* Manual refers to this version as the "Version Without Communication" */
@@ -5292,7 +5361,7 @@ ROM_START( dblaxle ) /* Manual refers to this version as the "Version Without Co
 	ROM_LOAD16_BYTE( "c78-31-1.36", 0x00001, 0x20000, CRC(67ce23e8) SHA1(983e998a79e3d4376b005c92ded050be236d37cc) )
 
 	ROM_REGION( 0x20000, "audiocpu", 0 )    /* sound cpu */
-	ROM_LOAD( "c78-34.c42",         0x00000, 0x20000, CRC(f2186943) SHA1(2e9aed39fddf3aa1db7e20f8a709b6b82cc3e7df) )
+	ROM_LOAD( "c78-34.42",          0x00000, 0x20000, CRC(f2186943) SHA1(2e9aed39fddf3aa1db7e20f8a709b6b82cc3e7df) )
 
 	ROM_REGION( 0x100000, "tc0480scp", 0 )
 	ROM_LOAD32_WORD( "c78-10.12", 0x00000, 0x80000, CRC(44b1897c) SHA1(7ad179db6d7dfeb139ea13cb4a231f99d177f2b1) )  /* SCR 16x16 */
@@ -5303,8 +5372,8 @@ ROM_START( dblaxle ) /* Manual refers to this version as the "Version Without Co
 	ROM_LOAD64_WORD_SWAP( "c78-07.33", 0x000002, 0x100000, CRC(9da00d5b) SHA1(f6b664c7495b936ce1b99852da45ec92cb37062a) )
 	ROM_LOAD64_WORD_SWAP( "c78-06.23", 0x000004, 0x100000, CRC(8309e91b) SHA1(3f27557bc82bf42cc77e3c7e363b51a0b119144d) )
 	ROM_LOAD64_WORD_SWAP( "c78-05.31", 0x000006, 0x100000, CRC(90001f68) SHA1(5c08dfe6a2e12e6ca84035815563f38fc2c2c029) )
-//  ROMX_LOAD      ( "c78-05l.1", 0x000007, 0x080000, CRC(f24bf972) , ROM_SKIP(7) )
-//  ROMX_LOAD      ( "c78-05h.2", 0x000006, 0x080000, CRC(c01039b5) , ROM_SKIP(7) )
+//  ROM_LOAD64_BYTE(      "c78-05h_3f99.2", 0x000006, 0x080000, CRC(c01039b5) SHA1(66ff1b108f99ec5a450ba3c211079c58dc12ea6c) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
+//  ROM_LOAD64_BYTE(      "c78-05l_6503.1", 0x000007, 0x080000, CRC(f24bf972) SHA1(5bb76898b964a2cb4209e39a43cccaa528f8339e) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
 	ROM_LOAD16_WORD( "c78-09.12", 0x000000, 0x80000, CRC(0dbde6f5) SHA1(4049271e3738b54e0c56d191889b1aea5664d49f) )    /* ROD, road lines */
@@ -5335,11 +5404,58 @@ ROM_START( dblaxleu ) /* Manual refers to this version as the "Version Without C
 	ROM_LOAD16_BYTE( "c78_53+.5",  0x40001, 0x20000, CRC(62f910d4) SHA1(3d952ffcb30a264751b4b282ae8c26ecea09c05c) ) /* Actual label is C78 53* */
 
 	ROM_REGION( 0x40000, "sub", 0 ) /* 256K for 68000 code (CPU B) */
-	ROM_LOAD16_BYTE( "c78-30+.35", 0x00000, 0x20000, CRC(f73b3ce1) SHA1(1794d1c74599d58302c6dbfabcc1b3110d19b1fb) ) /* Label missing, it's either C78 30 or C78 30* */
-	ROM_LOAD16_BYTE( "c78-31+.36", 0x00001, 0x20000, CRC(4639adee) SHA1(24569dd4801c622758e60d3e526480ac6b5f85d2) ) /* Label missing, it's either C78 31 or C78 31* */
+	ROM_LOAD16_BYTE( "c78-30.35", 0x00000, 0x20000, CRC(f73b3ce1) SHA1(1794d1c74599d58302c6dbfabcc1b3110d19b1fb) )
+	ROM_LOAD16_BYTE( "c78-31.36", 0x00001, 0x20000, CRC(4639adee) SHA1(24569dd4801c622758e60d3e526480ac6b5f85d2) )
 
 	ROM_REGION( 0x20000, "audiocpu", 0 )    /* sound cpu */
-	ROM_LOAD( "c78-34.c42",        0x00000, 0x20000, CRC(f2186943) SHA1(2e9aed39fddf3aa1db7e20f8a709b6b82cc3e7df) )
+	ROM_LOAD( "c78-34.42",         0x00000, 0x20000, CRC(f2186943) SHA1(2e9aed39fddf3aa1db7e20f8a709b6b82cc3e7df) )
+
+	ROM_REGION( 0x100000, "tc0480scp", 0 )
+	ROM_LOAD32_WORD( "c78-10.12", 0x00000, 0x80000, CRC(44b1897c) SHA1(7ad179db6d7dfeb139ea13cb4a231f99d177f2b1) )  /* SCR 16x16 */
+	ROM_LOAD32_WORD( "c78-11.11", 0x00002, 0x80000, CRC(7db3d4a3) SHA1(fc3c44ed36b212688a5bd8dc61321a994578258e) )
+
+	ROM_REGION( 0x400000, "sprites", 0 )
+	ROM_LOAD64_WORD_SWAP( "c78-08.25",      0x000000, 0x100000, CRC(6c725211) SHA1(3c1765f44fe57b496d305e994516674f71bd4c3c) )    /* OBJ 16x8 */
+	ROM_LOAD64_WORD_SWAP( "c78-07.33",      0x000002, 0x100000, CRC(9da00d5b) SHA1(f6b664c7495b936ce1b99852da45ec92cb37062a) )
+	ROM_LOAD64_WORD_SWAP( "c78-06.23",      0x000004, 0x100000, CRC(8309e91b) SHA1(3f27557bc82bf42cc77e3c7e363b51a0b119144d) )
+	// although very common, the split C78 05 ROMs were not on every board, some had the standard mask ROM - however they are preserved here
+	ROM_LOAD64_BYTE(      "c78-05h_3f99.2", 0x000006, 0x080000, CRC(c01039b5) SHA1(66ff1b108f99ec5a450ba3c211079c58dc12ea6c) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
+	ROM_LOAD64_BYTE(      "c78-05l_6503.1", 0x000007, 0x080000, CRC(f24bf972) SHA1(5bb76898b964a2cb4209e39a43cccaa528f8339e) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
+
+	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
+	ROM_LOAD16_WORD( "c78-09.12", 0x000000, 0x80000, CRC(0dbde6f5) SHA1(4049271e3738b54e0c56d191889b1aea5664d49f) )    /* ROD, road lines */
+
+	ROM_REGION16_LE( 0x80000, "spritemap", 0 )
+	ROM_LOAD16_WORD( "c78-04.3", 0x00000, 0x80000, CRC(cc1aa37c) SHA1(cfa2eb338dc81c98c637c2f0b14d2baea8b115f5) )   /* STY spritemap */
+
+	ROM_REGION( 0x180000, "ymsnd:adpcma", 0 )  /* ADPCM samples */
+	ROM_LOAD( "c78-12.33", 0x000000, 0x100000, CRC(b0267404) SHA1(ffd337336ff9b096e3725f733364762f6e6d3fab) )
+	ROM_LOAD( "c78-13.46", 0x100000, 0x080000, CRC(1b363aa2) SHA1(0aae3988024654e98cc0c784307b1c329c8f0783) )
+
+	ROM_REGION( 0x80000, "ymsnd:adpcmb", 0 )    /* Delta-T samples */
+	ROM_LOAD( "c78-14.31",  0x00000, 0x80000, CRC(9cad4dfb) SHA1(9187ef827a3f1bc9233d0e45e72c72c0956c5912) )
+
+	ROM_REGION( 0x10000, "user2", 0 )   /* unused ROMs */
+	ROM_LOAD( "c78-25.15",  0x00000, 0x10000, CRC(7245a6f6) SHA1(5bdde4e3bcde8c59dc84478c3cc079d7ef8ee9c5) )    // 98% compression
+	ROM_LOAD( "c78-15.22",  0x00000, 0x00100, CRC(fbf81f30) SHA1(c868452c334792345dcced075f6df69cff9e31ca) )    // road A/B internal priority
+	ROM_LOAD( "c78-21.74",  0x00000, 0x00100, CRC(2926bf27) SHA1(bfbbe6c71bb29a05959f3de0d940816139f9ebfe) )    // road/sprite priority and palette select
+	ROM_LOAD( "c84-10.16",  0x00000, 0x00400, CRC(643e8bfc) SHA1(a6e6086fb8fbd102e01ec72fe60a4232f5909565) )
+	ROM_LOAD( "c84-11.17",  0x00000, 0x00400, CRC(10728853) SHA1(45d7cc8e06fbe01295cc2194bca9586f0ef8b12b) )
+ROM_END
+
+ROM_START( dblaxleua ) /* Manual refers to this version as the "Version Without Communication" */
+	ROM_REGION( 0x80000, "maincpu", 0 ) /* 512K for 68000 code (CPU A) */
+	ROM_LOAD16_BYTE( "c78_36-1.2", 0x00000, 0x20000, CRC(3bb0344a) SHA1(dad031033838bf65c83fb3715a9727f2d165909b) )
+	ROM_LOAD16_BYTE( "c78_38-1.4", 0x00001, 0x20000, CRC(918176cb) SHA1(b78bce351e240b447fbb9a1f44c8efa3e6b98cbe) )
+	ROM_LOAD16_BYTE( "c78_37-1.3", 0x40000, 0x20000, CRC(5a12e2bb) SHA1(53a91cc8fcf42934aa282f5a1bb286461dc2a421) )
+	ROM_LOAD16_BYTE( "c78_39-1.5", 0x40001, 0x20000, CRC(62f910d4) SHA1(3d952ffcb30a264751b4b282ae8c26ecea09c05c) )
+
+	ROM_REGION( 0x40000, "sub", 0 ) /* 256K for 68000 code (CPU B) */
+	ROM_LOAD16_BYTE( "c78-30.35",  0x00000, 0x20000, CRC(f73b3ce1) SHA1(1794d1c74599d58302c6dbfabcc1b3110d19b1fb) )
+	ROM_LOAD16_BYTE( "c78-31.36",  0x00001, 0x20000, CRC(4639adee) SHA1(24569dd4801c622758e60d3e526480ac6b5f85d2) )
+
+	ROM_REGION( 0x20000, "audiocpu", 0 )    /* sound cpu */
+	ROM_LOAD( "c78-34.42",         0x00000, 0x20000, CRC(f2186943) SHA1(2e9aed39fddf3aa1db7e20f8a709b6b82cc3e7df) )
 
 	ROM_REGION( 0x100000, "tc0480scp", 0 )
 	ROM_LOAD32_WORD( "c78-10.12", 0x00000, 0x80000, CRC(44b1897c) SHA1(7ad179db6d7dfeb139ea13cb4a231f99d177f2b1) )  /* SCR 16x16 */
@@ -5350,8 +5466,8 @@ ROM_START( dblaxleu ) /* Manual refers to this version as the "Version Without C
 	ROM_LOAD64_WORD_SWAP( "c78-07.33", 0x000002, 0x100000, CRC(9da00d5b) SHA1(f6b664c7495b936ce1b99852da45ec92cb37062a) )
 	ROM_LOAD64_WORD_SWAP( "c78-06.23", 0x000004, 0x100000, CRC(8309e91b) SHA1(3f27557bc82bf42cc77e3c7e363b51a0b119144d) )
 	ROM_LOAD64_WORD_SWAP( "c78-05.31", 0x000006, 0x100000, CRC(90001f68) SHA1(5c08dfe6a2e12e6ca84035815563f38fc2c2c029) )
-//  ROMX_LOAD      ( "c78-05l.1", 0x000007, 0x080000, CRC(f24bf972) , ROM_SKIP(7) )
-//  ROMX_LOAD      ( "c78-05h.2", 0x000006, 0x080000, CRC(c01039b5) , ROM_SKIP(7) )
+//  ROM_LOAD64_BYTE(      "c78-05h_3f99.2", 0x000006, 0x080000, CRC(c01039b5) SHA1(66ff1b108f99ec5a450ba3c211079c58dc12ea6c) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
+//  ROM_LOAD64_BYTE(      "c78-05l_6503.1", 0x000007, 0x080000, CRC(f24bf972) SHA1(5bb76898b964a2cb4209e39a43cccaa528f8339e) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
 	ROM_LOAD16_WORD( "c78-09.12", 0x000000, 0x80000, CRC(0dbde6f5) SHA1(4049271e3738b54e0c56d191889b1aea5664d49f) )    /* ROD, road lines */
@@ -5386,7 +5502,7 @@ ROM_START( dblaxleul ) /* Side by side linkable version */
 	ROM_LOAD16_BYTE( "c78-31-1.36", 0x00001, 0x20000, CRC(67ce23e8) SHA1(983e998a79e3d4376b005c92ded050be236d37cc) )
 
 	ROM_REGION( 0x20000, "audiocpu", 0 )    /* sound cpu */
-	ROM_LOAD( "c78-34.c42",         0x00000, 0x20000, CRC(f2186943) SHA1(2e9aed39fddf3aa1db7e20f8a709b6b82cc3e7df) )
+	ROM_LOAD( "c78-34.42",          0x00000, 0x20000, CRC(f2186943) SHA1(2e9aed39fddf3aa1db7e20f8a709b6b82cc3e7df) )
 
 	ROM_REGION( 0x100000, "tc0480scp", 0 )
 	ROM_LOAD32_WORD( "c78-10.12", 0x00000, 0x80000, CRC(44b1897c) SHA1(7ad179db6d7dfeb139ea13cb4a231f99d177f2b1) )  /* SCR 16x16 */
@@ -5397,8 +5513,8 @@ ROM_START( dblaxleul ) /* Side by side linkable version */
 	ROM_LOAD64_WORD_SWAP( "c78-07.33", 0x000002, 0x100000, CRC(9da00d5b) SHA1(f6b664c7495b936ce1b99852da45ec92cb37062a) )
 	ROM_LOAD64_WORD_SWAP( "c78-06.23", 0x000004, 0x100000, CRC(8309e91b) SHA1(3f27557bc82bf42cc77e3c7e363b51a0b119144d) )
 	ROM_LOAD64_WORD_SWAP( "c78-05.31", 0x000006, 0x100000, CRC(90001f68) SHA1(5c08dfe6a2e12e6ca84035815563f38fc2c2c029) )
-//  ROMX_LOAD      ( "c78-05l.1", 0x000007, 0x080000, CRC(f24bf972) , ROM_SKIP(7) )
-//  ROMX_LOAD      ( "c78-05h.2", 0x000006, 0x080000, CRC(c01039b5) , ROM_SKIP(7) )
+//  ROM_LOAD64_BYTE(      "c78-05h_3f99.2", 0x000006, 0x080000, CRC(c01039b5) SHA1(66ff1b108f99ec5a450ba3c211079c58dc12ea6c) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
+//  ROM_LOAD64_BYTE(      "c78-05l_6503.1", 0x000007, 0x080000, CRC(f24bf972) SHA1(5bb76898b964a2cb4209e39a43cccaa528f8339e) ) // these 2 ROMs known to come split on a Taito ROM 16 PCBOARD
 
 	ROM_REGION16_LE( 0x80000, "tc0150rod", 0 )
 	ROM_LOAD16_WORD( "c78-09.12", 0x000000, 0x80000, CRC(0dbde6f5) SHA1(4049271e3738b54e0c56d191889b1aea5664d49f) )    /* ROD, road lines */
@@ -5573,6 +5689,7 @@ GAMEL(1988, enforceja,  enforce,  enforce,   enforceja, contcirc_state,         
 
 GAME( 1989, bshark,     0,        bshark,    bshark,    taitoz_state,           empty_init,  ORIENTATION_FLIP_X, "Taito Corporation Japan",   "Battle Shark (World)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE )
 GAME( 1989, bsharku,    bshark,   bshark,    bsharku,   taitoz_state,           empty_init,  ORIENTATION_FLIP_X, "Taito America Corporation", "Battle Shark (US)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE )
+GAME( 1989, bsharkuo,   bshark,   bshark,    bsharku,   taitoz_state,           empty_init,  ORIENTATION_FLIP_X, "Taito America Corporation", "Battle Shark (US, older)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE )
 GAME( 1989, bsharkj,    bshark,   bshark,    bsharkj,   taitoz_state,           empty_init,  ORIENTATION_FLIP_X, "Taito Corporation",         "Battle Shark (Japan)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE )
 GAME( 1989, bsharkjjs,  bshark,   bsharkjjs, bsharkjjs, taitoz_state,           empty_init,  ORIENTATION_FLIP_X, "Taito Corporation",         "Battle Shark (Japan, Joystick)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE )
 
@@ -5594,10 +5711,11 @@ GAME( 1990, spacegun,   0,        spacegun,  spacegun,  spacegun_state,         
 GAME( 1990, spacegunj,  spacegun, spacegun,  spacegnj,  spacegun_state,         empty_init,  ORIENTATION_FLIP_X, "Taito Corporation",         "Space Gun (Japan)", MACHINE_SUPPORTS_SAVE )
 GAME( 1990, spacegunu,  spacegun, spacegun,  spacegnu,  spacegun_state,         empty_init,  ORIENTATION_FLIP_X, "Taito America Corporation", "Space Gun (US)", MACHINE_SUPPORTS_SAVE )
 
-GAMEL(1991, dblaxle,    0,        dblaxle,   dblaxles,  dblaxle_state,          empty_init,  ROT0,               "Taito America Corporation", "Double Axle (US, Rev 1)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE, layout_dblaxle )
-GAMEL(1991, dblaxleu,   dblaxle,  dblaxle,   dblaxles,  dblaxle_state,          empty_init,  ROT0,               "Taito America Corporation", "Double Axle (US)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE, layout_dblaxle )
-GAMEL(1991, dblaxleul,  dblaxle,  dblaxle,   dblaxle,   dblaxle_state,          empty_init,  ROT0,               "Taito America Corporation", "Double Axle (US, Rev 1, Linkable)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN, layout_dblaxle )
-GAMEL(1991, pwheelsj,   dblaxle,  dblaxle,   pwheelsj,  dblaxle_state,          empty_init,  ROT0,               "Taito Corporation",         "Power Wheels (Japan, Rev 2, Linkable)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN, layout_dblaxle )
+GAMEL(1991, dblaxle,    0,        dblaxle,   dblaxles,  taitoz_z80_sound_state, empty_init,  ROT0,               "Taito America Corporation", "Double Axle (US, Rev 1, set 1)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE, layout_dblaxle )
+GAMEL(1991, dblaxleua,  dblaxle,  dblaxle,   dblaxles,  taitoz_z80_sound_state, empty_init,  ROT0,               "Taito America Corporation", "Double Axle (US, Rev 1, set 2)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE, layout_dblaxle )
+GAMEL(1991, dblaxleu,   dblaxle,  dblaxle,   dblaxles,  taitoz_z80_sound_state, empty_init,  ROT0,               "Taito America Corporation", "Double Axle (US)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE, layout_dblaxle )
+GAMEL(1991, dblaxleul,  dblaxle,  dblaxle,   dblaxle,   taitoz_z80_sound_state, empty_init,  ROT0,               "Taito America Corporation", "Double Axle (US, Rev 1, Linkable)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN, layout_dblaxle )
+GAMEL(1991, pwheelsj,   dblaxle,  dblaxle,   pwheelsj,  taitoz_z80_sound_state, empty_init,  ROT0,               "Taito Corporation",         "Power Wheels (Japan, Rev 2, Linkable)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN, layout_dblaxle )
 
 GAMEL(1991, racingb,    0,        racingb,   racingb,   sci_state,              empty_init,  ROT0,               "Taito Corporation Japan",   "Racing Beat (World)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN, layout_dblaxle )
 GAMEL(1991, racingbj,   racingb,  racingb,   racingb,   sci_state,              empty_init,  ROT0,               "Taito Corporation",         "Racing Beat (Japan)", MACHINE_IMPERFECT_GRAPHICS | MACHINE_SUPPORTS_SAVE | MACHINE_NODEVICE_LAN, layout_dblaxle )
