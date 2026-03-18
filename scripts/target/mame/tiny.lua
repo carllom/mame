@@ -25,6 +25,7 @@ CPUS["MCS96"] = true
 
 SOUNDS["SA16"] = true
 SOUNDS["DAC"] = true
+SOUNDS["CDDA"] = true
 
 --------------------------------------------------
 -- specify available video cores
@@ -41,10 +42,16 @@ VIDEOS["T6963C"] = true -- ajr
 MACHINES["WD_FDC"] = true
 MACHINES["FDC_PLL"] = true -- wd_fdc
 MACHINES["BANKDEV"] = true -- ajr
+MACHINES["NSCSI"] = true
+MACHINES["MB87030"] = true
 
 --------------------------------------------------
 -- specify available bus cores
 --------------------------------------------------
+
+BUSES["NSCSI"] = true
+FORMATS["ROLAND_DSK"] = true
+FORMATS["WD177X_DSK"] = true
 
 --------------------------------------------------
 -- This is the list of files that are necessary

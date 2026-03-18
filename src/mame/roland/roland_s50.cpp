@@ -89,18 +89,10 @@ protected:
 
 	void p2_w(u8 data);
 
-	//
-	// I/O gate array registers
-	//
-	u8 floppy_status_r();
+	
 	void floppy_select_w(u8 data); 
 
-	u8 floppy_unknown_r();
-	u16 key_r(offs_t offset);
-	void key_w(offs_t offset, u16 data);
-
 	void sram_map(address_map &map);
-	void vram_map(address_map &map);
 
 private:
 	void ioga_out_w(u8 data);
@@ -143,11 +135,6 @@ class roland_w30_state : public roland_s50_base_state
 {
 public:
 	roland_w30_state(const machine_config &mconfig, device_type type, const char *tag)
-		// : roland_s50_state(mconfig, type, tag)
-		// , m_psram(*this, "psram%u", 1U)
-		// , m_keysw(*this, "KEYSW%u", 0U)
-		// , m_keyrow(0)
-		// , m_leds(*this, "LED%u", 0U)
 		: roland_s50_base_state(mconfig, type, tag)
 		, m_bank1_view(*this, "bank1")
 		, m_bank2_view(*this, "bank2")
@@ -155,11 +142,13 @@ public:
 		, m_psram2_bank(*this, "psram2")
 		, m_psram(*this, "psram", 0x20000U, ENDIANNESS_LITTLE)
 		, m_psram_bank(0)
+		, m_keysw(*this, "KEYSW%u", 0U)
+		, m_keyrow(0)
+		, m_leds(*this, "LED%u", 0U)
 	{
 	}
 
 	void w30(machine_config &config);
-	[[maybe_unused]] void s330(machine_config &config);
 
 protected:
 	virtual void machine_start() override ATTR_COLD;
@@ -171,7 +160,6 @@ protected:
 	u8 unknown_status_r();
 
 	void w30_mem_map(address_map &map) ATTR_COLD;
-	[[maybe_unused]] void s330_mem_map(address_map &map) ATTR_COLD;
 	void psram1_map(address_map &map) ATTR_COLD;
 	void psram2_map(address_map &map) ATTR_COLD;
 
@@ -185,16 +173,15 @@ protected:
 	void keysw_w(u8 data);
 	void leds_w(u8 data);
 
+	u8 m_psram_bank;
+
 	// Inputs/outputs
 	required_ioport_array<4> m_keysw;
 	u8 m_keyrow; // M60013: Internal counter for the SCANn outputs
 	output_finder<8> m_leds;
 private:
-	u8 unknown_status_r();
-
 	void mem_map(address_map &map);
 
-	u8 m_psram_bank;
 };
 
 class roland_s330_state : public roland_w30_state
@@ -213,14 +200,20 @@ public:
 
 protected:
 	// virtual void machine_start() override;
-private:
-	void mem_map(address_map &map);
+	void s330_mem_map(address_map &map) ATTR_COLD;
 	void waveram_map(address_map &map);
 
-    HD44780_PIXEL_UPDATE(lcd_pixel_update);
+	HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
 
 	required_device<hd44780_device> m_lcdc;
+
+	u8 floppy_unknown_r();
+	u16 key_r(offs_t offset);
+	void key_w(offs_t offset, u16 data);
+	
+private:
+	void mem_map(address_map &map);
 };
 
 void roland_s50_state::machine_start()
@@ -494,7 +487,7 @@ void roland_w30_state::mem_map(address_map &map)
 	map(0xf800, 0xffff).rw(FUNC(roland_w30_state::key_r), FUNC(roland_w30_state::key_w));
 }
 
-[[maybe_unused]] void roland_w30_state::s330_mem_map(address_map &map)
+void roland_s330_state::s330_mem_map(address_map &map)
 {
 	map(0x0000, 0x1fff).view(m_bank1_view);
 	m_bank1_view[0](0x0000, 0x1fff).rom().region("program", 0);
@@ -762,10 +755,13 @@ void roland_w30_state::w30(machine_config &config)
 // 	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_pc_floppy_formats).enable_sound(true);
 
 // 	config.set_default_layout(layout_s330);
-void roland_w30_state::s330(machine_config &config)
+void roland_s330_state::s330(machine_config &config)
 {
 	C8095_90(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
-	m_maincpu->set_addrmap(AS_PROGRAM, &roland_w30_state::s330_mem_map);
+	m_maincpu->set_addrmap(AS_PROGRAM, &roland_s330_state::s330_mem_map);
+	m_maincpu->ach4_cb().set(FUNC(roland_s330_state::analog_vol_ctrl)); // Volume control
+ 	m_maincpu->ach7_cb().set(FUNC(roland_s330_state::analog_dac_value)); // A/D compare level
+
 
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
@@ -857,4 +853,4 @@ ROM_END
 SYST(1987, s50,  0,   0, s50,  s50,  roland_s50_state,  empty_init, "Roland", "S-50 Digital Sampling Keyboard", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1987, s550, s50, 0, s550, s550, roland_s550_state, empty_init, "Roland", "S-550 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1988, w30,  0,   0, w30,  w30,  roland_w30_state,  empty_init, "Roland", "W-30 Music Workstation", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
-SYST(1988, s330, w30, 0, s330, s330, roland_w30_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
+SYST(1988, s330, w30, 0, s330, s330, roland_s330_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)

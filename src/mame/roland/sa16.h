@@ -41,7 +41,6 @@ protected:
 	const address_space_config m_space_config;
 
 	// device-specific overrides
-	virtual void device_resolve_objects() override;
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
 
