@@ -86,7 +86,11 @@ protected:
 	virtual void machine_reset() override ATTR_COLD;
 
 	void p2_w(u8 data);
-	void floppy_select_w(u8 data);
+
+	
+	void floppy_select_w(u8 data); 
+
+	void sram_map(address_map &map);
 
 private:
 	void ioga_out_w(u8 data);
@@ -136,11 +140,13 @@ public:
 		, m_psram2_bank(*this, "psram2")
 		, m_psram(*this, "psram", 0x20000U, ENDIANNESS_LITTLE)
 		, m_psram_bank(0)
+		, m_keysw(*this, "KEYSW%u", 0U)
+		, m_keyrow(0)
+		, m_leds(*this, "LED%u", 0U)
 	{
 	}
 
 	void w30(machine_config &config);
-	[[maybe_unused]] void s330(machine_config &config);
 
 protected:
 	virtual void machine_start() override ATTR_COLD;
@@ -153,7 +159,6 @@ private:
 	u8 unknown_status_r();
 
 	void w30_mem_map(address_map &map) ATTR_COLD;
-	[[maybe_unused]] void s330_mem_map(address_map &map) ATTR_COLD;
 	void psram1_map(address_map &map) ATTR_COLD;
 	void psram2_map(address_map &map) ATTR_COLD;
 
@@ -163,7 +168,51 @@ private:
 	required_memory_bank m_psram2_bank;
 	memory_share_creator<u16> m_psram;
 
+	u8 keysw_r();
+	void keysw_w(u8 data);
+	void leds_w(u8 data);
+
 	u8 m_psram_bank;
+
+	// Inputs/outputs
+	required_ioport_array<4> m_keysw;
+	u8 m_keyrow; // M60013: Internal counter for the SCANn outputs
+	output_finder<8> m_leds;
+private:
+	void mem_map(address_map &map);
+
+};
+
+class roland_s330_state : public roland_w30_state
+{
+public:
+	roland_s330_state(const machine_config &mconfig, device_type type, const char *tag)
+		: roland_w30_state(mconfig, type, tag)
+		, m_lcdc(*this, "lcdc")
+	{
+	}
+
+	void s330(machine_config &config);
+	
+	u16 analog_vol_ctrl();
+	u16 analog_dac_value();
+
+protected:
+	// virtual void machine_start() override;
+	void s330_mem_map(address_map &map) ATTR_COLD;
+	void waveram_map(address_map &map);
+
+	HD44780_PIXEL_UPDATE(lcd_pixel_update);
+	void init_lcd_palette(palette_device &palette) const;
+
+	required_device<hd44780_device> m_lcdc;
+
+	u8 floppy_unknown_r();
+	u16 key_r(offs_t offset);
+	void key_w(offs_t offset, u16 data);
+	
+private:
+	void mem_map(address_map &map);
 };
 
 void roland_s50_state::machine_start()
@@ -379,7 +428,7 @@ void roland_w30_state::w30_mem_map(address_map &map)
 	map(0xf800, 0xffff).rw(FUNC(roland_w30_state::key_r), FUNC(roland_w30_state::key_w));
 }
 
-[[maybe_unused]] void roland_w30_state::s330_mem_map(address_map &map)
+void roland_s330_state::s330_mem_map(address_map &map)
 {
 	map(0x0000, 0x1fff).view(m_bank1_view);
 	m_bank1_view[0](0x0000, 0x1fff).rom().region("program", 0);
@@ -534,10 +583,40 @@ void roland_w30_state::w30(machine_config &config)
 	//MB654419U(config, m_tvf, 20_MHz_XTAL);
 }
 
-void roland_w30_state::s330(machine_config &config)
+// void roland_s330_state::s330(machine_config &config)
+// {
+// 	N8097BH(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
+// 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_s330_state::mem_map);
+// 	m_maincpu->ach4_cb().set(FUNC(roland_s330_state::analog_vol_ctrl)); // Volume control
+// 	m_maincpu->ach7_cb().set(FUNC(roland_s330_state::analog_dac_value)); // A/D compare level
+
+// 	ADDRESS_MAP_BANK(config, m_psram[0]);
+// 	m_psram[0]->set_endianness(ENDIANNESS_LITTLE);
+// 	m_psram[0]->set_data_width(16);
+// 	m_psram[0]->set_addr_width(16);
+// 	m_psram[0]->set_stride(0x2000);
+// 	m_psram[0]->set_addrmap(0, &roland_s330_state::psram1_map);
+
+// 	ADDRESS_MAP_BANK(config, m_psram[1]);
+// 	m_psram[1]->set_endianness(ENDIANNESS_LITTLE);
+// 	m_psram[1]->set_data_width(16);
+// 	m_psram[1]->set_addr_width(17);
+// 	m_psram[1]->set_stride(0x4000);
+// 	m_psram[1]->set_addrmap(0, &roland_s330_state::psram2_map);
+
+// 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
+
+// 	// Floppy unit: ND-362S-A
+// 	FLOPPY_CONNECTOR(config, m_floppy, s50_floppies, "35dd", floppy_image_device::default_pc_floppy_formats).enable_sound(true);
+
+// 	config.set_default_layout(layout_s330);
+void roland_s330_state::s330(machine_config &config)
 {
 	C8095_90(config, m_maincpu, 24_MHz_XTAL / 2); // P8097-90
-	m_maincpu->set_addrmap(AS_PROGRAM, &roland_w30_state::s330_mem_map);
+	m_maincpu->set_addrmap(AS_PROGRAM, &roland_s330_state::s330_mem_map);
+	m_maincpu->ach4_cb().set(FUNC(roland_s330_state::analog_vol_ctrl)); // Volume control
+ 	m_maincpu->ach7_cb().set(FUNC(roland_s330_state::analog_dac_value)); // A/D compare level
+
 
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
@@ -614,4 +693,4 @@ ROM_END
 SYST(1987, s50,  0,   0, s50,  s50,  roland_s50_state,  empty_init, "Roland", "S-50 Digital Sampling Keyboard", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1987, s550, s50, 0, s550, s550, roland_s550_state, empty_init, "Roland", "S-550 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1988, w30,  0,   0, w30,  w30,  roland_w30_state,  empty_init, "Roland", "W-30 Music Workstation", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
-//SYST(1988, s330, w30, 0, s330, s330, roland_w30_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
+SYST(1988, s330, w30, 0, s330, s330, roland_s330_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
