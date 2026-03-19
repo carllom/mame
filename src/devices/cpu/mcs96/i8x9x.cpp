@@ -583,8 +583,24 @@ p8798_device::p8798_device(const machine_config &mconfig, const char *tag, devic
 // i80c196 combined class implementation
 
 i80c196_device::i80c196_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width) :
-	i8x9x_device(mconfig, type, tag, owner, clock, data_width)
+	i8x9x_device(mconfig, type, tag, owner, clock, data_width),
+	m_imask1(0),
+	m_wsr(0)
 {
+}
+
+void i80c196_device::device_start()
+{
+	i8x9x_device::device_start();
+	save_item(NAME(m_imask1));
+	save_item(NAME(m_wsr));
+}
+
+void i80c196_device::device_reset()
+{
+	i8x9x_device::device_reset();
+	m_imask1 = 0;
+	m_wsr = 0;
 }
 
 std::unique_ptr<util::disasm_interface> i80c196_device::create_disassembler()
@@ -634,14 +650,42 @@ void i80c196_device::djnzw_wrrel8_full()
 
 void i80c196_device::pusha_none_full()
 {
-	// TODO: push all not yet implemented
-	next(4);
+	// PUSHA: push PSW then IMASK1:WSR, clear PSW and IMASK1
+	// Word 1: PSW (flags in high byte, INT_MASK in low byte)
+	TMP = reg_r16(0x18);
+	TMP -= 2;
+	reg_w16(0x18, TMP);
+	any_w16(TMP, PSW);
+	PSW = 0x0000;
+
+	// Word 2: IMASK1 (high byte) : WSR (low byte)
+	TMP = reg_r16(0x18);
+	TMP -= 2;
+	reg_w16(0x18, TMP);
+	any_w16(TMP, (u16(m_imask1) << 8) | m_wsr);
+	m_imask1 = 0x00;
+
+	check_irq();
+	next_noirq(12);
 }
 
 void i80c196_device::popa_none_full()
 {
-	// TODO: pop all not yet implemented
-	next(4);
+	// POPA: pop IMASK1:WSR then PSW (reverse of PUSHA)
+	// Word 2: IMASK1 (high byte) : WSR (low byte)
+	TMP = reg_r16(0x18);
+	u16 imask1_wsr = any_r16(TMP);
+	reg_w16(0x18, TMP + 2);
+	m_wsr = imask1_wsr & 0xff;
+	m_imask1 = imask1_wsr >> 8;
+
+	// Word 1: PSW
+	TMP = reg_r16(0x18);
+	PSW = any_r16(TMP);
+	reg_w16(0x18, TMP + 2);
+
+	check_irq();
+	next_noirq(12);
 }
 
 void i80c196_device::idlpd_none_full()

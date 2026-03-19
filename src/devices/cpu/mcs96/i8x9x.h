@@ -208,6 +208,8 @@ class i80c196_device : public i8x9x_device {
 protected:
 	i80c196_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width);
 
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
 	virtual void do_exec_full() override;
 	virtual void do_exec_partial() override;
@@ -220,6 +222,9 @@ private:
 	void pusha_none_full();
 	void popa_none_full();
 	void idlpd_none_full();
+
+	u8 m_imask1;   // INT_MASK1 register (80C196-specific)
+	u8 m_wsr;      // WSR register (window selection, 80C196-specific)
 };
 
 class c80c196kb_device : public i80c196_device {

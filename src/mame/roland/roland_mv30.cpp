@@ -695,6 +695,13 @@ static void mv30_floppies(device_slot_interface &device)
 	device.option_add("35dd", FLOPPY_35_DD);
 }
 
+static void mv30_floppy_formats(format_registration &fr) ATTR_COLD;
+static void mv30_floppy_formats(format_registration &fr)
+{
+	fr.add_mfm_containers();
+	fr.add_pc_formats();
+}
+
 void roland_mv30_state::mv30(machine_config &config)
 {
 	// CPU: Intel 80C196KB-12
@@ -713,7 +720,7 @@ void roland_mv30_state::mv30(machine_config &config)
 	// FDC: NEC uPD72068GF-389 (using uPD72067 as closest available stand-in)
 	UPD72067(config, m_fdc, 32_MHz_XTAL);
 	m_fdc->intrq_wr_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
-	FLOPPY_CONNECTOR(config, m_floppy, mv30_floppies, "35dd", floppy_image_device::default_mfm_floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppy, mv30_floppies, "35dd", mv30_floppy_formats);
 
 	// PCM: Roland MB87419/MB87420 LP-1 sound engine (U-220 compatible)
 	SPEAKER(config, "lspeaker").front_left();
