@@ -148,6 +148,13 @@ private:
 	u8 fsk_r(offs_t offset);
 	void fsk_w(offs_t offset, u8 data);
 
+	// Gate array DMA registers (SFR 0x118-0x11D)
+	void dma_reg_w(offs_t offset, u16 data, u16 mem_mask = ~0);
+	u16 dma_reg_r(offs_t offset, u16 mem_mask = ~0);
+
+	// Gate array DMA controller (FDC <-> RAM)
+	void dma_drq_w(int state);
+
 	// CPU port I/O
 	u16 ach0_r();
 	u16 ach5_r();
@@ -199,6 +206,11 @@ private:
 	std::queue<u8> m_midi_queue;
 	u8 m_midi_rx;
 	int m_midi_pos;
+
+	// Gate array DMA registers (SFR 0x118-0x11D)
+	u16 m_dma_count;      // 0x118: transfer byte count (decrements to 0)
+	u16 m_dma_adr_lo;     // 0x11A: low 16 bits of physical RAM byte address
+	u16 m_dma_adr_hi;     // 0x11C: high bits of address (or control; purpose TBD)
 };
 
 
@@ -206,6 +218,9 @@ void roland_mv30_state::mem_map(address_map &map)
 {
 	// Banking registers at SFR 0x100-0x10F
 	map(0x0100, 0x010f).rw(FUNC(roland_mv30_state::bank_r), FUNC(roland_mv30_state::bank_w));
+
+	// Gate array DMA registers
+	map(0x0118, 0x011d).rw(FUNC(roland_mv30_state::dma_reg_r), FUNC(roland_mv30_state::dma_reg_w));
 
 	// Four 16KB banking windows covering the entire 64KB address space.
 	// Each window can present ROM, RAM, or I/O depending on the bank
@@ -300,6 +315,9 @@ void roland_mv30_state::machine_start()
 	save_item(NAME(m_encoder_dir));
 	save_item(NAME(m_midi_rx));
 	save_item(NAME(m_midi_pos));
+	save_item(NAME(m_dma_count));
+	save_item(NAME(m_dma_adr_lo));
+	save_item(NAME(m_dma_adr_hi));
 }
 
 
@@ -328,6 +346,10 @@ void roland_mv30_state::machine_reset()
 	m_midi_rx = 0;
 	m_midi_pos = 0;
 	std::queue<u8>().swap(m_midi_queue);
+
+	m_dma_count = 0;
+	m_dma_adr_lo = 0;
+	m_dma_adr_hi = 0;
 
 	// Window 0 starts showing ROM for instruction fetch at reset
 	m_view0.select(0);
@@ -445,6 +467,92 @@ u8 roland_mv30_state::keyscan_r(offs_t offset)
 	}
 	return 0x00;
 }
+
+//
+// Gate array DMA registers (SFR 0x118-0x11D)
+//
+// The custom gate array acts as a DMA controller between the uPD72068 FDC
+// and system RAM.  Three word-size registers control the transfer:
+//
+//   0x118: Transfer byte count – decremented per byte transferred.
+//          DMA is active while this is non-zero.
+//   0x11A: Low 16 bits of the physical RAM byte address (auto-incremented).
+//   0x11C: Written together with the others, exact meaning TBD.
+//          Treated as the upper address bits for now, giving a full
+//          physical address of (0x11C << 16) | 0x11A.
+//
+// Transfer direction (FDC→RAM vs RAM→FDC) is inferred from the FDC's
+// current command context.  In practice the MV-30 only reads floppies,
+// so FDC→RAM is the common path.  The direction is detected by checking
+// whether the FDC is asserting DRQ for a read or write; failing that,
+// we default to FDC→RAM.
+//
+
+u16 roland_mv30_state::dma_reg_r(offs_t offset, u16 mem_mask)
+{
+	switch (offset)
+	{
+	case 0: return m_dma_count;
+	case 1: return m_dma_adr_lo;
+	case 2: return m_dma_adr_hi;
+	}
+	return 0;
+}
+
+void roland_mv30_state::dma_reg_w(offs_t offset, u16 data, u16 mem_mask)
+{
+	switch (offset)
+	{
+	case 0:
+		COMBINE_DATA(&m_dma_count);
+		logerror("dma: count = %04x\n", m_dma_count);
+		break;
+	case 1:
+		COMBINE_DATA(&m_dma_adr_lo);
+		logerror("dma: adr_lo = %04x\n", m_dma_adr_lo);
+		break;
+	case 2:
+		COMBINE_DATA(&m_dma_adr_hi);
+		logerror("dma: adr_hi = %04x\n", m_dma_adr_hi);
+		break;
+	}
+}
+
+//
+// Gate array DMA controller
+//
+// When the FDC asserts DRQ, the gate array transfers one byte per DRQ
+// between the FDC data register and physical RAM, incrementing the
+// address and decrementing the count.  Transfer stops when count hits 0.
+//
+void roland_mv30_state::dma_drq_w(int state)
+{
+	if (!state || m_dma_count == 0)
+		return;
+
+	while (m_fdc->get_drq() && m_dma_count > 0)
+	{
+		u32 phys = (u32(m_dma_adr_hi) << 16) | m_dma_adr_lo;
+
+		// FDC -> RAM (reading from floppy) — the common case
+		u8 byte = m_fdc->dma_r();
+		if (phys < RAM_SIZE)
+		{
+			u32 word_idx = phys >> 1;
+			if (phys & 1)
+				m_ram[word_idx] = (m_ram[word_idx] & 0x00ff) | (u16(byte) << 8);
+			else
+				m_ram[word_idx] = (m_ram[word_idx] & 0xff00) | byte;
+		}
+
+		// Increment address, decrement count
+		u32 next = phys + 1;
+		m_dma_adr_lo = u16(next);
+		m_dma_adr_hi = u16(next >> 16);
+		m_dma_count--;
+	}
+}
+
 
 // E000-E003: FSK gate array - MN53015RRA (tape sync)
 u8 roland_mv30_state::fsk_r(offs_t offset)
@@ -720,6 +828,7 @@ void roland_mv30_state::mv30(machine_config &config)
 	// FDC: NEC uPD72068GF-389 (using uPD72067 as closest available stand-in)
 	UPD72067(config, m_fdc, 32_MHz_XTAL);
 	m_fdc->intrq_wr_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
+	m_fdc->drq_wr_callback().set(FUNC(roland_mv30_state::dma_drq_w));
 	FLOPPY_CONNECTOR(config, m_floppy, mv30_floppies, "35dd", mv30_floppy_formats);
 
 	// PCM: Roland MB87419/MB87420 LP-1 sound engine (U-220 compatible)
