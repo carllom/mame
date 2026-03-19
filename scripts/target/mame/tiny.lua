@@ -37,6 +37,9 @@ VIDEOS["T6963C"] = true
 -- specify available machine cores
 --------------------------------------------------
 
+MACHINES["UPD765"] = true
+MACHINES["FDC_PLL"] = true
+
 
 --------------------------------------------------
 -- specify available bus cores
