@@ -125,6 +125,7 @@ private:
 	static constexpr unsigned WINDOW_SIZE = 16 * 1024;    // 16KB per banking window
 	static constexpr unsigned PAGE_SHIFT  = 10;           // 1KB page granularity
 	static constexpr u16      ROM_PAGE    = 0x780;        // tentative ROM page value
+	static constexpr u16      IO_PAGE     = 0x474;        // I/O region page value (set by boot code)
 
 	void mem_map(address_map &map) ATTR_COLD;
 	void io_map(address_map &map) ATTR_COLD;
@@ -274,7 +275,7 @@ void roland_mv30_state::machine_reset()
 	//   Execute 0000-3FFF = ROM,  Data 0000-3FFF = RAM page 0
 	//   Data 4000-7FFF = RAM page 0x010
 	//   Data 8000-BFFF = RAM page 0x020
-	//   Data C000-FFFF = I/O
+	//   Data C000-FFFF = RAM page 0x030 (boot code writes 0x474 to switch to I/O)
 
 	m_bank_reg[0] = ROM_PAGE;    // execute 0x0000-0x3FFF -> ROM
 	m_bank_reg[1] = 0;           // execute 0x4000-0x7FFF -> unknown
@@ -283,7 +284,7 @@ void roland_mv30_state::machine_reset()
 	m_bank_reg[4] = 0x000;       // data 0x0000-0x3FFF -> RAM offset 0
 	m_bank_reg[5] = 0x010;       // data 0x4000-0x7FFF -> RAM offset 0x4000
 	m_bank_reg[6] = 0x020;       // data 0x8000-0xBFFF -> RAM offset 0x8000
-	m_bank_reg[7] = 0;           // data 0xC000-0xFFFF -> I/O (special)
+	m_bank_reg[7] = 0x030;       // data 0xC000-0xFFFF -> RAM offset 0xC000
 
 	m_keyscan_select = 0;
 	m_port1_out = 0;
@@ -298,8 +299,8 @@ void roland_mv30_state::machine_reset()
 	m_view0.select(0);
 	m_view1.select(0);
 	m_view2.select(0);
-	// Window 3 starts in I/O mode
-	m_view3.select(1);
+	// Window 3 starts as RAM; firmware writes 0x474 to 0x10E to switch to I/O
+	m_view3.select(0);
 }
 
 
@@ -342,8 +343,8 @@ void roland_mv30_state::update_data_bank(int window)
 	u32 phys = u32(page) << PAGE_SHIFT;
 
 	// Window 3: check for I/O mapping
-	// Page value 0 for window 3 is assumed to mean I/O (startup default)
-	if (window == 3 && page == 0)
+	// Page value 0x474 selects the I/O region (set by boot code early on)
+	if (window == 3 && page == IO_PAGE)
 	{
 		m_view3.select(1);   // I/O view
 		return;
