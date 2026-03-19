@@ -10,11 +10,8 @@
     CPU: IC19 Intel 80C196KB-12 (MCS-96 family, 16-bit data bus)
     FDC: IC1 NEC uPD72068GF-389
 
-    Note: the correct CPU is 80C196KB which belongs to the i8xc196 enhanced
-    family. MAME does not yet have a concrete device type for 80C196KB, so
-    N8097BH (16-bit MCS-96) is used as a stand-in. The 80C196 has additional
-    instructions (bmov, cmpl, djnzw, pop, popa, pusha) that are not emulated
-    with this substitution.
+    The CPU is an 80C196KB, which combines the i8x9x peripheral set with
+    the enhanced i8xc196 instruction set (bmov, cmpl, djnzw, popa, pusha).
 
     Memory banking
     ==============
@@ -97,7 +94,7 @@ public:
 		: driver_device(mconfig, type, tag)
 		, m_maincpu(*this, "maincpu")
 		, m_rom(*this, "maincpu")
-		, m_ram(*this, "ram", 512 * 1024, ENDIANNESS_LITTLE)
+		, m_ram(*this, "ram", 512 * 1024 / 2, ENDIANNESS_LITTLE)
 		, m_view0(*this, "view0")
 		, m_view1(*this, "view1")
 		, m_view2(*this, "view2")
@@ -165,9 +162,9 @@ private:
 	void midi_in_w(int state);
 	TIMER_DEVICE_CALLBACK_MEMBER(midi_timer_cb);
 
-	required_device<i8x9x_device> m_maincpu;
-	required_region_ptr<u8> m_rom;
-	memory_share_creator<u8> m_ram;
+	required_device<i80c196_device> m_maincpu;
+	required_region_ptr<u16> m_rom;
+	memory_share_creator<u16> m_ram;
 
 	memory_view m_view0;   // 0x0000-0x3FFF
 	memory_view m_view1;   // 0x4000-0x7FFF
@@ -218,21 +215,58 @@ void roland_mv30_state::mem_map(address_map &map)
 	// Note: 0x0000-0x00FF is the CPU internal register file and takes
 	// priority over external memory for data access.  Instruction fetch
 	// at those addresses goes to external memory (ROM/RAM).
+	//
+	// RAM view entries use lambdas that read m_bank_reg[] dynamically,
+	// so changing the bank register is enough — no install_ram needed.
 
 	map(0x0000, 0x3fff).view(m_view0);
 	m_view0[0](0x0000, 0x3fff).rom().region("maincpu", 0);          // ROM (boot)
-	m_view0[1](0x0000, 0x3fff).ram().share("ram");                   // RAM page 0
+	m_view0[1](0x0000, 0x3fff).lrw16(                               // banked RAM
+		NAME([this](offs_t offset) -> u16 {
+			u32 idx = (u32(m_bank_reg[4]) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		}),
+		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
+			u32 idx = (u32(m_bank_reg[4]) << (PAGE_SHIFT - 1)) + offset;
+			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+		})
+	);
 
 	map(0x4000, 0x7fff).view(m_view1);
-	m_view1[0](0x4000, 0x7fff).ram().share("ram");                   // placeholder
-	m_view1[1](0x4000, 0x7fff).ram().share("ram");                   // placeholder
+	m_view1[0](0x4000, 0x7fff).lrw16(                               // banked RAM
+		NAME([this](offs_t offset) -> u16 {
+			u32 idx = (u32(m_bank_reg[5]) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		}),
+		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
+			u32 idx = (u32(m_bank_reg[5]) << (PAGE_SHIFT - 1)) + offset;
+			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+		})
+	);
 
 	map(0x8000, 0xbfff).view(m_view2);
-	m_view2[0](0x8000, 0xbfff).ram().share("ram");                   // placeholder
-	m_view2[1](0x8000, 0xbfff).ram().share("ram");                   // placeholder
+	m_view2[0](0x8000, 0xbfff).lrw16(                               // banked RAM
+		NAME([this](offs_t offset) -> u16 {
+			u32 idx = (u32(m_bank_reg[6]) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		}),
+		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
+			u32 idx = (u32(m_bank_reg[6]) << (PAGE_SHIFT - 1)) + offset;
+			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+		})
+	);
 
 	map(0xc000, 0xffff).view(m_view3);
-	m_view3[0](0xc000, 0xffff).ram().share("ram");                   // RAM (when banked to RAM)
+	m_view3[0](0xc000, 0xffff).lrw16(                               // banked RAM
+		NAME([this](offs_t offset) -> u16 {
+			u32 idx = (u32(m_bank_reg[7]) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		}),
+		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
+			u32 idx = (u32(m_bank_reg[7]) << (PAGE_SHIFT - 1)) + offset;
+			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+		})
+	);
 	// I/O view: devices mapped 0x800 apart
 	m_view3[1](0xc000, 0xc7ff).rw(FUNC(roland_mv30_state::rcc_r), FUNC(roland_mv30_state::rcc_w));
 	m_view3[1](0xc800, 0xc801).rw(FUNC(roland_mv30_state::keyscan_r), FUNC(roland_mv30_state::keyscan_w));
@@ -275,7 +309,7 @@ void roland_mv30_state::machine_reset()
 	//   Execute 0000-3FFF = ROM,  Data 0000-3FFF = RAM page 0
 	//   Data 4000-7FFF = RAM page 0x010
 	//   Data 8000-BFFF = RAM page 0x020
-	//   Data C000-FFFF = RAM page 0x030 (boot code writes 0x474 to switch to I/O)
+	//   Data C000-FFFF = I/O (page 0x474, default power-on state)
 
 	m_bank_reg[0] = ROM_PAGE;    // execute 0x0000-0x3FFF -> ROM
 	m_bank_reg[1] = 0;           // execute 0x4000-0x7FFF -> unknown
@@ -284,7 +318,7 @@ void roland_mv30_state::machine_reset()
 	m_bank_reg[4] = 0x000;       // data 0x0000-0x3FFF -> RAM offset 0
 	m_bank_reg[5] = 0x010;       // data 0x4000-0x7FFF -> RAM offset 0x4000
 	m_bank_reg[6] = 0x020;       // data 0x8000-0xBFFF -> RAM offset 0x8000
-	m_bank_reg[7] = 0x030;       // data 0xC000-0xFFFF -> RAM offset 0xC000
+	m_bank_reg[7] = IO_PAGE;     // data 0xC000-0xFFFF -> I/O (power-on default)
 
 	m_keyscan_select = 0;
 	m_port1_out = 0;
@@ -299,8 +333,8 @@ void roland_mv30_state::machine_reset()
 	m_view0.select(0);
 	m_view1.select(0);
 	m_view2.select(0);
-	// Window 3 starts as RAM; firmware writes 0x474 to 0x10E to switch to I/O
-	m_view3.select(0);
+	// Window 3 starts in I/O mode (firmware confirms with 0x474 write later)
+	m_view3.select(1);
 }
 
 
@@ -340,50 +374,22 @@ void roland_mv30_state::bank_w(offs_t offset, u16 data, u16 mem_mask)
 void roland_mv30_state::update_data_bank(int window)
 {
 	u16 page = m_bank_reg[4 + window];
-	u32 phys = u32(page) << PAGE_SHIFT;
 
 	// Window 3: check for I/O mapping
-	// Page value 0x474 selects the I/O region (set by boot code early on)
 	if (window == 3 && page == IO_PAGE)
 	{
 		m_view3.select(1);   // I/O view
 		return;
 	}
 
-	// Check if this page maps to RAM
-	if (phys < RAM_SIZE)
+	// Select the RAM view — the lambda reads m_bank_reg[] dynamically,
+	// so just switching the view entry is sufficient.
+	switch (window)
 	{
-		u16 base = window * WINDOW_SIZE;
-		memory_view *view = nullptr;
-		switch (window)
-		{
-		case 0: view = &m_view0; break;
-		case 1: view = &m_view1; break;
-		case 2: view = &m_view2; break;
-		case 3: view = &m_view3; break;
-		}
-
-		if (view)
-		{
-			// Switch to RAM view (view 0 for windows 1-3, view 1 for window 0)
-			if (window == 0)
-				view->select(1);
-			else
-				view->select(0);
-
-			// Install RAM at the correct physical offset via direct pointer
-			m_maincpu->space(AS_PROGRAM).install_ram(base, base + WINDOW_SIZE - 1, &m_ram[phys]);
-		}
-	}
-	else if (page == ROM_PAGE && window == 0)
-	{
-		// ROM in window 0
-		m_view0.select(0);
-	}
-	else
-	{
-		logerror("update_data_bank: window %d mapped to unhandled physical page %03x (addr %06x)\n",
-			window, page, phys);
+	case 0: m_view0.select(1); break;   // view 1 = RAM (view 0 = ROM)
+	case 1: m_view1.select(0); break;
+	case 2: m_view2.select(0); break;
+	case 3: m_view3.select(0); break;   // view 0 = RAM (view 1 = I/O)
 	}
 }
 
@@ -437,7 +443,7 @@ u8 roland_mv30_state::keyscan_r(offs_t offset)
 	{
 		logerror("keyscan_r: unexpected read at offset %x\n", offset);
 	}
-	return 0xff;
+	return 0x00;
 }
 
 // E000-E003: FSK gate array - MN53015RRA (tape sync)
@@ -575,84 +581,84 @@ TIMER_DEVICE_CALLBACK_MEMBER(roland_mv30_state::midi_timer_cb)
 
 static INPUT_PORTS_START(mv30)
 	PORT_START("SC0")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("PTN EDIT")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_UNUSED)
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Up") PORT_CODE(KEYCODE_UP)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Enter") PORT_CODE(KEYCODE_ENTER)
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("CTRL")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("0") PORT_CODE(KEYCODE_0)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("1/9") PORT_CODE(KEYCODE_1)
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("JUMP")
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("PTN EDIT")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_UNUSED)
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Up") PORT_CODE(KEYCODE_UP)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Enter") PORT_CODE(KEYCODE_ENTER)
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("CTRL")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("0") PORT_CODE(KEYCODE_0)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("1/9") PORT_CODE(KEYCODE_1)
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("JUMP")
 
 	PORT_START("SC1")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("TRK EDIT")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_UNUSED)
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Left") PORT_CODE(KEYCODE_LEFT)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("3") PORT_CODE(KEYCODE_3)
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("COMPU")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("2") PORT_CODE(KEYCODE_2)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("2/10")
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("F1") PORT_CODE(KEYCODE_F1)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("TRK EDIT")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_UNUSED)
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Left") PORT_CODE(KEYCODE_LEFT)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("3") PORT_CODE(KEYCODE_3)
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("COMPU")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("2") PORT_CODE(KEYCODE_2)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("2/10")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("F1") PORT_CODE(KEYCODE_F1)
 
 	PORT_START("SC2")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("SYSTEM")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_UNUSED)
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Right") PORT_CODE(KEYCODE_RIGHT)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("6") PORT_CODE(KEYCODE_6)
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("MANUAL")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("5") PORT_CODE(KEYCODE_5)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("3/11")
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("F2") PORT_CODE(KEYCODE_F2)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("SYSTEM")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_UNUSED)
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Right") PORT_CODE(KEYCODE_RIGHT)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("6") PORT_CODE(KEYCODE_6)
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("MANUAL")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("5") PORT_CODE(KEYCODE_5)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("3/11")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("F2") PORT_CODE(KEYCODE_F2)
 
 	PORT_START("SC3")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("DISK")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_UNUSED)
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Down") PORT_CODE(KEYCODE_DOWN)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("9") PORT_CODE(KEYCODE_9)
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("SONG SELECT")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("8") PORT_CODE(KEYCODE_8)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("4/12")
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("F3") PORT_CODE(KEYCODE_F3)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("DISK")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_UNUSED)
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Down") PORT_CODE(KEYCODE_DOWN)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("9") PORT_CODE(KEYCODE_9)
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("SONG SELECT")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("8") PORT_CODE(KEYCODE_8)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("4/12")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("F3") PORT_CODE(KEYCODE_F3)
 
 	PORT_START("SC4")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("PTN MICROSCOPE")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("PTN REALTIME")
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("INS") PORT_CODE(KEYCODE_INSERT)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("REC")
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("STATUS")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("1") PORT_CODE(KEYCODE_1)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("5/13")
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("F4") PORT_CODE(KEYCODE_F4)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("PTN MICROSCOPE")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("PTN REALTIME")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("INS") PORT_CODE(KEYCODE_INSERT)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("REC")
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("STATUS")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("1") PORT_CODE(KEYCODE_1)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("5/13")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("F4") PORT_CODE(KEYCODE_F4)
 
 	PORT_START("SC5")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("TRK MICROSCOPE")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("TRK REALTIME")
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("DEL") PORT_CODE(KEYCODE_DEL)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Rewind")
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("LOCATE")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("4") PORT_CODE(KEYCODE_4)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("6/14")
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("F5") PORT_CODE(KEYCODE_F5)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("TRK MICROSCOPE")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("TRK REALTIME")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("DEL") PORT_CODE(KEYCODE_DEL)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Rewind")
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("LOCATE")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("4") PORT_CODE(KEYCODE_4)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("6/14")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("F5") PORT_CODE(KEYCODE_F5)
 
 	PORT_START("SC6")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("TIMBRE EDIT")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("COMPU MIX")
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_UNUSED)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Play/Stop")
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("MARK")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("7") PORT_CODE(KEYCODE_7)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("7/15")
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("EXIT") PORT_CODE(KEYCODE_BACKSPACE)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("TIMBRE EDIT")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("COMPU MIX")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_UNUSED)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Play/Stop")
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("MARK")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("7") PORT_CODE(KEYCODE_7)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("7/15")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("EXIT") PORT_CODE(KEYCODE_BACKSPACE)
 
 	PORT_START("SC7")
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("CHAIN PLAY")
-	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("PLAY")
-	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_UNUSED)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Fast Forward")
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("TEMPO")
-	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("SHIFT") PORT_CODE(KEYCODE_LSHIFT)
-	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("8/16")
-	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_UNUSED)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("CHAIN PLAY")
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("PLAY")
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_UNUSED)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("Fast Forward")
+	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("TEMPO")
+	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("SHIFT") PORT_CODE(KEYCODE_LSHIFT)
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("8/16")
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_UNUSED)
 
 	PORT_START("SL0")
 	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 1/9") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
@@ -691,8 +697,8 @@ static void mv30_floppies(device_slot_interface &device)
 
 void roland_mv30_state::mv30(machine_config &config)
 {
-	// CPU: 80C196KB-12 (using N8097BH as stand-in, both 16-bit MCS-96)
-	N8097BH(config, m_maincpu, 12_MHz_XTAL);
+	// CPU: Intel 80C196KB-12
+	C80C196KB(config, m_maincpu, 12_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_mv30_state::mem_map);
 	m_maincpu->serial_tx_cb().set("mdout", FUNC(midi_port_device::write_txd));
 	m_maincpu->ach0_cb().set(FUNC(roland_mv30_state::ach0_r));
@@ -744,13 +750,20 @@ void roland_mv30_state::mv30(machine_config &config)
 
 ROM_START(mv30)
 	ROM_REGION16_LE(0x4000, "maincpu", 0)
-	ROM_LOAD("mv30rom103.bin", 0x0000, 0x4000, CRC(001e3ded) SHA1(dc09c839c774e8190c0dbfaa3f2fce3049be735e))
+	ROM_LOAD("mv30rom103.bin", 0x0000, 0x4000, CRC(15CC9474) SHA1(dc09c839c774e8190c0dbfaa3f2fce3049be735e))
 
 	ROM_REGION(0x400, "lcd:cgrom", 0)
-	ROM_LOAD("t6963c_0101.bin", 0x000, 0x400, CRC(547d118b) SHA1(accb5570228a7a5b4a1f9c70e89dcc14e5d3a4a1))
+	ROM_LOAD("t6963c_0101.bin", 0x000, 0x400, CRC(547d118b) SHA1(0DD3E3ACD3D47E6ECE644C98C390FC86587373E9))
 
-	ROM_REGION(0x800000, "pcm:waverom", 0)
-	ROM_LOAD("roland_mv30_waverom.bin", 0x000000, 0x800000, NO_DUMP)   // TODO: actual wave ROM
+    ROM_REGION(0x600000, "pcmorg", 0) // ROMs before descrambling
+	ROM_LOAD("roland_d70_waverom-a.bin", 0x000000, 0x80000, CRC(8e53b2a3) SHA1(4872530870d5079776e80e477febe425dc0ec1df))
+	ROM_LOAD("roland_d70_waverom-e.bin", 0x080000, 0x80000, CRC(d46cc7a4) SHA1(d378ac89a5963e37f7c157b3c8e71892c334fd7b))
+	ROM_LOAD("roland_d70_waverom-b.bin", 0x100000, 0x80000, CRC(c8220761) SHA1(49e55fa672020f95fd9c858ceaae94d6db93df7d))
+	ROM_LOAD("roland_d70_waverom-f.bin", 0x180000, 0x80000, CRC(d4b01f5e) SHA1(acd867d68e49e5f59f1006ed14a7ca197b6dc4af))
+	ROM_LOAD("roland_d70_waverom-c.bin", 0x200000, 0x80000, CRC(733c4054) SHA1(9b6b59ab74e5bf838702abb087c408aaa85b7b1f))
+	ROM_LOAD("roland_d70_waverom-d.bin", 0x300000, 0x80000, CRC(b6c662d2) SHA1(3fcbcfd0d8d0fa419c710304c12482e2f79a907f))
+	ROM_REGION(0x600000, "pcm", ROMREGION_ERASEFF) // ROMs after descrambling
+
 ROM_END
 
 } // anonymous namespace
