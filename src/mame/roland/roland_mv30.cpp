@@ -103,6 +103,8 @@ public:
 		, m_view2(*this, "view2")
 		, m_view3(*this, "view3")
 		, m_keys(*this, "SC%u", 0)
+		, m_sliders(*this, "SL%u", 0)
+		, m_encoder(*this, "ENCODER")
 		, m_fdc(*this, "fdc")
 		, m_floppy(*this, "fdc:0")
 		, m_pcm(*this, "pcm")
@@ -148,6 +150,16 @@ private:
 	u8 fsk_r(offs_t offset);
 	void fsk_w(offs_t offset, u8 data);
 
+	// CPU port I/O
+	u16 ach0_r();
+	u16 ach5_r();
+	u16 ach6_r();
+	void hso_w(offs_t offset, u8 data, u8 mem_mask);
+	u8 port1_r();
+	void port1_w(u8 data);
+	u8 port2_r();
+	void port2_w(u8 data);
+
 	// MIDI
 	void midi_in_w(int state);
 	TIMER_DEVICE_CALLBACK_MEMBER(midi_timer_cb);
@@ -164,6 +176,8 @@ private:
 	u16 m_bank_reg[8];     // 0x100-0x10E: execute[0..3], data[4..7]
 
 	required_ioport_array<8> m_keys;
+	required_ioport_array<8> m_sliders;
+	required_ioport m_encoder;
 
 	// I/O devices
 	required_device<upd72067_device> m_fdc;
@@ -174,6 +188,14 @@ private:
 
 	// Key scan state
 	u8 m_keyscan_select;
+
+	// Slider mux state
+	u8 m_port1_out;
+
+	// Rotary encoder state
+	u8 m_encoder_last;     // last read encoder value (to detect direction)
+	bool m_encoder_moved;  // Latch 2 output: set on encoder step, cleared by HSO2
+	bool m_encoder_dir;    // Latch 1 output: direction of last step
 
 	// MIDI bit-bang state
 	std::queue<u8> m_midi_queue;
@@ -237,6 +259,10 @@ void roland_mv30_state::machine_start()
 {
 	save_item(NAME(m_bank_reg));
 	save_item(NAME(m_keyscan_select));
+	save_item(NAME(m_port1_out));
+	save_item(NAME(m_encoder_last));
+	save_item(NAME(m_encoder_moved));
+	save_item(NAME(m_encoder_dir));
 	save_item(NAME(m_midi_rx));
 	save_item(NAME(m_midi_pos));
 }
@@ -260,6 +286,10 @@ void roland_mv30_state::machine_reset()
 	m_bank_reg[7] = 0;           // data 0xC000-0xFFFF -> I/O (special)
 
 	m_keyscan_select = 0;
+	m_port1_out = 0;
+	m_encoder_last = 0;
+	m_encoder_moved = false;
+	m_encoder_dir = false;
 	m_midi_rx = 0;
 	m_midi_pos = 0;
 	std::queue<u8>().swap(m_midi_queue);
@@ -421,6 +451,96 @@ void roland_mv30_state::fsk_w(offs_t offset, u8 data)
 	logerror("fsk_w: offset %x = %02x\n", offset, data);
 }
 
+//
+// CPU port handlers
+//
+
+// ACH0 (P00): analog slider input via 8-way mux selected by P10-P12
+u16 roland_mv30_state::ach0_r()
+{
+	u8 mux = m_port1_out & 0x07;       // P10-P12 = mux select
+	bool inhibit = BIT(m_port1_out, 3); // P13 = mux inhibit
+	if (inhibit)
+		return 0x80;  // mux disabled, return midpoint
+	return m_sliders[mux]->read();
+}
+
+// ACH5 (P05): encoder direction latch
+//   Returns high (0xFF) or low (0x00) depending on rotation direction.
+u16 roland_mv30_state::ach5_r()
+{
+	// Check if encoder has moved since last read
+	u8 cur = m_encoder->read();
+	if (cur != m_encoder_last)
+	{
+		// Determine direction from delta (IPT_DIAL wraps, so signed compare)
+		s8 delta = s8(cur - m_encoder_last);
+		m_encoder_dir = (delta > 0);  // true = clockwise
+		m_encoder_moved = true;
+		m_encoder_last = cur;
+	}
+	return m_encoder_dir ? 0xff : 0x00;
+}
+
+// ACH6 (P06): encoder "moved" flag latch
+//   Set high on any encoder step, cleared by HSO2 reset.
+u16 roland_mv30_state::ach6_r()
+{
+	// Sample the encoder to update state
+	ach5_r();
+	return m_encoder_moved ? 0xff : 0x00;
+}
+
+// HSO callback: HSO2 (bit 2) resets the encoder "moved" latch
+void roland_mv30_state::hso_w(offs_t offset, u8 data, u8 mem_mask)
+{
+	if (BIT(mem_mask, 2))
+	{
+		if (BIT(data, 2))
+			m_encoder_moved = false;   // HSO2 high = reset latch
+	}
+}
+
+// Port 1 read: directly read back the last written value
+u8 roland_mv30_state::port1_r()
+{
+	return m_port1_out;
+}
+
+// Port 1 write: P10-P12 = slider mux select, P13 = mux inhibit
+void roland_mv30_state::port1_w(u8 data)
+{
+	m_port1_out = data;
+}
+
+// Port 2 read: floppy status signals
+//   P23 = /READY, P24 = /DSKCHG
+u8 roland_mv30_state::port2_r()
+{
+	u8 val = 0xff;
+	floppy_image_device *floppy = m_floppy ? m_floppy->get_device() : nullptr;
+	if (floppy)
+	{
+		if (!floppy->ready_r())  // ready_r() returns false when ready (active low)
+			val &= ~(1 << 3);   // P23 = /READY asserted (low)
+		if (!floppy->dskchg_r())
+			val &= ~(1 << 4);   // P24 = /DSKCHG asserted (low)
+	}
+	return val;
+}
+
+// Port 2 write: FDC terminal count and drive select
+//   P25 = TC (to FDC), P26 = /DRVSEL (active low)
+void roland_mv30_state::port2_w(u8 data)
+{
+	m_fdc->tc_w(BIT(data, 5));    // P25 → FDC TC
+
+	floppy_image_device *floppy = m_floppy ? m_floppy->get_device() : nullptr;
+	if (floppy)
+		floppy->mon_w(BIT(data, 6));  // P26 → /DRVSEL (motor on when low)
+}
+
+
 // MIDI IN bit-bang receiver
 void roland_mv30_state::midi_in_w(int state)
 {
@@ -532,6 +652,33 @@ static INPUT_PORTS_START(mv30)
 	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("SHIFT") PORT_CODE(KEYCODE_LSHIFT)
 	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("8/16")
 	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("SL0")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 1/9") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("SL1")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 2/10") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("SL2")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 3/11") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("SL3")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 4/12") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("SL4")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 5/13") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("SL5")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 6/14") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("SL6")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 7/15") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("SL7")
+	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 8/16") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
+
+	PORT_START("ENCODER")
+	PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_NAME("Data Dial") PORT_SENSITIVITY(25) PORT_KEYDELTA(1) PORT_CODE_DEC(KEYCODE_Z) PORT_CODE_INC(KEYCODE_X)
 INPUT_PORTS_END
 
 
@@ -547,6 +694,14 @@ void roland_mv30_state::mv30(machine_config &config)
 	N8097BH(config, m_maincpu, 12_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_mv30_state::mem_map);
 	m_maincpu->serial_tx_cb().set("mdout", FUNC(midi_port_device::write_txd));
+	m_maincpu->ach0_cb().set(FUNC(roland_mv30_state::ach0_r));
+	m_maincpu->ach5_cb().set(FUNC(roland_mv30_state::ach5_r));
+	m_maincpu->ach6_cb().set(FUNC(roland_mv30_state::ach6_r));
+	m_maincpu->hso_cb().set(FUNC(roland_mv30_state::hso_w));
+	m_maincpu->in_p1_cb().set(FUNC(roland_mv30_state::port1_r));
+	m_maincpu->out_p1_cb().set(FUNC(roland_mv30_state::port1_w));
+	m_maincpu->in_p2_cb().set(FUNC(roland_mv30_state::port2_r));
+	m_maincpu->out_p2_cb().set(FUNC(roland_mv30_state::port2_w));
 
 	// FDC: NEC uPD72068GF-389 (using uPD72067 as closest available stand-in)
 	UPD72067(config, m_fdc, 32_MHz_XTAL);
