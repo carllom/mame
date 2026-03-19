@@ -40503,6 +40503,9 @@ mc300
 mc50
 mc50mk2
 
+@source:roland/roland_mv30.cpp
+mv30
+
 @source:roland/roland_mt32.cpp
 cm32l
 mt100
