@@ -73,14 +73,19 @@
 
 #include "emu.h"
 #include "cpu/mcs96/i8x9x.h"
+#include "bus/midi/midiinport.h"
+#include "bus/midi/midioutport.h"
 #include "imagedev/floppy.h"
 #include "machine/upd765.h"
+#include "machine/timer.h"
 #include "sound/roland_lp.h"
 #include "video/t6963c.h"
 
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
+
+#include <queue>
 
 
 namespace {
@@ -102,6 +107,7 @@ public:
 		, m_floppy(*this, "fdc:0")
 		, m_pcm(*this, "pcm")
 		, m_lcd(*this, "lcd")
+		, m_midi_timer(*this, "midi_timer")
 	{
 	}
 
@@ -142,6 +148,10 @@ private:
 	u8 fsk_r(offs_t offset);
 	void fsk_w(offs_t offset, u8 data);
 
+	// MIDI
+	void midi_in_w(int state);
+	TIMER_DEVICE_CALLBACK_MEMBER(midi_timer_cb);
+
 	required_device<i8x9x_device> m_maincpu;
 	required_region_ptr<u8> m_rom;
 	memory_share_creator<u8> m_ram;
@@ -160,9 +170,15 @@ private:
 	optional_device<floppy_connector> m_floppy;
 	required_device<mb87419_mb87420_device> m_pcm;
 	required_device<t6963c_device> m_lcd;
+	required_device<timer_device> m_midi_timer;
 
 	// Key scan state
 	u8 m_keyscan_select;
+
+	// MIDI bit-bang state
+	std::queue<u8> m_midi_queue;
+	u8 m_midi_rx;
+	int m_midi_pos;
 };
 
 
@@ -221,6 +237,8 @@ void roland_mv30_state::machine_start()
 {
 	save_item(NAME(m_bank_reg));
 	save_item(NAME(m_keyscan_select));
+	save_item(NAME(m_midi_rx));
+	save_item(NAME(m_midi_pos));
 }
 
 
@@ -242,6 +260,9 @@ void roland_mv30_state::machine_reset()
 	m_bank_reg[7] = 0;           // data 0xC000-0xFFFF -> I/O (special)
 
 	m_keyscan_select = 0;
+	m_midi_rx = 0;
+	m_midi_pos = 0;
+	std::queue<u8>().swap(m_midi_queue);
 
 	// Window 0 starts showing ROM for instruction fetch at reset
 	m_view0.select(0);
@@ -400,6 +421,36 @@ void roland_mv30_state::fsk_w(offs_t offset, u8 data)
 	logerror("fsk_w: offset %x = %02x\n", offset, data);
 }
 
+// MIDI IN bit-bang receiver
+void roland_mv30_state::midi_in_w(int state)
+{
+	if (m_midi_pos == 0 || m_midi_pos == 9)
+	{
+		m_midi_pos += 1;
+	}
+	else if (m_midi_pos == 10)
+	{
+		m_midi_queue.push(m_midi_rx);
+		m_midi_rx = 0;
+		m_midi_pos = 0;
+	}
+	else
+	{
+		m_midi_rx |= state << (m_midi_pos - 1);
+		m_midi_pos += 1;
+	}
+}
+
+TIMER_DEVICE_CALLBACK_MEMBER(roland_mv30_state::midi_timer_cb)
+{
+	if (m_midi_queue.empty())
+		return;
+
+	u8 midi = m_midi_queue.front();
+	m_midi_queue.pop();
+	m_maincpu->serial_w(midi);
+}
+
 
 static INPUT_PORTS_START(mv30)
 	PORT_START("SC0")
@@ -495,9 +546,10 @@ void roland_mv30_state::mv30(machine_config &config)
 	// CPU: 80C196KB-12 (using N8097BH as stand-in, both 16-bit MCS-96)
 	N8097BH(config, m_maincpu, 12_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_mv30_state::mem_map);
+	m_maincpu->serial_tx_cb().set("mdout", FUNC(midi_port_device::write_txd));
 
 	// FDC: NEC uPD72068GF-389 (using uPD72067 as closest available stand-in)
-	UPD72067(config, m_fdc, 16_MHz_XTAL);
+	UPD72067(config, m_fdc, 32_MHz_XTAL);
 	m_fdc->intrq_wr_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
 	FLOPPY_CONNECTOR(config, m_floppy, mv30_floppies, "35dd", floppy_image_device::default_mfm_floppy_formats);
 
@@ -521,6 +573,16 @@ void roland_mv30_state::mv30(machine_config &config)
 	screen.set_palette("palette");
 
 	PALETTE(config, "palette", FUNC(roland_mv30_state::lcd_palette), 2);
+
+	// MIDI
+	TIMER(config, m_midi_timer).configure_periodic(FUNC(roland_mv30_state::midi_timer_cb), attotime::from_hz(1250));
+
+	midi_port_device &mdin(MIDI_PORT(config, "mdin", midiin_slot, "midiin"));
+	mdin.rxd_handler().set(FUNC(roland_mv30_state::midi_in_w));
+	mdin.rxd_handler().append("mdthru", FUNC(midi_port_device::write_txd));
+
+	MIDI_PORT(config, "mdout", midiout_slot, "midiout");
+	MIDI_PORT(config, "mdthru", midiout_slot, "midiout");
 }
 
 
