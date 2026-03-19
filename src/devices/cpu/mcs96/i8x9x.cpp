@@ -11,6 +11,7 @@
 #include "emu.h"
 #include "i8x9x.h"
 #include "i8x9xd.h"
+#include "i8xc196d.h"
 
 i8x9x_device::i8x9x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width) :
 	mcs96_device(mconfig, type, tag, owner, clock, data_width, address_map_constructor(FUNC(i8x9x_device::internal_regs), this)),
@@ -579,9 +580,110 @@ p8798_device::p8798_device(const machine_config &mconfig, const char *tag, devic
 {
 }
 
+// i80c196 combined class implementation
+
+i80c196_device::i80c196_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width) :
+	i8x9x_device(mconfig, type, tag, owner, clock, data_width)
+{
+}
+
+std::unique_ptr<util::disasm_interface> i80c196_device::create_disassembler()
+{
+	// Use the i8xc196 disassembler for correct 196-enhanced mnemonics
+	return std::make_unique<i8xc196_disassembler>();
+}
+
+void i80c196_device::bmov_direct_2w_full()
+{
+	OP1 = read_pc();
+	OP2 = read_pc();
+	// TODO: block move not yet implemented
+	next(4);
+}
+
+void i80c196_device::bmovi_direct_2w_full()
+{
+	OP1 = read_pc();
+	OP2 = read_pc();
+	// TODO: block move interruptible not yet implemented
+	next(4);
+}
+
+void i80c196_device::cmpl_direct_2w_full()
+{
+	OP1 = read_pc();
+	OP2 = read_pc();
+	// TODO: compare long not yet implemented
+	next(4);
+}
+
+void i80c196_device::djnzw_wrrel8_full()
+{
+	OP2 = read_pc();
+	OP1 = int8_t(read_pc());
+	TMP = reg_r16(OP2);
+	TMP = TMP - 1;
+	reg_w16(OP2, TMP);
+	if(TMP) {
+		PC += OP1;
+		next(10);
+	} else {
+		next(6);
+	}
+}
+
+void i80c196_device::pusha_none_full()
+{
+	// TODO: push all not yet implemented
+	next(4);
+}
+
+void i80c196_device::popa_none_full()
+{
+	// TODO: pop all not yet implemented
+	next(4);
+}
+
+void i80c196_device::idlpd_none_full()
+{
+	// TODO: idle/powerdown not yet implemented
+	next(4);
+}
+
+void i80c196_device::do_exec_full()
+{
+	switch(inst_state) {
+	case 0x0c1: bmov_direct_2w_full(); break;
+	case 0x0c5: cmpl_direct_2w_full(); break;
+	case 0x0cd: bmovi_direct_2w_full(); break;
+	case 0x0e1: djnzw_wrrel8_full(); break;
+	case 0x0f4: pusha_none_full(); break;
+	case 0x0f5: popa_none_full(); break;
+	case 0x0f6: idlpd_none_full(); break;
+	case 0x1c1: bmov_direct_2w_full(); break;
+	case 0x1c5: cmpl_direct_2w_full(); break;
+	case 0x1cd: bmovi_direct_2w_full(); break;
+	case 0x1e1: djnzw_wrrel8_full(); break;
+	case 0x1f4: pusha_none_full(); break;
+	case 0x1f5: popa_none_full(); break;
+	case 0x1f6: idlpd_none_full(); break;
+	default: i8x9x_device::do_exec_full(); break;
+	}
+}
+
+void i80c196_device::do_exec_partial()
+{
+}
+
+c80c196kb_device::c80c196kb_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock) :
+	i80c196_device(mconfig, C80C196KB, tag, owner, clock, 16)
+{
+}
+
 DEFINE_DEVICE_TYPE(C8095_90, c8095_90_device, "c8095_90", "Intel C8095-90")
 DEFINE_DEVICE_TYPE(N8097BH, n8097bh_device, "n8097bh", "Intel N8097BH")
 DEFINE_DEVICE_TYPE(P8098, p8098_device, "p8098", "Intel P8098")
 DEFINE_DEVICE_TYPE(P8798, p8798_device, "p8798", "Intel P8798")
+DEFINE_DEVICE_TYPE(C80C196KB, c80c196kb_device, "c80c196kb", "Intel 80C196KB")
 
 #include "cpu/mcs96/i8x9x.hxx"

@@ -201,9 +201,36 @@ protected:
 	virtual u8 i8x9x_p2_mask() const noexcept override { return 0x27; }
 };
 
+// Combined 80C196 class: i8x9x peripherals + enhanced 196 instruction set.
+// The real 80C196 extends the 8x9x with extra opcodes (pusha, popa, bmov,
+// cmpl, djnzw, etc.) while retaining the full peripheral set.
+class i80c196_device : public i8x9x_device {
+protected:
+	i80c196_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width);
+
+	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
+	virtual void do_exec_full() override;
+	virtual void do_exec_partial() override;
+
+private:
+	void bmov_direct_2w_full();
+	void bmovi_direct_2w_full();
+	void cmpl_direct_2w_full();
+	void djnzw_wrrel8_full();
+	void pusha_none_full();
+	void popa_none_full();
+	void idlpd_none_full();
+};
+
+class c80c196kb_device : public i80c196_device {
+public:
+	c80c196kb_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
+};
+
 DECLARE_DEVICE_TYPE(C8095_90, c8095_90_device)
 DECLARE_DEVICE_TYPE(N8097BH, n8097bh_device)
 DECLARE_DEVICE_TYPE(P8098, p8098_device)
 DECLARE_DEVICE_TYPE(P8798, p8798_device)
+DECLARE_DEVICE_TYPE(C80C196KB, c80c196kb_device)
 
 #endif // MAME_CPU_MCS96_I8X9X_H
