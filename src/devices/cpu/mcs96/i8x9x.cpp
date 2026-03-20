@@ -644,6 +644,7 @@ u8 i80c196_device::int_mask1_r()
 
 void i80c196_device::int_mask1_w(u8 data)
 {
+	logerror("IMASK1 write: %02x (was %02x)\n", data, m_imask1);
 	m_imask1 = data;
 }
 
@@ -665,6 +666,8 @@ void i80c196_device::execute_set_input(int linenum, int state)
 		//   IOC1.1=0 -> external pin triggers EXTINT  (vector 0x200E, level 7)
 		//   IOC1.1=1 -> external pin triggers EXTINT1 (vector 0x203A, level 13)
 		if(!extint && state) {
+			logerror("EXTINT edge: ioc1=%02x, routing to %s\n",
+				ioc1, BIT(ioc1, 1) ? "EXTINT1" : "EXTINT");
 			if(BIT(ioc1, 1)) {
 				// EXTINT1 path: handled by fetch_196_full via m_extint1_pending
 				m_extint1_pending = true;
@@ -776,6 +779,10 @@ void i80c196_device::fetch_196_full()
 	// 80C196KB extended fetch: check EXTINT1 (INT13) first, then
 	// fall through to normal INT00-INT07 dispatch.
 	// EXTINT1 has higher priority than all INT00-INT07 interrupts.
+	if(m_extint1_pending) {
+		logerror("fetch_196: EXTINT1 pending, imask1=%02x PSW=%04x F_I=%d\n",
+			m_imask1, PSW, (PSW & F_I) ? 1 : 0);
+	}
 	if(m_extint1_pending && (m_imask1 & 0x20) && (PSW & F_I)) {
 		m_extint1_pending = false;
 		standard_irq_callback(13, PC);
@@ -784,6 +791,7 @@ void i80c196_device::fetch_196_full()
 		reg_w16(0x18, TMP);
 		any_w16(TMP, PC);
 		PC = any_r16(0x203a);
+		logerror("fetch_196: EXTINT1 dispatched to PC=%04x\n", PC);
 		check_irq();
 	} else if(irq_requested) {
 		// Normal INT00-INT07 dispatch (same as mcs96_device::fetch_full)

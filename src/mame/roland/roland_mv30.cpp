@@ -154,17 +154,19 @@ private:
 
 	// Gate array DMA controller (FDC <-> RAM)
 	void dma_drq_w(int state);
+	void bcc_dma_irq();
 
 	// BCC gate array interrupt controller
-	// The BCC multiplexes INT1 (KEY), INT2 (FDC), INT3 (FSK) onto the
+	// The BCC multiplexes KEY, FDC, FSK, and DMA-complete onto the
 	// CPU's EXTINT pin.  When the CPU fetches the EXTINT vector from
 	// the vector table the BCC intercepts the read and adds a device-
 	// specific offset to the base vector stored in ROM at 0x203A:
-	//   KEY +4, FDC +8, FSK +0x10
+	//   KEY +4, FDC +8, FSK +0xC, DMA +0x10
 	static constexpr offs_t BCC_BASE_VECTOR_ADDR = 0x203a;   // PTS EXTINT vector in ROM
 	static constexpr u16 BCC_KEY_OFFSET = 0x04;
 	static constexpr u16 BCC_FDC_OFFSET = 0x08;
-	static constexpr u16 BCC_FSK_OFFSET = 0x10;
+	static constexpr u16 BCC_FSK_OFFSET = 0x0c;
+	static constexpr u16 BCC_DMA_OFFSET = 0x10;
 	void bcc_fdc_irq_w(int state);
 
 	// CPU port I/O
@@ -225,11 +227,16 @@ private:
 	u16 m_dma_adr_hi;     // 0x11C: high bits of address (or control; purpose TBD)
 
 	// BCC interrupt controller state
-	u8 m_bcc_irq_source;  // Currently active BCC interrupt source (0=none)
+	u8 m_bcc_irq_source;   // Currently active BCC interrupt source (0=none)
+	u8 m_bcc_irq_pending;  // Bitmask of pending BCC sources
+	void bcc_update_extint();
+	void bcc_assert_source(u8 source);
+	void bcc_clear_source(u8 source);
 	static constexpr u8 BCC_NONE = 0;
 	static constexpr u8 BCC_KEY  = 1;
 	static constexpr u8 BCC_FDC  = 2;
 	static constexpr u8 BCC_FSK  = 3;
+	static constexpr u8 BCC_DMA  = 4;
 };
 
 
@@ -255,10 +262,13 @@ void roland_mv30_state::mem_map(address_map &map)
 
 	map(0x0000, 0x3fff).view(m_view0);
 	m_view0[0](0x0000, 0x3fff).rom().region("maincpu", 0);          // ROM (boot)
+	// BCC gate array registers visible through program space regardless of bank view.
+	m_view0[0](0x0100, 0x010f).rw(FUNC(roland_mv30_state::bank_r), FUNC(roland_mv30_state::bank_w));
+	m_view0[0](0x0118, 0x011d).rw(FUNC(roland_mv30_state::dma_reg_r), FUNC(roland_mv30_state::dma_reg_w));
 	// BCC gate array: intercept EXTINT1 vector fetch at 0x203A.
 	// The CPU's fetch_196_full() dispatches EXTINT1 by reading the
 	// vector at 0x203A.  The BCC adds a device-specific offset to
-	// the base vector (KEY +4, FDC +8, FSK +0x10).
+	// the base vector (KEY +4, FDC +8, FSK +0xC, DMA +0x10).
 	m_view0[0](0x203a, 0x203b).lr16(
 		NAME([this](offs_t offset) -> u16 {
 			if (m_bcc_irq_source != BCC_NONE)
@@ -270,6 +280,7 @@ void roland_mv30_state::mem_map(address_map &map)
 				case BCC_KEY: vec_offset = BCC_KEY_OFFSET; break;
 				case BCC_FDC: vec_offset = BCC_FDC_OFFSET; break;
 				case BCC_FSK: vec_offset = BCC_FSK_OFFSET; break;
+				case BCC_DMA: vec_offset = BCC_DMA_OFFSET; break;
 				}
 				return u16(base + vec_offset);
 			}
@@ -286,6 +297,8 @@ void roland_mv30_state::mem_map(address_map &map)
 			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
 		})
 	);
+	m_view0[1](0x0100, 0x010f).rw(FUNC(roland_mv30_state::bank_r), FUNC(roland_mv30_state::bank_w));
+	m_view0[1](0x0118, 0x011d).rw(FUNC(roland_mv30_state::dma_reg_r), FUNC(roland_mv30_state::dma_reg_w));
 
 	map(0x4000, 0x7fff).view(m_view1);
 	m_view1[0](0x4000, 0x7fff).lrw16(                               // banked RAM
@@ -359,6 +372,7 @@ void roland_mv30_state::machine_start()
 	save_item(NAME(m_dma_adr_lo));
 	save_item(NAME(m_dma_adr_hi));
 	save_item(NAME(m_bcc_irq_source));
+	save_item(NAME(m_bcc_irq_pending));
 }
 
 
@@ -392,6 +406,7 @@ void roland_mv30_state::machine_reset()
 	m_dma_adr_lo = 0;
 	m_dma_adr_hi = 0;
 	m_bcc_irq_source = BCC_NONE;
+	m_bcc_irq_pending = 0;
 
 	// Window 0 starts showing ROM for instruction fetch at reset
 	m_view0.select(0);
@@ -519,15 +534,10 @@ u8 roland_mv30_state::keyscan_r(offs_t offset)
 //   0x118: Transfer byte count – decremented per byte transferred.
 //          DMA is active while this is non-zero.
 //   0x11A: Low 16 bits of the physical RAM byte address (auto-incremented).
-//   0x11C: Written together with the others, exact meaning TBD.
-//          Treated as the upper address bits for now, giving a full
-//          physical address of (0x11C << 16) | 0x11A.
-//
-// Transfer direction (FDC→RAM vs RAM→FDC) is inferred from the FDC's
-// current command context.  In practice the MV-30 only reads floppies,
-// so FDC→RAM is the common path.  The direction is detected by checking
-// whether the FDC is asserting DRQ for a read or write; failing that,
-// we default to FDC→RAM.
+//   0x11C: Byte at 0x11C is the high address bits (bits 16+).
+//          Byte at 0x11D is a DMA control register (the firmware writes
+//          0x87 for FDC→RAM reads: bit 7 = enable, other bits TBD).
+//          Physical address = ((0x11C & 0xFF) << 16) | 0x11A.
 //
 
 u16 roland_mv30_state::dma_reg_r(offs_t offset, u16 mem_mask)
@@ -536,7 +546,11 @@ u16 roland_mv30_state::dma_reg_r(offs_t offset, u16 mem_mask)
 	{
 	case 0: return m_dma_count;
 	case 1: return m_dma_adr_lo;
-	case 2: return m_dma_adr_hi;
+	case 2:
+		// Reading 0x11D (high byte) acknowledges the DMA-complete interrupt.
+		if (mem_mask & 0xff00)
+			bcc_clear_source(BCC_DMA);
+		return m_dma_adr_hi;
 	}
 	return 0;
 }
@@ -569,29 +583,43 @@ void roland_mv30_state::dma_reg_w(offs_t offset, u16 data, u16 mem_mask)
 //
 void roland_mv30_state::dma_drq_w(int state)
 {
-	if (!state || m_dma_count == 0)
+	if (!state)
 		return;
 
-	while (m_fdc->get_drq() && m_dma_count > 0)
+	while (m_fdc->get_drq())
 	{
-		u32 phys = (u32(m_dma_adr_hi) << 16) | m_dma_adr_lo;
-
-		// FDC -> RAM (reading from floppy) — the common case
 		u8 byte = m_fdc->dma_r();
-		if (phys < RAM_SIZE)
-		{
-			u32 word_idx = phys >> 1;
-			if (phys & 1)
-				m_ram[word_idx] = (m_ram[word_idx] & 0x00ff) | (u16(byte) << 8);
-			else
-				m_ram[word_idx] = (m_ram[word_idx] & 0xff00) | byte;
-		}
 
-		// Increment address, decrement count
-		u32 next = phys + 1;
-		m_dma_adr_lo = u16(next);
-		m_dma_adr_hi = u16(next >> 16);
-		m_dma_count--;
+		if (m_dma_count > 0)
+		{
+			// Physical address: low byte of adr_hi provides bits 16+,
+			// high byte of adr_hi is a control register (0x87 = enable).
+			u32 phys = (u32(m_dma_adr_hi & 0xff) << 16) | m_dma_adr_lo;
+
+			// FDC -> RAM (reading from floppy)
+			if (phys < RAM_SIZE)
+			{
+				u32 word_idx = phys >> 1;
+				if (phys & 1)
+					m_ram[word_idx] = (m_ram[word_idx] & 0x00ff) | (u16(byte) << 8);
+				else
+					m_ram[word_idx] = (m_ram[word_idx] & 0xff00) | byte;
+			}
+
+			// Increment address, decrement count; preserve control byte
+			u32 next = phys + 1;
+			m_dma_adr_lo = u16(next);
+			m_dma_adr_hi = (m_dma_adr_hi & 0xff00) | u8(next >> 16);
+			m_dma_count--;
+
+			// When count reaches 0, the BCC gate array fires INT3
+			// (the "FSK" interrupt).  The firmware's FSK handler
+			// asserts TC to the FDC via PORT2 bit 5.
+			if (m_dma_count == 0)
+				bcc_dma_irq();
+		}
+		// After count reaches 0, keep consuming DRQ bytes (discard)
+		// to prevent FDC FIFO overrun while the FDC finishes.
 	}
 }
 
@@ -599,19 +627,74 @@ void roland_mv30_state::dma_drq_w(int state)
 //
 // BCC gate array interrupt controller
 //
-// Routes FDC (and later KEY / FSK) interrupts to the CPU EXTINT pin,
-// modifying the fetched vector to dispatch to the correct handler.
+// Routes FDC, KEY, FSK, and DMA-complete interrupts to the CPU EXTINT
+// pin, modifying the fetched vector to dispatch to the correct handler.
 //
+// The BCC latches pending IRQs.  When the current source is cleared
+// (acknowledged), any remaining pending source takes over.
+//
+
+void roland_mv30_state::bcc_update_extint()
+{
+	if (m_bcc_irq_source != BCC_NONE)
+		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, ASSERT_LINE);
+	else
+		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, CLEAR_LINE);
+}
+
+void roland_mv30_state::bcc_clear_source(u8 source)
+{
+	m_bcc_irq_pending &= ~(1 << source);
+	if (m_bcc_irq_source == source)
+	{
+		// Deassert EXTINT first so the next assert creates a rising edge
+		m_bcc_irq_source = BCC_NONE;
+		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, CLEAR_LINE);
+
+		// Promote next pending source (priority: DMA > FDC > FSK > KEY)
+		for (int i = BCC_DMA; i >= BCC_KEY; i--)
+		{
+			if (m_bcc_irq_pending & (1 << i))
+			{
+				m_bcc_irq_source = i;
+				break;
+			}
+		}
+	}
+	bcc_update_extint();
+}
+
+void roland_mv30_state::bcc_assert_source(u8 source)
+{
+	m_bcc_irq_pending |= (1 << source);
+	// Higher-numbered sources have higher priority
+	if (source >= m_bcc_irq_source)
+		m_bcc_irq_source = source;
+	bcc_update_extint();
+}
+
 void roland_mv30_state::bcc_fdc_irq_w(int state)
 {
-	logerror("BCC: FDC IRQ %s (source was %d)\n", state ? "ASSERT" : "DEASSERT", m_bcc_irq_source);
+	logerror("BCC: FDC IRQ %s (source=%d pending=%02x)\n",
+		state ? "ASSERT" : "DEASSERT", m_bcc_irq_source, m_bcc_irq_pending);
 
 	if (state)
-		m_bcc_irq_source = BCC_FDC;
-	else if (m_bcc_irq_source == BCC_FDC)
-		m_bcc_irq_source = BCC_NONE;
+		bcc_assert_source(BCC_FDC);
+	else
+		bcc_clear_source(BCC_FDC);
+}
 
-	m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, state);
+//
+// BCC gate array DMA-complete interrupt
+//
+// When the DMA transfer count reaches 0, the BCC fires an interrupt
+// routed via vector offset +0x10.  The firmware's handler asserts TC
+// to the FDC via PORT2 bit 5 and signals the main loop via R70 bit 4.
+//
+void roland_mv30_state::bcc_dma_irq()
+{
+	logerror("BCC: DMA complete IRQ\n");
+	bcc_assert_source(BCC_DMA);
 }
 
 
@@ -711,9 +794,11 @@ void roland_mv30_state::port2_w(u8 data)
 {
 	m_fdc->tc_w(BIT(data, 5));    // P25 → FDC TC
 
+	// P26 is drive select, active low.  The motor is controlled by the
+	// FDC's enable-motors aux command, not by this pin.
 	floppy_image_device *floppy = m_floppy ? m_floppy->get_device() : nullptr;
 	if (floppy)
-		floppy->mon_w(BIT(data, 6));  // P26 → /DRVSEL (motor on when low)
+		floppy->ds_w(BIT(data, 6) ? -1 : 0);  // P26 → /DRVSEL
 }
 
 

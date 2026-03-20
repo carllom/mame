@@ -1665,6 +1665,8 @@ void upd765_family_device::command_end(floppy_info &fi, bool data_completion)
 		fi.st0_filled = true;
 		drive_busy |= (1 << fi.id);
 	}
+	logerror("FDC command_end: data_completion=%d irq=%d st0=%02x st1=%02x st2=%02x st0_filled=%d fi.id=%d\n",
+		data_completion, irq, fi.st0, st1, st2, fi.st0_filled, fi.id);
 	check_irq();
 }
 
@@ -1696,6 +1698,9 @@ void upd765_family_device::recalibrate_start(floppy_info &fi)
 	fi.counter = recalibrate_steps;
 	fi.ready = get_ready(command[1] & 3);
 	fi.st0 = command[1] & 7;
+	logerror("FDC recalibrate_start: drive=%d ready=%d dev=%p dev_ready=%d\n",
+		command[1] & 3, fi.ready, (void*)fi.dev,
+		fi.dev ? !fi.dev->ready_r() : -1);
 	if(fi.ready) {
 		seek_continue(fi);
 	} else {
@@ -2655,6 +2660,8 @@ TIMER_CALLBACK_MEMBER(upd765_family_device::run_drive_ready_polling)
 	for(int fid=0; fid<4; fid++) {
 		bool ready = get_ready(fid);
 		if(ready != flopi[fid].ready) {
+			logerror("FDC poll: drive %d ready %d -> %d (st0_filled=%d)\n",
+				fid, flopi[fid].ready, ready, flopi[fid].st0_filled);
 			LOGCOMMAND("polled %d : %d -> %d\n", fid, flopi[fid].ready, ready);
 			flopi[fid].ready = ready;
 			if(!flopi[fid].st0_filled) {
@@ -3389,21 +3396,30 @@ void upd72067_device::auxcmd_w(uint8_t data)
 
 void upd72068_device::auxcmd_w(uint8_t data)
 {
+	logerror("FDC auxcmd_w: %02x\n", data);
 	switch(data) {
 	case 0x36: // software reset
+		dor = (dor & 0x0f); // clear motor tracking bits
 		soft_reset();
 		break;
 	case 0x0e: case 0x1e: case 0x2e: case 0x3e: // enable motors
 	case 0x4e: case 0x5e: case 0x6e: case 0x7e:
 	case 0x8e: case 0x9e: case 0xae: case 0xbe:
 	case 0xce: case 0xde: case 0xee: case 0xfe:
+	{
+		// Track motor state in dor upper nibble to avoid redundant
+		// mon_w() calls that would reset the floppy's ready counter.
+		uint8_t new_motor = data & 0xf0;
+		uint8_t old_motor = dor & 0xf0;
 		for(unsigned i = 0; i < 4; i++)
-			if(flopi[i].dev)
+			if(flopi[i].dev && BIT(new_motor ^ old_motor, i + 4))
 				flopi[i].dev->mon_w(!BIT(data, i + 4));
+		dor = (dor & 0x0f) | new_motor;
 		main_phase = PHASE_RESULT;
 		result[0] = ST0_UNK;
 		result_pos = 1;
 		break;
+	}
 	case 0x0b: case 0x1b: case 0x2b: case 0x3b: // control internal mode
 	case 0x4b: case 0x5b: case 0x6b: case 0x7b:
 	case 0x8b: case 0x9b: case 0xab: case 0xbb:
@@ -3437,19 +3453,25 @@ void upd72069_device::auxcmd_w(uint8_t data)
 	// 72068 has all but two of the following auxiliary commands
 	switch(data) {
 	case 0x36: // software reset
+		dor = (dor & 0x0f);
 		soft_reset();
 		break;
 	case 0x0e: case 0x1e: case 0x2e: case 0x3e: // enable motors
 	case 0x4e: case 0x5e: case 0x6e: case 0x7e:
 	case 0x8e: case 0x9e: case 0xae: case 0xbe:
 	case 0xce: case 0xde: case 0xee: case 0xfe:
+	{
+		uint8_t new_motor = data & 0xf0;
+		uint8_t old_motor = dor & 0xf0;
 		for(unsigned i = 0; i < 4; i++)
-			if(flopi[i].dev)
+			if(flopi[i].dev && BIT(new_motor ^ old_motor, i + 4))
 				flopi[i].dev->mon_w(!BIT(data, i + 4));
+		dor = (dor & 0x0f) | new_motor;
 		main_phase = PHASE_RESULT;
 		result[0] = ST0_UNK;
 		result_pos = 1;
 		break;
+	}
 	case 0x0b: case 0x1b: case 0x2b: case 0x3b: // control internal mode
 	case 0x4b: case 0x5b: case 0x6b: case 0x7b:
 	case 0x8b: case 0x9b: case 0xab: case 0xbb:
