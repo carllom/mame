@@ -300,6 +300,26 @@ void roland_mv30_state::mem_map(address_map &map)
 	);
 	m_view0[1](0x0100, 0x010f).rw(FUNC(roland_mv30_state::bank_r), FUNC(roland_mv30_state::bank_w));
 	m_view0[1](0x0118, 0x011d).rw(FUNC(roland_mv30_state::dma_reg_r), FUNC(roland_mv30_state::dma_reg_w));
+	// BCC vector intercept must also be present in RAM view — the BCC
+	// gate array always intercepts this address regardless of banking.
+	m_view0[1](0x203a, 0x203b).lr16(
+		NAME([this](offs_t offset) -> u16 {
+			if (m_bcc_irq_source != BCC_NONE)
+			{
+				u16 base = m_rom[BCC_BASE_VECTOR_ADDR / 2];
+				u16 vec_offset = 0;
+				switch (m_bcc_irq_source)
+				{
+				case BCC_KEY: vec_offset = BCC_KEY_OFFSET; break;
+				case BCC_FDC: vec_offset = BCC_FDC_OFFSET; break;
+				case BCC_FSK: vec_offset = BCC_FSK_OFFSET; break;
+				case BCC_DMA: vec_offset = BCC_DMA_OFFSET; break;
+				}
+				return u16(base + vec_offset);
+			}
+			return m_rom[BCC_BASE_VECTOR_ADDR / 2];
+		})
+	);
 
 	map(0x4000, 0x7fff).view(m_view1);
 	m_view1[0](0x4000, 0x7fff).lrw16(                               // banked RAM
