@@ -483,6 +483,13 @@ public:
 	virtual void auxcmd_w(uint8_t data) override;
 };
 
+class upd72068_device : public upd72065_device {
+public:
+	upd72068_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+
+	virtual void auxcmd_w(uint8_t data) override;
+};
+
 class upd72069_device : public upd72065_device {
 public:
 	upd72069_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
@@ -627,6 +634,7 @@ DECLARE_DEVICE_TYPE(UPD765B,        upd765b_device)
 DECLARE_DEVICE_TYPE(I8272A,         i8272a_device)
 DECLARE_DEVICE_TYPE(UPD72065,       upd72065_device)
 DECLARE_DEVICE_TYPE(UPD72067,       upd72067_device)
+DECLARE_DEVICE_TYPE(UPD72068,       upd72068_device)
 DECLARE_DEVICE_TYPE(UPD72069,       upd72069_device)
 DECLARE_DEVICE_TYPE(I82072,         i82072_device)
 DECLARE_DEVICE_TYPE(SMC37C78,       smc37c78_device)

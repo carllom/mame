@@ -46,6 +46,7 @@ DEFINE_DEVICE_TYPE(UPD765B,        upd765b_device,        "upd765b",        "NEC
 DEFINE_DEVICE_TYPE(I8272A,         i8272a_device,         "i8272a",         "Intel 8272A FDC")
 DEFINE_DEVICE_TYPE(UPD72065,       upd72065_device,       "upd72065",       "NEC uPD72065 FDC")
 DEFINE_DEVICE_TYPE(UPD72067,       upd72067_device,       "upd72067",       "NEC uPD72067 FDC")
+DEFINE_DEVICE_TYPE(UPD72068,       upd72068_device,       "upd72068",       "NEC uPD72068 FDC")
 DEFINE_DEVICE_TYPE(UPD72069,       upd72069_device,       "upd72069",       "NEC uPD72069 FDC")
 DEFINE_DEVICE_TYPE(I82072,         i82072_device,         "i82072",         "Intel 82072 FDC")
 DEFINE_DEVICE_TYPE(SMC37C78,       smc37c78_device,       "smc37c78",       "SMC FDC37C78 FDC")
@@ -2884,6 +2885,14 @@ upd72067_device::upd72067_device(const machine_config &mconfig, const char *tag,
 	select_multiplexed = false;
 }
 
+upd72068_device::upd72068_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : upd72065_device(mconfig, UPD72068, tag, owner, clock)
+{
+	ready_polled = true;
+	ready_connected = true;
+	select_connected = true;
+	select_multiplexed = false;
+}
+
 upd72069_device::upd72069_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : upd72065_device(mconfig, UPD72069, tag, owner, clock)
 {
 	ready_polled = true;
@@ -3374,6 +3383,51 @@ void upd72067_device::auxcmd_w(uint8_t data)
 		break;
 	default:
 		upd72065_device::auxcmd_w(data);
+		break;
+	}
+}
+
+void upd72068_device::auxcmd_w(uint8_t data)
+{
+	switch(data) {
+	case 0x36: // software reset
+		soft_reset();
+		break;
+	case 0x0e: case 0x1e: case 0x2e: case 0x3e: // enable motors
+	case 0x4e: case 0x5e: case 0x6e: case 0x7e:
+	case 0x8e: case 0x9e: case 0xae: case 0xbe:
+	case 0xce: case 0xde: case 0xee: case 0xfe:
+		for(unsigned i = 0; i < 4; i++)
+			if(flopi[i].dev)
+				flopi[i].dev->mon_w(!BIT(data, i + 4));
+		main_phase = PHASE_RESULT;
+		result[0] = ST0_UNK;
+		result_pos = 1;
+		break;
+	case 0x0b: case 0x1b: case 0x2b: case 0x3b: // control internal mode
+	case 0x4b: case 0x5b: case 0x6b: case 0x7b:
+	case 0x8b: case 0x9b: case 0xab: case 0xbb:
+	case 0xcb: case 0xdb: case 0xeb: case 0xfb:
+		switch(data & 0xc0)
+		{
+		case 0x00: cur_rate = 250000; break;
+		case 0x40: cur_rate = 500000; break;
+		case 0x80: cur_rate = 600000; break;
+		case 0xc0: cur_rate = 300000; break;
+		}
+		main_phase = PHASE_RESULT;
+		result[0] = ST0_UNK;
+		result_pos = 1;
+		break;
+	case 0x4f: // select IBM format
+	case 0x5f: // select ECMA/ISO format
+	case 0x35: // set standby
+	case 0x47: // start clock
+	case 0x34: // reset standby
+	case 0x33: // enable external mode
+		main_phase = PHASE_RESULT;
+		result[0] = ST0_UNK;
+		result_pos = 1;
 		break;
 	}
 }
