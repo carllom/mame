@@ -185,7 +185,7 @@ private:
 	required_ioport m_encoder;
 
 	// I/O devices
-	required_device<upd72067_device> m_fdc;
+	required_device<upd72068_device> m_fdc;
 	optional_device<floppy_connector> m_floppy;
 	required_device<mb87419_mb87420_device> m_pcm;
 	required_device<t6963c_device> m_lcd;
@@ -285,7 +285,7 @@ void roland_mv30_state::mem_map(address_map &map)
 	// I/O view: devices mapped 0x800 apart
 	m_view3[1](0xc000, 0xc7ff).rw(FUNC(roland_mv30_state::rcc_r), FUNC(roland_mv30_state::rcc_w));
 	m_view3[1](0xc800, 0xc801).rw(FUNC(roland_mv30_state::keyscan_r), FUNC(roland_mv30_state::keyscan_w));
-	m_view3[1](0xd000, 0xd001).m(m_fdc, FUNC(upd72067_device::map));
+	m_view3[1](0xd000, 0xd001).m(m_fdc, FUNC(upd72068_device::map));
 	m_view3[1](0xd800, 0xd81f).rw(m_pcm, FUNC(mb87419_mb87420_device::read), FUNC(mb87419_mb87420_device::write));
 	m_view3[1](0xe000, 0xe003).rw(FUNC(roland_mv30_state::fsk_r), FUNC(roland_mv30_state::fsk_w));
 	m_view3[1](0xe800, 0xe802).rw(m_lcd, FUNC(t6963c_device::read), FUNC(t6963c_device::write)).umask16(0x00ff);
@@ -825,8 +825,8 @@ void roland_mv30_state::mv30(machine_config &config)
 	m_maincpu->in_p2_cb().set(FUNC(roland_mv30_state::port2_r));
 	m_maincpu->out_p2_cb().set(FUNC(roland_mv30_state::port2_w));
 
-	// FDC: NEC uPD72068GF-389 (using uPD72067 as closest available stand-in)
-	UPD72067(config, m_fdc, 32_MHz_XTAL);
+	// FDC: NEC uPD72068GF-389
+	UPD72068(config, m_fdc, 32_MHz_XTAL);
 	m_fdc->intrq_wr_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
 	m_fdc->drq_wr_callback().set(FUNC(roland_mv30_state::dma_drq_w));
 	FLOPPY_CONNECTOR(config, m_floppy, mv30_floppies, "35dd", mv30_floppy_formats);
