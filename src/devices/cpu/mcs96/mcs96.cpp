@@ -14,6 +14,7 @@
 mcs96_device::mcs96_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, int data_width, address_map_constructor regs_map) :
 	cpu_device(mconfig, type, tag, owner, clock),
 	program_config("program", ENDIANNESS_LITTLE, data_width, 16),
+	opcodes_config("opcodes", ENDIANNESS_LITTLE, data_width, 16),
 	regs_config("register", ENDIANNESS_LITTLE, 16, 8, 0, regs_map),
 	program(nullptr), regs(nullptr), register_file(*this, "register_file"),
 	icount(0), bcount(0), inst_state(0), cycles_scaling(0), pending_irq(0),
@@ -24,11 +25,12 @@ mcs96_device::mcs96_device(const machine_config &mconfig, device_type type, cons
 void mcs96_device::device_start()
 {
 	program = &space(AS_PROGRAM);
-	if(program->data_width() == 8) {
-		program->cache(m_cache8);
+	address_space *fetch_space = has_space(AS_OPCODES) ? &space(AS_OPCODES) : program;
+	if(fetch_space->data_width() == 8) {
+		fetch_space->cache(m_cache8);
 		m_pr8 = [this](offs_t address) -> u8 { return m_cache8.read_byte(address); };
 	} else {
-		program->cache(m_cache16);
+		fetch_space->cache(m_cache16);
 		m_pr8 = [this](offs_t address) -> u8 { return m_cache16.read_byte(address); };
 	}
 	regs = &space(AS_DATA);
@@ -148,10 +150,17 @@ void mcs96_device::execute_run()
 
 device_memory_interface::space_config_vector mcs96_device::memory_space_config() const
 {
-	return space_config_vector {
-		std::make_pair(AS_PROGRAM, &program_config),
-		std::make_pair(AS_DATA, &regs_config)
-	};
+	if(has_configured_map(AS_OPCODES))
+		return space_config_vector {
+			std::make_pair(AS_PROGRAM, &program_config),
+			std::make_pair(AS_OPCODES, &opcodes_config),
+			std::make_pair(AS_DATA, &regs_config)
+		};
+	else
+		return space_config_vector {
+			std::make_pair(AS_PROGRAM, &program_config),
+			std::make_pair(AS_DATA, &regs_config)
+		};
 }
 
 void mcs96_device::state_import(const device_state_entry &entry)

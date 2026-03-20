@@ -125,6 +125,7 @@ private:
 	static constexpr u16      IO_PAGE     = 0x474;        // I/O region page value (set by boot code)
 
 	void mem_map(address_map &map) ATTR_COLD;
+	void opcodes_map(address_map &map) ATTR_COLD;
 	void io_map(address_map &map) ATTR_COLD;
 	void lcd_map(address_map &map) ATTR_COLD;
 	void lcd_palette(palette_device &palette) const ATTR_COLD;
@@ -342,6 +343,50 @@ void roland_mv30_state::mem_map(address_map &map)
 	m_view3[1](0xd800, 0xd81f).rw(m_pcm, FUNC(mb87419_mb87420_device::read), FUNC(mb87419_mb87420_device::write));
 	m_view3[1](0xe000, 0xe003).rw(FUNC(roland_mv30_state::fsk_r), FUNC(roland_mv30_state::fsk_w));
 	m_view3[1](0xe800, 0xe802).rw(m_lcd, FUNC(t6963c_device::read), FUNC(t6963c_device::write)).umask16(0x00ff);
+}
+
+
+// Opcodes (instruction fetch) address map.
+// The 80C196KB has separate execute and data bank registers.
+// Execute banks always map to ROM or RAM (never I/O), so
+// instruction fetch uses this simpler map while data access
+// uses mem_map above.
+void roland_mv30_state::opcodes_map(address_map &map)
+{
+	// Window 0 (0x0000-0x3FFF): ROM at reset, or execute-bank-0 RAM
+	map(0x0000, 0x3fff).lr16(
+		NAME([this](offs_t offset) -> u16 {
+			u16 page = m_bank_reg[0];
+			if (page == ROM_PAGE)
+				return m_rom[offset];
+			u32 idx = (u32(page) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		})
+	);
+
+	// Window 1 (0x4000-0x7FFF)
+	map(0x4000, 0x7fff).lr16(
+		NAME([this](offs_t offset) -> u16 {
+			u32 idx = (u32(m_bank_reg[1]) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		})
+	);
+
+	// Window 2 (0x8000-0xBFFF)
+	map(0x8000, 0xbfff).lr16(
+		NAME([this](offs_t offset) -> u16 {
+			u32 idx = (u32(m_bank_reg[2]) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		})
+	);
+
+	// Window 3 (0xC000-0xFFFF)
+	map(0xc000, 0xffff).lr16(
+		NAME([this](offs_t offset) -> u16 {
+			u32 idx = (u32(m_bank_reg[3]) << (PAGE_SHIFT - 1)) + offset;
+			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+		})
+	);
 }
 
 
@@ -961,6 +1006,7 @@ void roland_mv30_state::mv30(machine_config &config)
 	// CPU: Intel 80C196KB-12
 	C80C196KB(config, m_maincpu, 12_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_mv30_state::mem_map);
+	m_maincpu->set_addrmap(AS_OPCODES, &roland_mv30_state::opcodes_map);
 	m_maincpu->serial_tx_cb().set("mdout", FUNC(midi_port_device::write_txd));
 	m_maincpu->ach0_cb().set(FUNC(roland_mv30_state::ach0_r));
 	m_maincpu->ach5_cb().set(FUNC(roland_mv30_state::ach5_r));

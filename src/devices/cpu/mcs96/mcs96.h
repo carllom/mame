@@ -64,7 +64,7 @@ protected:
 	virtual void state_export(const device_state_entry &entry) override;
 	virtual void state_string_export(const device_state_entry &entry, std::string &str) const override;
 
-	address_space_config program_config, regs_config;
+	address_space_config program_config, opcodes_config, regs_config;
 	address_space *program, *regs;
 	memory_access<16, 0, 0, ENDIANNESS_LITTLE>::cache m_cache8;
 	memory_access<16, 1, 0, ENDIANNESS_LITTLE>::cache m_cache16;
