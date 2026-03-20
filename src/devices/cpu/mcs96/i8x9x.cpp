@@ -15,6 +15,7 @@
 
 i8x9x_device::i8x9x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width) :
 	mcs96_device(mconfig, type, tag, owner, clock, data_width, address_map_constructor(FUNC(i8x9x_device::internal_regs), this)),
+	ioc1(0), extint(false),
 	m_ach_cb(*this, 0),
 	m_hso_cb(*this),
 	m_serial_tx_cb(*this),
@@ -23,7 +24,30 @@ i8x9x_device::i8x9x_device(const machine_config &mconfig, device_type type, cons
 	m_out_p2_cb(*this), m_in_p2_cb(*this, 0xc2),
 	base_timer2(0), ad_done(0), hsi_mode(0), hsi_status(0), hso_command(0), ad_command(0), hso_active(0), hso_time(0), ad_result(0), pwm_control(0),
 	port1(0), port2(0),
-	ios0(0), ios1(0), ioc0(0), ioc1(0), extint(false),
+	ios0(0), ios1(0), ioc0(0),
+	sbuf(0), sp_con(0), sp_stat(0), serial_send_buf(0), serial_send_timer(0), baud_reg(0), brh(false)
+{
+	for (auto &hso : hso_info)
+	{
+		hso.command = 0;
+		hso.time = 0;
+	}
+	hso_cam_hold.command = 0;
+	hso_cam_hold.time = 0;
+}
+
+i8x9x_device::i8x9x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width, address_map_constructor regs_map) :
+	mcs96_device(mconfig, type, tag, owner, clock, data_width, std::move(regs_map)),
+	ioc1(0), extint(false),
+	m_ach_cb(*this, 0),
+	m_hso_cb(*this),
+	m_serial_tx_cb(*this),
+	m_in_p0_cb(*this, 0),
+	m_out_p1_cb(*this), m_in_p1_cb(*this, 0xff),
+	m_out_p2_cb(*this), m_in_p2_cb(*this, 0xc2),
+	base_timer2(0), ad_done(0), hsi_mode(0), hsi_status(0), hso_command(0), ad_command(0), hso_active(0), hso_time(0), ad_result(0), pwm_control(0),
+	port1(0), port2(0),
+	ios0(0), ios1(0), ioc0(0),
 	sbuf(0), sp_con(0), sp_stat(0), serial_send_buf(0), serial_send_timer(0), baud_reg(0), brh(false)
 {
 	for (auto &hso : hso_info)
@@ -583,9 +607,10 @@ p8798_device::p8798_device(const machine_config &mconfig, const char *tag, devic
 // i80c196 combined class implementation
 
 i80c196_device::i80c196_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width) :
-	i8x9x_device(mconfig, type, tag, owner, clock, data_width),
+	i8x9x_device(mconfig, type, tag, owner, clock, data_width, address_map_constructor(FUNC(i80c196_device::internal_regs), this)),
 	m_imask1(0),
-	m_wsr(0)
+	m_wsr(0),
+	m_extint1_pending(false)
 {
 }
 
@@ -594,6 +619,7 @@ void i80c196_device::device_start()
 	i8x9x_device::device_start();
 	save_item(NAME(m_imask1));
 	save_item(NAME(m_wsr));
+	save_item(NAME(m_extint1_pending));
 }
 
 void i80c196_device::device_reset()
@@ -601,6 +627,57 @@ void i80c196_device::device_reset()
 	i8x9x_device::device_reset();
 	m_imask1 = 0;
 	m_wsr = 0;
+	m_extint1_pending = false;
+}
+
+void i80c196_device::internal_regs(address_map &map)
+{
+	i8x9x_device::internal_regs(map);
+	map(0x12, 0x12).rw(FUNC(i80c196_device::int_pending1_r), FUNC(i80c196_device::int_pending1_w));
+	map(0x13, 0x13).rw(FUNC(i80c196_device::int_mask1_r), FUNC(i80c196_device::int_mask1_w));
+}
+
+u8 i80c196_device::int_mask1_r()
+{
+	return m_imask1;
+}
+
+void i80c196_device::int_mask1_w(u8 data)
+{
+	m_imask1 = data;
+}
+
+u8 i80c196_device::int_pending1_r()
+{
+	return m_extint1_pending ? 0x20 : 0x00;
+}
+
+void i80c196_device::int_pending1_w(u8 data)
+{
+	// Writing to IPEND1 can clear pending bits
+	m_extint1_pending = (data & 0x20) != 0;
+}
+
+void i80c196_device::execute_set_input(int linenum, int state)
+{
+	if(linenum == EXTINT_LINE) {
+		// 80C196KB: IOC1.1 selects the EXTINT source.
+		//   IOC1.1=0 -> external pin triggers EXTINT  (vector 0x200E, level 7)
+		//   IOC1.1=1 -> external pin triggers EXTINT1 (vector 0x203A, level 13)
+		if(!extint && state) {
+			if(BIT(ioc1, 1)) {
+				// EXTINT1 path: handled by fetch_196_full via m_extint1_pending
+				m_extint1_pending = true;
+			} else {
+				// Normal EXTINT (level 7)
+				pending_irq |= IRQ_EXTINT;
+				check_irq();
+			}
+		}
+		extint = state;
+	} else {
+		i8x9x_device::execute_set_input(linenum, state);
+	}
 }
 
 std::unique_ptr<util::disasm_interface> i80c196_device::create_disassembler()
@@ -694,9 +771,50 @@ void i80c196_device::idlpd_none_full()
 	next(4);
 }
 
+void i80c196_device::fetch_196_full()
+{
+	// 80C196KB extended fetch: check EXTINT1 (INT13) first, then
+	// fall through to normal INT00-INT07 dispatch.
+	// EXTINT1 has higher priority than all INT00-INT07 interrupts.
+	if(m_extint1_pending && (m_imask1 & 0x20) && (PSW & F_I)) {
+		m_extint1_pending = false;
+		standard_irq_callback(13, PC);
+		TMP = reg_r16(0x18);
+		TMP -= 2;
+		reg_w16(0x18, TMP);
+		any_w16(TMP, PC);
+		PC = any_r16(0x203a);
+		check_irq();
+	} else if(irq_requested) {
+		// Normal INT00-INT07 dispatch (same as mcs96_device::fetch_full)
+		int level;
+		for(level = 7; level >= 0 && !(PSW & pending_irq & (1 << level)); level--);
+		if(level != 7)
+			pending_irq &= ~(1 << level);
+		OP1 = level;
+		standard_irq_callback(OP1, PC);
+		TMP = reg_r16(0x18);
+		TMP -= 2;
+		reg_w16(0x18, TMP);
+		any_w16(TMP, PC);
+		PC = any_r16(0x2000 + 2 * OP1);
+		check_irq();
+	}
+	PPC = PC;
+	if(debugger_enabled())
+		debugger_instruction_hook(PC);
+	OP1 = read_pc();
+	if(OP1 == 0xfe) {
+		OP1 = read_pc();
+		inst_state = 0x100 | OP1;
+	} else
+		inst_state = OP1;
+}
+
 void i80c196_device::do_exec_full()
 {
 	switch(inst_state) {
+	case 0x200: fetch_196_full(); break;
 	case 0x0c1: bmov_direct_2w_full(); break;
 	case 0x0c5: cmpl_direct_2w_full(); break;
 	case 0x0cd: bmovi_direct_2w_full(); break;

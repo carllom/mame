@@ -69,6 +69,7 @@ public:
 
 protected:
 	i8x9x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width);
+	i8x9x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width, address_map_constructor regs_map);
 
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
@@ -109,6 +110,11 @@ protected:
 	u8 ios1_r();
 	void pwm_control_w(u8 data);
 
+	// Accessible to derived classes for interrupt override (e.g. i80c196 EXTINT1)
+	static constexpr u8 IRQ_EXTINT = 0x80;
+	u8 ioc1;
+	bool extint;
+
 private:
 	enum {
 		IRQ_TIMER  = 0x01,
@@ -117,8 +123,7 @@ private:
 		IRQ_HSO    = 0x08,
 		IRQ_HSI0   = 0x10,
 		IRQ_SOFT   = 0x20,
-		IRQ_SERIAL = 0x40,
-		IRQ_EXTINT = 0x80
+		IRQ_SERIAL = 0x40
 	};
 
 	struct hso_cam_entry {
@@ -146,8 +151,7 @@ private:
 	u16 hso_time, ad_result;
 	u8 pwm_control;
 	u8 port1, port2;
-	u8 ios0, ios1, ioc0, ioc1;
-	bool extint;
+	u8 ios0, ios1, ioc0;
 	u8 sbuf, sp_con, sp_stat;
 	u8 serial_send_buf;
 	u64 serial_send_timer;
@@ -204,7 +208,14 @@ protected:
 // Combined 80C196 class: i8x9x peripherals + enhanced 196 instruction set.
 // The real 80C196 extends the 8x9x with extra opcodes (pusha, popa, bmov,
 // cmpl, djnzw, etc.) while retaining the full peripheral set.
+// It also adds EXTINT1: when IOC1.1=1 the external interrupt pin uses
+// vector 0x203A instead of 0x200E.
 class i80c196_device : public i8x9x_device {
+public:
+	// Returns true when the most recent EXTINT was routed to EXTINT1
+	// (IOC1.1=1, vector 0x203A) rather than EXTINT (vector 0x200E).
+	bool extint1_pending() const { return m_extint1_pending; }
+
 protected:
 	i80c196_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width);
 
@@ -213,8 +224,16 @@ protected:
 	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
 	virtual void do_exec_full() override;
 	virtual void do_exec_partial() override;
+	virtual void execute_set_input(int linenum, int state) override;
 
 private:
+	void internal_regs(address_map &map) ATTR_COLD;
+	u8 int_mask1_r();
+	void int_mask1_w(u8 data);
+	u8 int_pending1_r();
+	void int_pending1_w(u8 data);
+
+	void fetch_196_full();
 	void bmov_direct_2w_full();
 	void bmovi_direct_2w_full();
 	void cmpl_direct_2w_full();
@@ -225,6 +244,7 @@ private:
 
 	u8 m_imask1;   // INT_MASK1 register (80C196-specific)
 	u8 m_wsr;      // WSR register (window selection, 80C196-specific)
+	bool m_extint1_pending;  // EXTINT1 interrupt pending (via IOC1.1)
 };
 
 class c80c196kb_device : public i80c196_device {

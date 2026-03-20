@@ -155,6 +155,18 @@ private:
 	// Gate array DMA controller (FDC <-> RAM)
 	void dma_drq_w(int state);
 
+	// BCC gate array interrupt controller
+	// The BCC multiplexes INT1 (KEY), INT2 (FDC), INT3 (FSK) onto the
+	// CPU's EXTINT pin.  When the CPU fetches the EXTINT vector from
+	// the vector table the BCC intercepts the read and adds a device-
+	// specific offset to the base vector stored in ROM at 0x203A:
+	//   KEY +4, FDC +8, FSK +0x10
+	static constexpr offs_t BCC_BASE_VECTOR_ADDR = 0x203a;   // PTS EXTINT vector in ROM
+	static constexpr u16 BCC_KEY_OFFSET = 0x04;
+	static constexpr u16 BCC_FDC_OFFSET = 0x08;
+	static constexpr u16 BCC_FSK_OFFSET = 0x10;
+	void bcc_fdc_irq_w(int state);
+
 	// CPU port I/O
 	u16 ach0_r();
 	u16 ach5_r();
@@ -211,6 +223,13 @@ private:
 	u16 m_dma_count;      // 0x118: transfer byte count (decrements to 0)
 	u16 m_dma_adr_lo;     // 0x11A: low 16 bits of physical RAM byte address
 	u16 m_dma_adr_hi;     // 0x11C: high bits of address (or control; purpose TBD)
+
+	// BCC interrupt controller state
+	u8 m_bcc_irq_source;  // Currently active BCC interrupt source (0=none)
+	static constexpr u8 BCC_NONE = 0;
+	static constexpr u8 BCC_KEY  = 1;
+	static constexpr u8 BCC_FDC  = 2;
+	static constexpr u8 BCC_FSK  = 3;
 };
 
 
@@ -236,6 +255,27 @@ void roland_mv30_state::mem_map(address_map &map)
 
 	map(0x0000, 0x3fff).view(m_view0);
 	m_view0[0](0x0000, 0x3fff).rom().region("maincpu", 0);          // ROM (boot)
+	// BCC gate array: intercept EXTINT1 vector fetch at 0x203A.
+	// The CPU's fetch_196_full() dispatches EXTINT1 by reading the
+	// vector at 0x203A.  The BCC adds a device-specific offset to
+	// the base vector (KEY +4, FDC +8, FSK +0x10).
+	m_view0[0](0x203a, 0x203b).lr16(
+		NAME([this](offs_t offset) -> u16 {
+			if (m_bcc_irq_source != BCC_NONE)
+			{
+				u16 base = m_rom[BCC_BASE_VECTOR_ADDR / 2];
+				u16 vec_offset = 0;
+				switch (m_bcc_irq_source)
+				{
+				case BCC_KEY: vec_offset = BCC_KEY_OFFSET; break;
+				case BCC_FDC: vec_offset = BCC_FDC_OFFSET; break;
+				case BCC_FSK: vec_offset = BCC_FSK_OFFSET; break;
+				}
+				return u16(base + vec_offset);
+			}
+			return m_rom[BCC_BASE_VECTOR_ADDR / 2];
+		})
+	);
 	m_view0[1](0x0000, 0x3fff).lrw16(                               // banked RAM
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[4]) << (PAGE_SHIFT - 1)) + offset;
@@ -318,6 +358,7 @@ void roland_mv30_state::machine_start()
 	save_item(NAME(m_dma_count));
 	save_item(NAME(m_dma_adr_lo));
 	save_item(NAME(m_dma_adr_hi));
+	save_item(NAME(m_bcc_irq_source));
 }
 
 
@@ -350,6 +391,7 @@ void roland_mv30_state::machine_reset()
 	m_dma_count = 0;
 	m_dma_adr_lo = 0;
 	m_dma_adr_hi = 0;
+	m_bcc_irq_source = BCC_NONE;
 
 	// Window 0 starts showing ROM for instruction fetch at reset
 	m_view0.select(0);
@@ -551,6 +593,25 @@ void roland_mv30_state::dma_drq_w(int state)
 		m_dma_adr_hi = u16(next >> 16);
 		m_dma_count--;
 	}
+}
+
+
+//
+// BCC gate array interrupt controller
+//
+// Routes FDC (and later KEY / FSK) interrupts to the CPU EXTINT pin,
+// modifying the fetched vector to dispatch to the correct handler.
+//
+void roland_mv30_state::bcc_fdc_irq_w(int state)
+{
+	logerror("BCC: FDC IRQ %s (source was %d)\n", state ? "ASSERT" : "DEASSERT", m_bcc_irq_source);
+
+	if (state)
+		m_bcc_irq_source = BCC_FDC;
+	else if (m_bcc_irq_source == BCC_FDC)
+		m_bcc_irq_source = BCC_NONE;
+
+	m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, state);
 }
 
 
@@ -827,7 +888,7 @@ void roland_mv30_state::mv30(machine_config &config)
 
 	// FDC: NEC uPD72068GF-389
 	UPD72068(config, m_fdc, 32_MHz_XTAL);
-	m_fdc->intrq_wr_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
+	m_fdc->intrq_wr_callback().set(FUNC(roland_mv30_state::bcc_fdc_irq_w));
 	m_fdc->drq_wr_callback().set(FUNC(roland_mv30_state::dma_drq_w));
 	FLOPPY_CONNECTOR(config, m_floppy, mv30_floppies, "35dd", mv30_floppy_formats);
 
