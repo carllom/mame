@@ -201,6 +201,7 @@ protected:
 	// virtual void machine_start() override;
 	void s330_mem_map(address_map &map) ATTR_COLD;
 	void waveram_map(address_map &map);
+	void psram_bank_w(u8 data);
 
 	HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
@@ -296,6 +297,32 @@ void roland_w30_state::psram_bank_w(u8 data)
 	m_psram2_bank->set_entry(BIT(data, 0, 2));
 }
 
+// S-330 bank switching (C600 write)
+//
+// C600 format: -AAAA-BB
+//   AAAA (bits 6:3) = LoBank: selects 8K overlay at 0100-1FFF
+//                    0 = ROM, 1-7 = banked RAM overlays
+//   BB   (bits 1:0) = HiBank: selects 16K chunk at 8000-BFFF
+//   bit 2 (BC pin)  = not connected
+void roland_s330_state::psram_bank_w(u8 data)
+{
+	m_psram_bank = data;
+	const u8 lobank = BIT(data, 3, 4); // bits 6:3
+	const u8 hibank = BIT(data, 0, 2); // bits 1:0
+
+	if (lobank == 0)
+		m_bank1_view.select(0); // ROM at 0000-1FFF (boot context)
+	else
+	{
+		m_bank1_view.select(1); // RAM overlay
+		m_psram1_bank->set_entry((lobank - 1) & 7);
+	}
+
+	// 8000-BFFF is always banked RAM on S-330 (no ROM mirrored there)
+	m_bank2_view.select(1);
+	m_psram2_bank->set_entry(hibank & 3);
+}
+
 u8 roland_s50_base_state::floppy_status_r()
 {
 	floppy_image_device *floppy = nullptr;
@@ -365,6 +392,70 @@ u8 roland_w30_state::unknown_status_r()
 	return 0x1c;
 }
 
+// Keyswitch read register (M60013)
+//
+// Repeated reads from this register will read from consecutive keyswitch rows
+u8 roland_w30_state::keysw_r()
+{
+	u8 value = m_keysw[m_keyrow]->read();
+	m_keyrow = (m_keyrow + 1) % 4;
+	return value;
+}
+
+// Keyswitch command register (M60013)
+//
+// A write to this register will reset the keyscan counter
+void roland_w30_state::keysw_w(u8 data)
+{
+	if (data) logerror("KEYPORT Write: %02x\n", data);
+	m_keyrow = 0; // Reset keyscan row counter
+}
+
+// LED indicator register (M60013)
+//
+// There are 8 indicator outputs, each corresponding to one bit in the register.
+// A set bit turns LED off, an unset bit turns LED on.
+void roland_w30_state::leds_w(u8 data)
+{
+	if (data) logerror("LEDS Write: %02x\n", data);
+	m_leds[0] = BIT(data, 0) ? 0 : 1;
+	m_leds[1] = BIT(data, 1) ? 0 : 1;
+	m_leds[2] = BIT(data, 2) ? 0 : 1;
+	m_leds[3] = BIT(data, 3) ? 0 : 1;
+	m_leds[4] = BIT(data, 4) ? 0 : 1;
+	m_leds[5] = BIT(data, 5) ? 0 : 1;
+	m_leds[6] = BIT(data, 6) ? 0 : 1;
+	m_leds[7] = BIT(data, 7) ? 0 : 1;
+}
+
+void roland_s330_state::init_lcd_palette(palette_device &palette) const
+{
+	palette.set_pen_color(0, rgb_t(131, 136, 139));
+	palette.set_pen_color(1, rgb_t( 92,  83,  88));
+}
+
+HD44780_PIXEL_UPDATE(roland_s330_state::lcd_pixel_update)
+{
+	if (x < 5 && y < 8 && line < 2 && pos < 16)
+		bitmap.pix(line * 8 + y, pos * 6 + x) = state;
+}
+
+u16 roland_s330_state::analog_vol_ctrl()
+{
+	return 0x1FF; // TODO: hookup to dial (10 bit value)
+}
+
+u16 roland_s330_state::analog_dac_value()
+{
+	// find_neg_sample (4946) polls ACH7 1022× and checks ADC_MSB (R29 = v>>2)
+	// against a threshold that alternates by iteration phase (R32):
+	//   R32==1: cmpb R29,#7F + jh → needs R29 <= 0x7F → v <= 0x1FF
+	//   R32!=1: cmpb R29,#80 + jnh → needs R29 >= 0x81 → v >= 0x204
+	// R29==0x80 (v=0x200..0x203) always fails both — never use those values.
+	// TODO: replace with real SA-16 DAC output once wave chip output is emulated.
+	const u8 r32 = m_maincpu->space(AS_DATA).read_byte(0x32);
+	return (r32 == 1) ? 0x1FF : 0x204;
+}
 
 void roland_s50_state::mem_map(address_map &map)
 {
@@ -625,6 +716,19 @@ void roland_s330_state::s330(machine_config &config)
 	FLOPPY_CONNECTOR(config, m_floppy[1], s50_floppies, nullptr, &floppy_formats).enable_sound(true);
 
 	// LCD unit: DM1620-5BL7 (MW-5F)
+	HD44780(config, m_lcdc, 270'000); // TODO: clock not measured, datasheet typical clock used
+	m_lcdc->set_lcd_size(2, 16);
+	m_lcdc->set_pixel_update_cb(FUNC(roland_s330_state::lcd_pixel_update));
+	m_lcdc->set_busy_factor(0.005f);
+
+	screen_device &lcd(SCREEN(config, "lcdpanel", SCREEN_TYPE_LCD));
+	lcd.set_refresh_hz(50);
+	lcd.set_vblank_time(ATTOSECONDS_IN_USEC(2500));
+	lcd.set_size(6*16, 9*2);
+	lcd.set_visarea(0, 6*16-1, 0, 9*2-1);
+	lcd.set_screen_update("lcdc", FUNC(hd44780_device::screen_update));
+	lcd.set_palette("lcd_pal");
+	PALETTE(config, "lcd_pal", FUNC(roland_s330_state::init_lcd_palette), 2);
 
 	TMS3556(config, m_vdp, 14.3496_MHz_XTAL); // TMS3556NL
 	m_vdp->set_addrmap(0, &roland_w30_state::vram_map);
