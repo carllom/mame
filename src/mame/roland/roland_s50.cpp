@@ -202,6 +202,7 @@ protected:
 	// virtual void machine_start() override;
 	void s330_mem_map(address_map &map) ATTR_COLD;
 	void waveram_map(address_map &map);
+	void psram_bank_w(u8 data);
 
 	HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
@@ -295,6 +296,32 @@ void roland_w30_state::psram_bank_w(u8 data)
 	m_bank2_view.select(BIT(data, 0, 3) == 0 ? 0 : 1);
 	m_psram1_bank->set_entry(BIT(data, 3, 3));
 	m_psram2_bank->set_entry(BIT(data, 0, 2));
+}
+
+// S-330 bank switching (C600 write)
+//
+// C600 format: -AAAA-BB
+//   AAAA (bits 6:3) = LoBank: selects 8K overlay at 0100-1FFF
+//                    0 = ROM, 1-7 = banked RAM overlays
+//   BB   (bits 1:0) = HiBank: selects 16K chunk at 8000-BFFF
+//   bit 2 (BC pin)  = not connected
+void roland_s330_state::psram_bank_w(u8 data)
+{
+	m_psram_bank = data;
+	const u8 lobank = BIT(data, 3, 4); // bits 6:3
+	const u8 hibank = BIT(data, 0, 2); // bits 1:0
+
+	if (lobank == 0)
+		m_bank1_view.select(0); // ROM at 0000-1FFF (boot context)
+	else
+	{
+		m_bank1_view.select(1); // RAM overlay
+		m_psram1_bank->set_entry((lobank - 1) & 7);
+	}
+
+	// 8000-BFFF is always banked RAM on S-330 (no ROM mirrored there)
+	m_bank2_view.select(1);
+	m_psram2_bank->set_entry(hibank & 3);
 }
 
 u8 roland_s50_base_state::floppy_status_r()
@@ -421,8 +448,14 @@ u16 roland_s330_state::analog_vol_ctrl()
 
 u16 roland_s330_state::analog_dac_value()
 {
-	// System function @4835 requires value not to be negative
-	return 0x1FF; // TODO: feedback from MB654419/DAC (10 bit value)
+	// find_neg_sample (4946) polls ACH7 1022× and checks ADC_MSB (R29 = v>>2)
+	// against a threshold that alternates by iteration phase (R32):
+	//   R32==1: cmpb R29,#7F + jh → needs R29 <= 0x7F → v <= 0x1FF
+	//   R32!=1: cmpb R29,#80 + jnh → needs R29 >= 0x81 → v >= 0x204
+	// R29==0x80 (v=0x200..0x203) always fails both — never use those values.
+	// TODO: replace with real SA-16 DAC output once wave chip output is emulated.
+	const u8 r32 = m_maincpu->space(AS_DATA).read_byte(0x32);
+	return (r32 == 1) ? 0x1FF : 0x204;
 }
 
 void roland_s50_state::mem_map(address_map &map)
@@ -770,7 +803,7 @@ void roland_s330_state::s330(machine_config &config)
 	FLOPPY_CONNECTOR(config, m_floppy[1], s50_floppies, nullptr, &floppy_formats).enable_sound(true);
 
 	// LCD unit: DM1620-5BL7 (MW-5F)
-	HD44780(config, m_lcdc, 0);
+	HD44780(config, m_lcdc, 270'000); // TODO: clock not measured, datasheet typical clock used
 	m_lcdc->set_lcd_size(2, 16);
 	m_lcdc->set_pixel_update_cb(FUNC(roland_s330_state::lcd_pixel_update));
 	m_lcdc->set_busy_factor(0.005f);
