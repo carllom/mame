@@ -189,6 +189,8 @@ public:
 	roland_s330_state(const machine_config &mconfig, device_type type, const char *tag)
 		: roland_w30_state(mconfig, type, tag)
 		, m_lcdc(*this, "lcdc")
+		, m_ctrltype(*this, "CTRLTYPE")
+		, m_boot_inject_done(false)
 	{
 	}
 
@@ -198,15 +200,19 @@ public:
 	u16 analog_dac_value();
 
 protected:
-	// virtual void machine_start() override;
+	virtual void machine_reset() override ATTR_COLD;
+	TIMER_DEVICE_CALLBACK_MEMBER(vdp_timer);
 	void s330_mem_map(address_map &map) ATTR_COLD;
 	void waveram_map(address_map &map);
 	void psram_bank_w(u8 data);
+	u8 keysw_r();
 
 	HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
 
 	required_device<hd44780_device> m_lcdc;
+	required_ioport m_ctrltype;
+	bool m_boot_inject_done; // true after first boot-scan row 1 has been served
 
 	u8 floppy_unknown_r();
 	u16 key_r(offs_t offset);
@@ -259,12 +265,27 @@ void roland_w30_state::machine_reset()
 	psram_bank_w(0);
 }
 
+void roland_s330_state::machine_reset()
+{
+	roland_w30_state::machine_reset();
+	m_boot_inject_done = false; // allow boot-scan injection on next reset/power-on
+}
+
 TIMER_DEVICE_CALLBACK_MEMBER(roland_s50_base_state::vdp_timer)
 {
 	// FIXME: internalize this ridiculousness
 	m_vdp->interrupt();
 }
 
+// SA-16 ENVINT (HSI0) is normally pulsed by the wave chip at the audio frame rate to
+// release the firmware's voice-processing spin loop (15F2: jbc hsi_status, 1, 1584).
+// Since SA-16 synthesis is not yet emulated, assert HSI0 on every VDP scanline so
+// the voice loop exits promptly and the main UI loop (keyscan, panel keys etc.) runs.
+TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::vdp_timer)
+{
+	roland_s50_base_state::vdp_timer(timer, param);
+	m_maincpu->set_input_line(i8x9x_device::HSI0_LINE, ASSERT_LINE);
+}
 
 void roland_s50_state::p2_w(u8 data)
 {
@@ -399,6 +420,38 @@ u8 roland_w30_state::keysw_r()
 {
 	u8 value = m_keysw[m_keyrow]->read();
 	m_keyrow = (m_keyrow + 1) % 4;
+	return value;
+}
+
+// S-330 boot controller selection override.
+//
+// On real hardware the user holds Left/Down/Right before power-on to select
+// None/Mouse/RC-100. MAME keyboard input has at least one frame of latency so
+// the held key never reaches the port in time. This override injects the
+// appropriate key value into the first boot scan (row 1 only) based on the
+// "Boot controller type" configuration DIP, unless the user is actually holding
+// a key on row 1 themselves.
+u8 roland_s330_state::keysw_r()
+{
+	u8 row = m_keyrow; // peek before parent increments
+	u8 value = roland_w30_state::keysw_r();
+
+	if (!m_boot_inject_done && row == 1)
+	{
+		m_boot_inject_done = true;
+		if (value == 0xff) // no real key held — apply DIP setting
+		{
+			switch (m_ctrltype->read() & 0x03)
+			{
+			case 0: value = 0xfb; break; // Left  = None (panel keys)
+			case 2: value = 0xef; break; // Right = RC-100
+			// case 1: Mouse — leave as 0xff (firmware defaults to mouse anyway)
+			}
+			if (value != 0xff)
+				logerror("keysw_r: boot inject row 1 => %02x (ctrltype=%d)\n",
+					value, m_ctrltype->read() & 0x03);
+		}
+	}
 	return value;
 }
 
@@ -546,7 +599,40 @@ INPUT_PORTS_END
 static INPUT_PORTS_START(w30)
 INPUT_PORTS_END
 
-[[maybe_unused]] static INPUT_PORTS_START(s330)
+static INPUT_PORTS_START(s330)
+	PORT_START("KEYSW0")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Mode") PORT_CODE(KEYCODE_F1)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Menu") PORT_CODE(KEYCODE_F2)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Dec/No") PORT_CODE(KEYCODE_MINUS) PORT_CODE(KEYCODE_MINUS_PAD)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Up") PORT_CODE(KEYCODE_UP)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Inc/Yes") PORT_CODE(KEYCODE_EQUALS) PORT_CODE(KEYCODE_PLUS_PAD)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Command") PORT_CODE(KEYCODE_SPACE)
+	PORT_BIT(0xc0, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW1")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Page") PORT_CODE(KEYCODE_F3)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Sub Menu") PORT_CODE(KEYCODE_F4)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Left") PORT_CODE(KEYCODE_LEFT) PORT_CODE(KEYCODE_4_PAD)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Down") PORT_CODE(KEYCODE_DOWN) PORT_CODE(KEYCODE_2_PAD)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Right") PORT_CODE(KEYCODE_RIGHT) PORT_CODE(KEYCODE_6_PAD)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Execute") PORT_CODE(KEYCODE_ENTER) PORT_CODE(KEYCODE_ENTER_PAD)
+	PORT_BIT(0xc0, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW2")
+	PORT_BIT(0xff, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW3")
+	PORT_BIT(0xff, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	// The S-330 determines the input controller at boot by checking which panel key
+	// is held during power-on (Left=None, Down=Mouse, Right=RC-100). Real hardware
+	// detects the physically-held key before power-up; emulation cannot replicate
+	// that timing, so this setting injects the appropriate key into the first boot scan.
+	PORT_START("CTRLTYPE")
+	PORT_CONFNAME(0x03, 0x00, "Boot controller type")
+	PORT_CONFSETTING(0x00, "None (panel keys)")
+	PORT_CONFSETTING(0x01, "Mouse")
+	PORT_CONFSETTING(0x02, "RC-100")
 INPUT_PORTS_END
 
 static void s50_floppies(device_slot_interface &device)
