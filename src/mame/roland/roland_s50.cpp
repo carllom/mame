@@ -210,6 +210,7 @@ protected:
 
 	HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
+	void init_vdp_palette(palette_device &palette) const;
 
 	required_device<hd44780_device> m_lcdc;
 	required_ioport m_ctrltype;
@@ -487,6 +488,19 @@ void roland_s330_state::init_lcd_palette(palette_device &palette) const
 	palette.set_pen_color(1, rgb_t( 92,  83,  88));
 }
 
+// TMS3556 attribute byte encodes color as bit0=R, bit1=G, bit2=B (confirmed from
+// legacy s330.cpp and bitmap plane order: name_r→bit0, name_g→bit1, name_b→bit2).
+// Standard RGB_3BIT would give bit2=R, swapping red and blue — use explicit table.
+// Use pal1bit() (0 or 255) so that black (index 0) is true black, not dark gray.
+void roland_s330_state::init_vdp_palette(palette_device &palette) const
+{
+	for (int i = 0; i < 8; i++)
+		palette.set_pen_color(i,
+			pal1bit(i >> 0),  // R = bit0
+			pal1bit(i >> 1),  // G = bit1
+			pal1bit(i >> 2)); // B = bit2
+}
+
 HD44780_PIXEL_UPDATE(roland_s330_state::lcd_pixel_update)
 {
 	if (x < 5 && y < 8 && line < 2 && pos < 16)
@@ -591,7 +605,10 @@ void roland_s330_state::s330_mem_map(address_map &map)
 	map(0xc600, 0xc600).rw(FUNC(roland_s330_state::psram_bank_r), FUNC(roland_s330_state::psram_bank_w));
 	map(0xc800, 0xc806).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
 	map(0xd000, 0xd000).r(m_vdp, FUNC(tms3556_device::vram_r));
-	map(0xd002, 0xd002).rw(m_vdp, FUNC(tms3556_device::vram_r), FUNC(tms3556_device::vram_w));
+	// D002 read used as dummy init-read by firmware (value is discarded and overwritten
+	// with #21h immediately after). Must be initptr_r() to set m_init_read=true so the
+	// first sequential vram_r() from D000 starts at VDP_BAMP, not VDP_BAMP-1.
+	map(0xd002, 0xd002).rw(m_vdp, FUNC(tms3556_device::initptr_r), FUNC(tms3556_device::vram_w));
 	map(0xd004, 0xd004).rw(m_vdp, FUNC(tms3556_device::reg_r), FUNC(tms3556_device::reg_w));
 
 	map(0xd806, 0xd806).rw(FUNC(roland_s330_state::keysw_r), FUNC(roland_s330_state::keysw_w));
@@ -892,7 +909,7 @@ void roland_s330_state::s330(machine_config &config)
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); /* not accurate */
 	screen.set_palette("palette");
 
-	PALETTE(config, "palette", palette_device::RGB_3BIT);
+	PALETTE(config, "palette", FUNC(roland_s330_state::init_vdp_palette), 8);
 
 	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_s330_state::vdp_timer), "screen", 0, 1);
 
