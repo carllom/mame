@@ -209,6 +209,7 @@ protected:
 
 	HD44780_PIXEL_UPDATE(lcd_pixel_update);
 	void init_lcd_palette(palette_device &palette) const;
+	void init_vdp_palette(palette_device &palette) const;
 
 	required_device<hd44780_device> m_lcdc;
 	required_ioport m_ctrltype;
@@ -487,6 +488,19 @@ void roland_s330_state::init_lcd_palette(palette_device &palette) const
 	palette.set_pen_color(1, rgb_t( 92,  83,  88));
 }
 
+// TMS3556 attribute byte encodes color as bit0=R, bit1=G, bit2=B (confirmed from
+// legacy s330.cpp and bitmap plane order: name_r→bit0, name_g→bit1, name_b→bit2).
+// Standard RGB_3BIT would give bit2=R, swapping red and blue — use explicit table.
+// Use pal1bit() (0 or 255) so that black (index 0) is true black, not dark gray.
+void roland_s330_state::init_vdp_palette(palette_device &palette) const
+{
+	for (int i = 0; i < 8; i++)
+		palette.set_pen_color(i,
+			pal1bit(i >> 0),  // R = bit0
+			pal1bit(i >> 1),  // G = bit1
+			pal1bit(i >> 2)); // B = bit2
+}
+
 HD44780_PIXEL_UPDATE(roland_s330_state::lcd_pixel_update)
 {
 	if (x < 5 && y < 8 && line < 2 && pos < 16)
@@ -583,6 +597,28 @@ void roland_s330_state::s330_mem_map(address_map &map)
 	m_bank2_view[0](0x8000, 0xbfff).rom().region("program", 0);
 	m_bank2_view[1](0x8000, 0xbfff).bankrw(m_psram2_bank);
 	map(0xc000, 0xffff).rw(m_wave, FUNC(sa16_device::read), FUNC(sa16_device::write)).umask16(0xff00);
+
+	map(0xc200, 0xc200).rw(FUNC(roland_s330_state::floppy_status_r), FUNC(roland_s330_state::floppy_select_w));
+	map(0xc300, 0xc302).rw(m_lcdc, FUNC(hd44780_device::read), FUNC(hd44780_device::write)).umask16(0x00ff);
+	//map(0xc400, 0xc400) Ext port pins 1-4,6-8 are mapped to bit 0-6 respectively
+	//map(0xc500, 0xc500) Ext port pindir bit 0,1 controls direction of pin 6,7
+	map(0xc600, 0xc600).rw(FUNC(roland_s330_state::psram_bank_r), FUNC(roland_s330_state::psram_bank_w));
+	map(0xc800, 0xc806).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
+	map(0xd000, 0xd000).r(m_vdp, FUNC(tms3556_device::vram_r));
+	// D002 read used as dummy init-read by firmware (value is discarded and overwritten
+	// with #21h immediately after). Must be initptr_r() to set m_init_read=true so the
+	// first sequential vram_r() from D000 starts at VDP_BAMP, not VDP_BAMP-1.
+	map(0xd002, 0xd002).rw(m_vdp, FUNC(tms3556_device::initptr_r), FUNC(tms3556_device::vram_w));
+	map(0xd004, 0xd004).rw(m_vdp, FUNC(tms3556_device::reg_r), FUNC(tms3556_device::reg_w));
+
+	map(0xd806, 0xd806).rw(FUNC(roland_s330_state::keysw_r), FUNC(roland_s330_state::keysw_w));
+
+	map(0xf00c, 0xf00c).w(FUNC(roland_s330_state::leds_w));
+}
+
+void roland_s330_state::waveram_map(address_map &map)
+{
+	map(0x00000, 0xfffff).ram().share("waveram"); // 512k 12 bit data bus
 }
 
 void roland_s50_base_state::vram_map(address_map &map)
@@ -828,7 +864,7 @@ void roland_s330_state::s330(machine_config &config)
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); /* not accurate */
 	screen.set_palette("palette");
 
-	PALETTE(config, "palette", palette_device::RGB_3BIT);
+	PALETTE(config, "palette", FUNC(roland_s330_state::init_vdp_palette), 8);
 
 	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_w30_state::vdp_timer), "screen", 0, 1);
 
