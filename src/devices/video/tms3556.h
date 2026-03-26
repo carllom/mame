@@ -100,6 +100,7 @@ private:
 	int m_scanline;             // scanline counter
 	int m_blink, m_blink_count; // blinking
 	int m_bg_color;             // background color for current line
+	int m_zone_msk;             // previous delimiter had MSK bit set (for masking mode)
 	int m_name_offset;          // current offset in name table
 	int m_cg_flag;              // c/g flag (mixed mode only)
 	int m_char_line_counter;    // character line counter (decrements from 10, 0 when we have reached

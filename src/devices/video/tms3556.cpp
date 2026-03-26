@@ -18,7 +18,7 @@
 
 #include "screen.h"
 
-//#define VERBOSE 1
+#define VERBOSE 1
 #include "logmacro.h"
 
 
@@ -124,7 +124,8 @@ tms3556_device::tms3556_device(const machine_config &mconfig, const char *tag, d
 		m_scanline(0),
 		m_blink(0),
 		m_blink_count(0),
-		m_bg_color(0)
+		m_bg_color(0),
+		m_zone_msk(0)
 {
 	for (int i = 0; i < 8; i++)
 	{
@@ -155,6 +156,7 @@ void tms3556_device::device_start()
 	save_item(NAME(m_blink));
 	save_item(NAME(m_blink_count));
 	save_item(NAME(m_bg_color));
+	save_item(NAME(m_zone_msk));
 	save_item(NAME(m_name_offset));
 	save_item(NAME(m_cg_flag));
 	save_item(NAME(m_char_line_counter));
@@ -383,6 +385,32 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 	{
 		name_hi = readbyte(nametbl_base + name_offset);
 		name_lo = readbyte(nametbl_base + name_offset + 1);
+		if ((name_lo & 0x7f) == 0x20)
+		{
+			/* Delimiter / zone-attribute character (code 0x20 = space).
+			 * Attribute byte = |BF|GF|RF|MSK|INC|BB|GB|RB|
+			 *   bits 7:5 (BF:GF:RF) = foreground color of this cell
+			 *   bit 3   (MSK)       = masking flag for this zone
+			 *   bits 2:0 (BB:GB:RB) = new zone background color, applied to
+			 *                         this cell and all subsequent cells in the row */
+			int old_bg = m_bg_color;
+			int cur_msk = (name_hi >> 3) & 0x1;
+			m_bg_color = name_hi & 0x7;
+			fg = (name_hi >> 5) & 0x7;
+			/* Masking: if CM2 bit 3 is set, the previous zone had MSK,
+			 * and this delimiter also has MSK, render the cell in the
+			 * old (previous zone) bg color rather than the new zone color */
+			if ((VDP_CM2 & 0x08) && m_zone_msk && cur_msk)
+				bg = old_bg;
+			else
+				bg = m_bg_color;
+			m_zone_msk = cur_msk;
+			dbl_w = 0;
+			dbl_h = 0;
+			pattern = 0;  /* blank — cell fills entirely with bg color */
+		}
+		else
+		{
 		pattern_ix = ((name_hi >> 2) & 2) | ((name_hi >> 4) & 1);
 		alphanumeric_mode = (pattern_ix < 2) || ((pattern_ix == 3) && !(m_control_regs[7] & 0x08));
 		fg = (name_hi >> 5) & 0x7;
@@ -423,6 +451,7 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 			if (m_char_line_counter == 0)
 				m_dbl_h_phase[x] = !m_dbl_h_phase[x];
 		}
+		} /* end non-delimiter */
 		if (!dbl_w)
 		{   /* single width */
 			for (xx = 0; xx < 8; xx++)
@@ -462,7 +491,12 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 		*ln++ = m_bg_color;
 
 	if (m_char_line_counter == 0)
+	{
 		m_name_offset = name_offset;
+		/* restore background color to register-defined value at end of each character row */
+		m_bg_color = (m_control_regs[7] >> 5) & 0x7;
+		m_zone_msk = 0;
+	}
 }
 
 
@@ -533,6 +567,7 @@ void tms3556_device::draw_line_bitmap(uint16_t *ln)
 {
 	draw_line_bitmap_common(ln);
 	m_bg_color = (readbyte(m_address_regs[2] + m_name_offset) >> 5) & 0x7;
+	m_zone_msk = 0;
 	m_name_offset += 2;
 }
 
@@ -547,6 +582,7 @@ void tms3556_device::draw_line_mixed(uint16_t *ln)
 	{   /* bitmap line */
 		draw_line_bitmap_common(ln);
 		m_bg_color = (readbyte(m_address_regs[2] + m_name_offset) >> 5) & 0x7;
+		m_zone_msk = 0;
 		m_cg_flag = (readbyte(m_address_regs[2] + m_name_offset) >> 4) & 0x1;
 		m_name_offset += 2;
 	}
@@ -559,6 +595,7 @@ void tms3556_device::draw_line_mixed(uint16_t *ln)
 		if (m_char_line_counter == 0)
 		{
 			m_bg_color = (readbyte(m_address_regs[2] + m_name_offset) >> 5) & 0x7;
+			m_zone_msk = 0;
 			m_cg_flag = (readbyte(m_address_regs[2] + m_name_offset) >> 4) & 0x1;
 			m_name_offset += 2;
 		}
@@ -641,6 +678,8 @@ void tms3556_device::interrupt_start_vblank(void)
 	}
 	/* reset background color */
 	m_bg_color = (m_control_regs[7] >> 5) & 0x7;
+	/* reset zone masking state */
+	m_zone_msk = 0;
 	/* reset name offset */
 	m_name_offset = 0;
 	/* reset character line counter */

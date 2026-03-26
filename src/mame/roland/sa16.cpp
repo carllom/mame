@@ -23,8 +23,8 @@
 //**************************************************************************
 
 #define _BLKOFF (m_regs[SA16REG_BLK] << 13)
-#define LOG_REG_ACCESS 1
-#define LOG_WRAM_ACCESS 1
+#define LOG_REG_ACCESS 0  // TODO: re-enable when working on SA-16 emulation
+#define LOG_WRAM_ACCESS 0 // TODO: re-enable when working on SA-16 emulation
 
 // device type definitions
 DEFINE_DEVICE_TYPE(RF5C36, rf5c36_device, "rf5c36", "Roland RF5C36 Sampler")
@@ -167,7 +167,7 @@ u8 sa16_base_device::read(offs_t offset)
 		m_smpcounter++; // ??
 		break;
 	default:
-		logerror("%s%s read from address %04x unimplemented\n", machine().describe_context(), tag(), offset);
+		if (LOG_REG_ACCESS) logerror("%s%s read from address %04x unimplemented\n", machine().describe_context(), tag(), offset);
 		value = 0;
 	}
 	return value;
@@ -231,6 +231,6 @@ void sa16_base_device::write(offs_t offset, u8 data)
 		m_smpcounter++;
 		break;
 	default:
-		logerror("%s%s write to address %04x unimplemented (data=%02x)\n", machine().describe_context(), tag(), offset, data);
+		if (LOG_REG_ACCESS) logerror("%s%s write to address %04x unimplemented (data=%02x)\n", machine().describe_context(), tag(), offset, data);
 	}
 }
