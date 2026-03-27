@@ -82,6 +82,11 @@ private:
 	static constexpr uint8_t MODE_BITMAP = 2;
 	static constexpr uint8_t MODE_MIXED  = 3;
 
+	// BT2 (CM1 bit 6): 0 = 625-line/50Hz, 1 = 525-line/60Hz
+	bool bt2() const { return (m_control_regs[4] & 0x40) != 0; }
+	int active_h() const { return bt2() ? 210 : 250; }
+	int scanlines_per_frame() const { return bt2() ? 262 : 313; }
+
 	// registers
 	uint8_t m_control_regs[8];
 	uint16_t m_address_regs[8];

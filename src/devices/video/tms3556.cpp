@@ -347,9 +347,6 @@ void tms3556_device::draw_line_empty(uint16_t *ln)
 	int i;
 
 	for (i = 0; i < TOTAL_WIDTH; i++)
-#if TMS3556_DOUBLE_WIDTH
-		*ln++ = m_bg_color;
-#endif
 		*ln++ = m_bg_color;
 }
 
@@ -379,9 +376,6 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 		patterntbl_base[i] = m_address_regs[i + 3];
 
 	for (xx = 0; xx < LEFT_BORDER; xx++)
-#if TMS3556_DOUBLE_WIDTH
-		*ln++ = m_bg_color;
-#endif
 		*ln++ = m_bg_color;
 
 	name_offset = m_name_offset;
@@ -465,9 +459,6 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 			for (xx = 0; xx < 8; xx++)
 			{
 				uint16_t color = (pattern & 0x80) ? fg : bg;
-#if TMS3556_DOUBLE_WIDTH
-				*ln++ = color;
-#endif
 				*ln++ = color;
 				pattern <<= 1;
 			}
@@ -481,9 +472,6 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 			for (xx = 0; xx < 4; xx++)
 			{
 				uint16_t color = (pattern & 0x80) ? fg : bg;
-#if TMS3556_DOUBLE_WIDTH
-				*ln++ = color; *ln++ = color;
-#endif
 				*ln++ = color; *ln++ = color;
 				pattern <<= 1;
 			}
@@ -493,9 +481,6 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 	}
 
 	for (xx = 0; xx < RIGHT_BORDER; xx++)
-#if TMS3556_DOUBLE_WIDTH
-		*ln++ = m_bg_color;
-#endif
 		*ln++ = m_bg_color;
 
 	if (m_char_line_counter == 0)
@@ -522,9 +507,6 @@ void tms3556_device::draw_line_bitmap_common(uint16_t *ln)
 	nametbl_base = m_address_regs[2];
 
 	for (xx = 0; xx < LEFT_BORDER; xx++)
-#if TMS3556_DOUBLE_WIDTH
-		*ln++ = m_bg_color;
-#endif
 		*ln++ = m_bg_color;
 
 	for (x = 0; x < 40; x++)
@@ -535,9 +517,6 @@ void tms3556_device::draw_line_bitmap_common(uint16_t *ln)
 		for (xx = 0; xx < 8; xx++)
 		{
 			uint16_t color = ((name_b >> 5) & 0x4) | ((name_g >> 6) & 0x2) | ((name_r >> 7) & 0x1);
-#if TMS3556_DOUBLE_WIDTH
-			*ln++ = color;
-#endif
 			*ln++ = color;
 			name_b <<= 1;
 			name_g <<= 1;
@@ -547,9 +526,6 @@ void tms3556_device::draw_line_bitmap_common(uint16_t *ln)
 	}
 
 	for (xx = 0; xx < RIGHT_BORDER; xx++)
-#if TMS3556_DOUBLE_WIDTH
-		*ln++ = m_bg_color;
-#endif
 		*ln++ = m_bg_color;
 }
 
@@ -618,21 +594,11 @@ void tms3556_device::draw_line_mixed(uint16_t *ln)
 
 void tms3556_device::draw_line(bitmap_ind16 &bmp, int line)
 {
-	int double_lines;
-	uint16_t *ln, *ln2;
+	uint16_t *ln;
 
-//  if (m_control_regs[4] & 0x??)
-//  {   // interlaced mode
-//      ln = &bmp->pix(line, m_field);
-//  }
-//  else
-	{   /* non-interlaced mode */
-		ln = &bmp.pix(line);
-		ln2 = &bmp.pix(line, 1);
-		double_lines = 1;
-	}
+	ln = &bmp.pix(line);
 
-	if ((line < TOP_BORDER) || (line >= (TOP_BORDER + 250)))
+	if ((line < TOP_BORDER) || (line >= (TOP_BORDER + active_h())))
 	{
 		/* draw top and bottom borders */
 		draw_line_empty(ln);
@@ -656,13 +622,6 @@ void tms3556_device::draw_line(bitmap_ind16 &bmp, int line)
 			draw_line_mixed(ln);
 			break;
 		}
-	}
-
-	if (double_lines)
-	{
-		// TODO: this overlaps in exeltel - use memmove for now
-		//memcpy(ln2, ln, TOTAL_WIDTH * (TMS3556_DOUBLE_WIDTH ? 2 : 1));
-		memmove(ln2, ln, TOTAL_WIDTH * (TMS3556_DOUBLE_WIDTH ? 2 : 1));
 	}
 }
 
@@ -705,8 +664,10 @@ void tms3556_device::interrupt_start_vblank(void)
 
 void tms3556_device::interrupt()
 {
+	const int total_lines = scanlines_per_frame();
+
 	/* check for start of vblank */
-	if (m_scanline == 310)  /*no idea what the real value is*/
+	if (m_scanline == (total_lines - 3))
 		interrupt_start_vblank();
 
 	/* render the current line */
@@ -716,6 +677,6 @@ void tms3556_device::interrupt()
 			draw_line(m_bitmap, m_scanline);
 	}
 
-	if (++m_scanline == 313)
+	if (++m_scanline == total_lines)
 		m_scanline = 0;
 }
