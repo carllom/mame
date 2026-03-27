@@ -400,22 +400,21 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 			int cur_msk = (name_hi >> 3) & 0x1;
 			m_bg_color = name_hi & 0x7;
 			fg = (name_hi >> 5) & 0x7;
-			/* Masking: if CM2 bit 3 is set, the previous zone had MSK,
+			/* Masking: if DC3 (CM2 bit 5) is set, the previous zone had MSK,
 			 * and this delimiter also has MSK, render the cell in the
 			 * old (previous zone) bg color rather than the new zone color */
-			if ((VDP_CM2 & 0x08) && m_zone_msk && cur_msk)
-				bg = old_bg;
-			else
-				bg = m_bg_color;
+			if ((VDP_CM2 & 0x20) && m_zone_msk && cur_msk)
+				fg = old_bg;  /* masked: delimiter shows in old bg color */
 			m_zone_msk = cur_msk;
+			bg = m_bg_color;
 			dbl_w = 0;
 			dbl_h = 0;
-			pattern = 0xff;  /* filled block in foreground color */
+			pattern = 0xff;  /* filled block — delimiter cell uniform in fg color */
 		}
 		else
 		{
 		pattern_ix = ((name_hi >> 2) & 2) | ((name_hi >> 4) & 1);
-		alphanumeric_mode = (pattern_ix < 2) || ((pattern_ix == 3) && !(m_control_regs[7] & 0x08));
+		alphanumeric_mode = (pattern_ix < 2) || ((pattern_ix == 3) && !(m_control_regs[5] & 0x08));
 		fg = (name_hi >> 5) & 0x7;
 		if (alphanumeric_mode)
 		{
@@ -432,6 +431,7 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 		else
 		{
 			bg = name_hi & 0x7;
+			m_bg_color = bg;  /* mosaic chars propagate bg to subsequent chars */
 			dbl_w = 0;
 			dbl_h = 0;
 		}
