@@ -369,8 +369,10 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 	int pattern_ix;
 	int alphanumeric_mode, dbl_w, dbl_h, dbl_w_phase = 0;
 
-	/* initialize background color from CM4 bits 5-7 at the start of each line */
+	/* initialize background color from CM4 bits 7:5 at the start of each line */
 	m_bg_color = (VDP_CM4 >> 5) & 0x7;
+	/* initialize zone masking state from CM4 bit 3 (MR) */
+	m_zone_msk = (VDP_CM4 >> 3) & 0x1;
 
 	nametbl_base = m_address_regs[2];
 	for (i = 0; i < 4; i++)
@@ -455,6 +457,9 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 				m_dbl_h_phase[x] = !m_dbl_h_phase[x];
 		}
 		} /* end non-delimiter */
+		/* Masking: if DC3 enabled and zone is masked, display char as space */
+		if ((VDP_CM2 & 0x20) && m_zone_msk)
+			pattern = 0;
 		if (!dbl_w)
 		{   /* single width */
 			for (xx = 0; xx < 8; xx++)
