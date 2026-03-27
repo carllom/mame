@@ -371,12 +371,15 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 	/* initialize zone masking state from CM4 bit 3 (MR) */
 	m_zone_msk = (VDP_CM4 >> 3) & 0x1;
 
+	/* margin color is the CM4-defined color, not affected by delimiters */
+	const uint16_t margin_color = m_bg_color;
+
 	nametbl_base = m_address_regs[2];
 	for (i = 0; i < 4; i++)
 		patterntbl_base[i] = m_address_regs[i + 3];
 
 	for (xx = 0; xx < LEFT_BORDER; xx++)
-		*ln++ = m_bg_color;
+		*ln++ = margin_color;
 
 	name_offset = m_name_offset;
 
@@ -481,7 +484,7 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 	}
 
 	for (xx = 0; xx < RIGHT_BORDER; xx++)
-		*ln++ = m_bg_color;
+		*ln++ = margin_color;
 
 	if (m_char_line_counter == 0)
 	{
