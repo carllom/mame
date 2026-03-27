@@ -369,6 +369,9 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 	int pattern_ix;
 	int alphanumeric_mode, dbl_w, dbl_h, dbl_w_phase = 0;
 
+	/* initialize background color from CM4 bits 5-7 at the start of each line */
+	m_bg_color = (VDP_CM4 >> 5) & 0x7;
+
 	nametbl_base = m_address_regs[2];
 	for (i = 0; i < 4; i++)
 		patterntbl_base[i] = m_address_regs[i + 3];
@@ -407,7 +410,7 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 			m_zone_msk = cur_msk;
 			dbl_w = 0;
 			dbl_h = 0;
-			pattern = 0;  /* blank — cell fills entirely with bg color */
+			pattern = 0xff;  /* filled block in foreground color */
 		}
 		else
 		{
