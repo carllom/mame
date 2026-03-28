@@ -1,5 +1,5 @@
-#ifndef WD_FDC_H
-#define WD_FDC_H
+#ifndef MAME_MACHINE_WD_FDC_OLD_H
+#define MAME_MACHINE_WD_FDC_OLD_H
 
 #include "emu.h"
 #include "imagedev/floppy.h"

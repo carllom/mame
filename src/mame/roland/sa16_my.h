@@ -5,8 +5,8 @@
  *      Author: Carl Lom
  */
 
-#ifndef SA16_H_
-#define SA16_H_
+#ifndef MAME_ROLAND_SA16_MY_H
+#define MAME_ROLAND_SA16_MY_H
 
 #include "emu.h"
 
