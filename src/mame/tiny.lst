@@ -10,3 +10,18 @@
 *******************************************************************************/
 
 s330        // Roland S-330 Sampler
+s50
+s550
+w30
+
+@source:roland/roland_mt32.cpp
+mt32        // MCS96 regression test
+mt100
+cm32l
+
+@source:misc/pntnpuzl.cpp
+pntnpuzl    // MCS96 regression test
+
+@source:ti/exelv.cpp
+exl100      // TMS3556 regression test
+exeltel
