@@ -366,13 +366,18 @@ void tms3556_device::draw_line_text_common(uint16_t *ln)
 	int pattern_ix;
 	int alphanumeric_mode, dbl_w, dbl_h, dbl_w_phase = 0;
 
-	/* initialize background color from CM4 bits 7:5 at the start of each line */
-	m_bg_color = (VDP_CM4 >> 5) & 0x7;
-	/* initialize zone masking state from CM4 bit 3 (MR) */
-	m_zone_msk = (VDP_CM4 >> 3) & 0x1;
+	/* initialize background color and zone masking from CM4 at start of each text ROW.
+	 * Per manual §4.2.6: "the beginning of the next row acts just like a delimiter
+	 * with the state of the serial attributes defined by the contents of CM4."
+	 * In pure text mode CM4 is static; in mixed mode, trailing bytes update CM4. */
+	if (m_char_line_counter == 9)
+	{
+		m_bg_color = (VDP_CM4 >> 5) & 0x7;
+		m_zone_msk = (VDP_CM4 >> 3) & 0x1;
+	}
 
 	/* margin color is the CM4-defined color, not affected by delimiters */
-	const uint16_t margin_color = m_bg_color;
+	const uint16_t margin_color = (VDP_CM4 >> 5) & 0x7;
 
 	nametbl_base = m_address_regs[2];
 	for (i = 0; i < 4; i++)
@@ -553,7 +558,9 @@ void tms3556_device::draw_line_text(uint16_t *ln)
 void tms3556_device::draw_line_bitmap(uint16_t *ln)
 {
 	draw_line_bitmap_common(ln);
-	m_bg_color = (readbyte(m_address_regs[2] + m_name_offset) >> 5) & 0x7;
+	/* trailing byte 121 is transferred into CM4 (manual §4.3.2) */
+	m_control_regs[7] = readbyte(m_address_regs[2] + m_name_offset);
+	m_bg_color = (m_control_regs[7] >> 5) & 0x7;
 	m_zone_msk = 0;
 	m_name_offset += 2;
 }
@@ -568,9 +575,11 @@ void tms3556_device::draw_line_mixed(uint16_t *ln)
 	if (m_cg_flag)
 	{   /* bitmap line */
 		draw_line_bitmap_common(ln);
-		m_bg_color = (readbyte(m_address_regs[2] + m_name_offset) >> 5) & 0x7;
+		/* trailing byte 121 is transferred into CM4 (manual §4.3.2) */
+		m_control_regs[7] = readbyte(m_address_regs[2] + m_name_offset);
+		m_bg_color = (m_control_regs[7] >> 5) & 0x7;
 		m_zone_msk = 0;
-		m_cg_flag = (readbyte(m_address_regs[2] + m_name_offset) >> 4) & 0x1;
+		m_cg_flag = (m_control_regs[7] >> 4) & 0x1;
 		m_name_offset += 2;
 	}
 	else
@@ -581,7 +590,9 @@ void tms3556_device::draw_line_mixed(uint16_t *ln)
 		draw_line_text_common(ln);
 		if (m_char_line_counter == 0)
 		{
-			m_bg_color = (readbyte(m_address_regs[2] + m_name_offset) >> 5) & 0x7;
+			/* trailing byte 81 is transferred into CM4 (manual §4.3.2) */
+			m_control_regs[7] = readbyte(m_address_regs[2] + m_name_offset);
+			m_bg_color = (m_control_regs[7] >> 5) & 0x7;
 			m_zone_msk = 0;
 			m_cg_flag = (readbyte(m_address_regs[2] + m_name_offset) >> 4) & 0x1;
 			m_name_offset += 2;
