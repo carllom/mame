@@ -17,6 +17,8 @@
 --------------------------------------------------
 
 CPUS["MCS96"] = true
+CPUS["M680X0"] = true -- pntnpuzl
+CPUS["TMS7000"] = true -- exelv
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
@@ -26,14 +28,19 @@ CPUS["MCS96"] = true
 SOUNDS["SA16"] = true
 SOUNDS["DAC"] = true
 SOUNDS["CDDA"] = true
+SOUNDS["TMS5220"] = true -- exelv
+SOUNDS["SPEAKER"] = true -- exelv
 
 --------------------------------------------------
 -- specify available video cores
 --------------------------------------------------
 
 VIDEOS["HD44780"] = true -- s330
-VIDEOS["TMS3556"] = true -- s330
+VIDEOS["TMS3556"] = true -- s330, exelv
 VIDEOS["T6963C"] = true -- ajr
+VIDEOS["PC_VGA"] = true -- pntnpuzl
+VIDEOS["PC_VGA_TRIDENT"] = true -- pntnpuzl
+VIDEOS["SED1200"] = true -- mt32
 
 --------------------------------------------------
 -- specify available machine cores
@@ -44,12 +51,16 @@ MACHINES["FDC_PLL"] = true -- wd_fdc
 MACHINES["BANKDEV"] = true -- ajr
 MACHINES["NSCSI"] = true
 MACHINES["MB87030"] = true
+MACHINES["6522VIA"] = true -- pntnpuzl
+MACHINES["EEPROMDEV"] = true -- pntnpuzl
+MACHINES["TMS6100"] = true -- exelv
 
 --------------------------------------------------
 -- specify available bus cores
 --------------------------------------------------
 
 BUSES["NSCSI"] = true
+BUSES["GENERIC"] = true -- exelv
 FORMATS["ROLAND_DSK"] = true
 FORMATS["WD177X_DSK"] = true
 
@@ -81,12 +92,15 @@ function createProjects_mame_tiny(_target, _subtarget)
 files{
 	-- MAME_DIR .. "src/mame/drivers/s330.cpp",
 	MAME_DIR .. "src/mame/roland/roland_s50.cpp",
+	MAME_DIR .. "src/mame/roland/roland_mt32.cpp", -- MCS96 regression test
 	MAME_DIR .. "src/mame/roland/mb63h149.cpp", -- (ajr) not mapped to machine core yet?
 	-- MAME_DIR .. "src/mame/roland/mb63h149.h",
 	MAME_DIR .. "src/mame/roland/sa16.cpp", -- not mapped to audio core yet
 	-- MAME_DIR .. "src/mame/roland/sa16.h",
 	MAME_DIR .. "src/mame/roland/bu3905.cpp", -- (ajr) not mapped to audio core yet?
 	-- MAME_DIR .. "src/mame/roland/bu3905.h",
+	MAME_DIR .. "src/mame/misc/pntnpuzl.cpp", -- MCS96 regression test
+	MAME_DIR .. "src/mame/ti/exelv.cpp", -- TMS3556 regression test
 }
 end
 
