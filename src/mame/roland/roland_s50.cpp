@@ -319,14 +319,14 @@ TIMER_DEVICE_CALLBACK_MEMBER(roland_s50_base_state::vdp_timer)
 	m_vdp->interrupt();
 }
 
-// SA-16 ENVINT (HSI0) is normally pulsed by the wave chip at the audio frame rate to
-// release the firmware's voice-processing spin loop (15F2: jbc hsi_status, 1, 1584).
-// Since SA-16 synthesis is not yet emulated, assert HSI0 on every VDP scanline so
-// the voice loop exits promptly and the main UI loop (keyscan, panel keys etc.) runs.
+// SA-16 ENVINT (HSI0) gates the firmware's voice-processing loop at RAM_15FD.
+// The inner loop polls hsi_status bit 1: LOW = process next voice, HIGH = exit loop.
+// We alternate each VDP scanline so the firmware gets ~130 processing windows per
+// frame (one voice per window), with HIGH scanlines letting the main UI loop run.
 TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::vdp_timer)
 {
 	roland_s50_base_state::vdp_timer(timer, param);
-	m_maincpu->set_input_line(i8x9x_device::HSI0_LINE, ASSERT_LINE);
+	m_maincpu->set_input_line(i8x9x_device::HSI0_LINE, (param & 1) ? ASSERT_LINE : CLEAR_LINE);
 
 	// Check MIDI test note keys (once per frame, on line 0)
 	if (param == 0)
