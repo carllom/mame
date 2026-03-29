@@ -89,6 +89,7 @@ private:
 
 	// internal state
 	u16 m_active_channels;
+	u8 m_voice_cycle; // TEMP: cycling voice counter for envelope processing loop
 
 	int m_reg800_woffset; // offset for reg writes???
 	int m_reg800_roffset; // offset for reg reads???
