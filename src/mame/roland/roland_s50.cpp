@@ -193,6 +193,9 @@ public:
 		, m_lcdc(*this, "lcdc")
 		, m_ctrltype(*this, "CTRLTYPE")
 		, m_midi_test(*this, "MIDITEST")
+		, m_mouse_btn(*this, "MOUSEBTN")
+		, m_mouse_x(*this, "MOUSEX")
+		, m_mouse_y(*this, "MOUSEY")
 		, m_boot_inject_done(false)
 		, m_midi_pos(0)
 		, m_midi_note_on(false)
@@ -221,12 +224,28 @@ protected:
 	required_device<hd44780_device> m_lcdc;
 	required_ioport m_ctrltype;
 	required_ioport m_midi_test;
+	required_ioport m_mouse_btn;
+	required_ioport m_mouse_x;
+	required_ioport m_mouse_y;
 	bool m_boot_inject_done; // true after first boot-scan row 1 has been served
 
 	// MIDI test note injection
 	int m_midi_pos;
 	bool m_midi_note_on;
 	u8 m_midi_data[3];
+
+	// EXT port mouse state (MSX mouse protocol)
+	u16 m_mouse_data;    // packed nybbles: (u8(dx) << 8) | u8(dy)
+	u8 m_mouse_stat;     // nybble state 0-3 (cycles on each strobe edge)
+	u8 m_mouse_old_strobe;
+	s16 m_mouse_x_val;
+	s16 m_mouse_y_val;
+	attotime m_mouse_last_strobe;
+	u8 m_ext_pindir;
+
+	u8 ext_port_r();
+	void ext_port_w(u8 data);
+	void ext_pindir_w(u8 data);
 
 	u8 floppy_unknown_r();
 	u16 key_r(offs_t offset);
@@ -286,6 +305,13 @@ void roland_s330_state::machine_start()
 	save_item(NAME(m_midi_pos));
 	save_item(NAME(m_midi_note_on));
 	save_item(NAME(m_midi_data));
+	save_item(NAME(m_mouse_data));
+	save_item(NAME(m_mouse_stat));
+	save_item(NAME(m_mouse_old_strobe));
+	save_item(NAME(m_mouse_x_val));
+	save_item(NAME(m_mouse_y_val));
+	save_item(NAME(m_mouse_last_strobe));
+	save_item(NAME(m_ext_pindir));
 }
 
 void roland_s330_state::machine_reset()
@@ -295,6 +321,13 @@ void roland_s330_state::machine_reset()
 	m_midi_pos = 0;
 	m_midi_note_on = false;
 	memset(m_midi_data, 0, sizeof(m_midi_data));
+	m_mouse_data = 0;
+	m_mouse_stat = 3;
+	m_mouse_old_strobe = 0;
+	m_mouse_x_val = 0;
+	m_mouse_y_val = 0;
+	m_mouse_last_strobe = attotime::zero;
+	m_ext_pindir = 0;
 }
 
 // MIDI test note timer — feeds one byte per tick at ~3125 Hz (MIDI baud / 10)
@@ -525,6 +558,57 @@ u8 roland_s330_state::keysw_r()
 	return value;
 }
 
+// EXT port read (C400) — MSX-style mouse protocol
+//
+// Bits 0-3: movement nybble (cycles through X_hi, X_lo, Y_hi, Y_lo on strobe edges)
+// Bits 4-5: mouse buttons (active low: bit4=left, bit5=right)
+// Bit 6: strobe readback (directly driven by writes)
+u8 roland_s330_state::ext_port_r()
+{
+	u8 buttons = m_mouse_btn->read() & 0x30;
+	u8 nybble = (m_mouse_data >> (4 * (3 - m_mouse_stat))) & 0x0f;
+	return buttons | nybble;
+}
+
+// EXT port write (C400) — strobe output
+//
+// Bit 6 drives the mouse strobe pin. Each edge (rising or falling) advances the
+// nybble state machine: 0→1→2→3→0. State 0 latches the current mouse X/Y deltas.
+// A 3ms gap between edges resets the state machine, matching MSX mouse protocol.
+void roland_s330_state::ext_port_w(u8 data)
+{
+	u8 strobe = BIT(data, 6);
+	if (strobe != m_mouse_old_strobe)
+	{
+		attotime now = machine().scheduler().time();
+		if (now - m_mouse_last_strobe > attotime::from_msec(3))
+			m_mouse_stat = 3; // timeout — force restart
+
+		m_mouse_last_strobe = now;
+		m_mouse_stat = (m_mouse_stat + 1) & 0x03;
+
+		if (m_mouse_stat == 0)
+		{
+			// Latch mouse deltas (signed 8-bit X and Y)
+			s16 mouse_x = m_mouse_x->read();
+			s16 mouse_y = m_mouse_y->read();
+			m_mouse_data = (u8(m_mouse_x_val - mouse_x) << 8) | u8(m_mouse_y_val - mouse_y);
+			m_mouse_x_val = mouse_x;
+			m_mouse_y_val = mouse_y;
+		}
+		m_mouse_old_strobe = strobe;
+	}
+}
+
+// EXT port pin direction register (C500)
+//
+// Bits 0-1 control direction of EXT port pins 6-7.
+// Mouse mode writes 0 (all inputs); RC-100 writes 3 (pins 6-7 as outputs).
+void roland_s330_state::ext_pindir_w(u8 data)
+{
+	m_ext_pindir = data;
+}
+
 // Keyswitch command register (M60013)
 //
 // A write to this register will reset the keyscan counter
@@ -669,8 +753,8 @@ void roland_s330_state::s330_mem_map(address_map &map)
 
 	map(0xc200, 0xc200).rw(FUNC(roland_s330_state::floppy_status_r), FUNC(roland_s330_state::floppy_select_w));
 	map(0xc300, 0xc302).rw(m_lcdc, FUNC(hd44780_device::read), FUNC(hd44780_device::write)).umask16(0x00ff);
-	//map(0xc400, 0xc400) Ext port pins 1-4,6-8 are mapped to bit 0-6 respectively
-	//map(0xc500, 0xc500) Ext port pindir bit 0,1 controls direction of pin 6,7
+	map(0xc400, 0xc400).rw(FUNC(roland_s330_state::ext_port_r), FUNC(roland_s330_state::ext_port_w));
+	map(0xc500, 0xc500).w(FUNC(roland_s330_state::ext_pindir_w));
 	map(0xc600, 0xc600).rw(FUNC(roland_s330_state::psram_bank_r), FUNC(roland_s330_state::psram_bank_w));
 	map(0xc800, 0xc806).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
 	map(0xd000, 0xd000).r(m_vdp, FUNC(tms3556_device::vram_r));
@@ -789,6 +873,20 @@ static INPUT_PORTS_START(s330)
 	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note Off") PORT_CODE(KEYCODE_M)
 	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C#4)") PORT_CODE(KEYCODE_B)
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C5)") PORT_CODE(KEYCODE_V)
+
+	// Mouse on EXT port (directly read via C400, active low buttons)
+	// MAME's UI consumes right-click for its own menu, so map the S-330's
+	// right button to IPT_BUTTON3 (middle-click) which passes through.
+	PORT_START("MOUSEBTN")
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_BUTTON1) PORT_NAME("Mouse Left Button")
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_BUTTON3) PORT_NAME("Mouse Right Button")
+	PORT_BIT(0xcf, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("MOUSEX")
+	PORT_BIT(0xffff, 0, IPT_MOUSE_X) PORT_SENSITIVITY(50)
+
+	PORT_START("MOUSEY")
+	PORT_BIT(0xffff, 0, IPT_MOUSE_Y) PORT_SENSITIVITY(50)
 INPUT_PORTS_END
 
 static void s50_floppies(device_slot_interface &device)
