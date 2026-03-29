@@ -27,6 +27,7 @@
 #include "video/t6963c.h"
 #include "emupal.h"
 #include "screen.h"
+#include "speaker.h"
 
 #include "s330.lh"
 
@@ -303,6 +304,12 @@ TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::midi_timer_cb)
 	{
 		logerror("midi_inject: byte %d = %02x\n", m_midi_pos, m_midi_data[m_midi_pos]);
 		m_maincpu->serial_w(m_midi_data[m_midi_pos++]);
+		// Disable SA-16 log gate after note-off bytes are all sent
+		if (m_midi_pos >= 3 && !m_midi_note_on)
+		{
+			m_wave->set_log_gate(false);
+			logerror("midi_test: SA-16 logging DISABLED\n");
+		}
 	}
 }
 
@@ -325,27 +332,29 @@ TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::vdp_timer)
 	if (param == 0)
 	{
 		u8 keys = m_midi_test->read();
-		bool note_on_pressed = (keys & 1) != 0;
 		bool note_off_pressed = (keys & 2) != 0;
-		if (note_on_pressed && !m_midi_note_on)
+		u8 note_num = 0;
+		if (keys & 0x01) note_num = 0x3c;       // N = C4 (60)
+		else if (keys & 0x04) note_num = 0x3d;  // B = C#4 (61)
+		else if (keys & 0x08) note_num = 0x48;  // V = C5 (72)
+		if (note_num && !m_midi_note_on)
 		{
-			// Note On: channel 0, note 60 (C4), velocity 100
 			m_midi_note_on = true;
 			m_midi_data[0] = 0x90;
-			m_midi_data[1] = 0x3c;
+			m_midi_data[1] = note_num;
 			m_midi_data[2] = 0x64;
 			m_midi_pos = 0;
-			logerror("midi_test: Note On\n");
+			m_wave->set_log_gate(true);
+			logerror("midi_test: Note On %02x — SA-16 logging ENABLED\n", note_num);
 		}
 		else if (note_off_pressed && m_midi_note_on)
 		{
-			// Note Off: channel 0, note 60, velocity 0
 			m_midi_note_on = false;
 			m_midi_data[0] = 0x90;
-			m_midi_data[1] = 0x3c;
+			m_midi_data[1] = m_midi_data[1]; // reuse last note number
 			m_midi_data[2] = 0x00;
 			m_midi_pos = 0;
-			logerror("midi_test: Note Off\n");
+			logerror("midi_test: Note Off %02x — SA-16 logging remains until bytes sent\n", m_midi_data[1]);
 		}
 	}
 }void roland_s50_state::p2_w(u8 data)
@@ -774,10 +783,12 @@ static INPUT_PORTS_START(s330)
 	PORT_CONFSETTING(0x01, "Mouse")
 	PORT_CONFSETTING(0x02, "RC-100")
 
-	// MIDI test note — press N for Note On, M for Note Off (ch1, C4, vel 100)
+	// MIDI test notes — N=C4, B=C#4(+1semi), V=C5(+1oct), M=NoteOff
 	PORT_START("MIDITEST")
 	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C4)") PORT_CODE(KEYCODE_N)
 	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note Off") PORT_CODE(KEYCODE_M)
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C#4)") PORT_CODE(KEYCODE_B)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C5)") PORT_CODE(KEYCODE_V)
 INPUT_PORTS_END
 
 static void s50_floppies(device_slot_interface &device)
@@ -982,6 +993,9 @@ void roland_s330_state::s330(machine_config &config)
 	m_wave->set_addrmap(0, &roland_s330_state::waveram_map);
 	m_wave->int_callback().set_inputline(m_maincpu, i8x9x_device::HSI0_LINE);
 	m_wave->sh_callback().set("outas", FUNC(bu3905_device::axi_w));
+	m_wave->add_route(0, "speaker", 1.0);
+
+	SPEAKER(config, "speaker").front_center();
 
 	// MIDI byte injection timer — fires at ~3125 Hz (31250 baud / 10 bits per byte)
 	TIMER(config, "midi_timer").configure_periodic(FUNC(roland_s330_state::midi_timer_cb), attotime::from_hz(3125));
