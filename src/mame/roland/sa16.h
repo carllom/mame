@@ -20,6 +20,13 @@
 class sa16_base_device : public device_t
 {
 public:
+	// address space indices
+	enum {
+		AS_WRAM     = 0,
+		AS_REGS     = 1,
+		AS_CHANREGS = 2
+	};
+
 	// callback configuration
 	auto int_callback() { return m_int_callback.bind(); }
 	auto sh_callback() { return m_sh_callback.bind(); }
@@ -34,18 +41,30 @@ protected:
 
 	// device_config_memory_interface overrides
 	virtual space_config_vector memory_space_config() const override;
- 
+
 	// address space configurations
 	const address_space_config m_space_config;
+	const address_space_config m_space_regs_config;
+	const address_space_config m_space_chanregs_config;
 
 	// device-specific overrides
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
 
 private:
+
+	void sa16(address_map &map);
+	void regs_map(address_map &map);
+	void chanregs_map(address_map &map);
+
 	// line callbacks
 	devcb_write_line m_int_callback;
 	devcb_write_line m_sh_callback;
+
+	u16 wram_r16(offs_t offset) { return this->space(AS_WRAM).read_word(offset); }
+	void wram_w16(offs_t offset, u16 data) { this->space(AS_WRAM).write_word(offset, data); }
+	u8 wram_r8(offs_t offset) { return this->space(AS_WRAM).read_byte(offset); }
+	void wram_w8(offs_t offset, u8 data) { this->space(AS_WRAM).write_byte(offset, data); }
 
 	// internal state (TODO)
 };

@@ -23,13 +23,35 @@
 //**************************************************************************
 
 #define _BLKOFF (m_regs[SA16REG_BLK] << 13)
-#define LOG_REG_ACCESS 0  // TODO: re-enable when working on SA-16 emulation
+#define LOG_REG_ACCESS 1
 #define LOG_WRAM_ACCESS 0 // TODO: re-enable when working on SA-16 emulation
 
 // device type definitions
 DEFINE_DEVICE_TYPE(RF5C36, rf5c36_device, "rf5c36", "Roland RF5C36 Sampler")
-DEFINE_DEVICE_TYPE(SA16, sa16_device, "sa16", "Roland SA-16 Sampler")
+DEFINE_DEVICE_TYPE(SA16, sa16_device, "sa16", "Roland SA-16 Wave Gate Array")
 
+// default address map
+void sa16_base_device::sa16(address_map &map)
+{
+	// TODO: it looks like the chip deals with memory in 256k word banks (through CAS0-3).
+	//       Maybe implement a banked solution instead of a linear
+	if (!has_configured_map(0))
+		map(0x000000, 0x1fffff).ram(); // total address bus width is 20 bits (1M 12-bit words)
+}
+
+//-------------------------------------------------
+//  memory_space_config - return a description of
+//  any address spaces owned by this device
+//-------------------------------------------------
+
+device_memory_interface::space_config_vector sa16_base_device::memory_space_config() const
+{
+	return space_config_vector {
+		std::make_pair(AS_WRAM,     &m_space_config),
+		std::make_pair(AS_REGS,     &m_space_regs_config),
+		std::make_pair(AS_CHANREGS, &m_space_chanregs_config)
+	};
+}
 
 //**************************************************************************
 //  DEVICE IMPLEMENTATION
@@ -41,6 +63,10 @@ DEFINE_DEVICE_TYPE(SA16, sa16_device, "sa16", "Roland SA-16 Sampler")
 
 sa16_base_device::sa16_base_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock)
 	: device_t(mconfig, type, tag, owner, clock)
+	, device_memory_interface(mconfig, *this)
+	, m_space_config("waveram", ENDIANNESS_LITTLE, 16, 21, 0, address_map_constructor(FUNC(sa16_base_device::sa16), this))
+	, m_space_regs_config("regs", ENDIANNESS_LITTLE, 8, 4, 0, address_map_constructor(FUNC(sa16_base_device::regs_map), this))
+	, m_space_chanregs_config("chanregs", ENDIANNESS_LITTLE, 16, 11, 0, address_map_constructor(FUNC(sa16_base_device::chanregs_map), this))
 	, m_int_callback(*this)
 	, m_sh_callback(*this)
 {
@@ -71,8 +97,71 @@ sa16_device::sa16_device(const machine_config &mconfig, const char *tag, device_
 //  device_start - device-specific startup
 //-------------------------------------------------
 
+//-------------------------------------------------
+//  regs_map - address map for direct registers
+//  (visible as "regs" in debugger memory view)
+//-------------------------------------------------
+
+void sa16_base_device::regs_map(address_map &map)
+{
+	map(0x0, 0xf).lrw8(
+		NAME([this] (offs_t offset) -> u8 {
+			switch (offset) {
+			case 0: return m_active_channels & 0xff;
+			case 1: return m_active_channels >> 8;
+			case 2: return m_regs800[m_reg800_roffset] & 0xff;
+			case 3: return m_regs800[m_reg800_roffset] >> 8;
+			case 8: return m_regs[SA16REG_BLK];
+			default: return u8(0);
+			}
+		}),
+		NAME([this] (offs_t offset, u8 data) {
+			switch (offset) {
+			case 0: m_active_channels = (m_active_channels & 0xff00) | data; break;
+			case 1: m_active_channels = (m_active_channels & 0x00ff) | (data << 8); break;
+			case 8: m_regs[SA16REG_BLK] = data; m_smpcounter = 0; break;
+			}
+		})
+	);
+}
+
+//-------------------------------------------------
+//  chanregs_map - address map for channel registers
+//  (visible as "chanregs" in debugger memory view)
+//-------------------------------------------------
+
+void sa16_base_device::chanregs_map(address_map &map)
+{
+	map(0x000, 0x7ff).lrw16(
+		NAME([this] (offs_t offset) -> u16 { return m_regs800[offset]; }),
+		NAME([this] (offs_t offset, u16 data) { m_regs800[offset] = data; })
+	);
+}
+
+
 void sa16_base_device::device_start()
 {
+	m_active_channels = 0;
+	m_reg800_woffset = 0;
+	m_reg800_roffset = 0;
+	m_blockoffset = 0;
+	m_smpcounter = 0;
+	m_port_wram = 0;
+	m_port_smp16 = 0;
+	memset(m_regs, 0, sizeof(m_regs));
+	memset(m_ports, 0, sizeof(m_ports));
+	memset(m_regs800, 0, sizeof(m_regs800));
+
+	save_item(NAME(m_active_channels));
+	save_item(NAME(m_reg800_woffset));
+	save_item(NAME(m_reg800_roffset));
+	save_item(NAME(m_blockoffset));
+	save_item(NAME(m_smpcounter));
+	save_item(NAME(m_port_wram));
+	save_item(NAME(m_port_smp16));
+	save_item(NAME(m_regs));
+	save_item(NAME(m_ports));
+	save_item(NAME(m_regs800));
 }
 
 

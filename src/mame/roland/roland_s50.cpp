@@ -190,7 +190,10 @@ public:
 		: roland_w30_state(mconfig, type, tag)
 		, m_lcdc(*this, "lcdc")
 		, m_ctrltype(*this, "CTRLTYPE")
+		, m_midi_test(*this, "MIDITEST")
 		, m_boot_inject_done(false)
+		, m_midi_pos(0)
+		, m_midi_note_on(false)
 	{
 	}
 
@@ -200,8 +203,10 @@ public:
 	u16 analog_dac_value();
 
 protected:
+	virtual void machine_start() override ATTR_COLD;
 	virtual void machine_reset() override ATTR_COLD;
 	TIMER_DEVICE_CALLBACK_MEMBER(vdp_timer);
+	TIMER_DEVICE_CALLBACK_MEMBER(midi_timer_cb);
 	void s330_mem_map(address_map &map) ATTR_COLD;
 	void waveram_map(address_map &map);
 	void psram_bank_w(u8 data);
@@ -213,7 +218,13 @@ protected:
 
 	required_device<hd44780_device> m_lcdc;
 	required_ioport m_ctrltype;
+	required_ioport m_midi_test;
 	bool m_boot_inject_done; // true after first boot-scan row 1 has been served
+
+	// MIDI test note injection
+	int m_midi_pos;
+	bool m_midi_note_on;
+	u8 m_midi_data[3];
 
 	u8 floppy_unknown_r();
 	u16 key_r(offs_t offset);
@@ -266,10 +277,31 @@ void roland_w30_state::machine_reset()
 	psram_bank_w(0);
 }
 
+void roland_s330_state::machine_start()
+{
+	roland_w30_state::machine_start();
+	save_item(NAME(m_midi_pos));
+	save_item(NAME(m_midi_note_on));
+	save_item(NAME(m_midi_data));
+}
+
 void roland_s330_state::machine_reset()
 {
 	roland_w30_state::machine_reset();
 	m_boot_inject_done = false; // allow boot-scan injection on next reset/power-on
+	m_midi_pos = 0;
+	m_midi_note_on = false;
+	memset(m_midi_data, 0, sizeof(m_midi_data));
+}
+
+// MIDI test note timer — feeds one byte per tick at ~3125 Hz (MIDI baud / 10)
+TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::midi_timer_cb)
+{
+	if (m_midi_pos < 3)
+	{
+		logerror("midi_inject: byte %d = %02x\n", m_midi_pos, m_midi_data[m_midi_pos]);
+		m_maincpu->serial_w(m_midi_data[m_midi_pos++]);
+	}
 }
 
 TIMER_DEVICE_CALLBACK_MEMBER(roland_s50_base_state::vdp_timer)
@@ -286,9 +318,35 @@ TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::vdp_timer)
 {
 	roland_s50_base_state::vdp_timer(timer, param);
 	m_maincpu->set_input_line(i8x9x_device::HSI0_LINE, ASSERT_LINE);
-}
 
-void roland_s50_state::p2_w(u8 data)
+	// Check MIDI test note keys (once per frame, on line 0)
+	if (param == 0)
+	{
+		u8 keys = m_midi_test->read();
+		bool note_on_pressed = (keys & 1) != 0;
+		bool note_off_pressed = (keys & 2) != 0;
+		if (note_on_pressed && !m_midi_note_on)
+		{
+			// Note On: channel 0, note 60 (C4), velocity 100
+			m_midi_note_on = true;
+			m_midi_data[0] = 0x90;
+			m_midi_data[1] = 0x3c;
+			m_midi_data[2] = 0x64;
+			m_midi_pos = 0;
+			logerror("midi_test: Note On\n");
+		}
+		else if (note_off_pressed && m_midi_note_on)
+		{
+			// Note Off: channel 0, note 60, velocity 0
+			m_midi_note_on = false;
+			m_midi_data[0] = 0x90;
+			m_midi_data[1] = 0x3c;
+			m_midi_data[2] = 0x00;
+			m_midi_pos = 0;
+			logerror("midi_test: Note Off\n");
+		}
+	}
+}void roland_s50_state::p2_w(u8 data)
 {
 	m_io_view.select(BIT(data, 5));
 }
@@ -669,6 +727,11 @@ static INPUT_PORTS_START(s330)
 	PORT_CONFSETTING(0x00, "None (panel keys)")
 	PORT_CONFSETTING(0x01, "Mouse")
 	PORT_CONFSETTING(0x02, "RC-100")
+
+	// MIDI test note — press N for Note On, M for Note Off (ch1, C4, vel 100)
+	PORT_START("MIDITEST")
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C4)") PORT_CODE(KEYCODE_N)
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note Off") PORT_CODE(KEYCODE_M)
 INPUT_PORTS_END
 
 static void s50_floppies(device_slot_interface &device)
@@ -872,6 +935,9 @@ void roland_s330_state::s330(machine_config &config)
 	m_wave->int_callback().set_inputline(m_maincpu, i8x9x_device::HSI0_LINE);
 	m_wave->sh_callback().set("outas", FUNC(bu3905_device::axi_w));
 
+	// MIDI byte injection timer — fires at ~3125 Hz (31250 baud / 10 bits per byte)
+	TIMER(config, "midi_timer").configure_periodic(FUNC(roland_s330_state::midi_timer_cb), attotime::from_hz(3125));
+
 	BU3905(config, "outas");
 
 	//MB654419U(config, m_tvf, 20_MHz_XTAL);
@@ -917,6 +983,6 @@ ROM_END
 
 
 SYST(1987, s50,  0,   0, s50,  s50,  roland_s50_state,  empty_init, "Roland", "S-50 Digital Sampling Keyboard", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
+SYST(1988, s330, w30, 0, s330, s330, roland_s330_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1987, s550, s50, 0, s550, s550, roland_s550_state, empty_init, "Roland", "S-550 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1988, w30,  0,   0, w30,  w30,  roland_w30_state,  empty_init, "Roland", "W-30 Music Workstation", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
-SYST(1988, s330, w30, 0, s330, s330, roland_s330_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
