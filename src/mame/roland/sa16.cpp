@@ -168,6 +168,8 @@ void sa16_base_device::device_start()
 	{
 		m_voice[v].m_phase = 0;
 		m_voice[v].m_active = false;
+		m_voice[v].m_env_level = 0;
+		m_voice[v].m_env_counter = 0;
 	}
 
 	save_item(NAME(m_active_channels));
@@ -184,6 +186,8 @@ void sa16_base_device::device_start()
 	save_item(NAME(m_log_gate));
 	save_item(STRUCT_MEMBER(m_voice, m_phase));
 	save_item(STRUCT_MEMBER(m_voice, m_active));
+	save_item(STRUCT_MEMBER(m_voice, m_env_level));
+	save_item(STRUCT_MEMBER(m_voice, m_env_counter));
 }
 
 
@@ -208,7 +212,28 @@ void sa16_base_device::sound_stream_update(sound_stream &stream)
 
 		for (int v = 0; v < NUM_VOICES; v++)
 		{
-			// Check if this slot is active
+			// --- Envelope ramping (always runs, even for inactive voices) ---
+			// The SA-16 ramps m_env_level toward the target at the given rate.
+			// Firmware writes [rate:target] to block (channel+1), register 3.
+			const int env_base = (v + 1) * 0x10;
+			const u16 r3 = m_regs800[env_base + 3];
+			const u8 target = r3 & 0xFF;
+			const u8 rate = (r3 >> 8) & 0xFF;
+
+			if (m_voice[v].m_env_level != target && rate != 0)
+			{
+				m_voice[v].m_env_counter += rate;
+				while (m_voice[v].m_env_counter >= 256 * ENV_RATE_DIVIDER)
+				{
+					m_voice[v].m_env_counter -= 256 * ENV_RATE_DIVIDER;
+					if (m_voice[v].m_env_level < target)
+						m_voice[v].m_env_level++;
+					else if (m_voice[v].m_env_level > target)
+						m_voice[v].m_env_level--;
+				}
+			}
+
+			// --- Audio output (only for active voices) ---
 			if (!(m_active_channels & (1 << v)))
 			{
 				m_voice[v].m_active = false;
@@ -230,7 +255,6 @@ void sa16_base_device::sound_stream_update(sound_stream &stream)
 			}
 
 			// Compute byte address in wave RAM
-			// Bank: r2 bits [15:14] select one of 4 CAS banks (256K words each)
 			const u32 bank_base = u32((r2 >> 14) & 3) * 0x80000;
 			const u32 sample_pos = m_voice[v].m_phase >> 14;
 			const u32 byte_addr = bank_base + (u32(start) + sample_pos) * 2;
@@ -238,12 +262,7 @@ void sa16_base_device::sound_stream_update(sound_stream &stream)
 			// Read 12-bit sample from wave RAM, sign-extend to 16-bit
 			const s16 sample = s16(m_wram_cache.read_word(byte_addr) << 4) >> 4;
 
-			// Apply envelope amplitude from paired odd slot's r3 low byte.
-			// Odd slot for even slot v is (v | 1), register base = (v | 1) * 0x10.
-			// r3 format: [rate:8][level:8] — low byte is amplitude level (0=silent).
-			const int odd_base = (v | 1) * 0x10;
-			const u8 level = m_regs800[odd_base + 3] & 0xFF;
-			const s32 scaled = (s32(sample) * level) >> 7; // level 0..~107, normalize
+			const s32 scaled = (s32(sample) * m_voice[v].m_env_level) >> 7;
 
 			mix += scaled;
 
@@ -305,7 +324,32 @@ u8 sa16_base_device::read(offs_t offset)
 		if (LOG_ACTIVE) logerror("%s%s voice_cycle => %02x\n", machine().describe_context(), tag(), value);
 		break;
 	case 2:
-		value = m_regs800[m_reg800_roffset];
+		{
+			const int block = m_reg800_roffset >> 4;
+			const int reg   = m_reg800_roffset & 0x0F;
+
+			if (block >= 1 && reg == 0x03)
+			{
+				// Reading envelope r3 low byte: return current ramped level
+				// (not the target that was written).
+				// Channel = block - 1 (firmware writes env to block C4+1).
+				const int voice = block - 1;
+				value = m_voice[voice].m_env_level;
+			}
+			else if (block >= 1 && reg == 0x07)
+			{
+				// Reading D00F: envelope busy flag.
+				// Returns nonzero while ramping, 0 when target is reached.
+				const int voice = block - 1;
+				const int env_base = (voice + 1) * 0x10;
+				const u8 target = m_regs800[env_base + 3] & 0xFF;
+				value = (m_voice[voice].m_env_level != target) ? 1 : 0;
+			}
+			else
+			{
+				value = m_regs800[m_reg800_roffset];
+			}
+		}
 		if (LOG_ACTIVE) logerror("%s%s regs800[%03x].lo => %02x\n", machine().describe_context(), tag(), m_reg800_roffset, value);
 		break;
 	case 3:
