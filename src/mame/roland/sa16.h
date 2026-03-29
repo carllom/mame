@@ -62,6 +62,7 @@ protected:
 private:
 	static constexpr int NUM_VOICES = 16;
 	static constexpr int CLOCK_DIVIDER = 896; // 26.88 MHz / 896 = 30 kHz
+	static constexpr int ENV_RATE_DIVIDER = 16; // ARBITRARY: slows envelope ramp (real value unknown)
 
 	void sa16(address_map &map);
 	void regs_map(address_map &map);
@@ -84,6 +85,8 @@ private:
 	struct voice_t {
 		u32 m_phase;        // 18.14 phase accumulator (address.fraction)
 		bool m_active;      // voice is currently playing
+		u8 m_env_level;     // current envelope amplitude (ramped by hardware)
+		u16 m_env_counter;  // fractional accumulator for envelope rate
 	};
 	voice_t m_voice[NUM_VOICES];
 
@@ -99,6 +102,7 @@ private:
 	u16 m_port_smp16; // Sample port value (16-bit)
 
 	bool m_log_gate; // gated logging for MIDI note investigation
+
 
 	u8 m_regs[9]; // Regs @ offset 0
 	u8 m_ports[8]; // Ports @ offset 400h
