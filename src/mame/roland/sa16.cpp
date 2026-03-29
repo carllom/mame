@@ -152,6 +152,7 @@ void sa16_base_device::device_start()
 	m_stream = stream_alloc(0, 1, clock() / CLOCK_DIVIDER);
 
 	m_active_channels = 0;
+	m_voice_cycle = 0;
 	m_reg800_woffset = 0;
 	m_reg800_roffset = 0;
 	m_blockoffset = 0;
@@ -170,6 +171,7 @@ void sa16_base_device::device_start()
 	}
 
 	save_item(NAME(m_active_channels));
+	save_item(NAME(m_voice_cycle));
 	save_item(NAME(m_reg800_woffset));
 	save_item(NAME(m_reg800_roffset));
 	save_item(NAME(m_blockoffset));
@@ -236,7 +238,14 @@ void sa16_base_device::sound_stream_update(sound_stream &stream)
 			// Read 12-bit sample from wave RAM, sign-extend to 16-bit
 			const s16 sample = s16(m_wram_cache.read_word(byte_addr) << 4) >> 4;
 
-			mix += sample;
+			// Apply envelope amplitude from paired odd slot's r3 low byte.
+			// Odd slot for even slot v is (v | 1), register base = (v | 1) * 0x10.
+			// r3 format: [rate:8][level:8] — low byte is amplitude level (0=silent).
+			const int odd_base = (v | 1) * 0x10;
+			const u8 level = m_regs800[odd_base + 3] & 0xFF;
+			const s32 scaled = (s32(sample) * level) >> 7; // level 0..~107, normalize
+
+			mix += scaled;
 
 			// Advance phase accumulator
 			m_voice[v].m_phase += pitch;
@@ -284,9 +293,16 @@ u8 sa16_base_device::read(offs_t offset)
 		value = m_active_channels;
 		if (LOG_ACTIVE) logerror("%s%s active_channels[0..7] => %02x\n", machine().describe_context(), tag(), value);
 		break;
-	case 1: // Play tone/channel
-		value = m_active_channels >> 8;
-		if (LOG_ACTIVE) logerror("%s%s active_channels[8..F] => %02x\n", machine().describe_context(), tag(), value);
+	case 1: // Current voice index (read) / active_channels high (write)
+		// TEMP: The SA-16 hardware cycles through voices and presents the current
+		// voice number (1-based) on port 1 reads.  The firmware's envelope
+		// processing loop at RAM_15FD reads this to know which voice to service.
+		// The firmware reads C003 TWICE per iteration (RAM_15F2 timing read +
+		// RAM_1584 actual read), so we hold each value for 2 reads to ensure
+		// all voice indices are visited.
+		value = ((m_voice_cycle >> 1) & 0x0F) + 1;
+		m_voice_cycle++;
+		if (LOG_ACTIVE) logerror("%s%s voice_cycle => %02x\n", machine().describe_context(), tag(), value);
 		break;
 	case 2:
 		value = m_regs800[m_reg800_roffset];
