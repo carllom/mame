@@ -173,9 +173,51 @@ DAC supply: ±5V via discrete regulators VR1 (7905, −5V) and VR2 (7805, +5V).
 
 ---
 
-## Boot Sequence (E4 Classic — applies to e6400)
+## Boot Sequence
 
-The bootPROM runs a fixed sequence on power-up, with front-panel LEDs extinguishing as each test passes:
+### Cold-boot execution flow
+
+`eos30b.raw` **is** the cold-boot ROM — no prior bootprom stage exists.
+
+1. CPU fetches ISP (0xFFBFFE) and reset PC (0x034FD0) from the vector table alias at 0x000000. These bytes are the first 8 bytes of the flash ROM, aliased there by CS_PAL hardware.
+2. **`reset()`** at 0x034FD0:
+   - Sets supervisor mode, masks interrupts, enables instruction cache
+   - Copies 0x6000 bytes from ROM (0x0F9400 = `api_src`) to DRAM (0xF00400) — the API jump table
+   - Calls `bootSystem(0)`
+3. **`bootSystem()`** sets `_RTCMode=1` (pre-interrupt, use spin-loop timing), then:
+   - `sub_24646`  — stub (empty)
+   - `resetRtc`   — clears `timer_value` software counter
+   - `sub_51262`  — initializes linked-list data structures in DRAM
+   - `sub_24FEA`  — zeros 0x14000 bytes of heap at DRAM 0xF07E2E
+   - `sub_239C2`  — **main hardware init** (see below)
+   - `sub_428F2`  — probes SCSI bus; result → `byte_F0173A` (SCSI present flag)
+   - … many more OS and driver init calls …
+   - `_RTCMode=2`, interrupts unmasked — timer now running
+   - `sub_21A5E`  — sets SCSI active flag
+   - … second-phase init …
+   - `_RTCMode=3` — disk subsystem ready
+   - `pc_memory_init` — DOS/filesystem init; if fails → "Error initializing DOS."
+   - If SCSI present: sets terminator, prints "Mounting SCSI devices…", waits up to 12 s
+   - `dispdlg_MountDrv` — mounts attached drives
+   - loads last preset, starts main UI loop
+   - `_RTCMode=0` — init complete
+
+### `sub_239C2` — hardware initializer
+
+1. `loc_23948`  — reads hardware variant from 0x408000 bits[11:9]; stores result in `byte_F00A84`
+2. Programs CS_PAL control registers (0x400000, 0x404000) with initial chip-select masks
+3. Passes 0x4C0000 to `sub_20814` (SCC channel A reset)
+4. Passes 0x54FF00 to `sub_21976` (SCC channel B probe with WR13 readback test)
+5. If SCC probe fails → error: passes 1 and 0x54FF00 to `sub_3DE5E` + `sub_21608`
+6. `sub_200F2` — **MC68901 MFP full initialization** (see register table above)
+7. `sub_3FA16(0x21)` — stores 0x21 in `byte_F01450`
+8. `sub_23B2C`  — reads hardware variant again; selects SCSI terminator scheme
+9. `sub_872DC`  — reads 0x5E0000 bits[6:1] and [0]; stores board config
+10. `init_mem`  — memory size detection
+11. `sub_502AC` — effects DSP RAM probe: write/read test at 0x540400–0x540407
+12. `loc_2535C/25302` — sets up memory zone headers
+
+### Boot diagnostics (from EOS Technical Documents — E4 platform)
 
 | LED | Test | Description |
 |---|---|---|
@@ -199,26 +241,67 @@ If certain boot errors occur, code jumps to an infinite bus loop exercising BD[3
 
 ---
 
-## Memory Map (known / partial)
+## Memory Map
+
+### CPU RAM and ROM
 
 | Address Range | Content |
 |---|---|
-| 0x000000–0x0001FF | ROM vectors (mapped from Flash) |
+| 0x000000–0x0001FF | ROM vector table (hardware mirror via CS_PAL — same bytes as 0x010000–0x0101FF) |
 | 0x000200–0x0003FF | Scratch RAM |
-| 0x010800–0x0FF3FF | EOS flash (OS code) |
-| 0xF00000–0xF7FFFF | CPU DRAM low bank (U58/U59) |
-| 0xF80000–0xFFFFFF | CPU DRAM high bank (U65/U66/U67/U68) |
+| 0x010000–0x0FEFFF | Flash ROM (eos30b.raw, full image at CPU base 0x010000) |
+| 0xF00000–0xF7FFFF | CPU DRAM low bank (2× HM514260 256K×16) |
+| 0xF00400–0xF063FF | API jump table mirror (0x6000 bytes copied from ROM 0x0F9400 on boot) |
+| 0xF80000–0xFFBFFE | CPU DRAM high bank |
+| 0xFFBFFE | ISP — initial stack pointer (from vector table) |
 
-Peripheral addresses are decoded by CS_PAL (IP872) and the two 74ACT138s using upper address lines A[23:17] approximately. Exact register offsets require schematic SK524 for confirmation.
+### Peripheral Map
 
-**Known offsets from driver work:**
+Decoded by CS_PAL (IP872) + two 74ACT138 demultiplexers. All addresses word-aligned; byte devices on even addresses via D[15:8].
 
-| Address | Device | Notes |
-|---|---|---|
-| 0x400000 | CS register | Write to control LCD A0 (bit 8) and other chip selects |
-| 0x560000–0x560007 | 82078 FDC | n82077aa-compatible |
-| 0x580000–0x580003 | LM24014H LCD | Data/command selected via CSEL bit 8 |
-| 0x5A0000 | ISR (interrupt service) | TBD |
+| Address | Device | Status | Notes |
+|---|---|---|---|
+| 0x400000 | CS_PAL control register 1 | **Confirmed** | Word write; controls chip selects and LCD A0 (bit 8) |
+| 0x404000 | CS_PAL control register 2 | **Confirmed** | Word write; additional peripheral enables |
+| 0x408000 | Hardware ID register | **Confirmed** | Read word; bits[11:9] = variant code 0–4 (0=proto, 1=e6400, 2=e6400 Ultra, …) |
+| 0x480000–0x48000E | NCR5380-compatible SCSI | **Confirmed** | AM85C80 SCSI port; word-spaced byte registers. 0x48000A = Reg5 Bus&Status (bit6=DRQ) |
+| 0x4A0000 | SCSI DMA data port | **Confirmed** | AM85C80 DMA read port; data burst via `move.b (a3)+,(a2)` DMA loop |
+| 0x4C0000 | SCC channel A control | *Tentative* | AM85C80 Z85C30-compatible; channel A at +4, init writes 0x09/0x80 (WR9=RESA) |
+| 0x500000–0x50000E | Unknown, word-spaced byte regs | *Unknown* | Byte access at offsets 0,2,4,6,8,A,E; write to +0xE controls bus; probed in SCSI boot check |
+| 0x540000 | Unknown write | *Tentative* | Single word write; may be variant config or effects enable |
+| 0x540400–0x540407 | Effects DSP RAM | *Tentative* | Longword read/write test (0x12345678/0x87654321) on boot |
+| 0x54FF00 | SCC channel B control | *Tentative* | AM85C80 Z85C30-compatible; channel B at base; WR13 baud rate probe confirms Z85C30 |
+| 0x560000–0x560007 | 82078 FDC | **Confirmed** | n82077aa-compatible register map |
+| 0x580000–0x580003 | LM24014H LCD (T6963C) | **Confirmed** | Data/command selected via CS_PAL bit 8; single byte port |
+| 0x5A0000–0x5A002F | MC68901 MFP | **Confirmed** | Word-spaced byte registers; full init in boot ROM sub_200F2 (see below) |
+| 0x5C0000 | Unknown byte write | *Tentative* | Variant code (0–4) mirrored here from ID result — possible K-chip or G-chip config |
+| 0x5E0000 | Hardware config register | *Tentative* | Bits[6:1] and bit[0] read at boot; stored as board config flags |
+
+### MC68901 MFP Register Init (sub_200F2 in eos30b.raw)
+
+Executed once during boot from `sub_239C2 → loc_23AF0 → sub_200F2`:
+
+| Register | Offset | Value | Meaning |
+|---|---|---|---|
+| VR | 0x5A0016 | 0x48 | Vector base = 0x48; MFP interrupt vectors at CPU 0x0120–0x015F |
+| DDR | 0x5A0004 | 0x00 | All GPIP pins = inputs |
+| AER | 0x5A0002 | 0x0B | Active-edge: bits 0,1,3 rising; others falling |
+| TACR | 0x5A0018 | 0x00 | Timer A disabled |
+| TBCR | 0x5A001A | 0x00 | Timer B disabled |
+| TCDCR | 0x5A001C | 0x00 | Timers C and D disabled |
+| IMRA | 0x5A0012 | 0xFF | All channel-A interrupt sources unmasked |
+| IMRB | 0x5A0014 | 0xFF | All channel-B interrupt sources unmasked |
+| IERA | 0x5A0006 | 0xE1 | Enable: GPIP7, Timer A, Receiver-full, bit 0 source |
+| IERB | 0x5A0008 | 0xFF | Enable all channel-B sources |
+
+Timer data registers (TADR/TBDR/TCDR/TDDR at 0x5A001E–0x5A0024) are programmed later by `sub_20050` using a lookup table to produce baud rates 1000–50000 Hz. The MFP timer drives the software system-tick counter (`timer_value` in DRAM), used by `wait_msec()` and the 12-second SCSI mount timeout.
+
+Interrupt vector assignments (VR=0x48, vectors at 0x120+):
+- The ISR at CPU vector-table offset **0x120** (`ISR_User9_Timer`) is MFP vector 0 → system tick.
+- The ISR at **0x11C** (`ISR_User8_Exp2`) handles voice card interrupts.
+- **0x138** (`ISR_User15_Exp1`) handles effects board.
+
+Interrupts in-service are cleared by writing to ISRA (0x5A000E) or ISRB (0x5A0010) with the bit to clear set to 0 (MC68901 clear-by-write semantics).
 
 ---
 
@@ -274,10 +357,19 @@ Boot ROM revision ".7" firmware or newer required for EOS 2.0–3.0.
 
 ## TODO / Open Questions
 
-- [ ] Confirm exact CPU clock: 24 MHz (crystal V1/ZX315) vs 25 MHz (chip rating)  
-- [ ] Map all peripheral register addresses from SK524 schematic  
-- [ ] Determine 82078 FDC clock source (16 MHz from U56/ZX314 is likely)  
-- [ ] Identify AM85C80 SCSI/SCC register map and interrupt connection  
+- [ ] Confirm exact CPU clock: 24 MHz (crystal V1/ZX315) vs 25 MHz (chip rating)
+- [ ] Verify MC68901 MFP clock source and divider (currently using 24 MHz placeholder)
+- [ ] Verify which CPU IPL level the MC68901 IRQ output connects to (driver uses IPL4 as placeholder)
+- [ ] Confirm MFP data bus connection: D[15:8] (even byte) or D[7:0] (odd byte)? Driver uses umask16(0xff00).
+- [ ] Identify device at 0x500000–0x50000E (K-chip IT433? second SCSI window? IDT7202 FIFO?)
+- [ ] Confirm the AM85C80 SCC address windows (0x4C0000 and/or 0x54FF00)
+- [ ] Identify device at 0x5C0000 (receives hardware variant byte on boot)
+- [ ] Identify 0x5E0000 config register (bit layout and meaning)
+- [ ] Determine 82078 FDC clock source (16 MHz from U56/ZX314 is likely)
+- [ ] Map all CS signals to exact address ranges from schematic SK524
+- [ ] Obtain SHA1 for eos30b.raw ROM (currently placeholder in driver)
+- [ ] Map G-chip (sound engine, IC402), H-chip (digital filter, IC413), K-chip (IT433) addresses
+- [ ] Understand effects DSP RAM layout at 0x540000+
 - [ ] Identify K-chip register interface and MIDI routing  
 - [ ] Identify EMU8000 vs G2.0-chip distinction (parts list shows both IC402 and IC405 — may be different board revisions)  
 - [ ] Confirm interrupt levels for all peripherals (MC68901 → CPU IPL lines)  
