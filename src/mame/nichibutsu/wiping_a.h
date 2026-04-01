@@ -1,7 +1,7 @@
 // license:BSD-3-Clause
 // copyright-holders:Allard van der Bas
-#ifndef MAME_AUDIO_WIPING_H
-#define MAME_AUDIO_WIPING_H
+#ifndef MAME_NICHIBUTSU_WIPING_A_H
+#define MAME_NICHIBUTSU_WIPING_A_H
 
 #pragma once
 
@@ -14,17 +14,17 @@ public:
 
 protected:
 	// device-level overrides
-	virtual void device_start() override;
+	virtual void device_start() override ATTR_COLD;
 
 	// sound stream update overrides
-	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
+	virtual void sound_stream_update(sound_stream &stream) override;
 
 private:
 	// 8 voices max
 	static constexpr unsigned MAX_VOICES = 8;
 
 	// this structure defines the parameters for a channel
-	struct wp_sound_channel
+	struct sound_channel
 	{
 		int frequency;
 		int counter;
@@ -34,17 +34,13 @@ private:
 		int oneshotplaying;
 	};
 
-	// internal state
-
 	// data about the sound system
-	wp_sound_channel m_channel_list[MAX_VOICES];
-	wp_sound_channel *m_last_channel;
+	sound_channel m_channel_list[MAX_VOICES];
+	sound_channel *m_last_channel;
 
 	// global sound parameters
 	required_region_ptr<uint8_t> m_sound_prom;
 	required_region_ptr<uint8_t> m_sound_rom;
-	int m_num_voices;
-	int m_sound_enable;
 	sound_stream *m_stream;
 
 	// mixer tables and internal buffers
@@ -57,4 +53,4 @@ private:
 
 DECLARE_DEVICE_TYPE(WIPING_CUSTOM, wiping_sound_device)
 
-#endif // MAME_AUDIO_WIPING_H
+#endif // MAME_NICHIBUTSU_WIPING_A_H

@@ -107,6 +107,7 @@
 #include "mcr3.h"
 
 #include "machine/nvram.h"
+#include "machine/rescap.h"
 
 #include "speaker.h"
 
@@ -396,7 +397,7 @@ uint8_t mcrsc_csd_state::spyhunt_ip1_r()
 uint8_t mcrsc_csd_state::spyhunt_ip2_r()
 {
 	/* multiplexed steering wheel/gas pedal */
-	return ioport(m_input_mux ? "ssio:IP2.ALT" : "ssio:IP2")->read();
+	return m_analog_inputs[m_input_mux]->read();
 }
 
 
@@ -406,7 +407,9 @@ void mcrsc_csd_state::spyhunt_op4_w(uint8_t data)
 	/* (and for toggling the lamps and muxing the analog inputs) */
 
 	/* mux select is in bit 7 */
-	m_input_mux = (data >> 7) & 1;
+	m_input_mux = BIT(data, 7);
+	m_adc->rd_w(BIT(data, 6));
+	m_adc->wr_w(BIT(data, 6));
 
 	/*
 	    Lamp Driver:
@@ -445,9 +448,9 @@ uint8_t mcrsc_csd_state::turbotag_ip2_r()
 {
 	/* multiplexed steering wheel/gas pedal */
 	if (m_input_mux)
-		return ioport("ssio:IP2.ALT")->read();
+		return m_analog_inputs[1]->read();
 
-	return ioport("ssio:IP2")->read() + 5 * (m_screen->frame_number() & 1);
+	return m_analog_inputs[0]->read() + 5 * (m_screen->frame_number() & 1);
 }
 
 
@@ -1096,8 +1099,7 @@ void mcr3_state::mcrmono(machine_config &config)
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 
 	// sound hardware
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	/* video hardware */
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
@@ -1124,8 +1126,8 @@ void mcr3_state::mono_tcs(machine_config &config)
 
 	/* basic machine hardware */
 	MIDWAY_TURBO_CHEAP_SQUEAK(config, m_turbo_cheap_squeak);
-	m_turbo_cheap_squeak->add_route(ALL_OUTPUTS, "lspeaker", 0.8);
-	m_turbo_cheap_squeak->add_route(ALL_OUTPUTS, "rspeaker", 0.8);
+	m_turbo_cheap_squeak->add_route(ALL_OUTPUTS, "speaker", 0.8, 0);
+	m_turbo_cheap_squeak->add_route(ALL_OUTPUTS, "speaker", 0.8, 1);
 }
 
 void maxrpm_state::maxrpm(machine_config &config)
@@ -1147,8 +1149,8 @@ void mcr3_state::mono_sg(machine_config &config)
 
 	/* basic machine hardware */
 	MIDWAY_SOUNDS_GOOD(config, m_sounds_good);
-	m_sounds_good->add_route(ALL_OUTPUTS, "lspeaker", 0.75);
-	m_sounds_good->add_route(ALL_OUTPUTS, "rspeaker", 0.75);
+	m_sounds_good->add_route(ALL_OUTPUTS, "speaker", 0.75, 0);
+	m_sounds_good->add_route(ALL_OUTPUTS, "speaker", 0.75, 1);
 }
 
 
@@ -1162,8 +1164,8 @@ void mcr3_state::mcrscroll(machine_config &config)
 
 	/* basic machine hardware */
 	MIDWAY_SSIO(config, m_ssio);
-	m_ssio->add_route(0, "lspeaker", 1.0);
-	m_ssio->add_route(1, "rspeaker", 1.0);
+	m_ssio->add_route(0, "speaker", 1.0, 0);
+	m_ssio->add_route(1, "speaker", 1.0, 1);
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &mcr3_state::spyhunt_map);
 	m_maincpu->set_addrmap(AS_IO, &mcr3_state::spyhunt_portmap);
@@ -1186,8 +1188,8 @@ void mcrsc_csd_state::mcrsc_csd(machine_config &config)
 
 	/* basic machine hardware */
 	MIDWAY_CHEAP_SQUEAK_DELUXE(config, m_cheap_squeak_deluxe);
-	m_cheap_squeak_deluxe->add_route(ALL_OUTPUTS, "lspeaker", 0.8);
-	m_cheap_squeak_deluxe->add_route(ALL_OUTPUTS, "rspeaker", 0.8);
+	m_cheap_squeak_deluxe->add_route(ALL_OUTPUTS, "speaker", 0.8, 0);
+	m_cheap_squeak_deluxe->add_route(ALL_OUTPUTS, "speaker", 0.8, 1);
 
 	CD4099(config, m_lamplatch); // U1 on Lamp Driver Board
 	m_lamplatch->q_out_cb<0>().set_output("lamp0");
@@ -1198,6 +1200,21 @@ void mcrsc_csd_state::mcrsc_csd(machine_config &config)
 	m_lamplatch->q_out_cb<5>().set_output("lamp5");
 	m_lamplatch->q_out_cb<6>().set_output("lamp6");
 	m_lamplatch->q_out_cb<7>().set_output("lamp7");
+
+	ADC0804(config, m_adc, RES_K(10), CAP_P(150)); // U2 on Absolute Position Board
+	m_adc->set_rd_mode(adc0804_device::RD_BITBANGED);
+}
+
+void mcrsc_csd_state::spyhunt(machine_config &config)
+{
+	mcrsc_csd(config);
+	m_adc->vin_callback().set(FUNC(mcrsc_csd_state::spyhunt_ip2_r));
+}
+
+void mcrsc_csd_state::turbotag(machine_config &config)
+{
+	mcrsc_csd(config);
+	m_adc->vin_callback().set(FUNC(mcrsc_csd_state::turbotag_ip2_r));
 }
 
 
@@ -1253,14 +1270,14 @@ ROM_START( sarge )
 	ROM_LOAD( "spr_5e.bin",   0x10000, 0x8000, CRC(c832375c) SHA1(dfb7782b13e1e959e0ecd5da771cd38962f6952b) )
 	ROM_LOAD( "spr_4e.bin",   0x18000, 0x8000, CRC(c382267d) SHA1(6b459e9ec7948a529b5308357851a0bede085aef) )
 
-	ROM_REGION( 0x0007, "pals", 0) /* PAL's located on the Mono Board (91787) */
-	ROM_LOAD( "a59a26axlcxhd.13j.bin",  0x0000, 0x0001, NO_DUMP ) /* PLS153N */
-	ROM_LOAD( "a59a26axlbxhd.2j.bin",   0x0000, 0x0001, NO_DUMP ) /* PLS153N */
-	ROM_LOAD( "a59a26axlaxhd.3j.bin",   0x0000, 0x0001, NO_DUMP ) /* PLS153N */
-	ROM_LOAD( "0066-314bx-xxqx.6h.bin", 0x0000, 0x0001, NO_DUMP ) /* Unknown PAL Type */
-	ROM_LOAD( "0066-316bx-xxqx.5h.bin", 0x0000, 0x0001, NO_DUMP ) /* Unknown PAL Type */
-	ROM_LOAD( "0066-315bx-xxqx.5g.bin", 0x0000, 0x0001, NO_DUMP ) /* Unknown PAL Type */
-	ROM_LOAD( "0066-313bx-xxqx.4g.bin", 0x0000, 0x0001, NO_DUMP ) /* Unknown PAL Type */
+	ROM_REGION( 0x301, "pals", ROMREGION_ERASE00) /* PAL's located on the Mono Board (91787) */
+	ROM_LOAD( "a59a26axlcxhd.13j.bin",  0x0000, 0x00eb, CRC(d4203273) SHA1(59fde5850ad55e257f10db857dfb9a1e929fc1ec) ) /* PLS153N */
+	ROM_LOAD( "a59a26axlbxhd.2j.bin",   0x0100, 0x00eb, CRC(f857b484) SHA1(15e548deed33f3897bcf99bfb6f89e213993e0bc) ) /* PLS153N */
+	ROM_LOAD( "a59a26axlaxhd.3j.bin",   0x0200, 0x00eb, CRC(4f54e696) SHA1(dee1394368c0b19a10164db06e9c4215ffdc3be0) ) /* PLS153N */
+	ROM_LOAD( "0066-314bx-xxqx.6h.bin", 0x0300, 0x0001, NO_DUMP ) /* Unknown PAL Type */
+	ROM_LOAD( "0066-316bx-xxqx.5h.bin", 0x0300, 0x0001, NO_DUMP ) /* Unknown PAL Type */
+	ROM_LOAD( "0066-315bx-xxqx.5g.bin", 0x0300, 0x0001, NO_DUMP ) /* Unknown PAL Type */
+	ROM_LOAD( "0066-313bx-xxqx.4g.bin", 0x0300, 0x0001, NO_DUMP ) /* Unknown PAL Type */
 ROM_END
 
 
@@ -1627,7 +1644,7 @@ void mcrsc_csd_state::init_spyhunt()
 {
 	mcr_common_init();
 	m_ssio->set_custom_input(1, 0x60, *this, FUNC(mcrsc_csd_state::spyhunt_ip1_r));
-	m_ssio->set_custom_input(2, 0xff, *this, FUNC(mcrsc_csd_state::spyhunt_ip2_r));
+	m_ssio->set_custom_input(2, 0xff, *m_adc, FUNC(adc0804_device::read));
 	m_ssio->set_custom_output(4, 0xff, *this, FUNC(mcrsc_csd_state::spyhunt_op4_w));
 
 	m_spyhunt_sprite_color_mask = 0x00;
@@ -1649,7 +1666,7 @@ void mcrsc_csd_state::init_turbotag()
 {
 	mcr_common_init();
 	m_ssio->set_custom_input(1, 0x60, *this, FUNC(mcrsc_csd_state::spyhunt_ip1_r));
-	m_ssio->set_custom_input(2, 0xff, *this, FUNC(mcrsc_csd_state::turbotag_ip2_r));
+	m_ssio->set_custom_input(2, 0xff, *m_adc, FUNC(adc0804_device::read));
 	m_ssio->set_custom_output(4, 0xff, *this, FUNC(mcrsc_csd_state::spyhunt_op4_w));
 
 	m_spyhunt_sprite_color_mask = 0x00;
@@ -1680,7 +1697,7 @@ GAME(  1986, powerdrv, 0,        mono_sg,   powerdrv, mcr3_state, init_powerdrv,
 GAME(  1987, stargrds, 0,        mono_sg,   stargrds, mcr3_state, init_stargrds, ROT0,  "Bally Midway", "Star Guards", MACHINE_SUPPORTS_SAVE )
 
 /* MCR scrolling games */
-GAMEL( 1983, spyhunt,  0,        mcrsc_csd, spyhunt,  mcrsc_csd_state, init_spyhunt,  ROT90, "Bally Midway", "Spy Hunter", MACHINE_SUPPORTS_SAVE, layout_spyhunt )
-GAMEL( 1983, spyhuntp, spyhunt,  mcrsc_csd, spyhunt,  mcrsc_csd_state, init_spyhunt,  ROT90, "Bally Midway (Playtronic license)", "Spy Hunter (Playtronic license)", MACHINE_SUPPORTS_SAVE, layout_spyhunt )
+GAMEL( 1983, spyhunt,  0,        spyhunt,   spyhunt,  mcrsc_csd_state, init_spyhunt,  ROT90, "Bally Midway", "Spy Hunter", MACHINE_SUPPORTS_SAVE, layout_spyhunt )
+GAMEL( 1983, spyhuntp, spyhunt,  spyhunt,   spyhunt,  mcrsc_csd_state, init_spyhunt,  ROT90, "Bally Midway (Playtronic license)", "Spy Hunter (Playtronic license)", MACHINE_SUPPORTS_SAVE, layout_spyhunt )
 GAME(  1984, crater,   0,        mcrscroll, crater,   mcr3_state,      init_crater,   ORIENTATION_FLIP_X, "Bally Midway", "Crater Raider", MACHINE_SUPPORTS_SAVE )
-GAMEL( 1985, turbotag, 0,        mcrsc_csd, turbotag, mcrsc_csd_state, init_turbotag, ROT90, "Bally Midway", "Turbo Tag (prototype)", MACHINE_SUPPORTS_SAVE, layout_turbotag )
+GAMEL( 1985, turbotag, 0,        turbotag,  turbotag, mcrsc_csd_state, init_turbotag, ROT90, "Bally Midway", "Turbo Tag (prototype)", MACHINE_SUPPORTS_SAVE, layout_turbotag )

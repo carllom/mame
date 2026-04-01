@@ -104,11 +104,6 @@ Variants: T denotes an active 8.4" display, C a passive 9.5" color display. 3560
 
 #include "emu.h"
 
-/* mingw-gcc defines this */
-#ifdef i386
-#undef i386
-#endif /* i386 */
-
 #include "bus/isa/isa_cards.h"
 #include "bus/lpci/pci.h"
 #include "bus/lpci/vt82c505.h"
@@ -123,10 +118,13 @@ Variants: T denotes an active 8.4" display, C a passive 9.5" color display. 3560
 #include "machine/nvram.h"
 #include "machine/ram.h"
 #include "machine/vt82c496.h"
-#include "machine/wd7600.h"
+
 #include "emupal.h"
 #include "softlist_dev.h"
 #include "speaker.h"
+
+
+namespace {
 
 class at_state : public driver_device
 {
@@ -163,7 +161,6 @@ public:
 	void c386sx16(machine_config &config);
 	void atturbo(machine_config &config);
 	void at386(machine_config &config);
-	void m290(machine_config &config);
 	void ncrpc8(machine_config &config);
 	void n8810m15(machine_config &config);
 	void n8810m55(machine_config &config);
@@ -191,16 +188,16 @@ protected:
 	static void cfg_single_1200K(device_t *device);
 	static void cfg_single_1440K(device_t *device);
 	static void cfg_dual_1440K(device_t *device);
-	void at16_io(address_map &map);
-	void at16_map(address_map &map);
-	void at16l_map(address_map &map);
-	void at32_io(address_map &map);
-	void at32_map(address_map &map);
-	void at32l_map(address_map &map);
-	void ficpio_io(address_map &map);
-	void ficpio_map(address_map &map);
-	void neat_io(address_map &map);
-	void ps1_16_io(address_map &map);
+	void at16_io(address_map &map) ATTR_COLD;
+	void at16_map(address_map &map) ATTR_COLD;
+	void at16l_map(address_map &map) ATTR_COLD;
+	void at32_io(address_map &map) ATTR_COLD;
+	void at32_map(address_map &map) ATTR_COLD;
+	void at32l_map(address_map &map) ATTR_COLD;
+	void ficpio_io(address_map &map) ATTR_COLD;
+	void ficpio_map(address_map &map) ATTR_COLD;
+	void neat_io(address_map &map) ATTR_COLD;
+	void ps1_16_io(address_map &map) ATTR_COLD;
 };
 
 class at_vrom_fix_state : public at_state
@@ -214,45 +211,8 @@ public:
 	void megapcpla(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 };
-
-class megapc_state : public driver_device
-{
-public:
-	megapc_state(const machine_config &mconfig, device_type type, const char *tag) :
-		driver_device(mconfig, type, tag),
-		m_maincpu(*this, "maincpu"),
-		m_ram(*this, RAM_TAG),
-		m_wd7600(*this, "wd7600"),
-		m_isabus(*this, "isabus"),
-		m_speaker(*this, "speaker")
-	{ }
-
-	void megapcpl(machine_config &config);
-	void megapc(machine_config &config);
-
-	void init_megapc();
-	void init_megapcpl();
-
-private:
-	required_device<cpu_device> m_maincpu;
-	required_device<ram_device> m_ram;
-	required_device<wd7600_device> m_wd7600;
-	required_device<isa16_device> m_isabus;
-	required_device<speaker_sound_device> m_speaker;
-
-	uint16_t wd7600_ior(offs_t offset);
-	void wd7600_iow(offs_t offset, uint16_t data);
-	DECLARE_WRITE_LINE_MEMBER( wd7600_hold );
-	void wd7600_tc(offs_t offset, uint8_t data) { m_isabus->eop_w(offset, data); }
-	DECLARE_WRITE_LINE_MEMBER( wd7600_spkr ) { m_speaker->level_w(state); }
-	void megapc_io(address_map &map);
-	void megapc_map(address_map &map);
-	void megapcpl_io(address_map &map);
-	void megapcpl_map(address_map &map);
-};
-
 
 void at_state::at16_map(address_map &map)
 {
@@ -357,74 +317,20 @@ void at_state::ficpio_io(address_map &map)
 	map(0x0cf8, 0x0cff).rw("pcibus", FUNC(pci_bus_device::read), FUNC(pci_bus_device::write));
 }
 
-void megapc_state::init_megapc()
-{
-	uint8_t* ROM = memregion("bios")->base();
-	ROM[0x19145] = 0x45;  // hack to fix keyboard.  To be removed when the keyboard controller from the MegaPC is dumped
-	ROM[0x1fea0] = 0x20;  // to correct checksum
-}
-
-void megapc_state::init_megapcpl()
-{
-	uint8_t* ROM = memregion("bios")->base();
-	ROM[0x187b1] = 0x55;  // hack to fix keyboard.  To be removed when the keyboard controller from the MegaPC is dumped
-	ROM[0x1fea0] = 0x20;  // to correct checksum
-}
-
+// TODO: verify and remove this hack
 void at_vrom_fix_state::init_megapcpla()
 {
 	uint8_t* ROM = memregion("bios")->base();
 
 	init_at_common(0xa0000);
 
-	ROM[0x33c2a] = 0x45;  // hack to fix keyboard.  To be removed when the keyboard controller from the MegaPC is dumped
+	// HACK: keyboard checks
+	ROM[0x33c2a] = 0x45;
+	// To be removed when the keyboard controller from the MegaPC is dumped
 	ROM[0x3af37] = 0x45;
 	ROM[0x3cf1b] = 0x54;  // this will allow the keyboard to work during the POST memory test
 	ROM[0x3fffe] = 0x1c;
 	ROM[0x3ffff] = 0x41;  // to correct checksum
-}
-
-uint16_t megapc_state::wd7600_ior(offs_t offset)
-{
-	if (offset < 4)
-		return m_isabus->dack_r(offset);
-	else
-		return m_isabus->dack16_r(offset);
-}
-
-void megapc_state::wd7600_iow(offs_t offset, uint16_t data)
-{
-	if (offset < 4)
-		m_isabus->dack_w(offset, data);
-	else
-		m_isabus->dack16_w(offset, data);
-}
-
-WRITE_LINE_MEMBER( megapc_state::wd7600_hold )
-{
-	// halt cpu
-	m_maincpu->set_input_line(INPUT_LINE_HALT, state ? ASSERT_LINE : CLEAR_LINE);
-
-	// and acknowledge hold
-	m_wd7600->hlda_w(state);
-}
-
-void megapc_state::megapc_map(address_map &map)
-{
-}
-
-void megapc_state::megapcpl_map(address_map &map)
-{
-}
-
-void megapc_state::megapc_io(address_map &map)
-{
-	map.unmap_value_high();
-}
-
-void megapc_state::megapcpl_io(address_map &map)
-{
-	map.unmap_value_high();
 }
 
 /**********************************************************
@@ -620,7 +526,8 @@ void at_state::at386(machine_config &config)
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 
 	// on-board devices
-	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdcsmc", true); // FIXME: deteremine ISA bus clock
+	// FIXME: determine ISA bus clock
+	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdc_smc", true);
 	ISA16_SLOT(config, "board2", 0, "mb:isabus", pc_isa16_cards, "comat", true);
 	ISA16_SLOT(config, "board3", 0, "mb:isabus", pc_isa16_cards, "ide", true);
 	ISA16_SLOT(config, "board4", 0, "mb:isabus", pc_isa16_cards, "lpt", true);
@@ -661,7 +568,7 @@ void at_state::at486(machine_config &config)
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 
 	// on-board devices
-	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdcsmc", true); // FIXME: deteremine ISA bus clock
+	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdc_smc", true); // FIXME: deteremine ISA bus clock
 	ISA16_SLOT(config, "board2", 0, "mb:isabus", pc_isa16_cards, "comat", true);
 	ISA16_SLOT(config, "board3", 0, "mb:isabus", pc_isa16_cards, "ide", true);
 	ISA16_SLOT(config, "board4", 0, "mb:isabus", pc_isa16_cards, "lpt", true);
@@ -718,97 +625,6 @@ void at_state::pc40iii(machine_config &config)
 	subdevice<isa16_slot_device>("isa1")->set_default_option("vga"); // should be onboard Paradise VGA, see ROM declarations
 }
 
-void megapc_state::megapc(machine_config &config)
-{
-	i386sx_device &maincpu(I386SX(config, m_maincpu, 50_MHz_XTAL / 2));
-	maincpu.set_addrmap(AS_PROGRAM, &megapc_state::megapc_map);
-	maincpu.set_addrmap(AS_IO, &megapc_state::megapc_io);
-	maincpu.set_irq_acknowledge_callback("wd7600", FUNC(wd7600_device::intack_cb));
-
-	WD7600(config, m_wd7600, 50_MHz_XTAL / 2);
-	m_wd7600->set_cputag(m_maincpu);
-	m_wd7600->set_isatag("isa");
-	m_wd7600->set_ramtag(m_ram);
-	m_wd7600->set_biostag("bios");
-	m_wd7600->set_keybctag("keybc");
-	m_wd7600->hold_callback().set(FUNC(megapc_state::wd7600_hold));
-	m_wd7600->nmi_callback().set_inputline(m_maincpu, INPUT_LINE_NMI);
-	m_wd7600->intr_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
-	m_wd7600->cpureset_callback().set_inputline(m_maincpu, INPUT_LINE_RESET);
-	m_wd7600->a20m_callback().set_inputline(m_maincpu, INPUT_LINE_A20);
-	// isa dma
-	m_wd7600->ior_callback().set(FUNC(megapc_state::wd7600_ior));
-	m_wd7600->iow_callback().set(FUNC(megapc_state::wd7600_iow));
-	m_wd7600->tc_callback().set(FUNC(megapc_state::wd7600_tc));
-	// speaker
-	m_wd7600->spkr_callback().set(FUNC(megapc_state::wd7600_spkr));
-
-	// on board devices
-	ISA16(config, m_isabus, 0);
-	m_isabus->set_memspace(m_maincpu, AS_PROGRAM);
-	m_isabus->set_iospace(m_maincpu, AS_IO);
-	m_isabus->iochck_callback().set(m_wd7600, FUNC(wd7600_device::iochck_w));
-	m_isabus->irq2_callback().set(m_wd7600, FUNC(wd7600_device::irq09_w));
-	m_isabus->irq3_callback().set(m_wd7600, FUNC(wd7600_device::irq03_w));
-	m_isabus->irq4_callback().set(m_wd7600, FUNC(wd7600_device::irq04_w));
-	m_isabus->irq5_callback().set(m_wd7600, FUNC(wd7600_device::irq05_w));
-	m_isabus->irq6_callback().set(m_wd7600, FUNC(wd7600_device::irq06_w));
-	m_isabus->irq7_callback().set(m_wd7600, FUNC(wd7600_device::irq07_w));
-	m_isabus->irq10_callback().set(m_wd7600, FUNC(wd7600_device::irq10_w));
-	m_isabus->irq11_callback().set(m_wd7600, FUNC(wd7600_device::irq11_w));
-	m_isabus->irq12_callback().set(m_wd7600, FUNC(wd7600_device::irq12_w));
-	m_isabus->irq14_callback().set(m_wd7600, FUNC(wd7600_device::irq14_w));
-	m_isabus->irq15_callback().set(m_wd7600, FUNC(wd7600_device::irq15_w));
-	m_isabus->drq0_callback().set(m_wd7600, FUNC(wd7600_device::dreq0_w));
-	m_isabus->drq1_callback().set(m_wd7600, FUNC(wd7600_device::dreq1_w));
-	m_isabus->drq2_callback().set(m_wd7600, FUNC(wd7600_device::dreq2_w));
-	m_isabus->drq3_callback().set(m_wd7600, FUNC(wd7600_device::dreq3_w));
-	m_isabus->drq5_callback().set(m_wd7600, FUNC(wd7600_device::dreq5_w));
-	m_isabus->drq6_callback().set(m_wd7600, FUNC(wd7600_device::dreq6_w));
-	m_isabus->drq7_callback().set(m_wd7600, FUNC(wd7600_device::dreq7_w));
-
-	ISA16_SLOT(config, "board1", 0, "isabus", pc_isa16_cards, "fdcsmc", true); // FIXME: determine ISA bus clock
-	ISA16_SLOT(config, "board2", 0, "isabus", pc_isa16_cards, "comat", true);
-	ISA16_SLOT(config, "board3", 0, "isabus", pc_isa16_cards, "ide", true);
-	ISA16_SLOT(config, "board4", 0, "isabus", pc_isa16_cards, "lpt", true);
-	ISA16_SLOT(config, "board5", 0, "isabus", pc_isa16_cards, "vga", true);
-	// ISA cards
-	ISA16_SLOT(config, "isa1", 0, "isabus", pc_isa16_cards, nullptr, false);
-
-	at_keyboard_controller_device &keybc(AT_KEYBOARD_CONTROLLER(config, "keybc", 12_MHz_XTAL));
-	keybc.hot_res().set("wd7600", FUNC(wd7600_device::kbrst_w));
-	keybc.gate_a20().set("wd7600", FUNC(wd7600_device::gatea20_w));
-	keybc.kbd_irq().set("wd7600", FUNC(wd7600_device::irq01_w));
-	keybc.kbd_clk().set("kbd", FUNC(pc_kbdc_device::clock_write_from_mb));
-	keybc.kbd_data().set("kbd", FUNC(pc_kbdc_device::data_write_from_mb));
-
-	pc_kbdc_device &pc_kbdc(PC_KBDC(config, "kbd", pc_at_keyboards, STR_KBD_MICROSOFT_NATURAL));
-	pc_kbdc.out_clock_cb().set("keybc", FUNC(at_keyboard_controller_device::kbd_clk_w));
-	pc_kbdc.out_data_cb().set("keybc", FUNC(at_keyboard_controller_device::kbd_data_w));
-
-	/* internal ram */
-	RAM(config, m_ram).set_default_size("4M").set_extra_options("1M,2M,8M,15M,16M");
-
-	// sound hardware
-	SPEAKER(config, "mono").front_center();
-	SPEAKER_SOUND(config, "speaker").add_route(ALL_OUTPUTS, "mono", 0.50);
-
-	// video hardware
-	PALETTE(config, "palette").set_entries(256); // todo: really needed?
-
-	/* software lists */
-	SOFTWARE_LIST(config, "disk_list").set_original("megapc");
-}
-
-void megapc_state::megapcpl(machine_config &config)
-{
-	megapc(config);
-	i486_device &maincpu(I486(config.replace(), m_maincpu, 66'000'000 / 2));
-	maincpu.set_addrmap(AS_PROGRAM, &megapc_state::megapcpl_map);
-	maincpu.set_addrmap(AS_IO, &megapc_state::megapcpl_io);
-	maincpu.set_irq_acknowledge_callback("wd7600", FUNC(wd7600_device::intack_cb));
-}
-
 void at_vrom_fix_state::megapcpla(machine_config &config)
 {
 	i486_device &maincpu(I486(config, m_maincpu, 66'000'000 / 2));  // 486SLC
@@ -825,7 +641,7 @@ void at_vrom_fix_state::megapcpla(machine_config &config)
 	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
 
 	// on board devices
-	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdcsmc", true); // FIXME: determine ISA bus clock
+	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdc_smc", true); // FIXME: determine ISA bus clock
 	ISA16_SLOT(config, "board2", 0, "mb:isabus", pc_isa16_cards, "comat", true);
 	ISA16_SLOT(config, "board3", 0, "mb:isabus", pc_isa16_cards, "ide", true);
 	ISA16_SLOT(config, "board4", 0, "mb:isabus", pc_isa16_cards, "lpt", true);
@@ -867,7 +683,7 @@ void at_state::ficpio2(machine_config &config)
 	RAM(config, m_ram).set_default_size("4M").set_extra_options("1M,2M,8M,16M,32M,64M,128M");
 
 	// on board devices
-	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdcsmc", true); // FIXME: determine ISA bus clock
+	ISA16_SLOT(config, "board1", 0, "mb:isabus", pc_isa16_cards, "fdc_smc", true); // FIXME: determine ISA bus clock
 	ISA16_SLOT(config, "board2", 0, "mb:isabus", pc_isa16_cards, "comat", true);
 	ISA16_SLOT(config, "board3", 0, "mb:isabus", pc_isa16_cards, "lpt", true);
 
@@ -1307,13 +1123,13 @@ ROM_END
 // Apricot LANstation (Krypton Motherboard) - no display
 ROM_START( aplanst )
 	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_SYSTEM_BIOS(0, "31024", "Bios 3-10-24")
+	ROM_SYSTEM_BIOS(0, "31024", "BIOS 3-10-24")
 	ROMX_LOAD( "31024.lo", 0x10000, 0x8000, CRC(e52b59e1) SHA1(cfcaa4d8d658df8df463108ef30695bd4ee7a617), ROM_SKIP(1) | ROM_BIOS(0))
 	ROMX_LOAD( "31024.hi", 0x10001, 0x8000, CRC(7286aefa) SHA1(dfc0e3f4936780fa62ae9ec392ce17aa65e717cd), ROM_SKIP(1) | ROM_BIOS(0))
-	ROM_SYSTEM_BIOS(1, "31025", "Bios 3-10-25")
+	ROM_SYSTEM_BIOS(1, "31025", "BIOS 3-10-25")
 	ROMX_LOAD( "31025.lo", 0x10000, 0x8000, CRC(1aec09bc) SHA1(51d56c97c7c1674554aa89b68945329ea967a8bc), ROM_SKIP(1) | ROM_BIOS(1))
 	ROMX_LOAD( "31025.hi", 0x10001, 0x8000, CRC(0763caa5) SHA1(48510a933dcd6efea3b14d04444f584c3e6fefeb), ROM_SKIP(1) | ROM_BIOS(1))
-	ROM_SYSTEM_BIOS(2, "31026", "Bios 3-10-26i")
+	ROM_SYSTEM_BIOS(2, "31026", "BIOS 3-10-26i")
 	ROMX_LOAD( "31026i.lo", 0x10000, 0x8000, CRC(670b6ab4) SHA1(8d61a0edf187f99b67eb58f5e11276deee801d17), ROM_SKIP(1) | ROM_BIOS(2))
 	ROMX_LOAD( "31026i.hi", 0x10001, 0x8000, CRC(ef01c54f) SHA1(911f95d65ab96878e5e7ebccfc4b329db47a1351), ROM_SKIP(1) | ROM_BIOS(2))
 ROM_END
@@ -1365,7 +1181,7 @@ ROM_END
 ROM_START( apxeni )
 	ROM_REGION32_LE(0x20000, "bios", 0)
 	// 0: Phoenix 80386 ROM BIOS PLUS Version 1.10.01 / XEN-i 386 Business Microcomputer / VR 1.2.1 22nd July 1988
-	ROM_SYSTEM_BIOS(0, "lep121", "Rom Bios 1.2.1")
+	ROM_SYSTEM_BIOS(0, "lep121", "ROM BIOS 1.2.1")
 	ROMX_LOAD( "lep121.bin", 0x18000, 0x8000, CRC(948c1927) SHA1(d06bdbd6292db73c815ad1060daf055293dfddf5), ROM_BIOS(0))
 	// 1: Phoenix 80386 ROM BIOS PLUS Version 1.10.01 / XEN-i 386 Business Microcomputer / VR 1.2.1 22nd January 1991
 	ROM_SYSTEM_BIOS(1, "lep121s", "SCSI-Enabling ROMs")
@@ -1415,22 +1231,6 @@ ROM_END
 //**************************************************************************
 //  Amstrad systems
 //**************************************************************************
-
-// Amstrad MegaPC
-ROM_START( megapc )
-	ROM_REGION(0x40000, "isa", ROMREGION_ERASEFF)
-	ROM_REGION(0x20000, "bios", 0)
-	ROM_LOAD16_BYTE( "41651-bios lo.u18",  0x00000, 0x10000, CRC(1e9bd3b7) SHA1(14fd39ec12df7fae99ccdb0484ee097d93bf8d95))
-	ROM_LOAD16_BYTE( "211253-bios hi.u19", 0x00001, 0x10000, CRC(6acb573f) SHA1(376d483db2bd1c775d46424e1176b24779591525))
-ROM_END
-
-// Amstrad MegaPC Plus
-ROM_START( megapcpl )
-	ROM_REGION(0x40000, "isa", ROMREGION_ERASEFF)
-	ROM_REGION(0x20000, "bios", 0)
-	ROM_LOAD16_BYTE( "41652.u18",  0x00000, 0x10000, CRC(6f5b9a1c) SHA1(cae981a35a01234fcec99a96cb38075d7bf23474))
-	ROM_LOAD16_BYTE( "486slc.u19", 0x00001, 0x10000, CRC(6fb7e3e9) SHA1(c439cb5a0d83176ceb2a3555e295dc1f84d85103))
-ROM_END
 
 // Amstrad MegaPC Plus (Winbond chipset)
 ROM_START( megapcpla )
@@ -1482,6 +1282,7 @@ ROM_START( c386sx16 )
 	// actual VGA BIOS not dumped - uses a WD Paradise according to http://www.cbmhardware.de/pc/pc.php
 	// complains "Time-of-day clock stopped"
 	// photos of the system show one ISA16 slot for a riser card, an Acumos AVGA2 chip, a VLSI 82C311 IC, one other VLSI and an Acer chip.
+	// ETA: Paradise or Cirrus Logic VGA then? Multiple configs?
 	ROM_SYSTEM_BIOS(0, "c386sxv100", "SL 386SX V1.00") // Commodore 80386SX BIOS Rev. 1.00 - 390914-01/390915-01 - continuous beeps after POST
 	ROMX_LOAD( "cbm-sl386sx-bios-lo-v1.0-390914-01.bin", 0x10000, 0x8000, CRC(03e00583) SHA1(8be8478cabd9de3d547a08207ffdcd39bf1bcd94), ROM_SKIP(1) | ROM_BIOS(0))
 	ROMX_LOAD( "cbm-sl386sx-bios-hi-v1.0-390915-01.bin", 0x10001, 0x8000, CRC(cbe31594) SHA1(d6ace0b5ae4a0f63d047c2918210188f4c77c0c0), ROM_SKIP(1) | ROM_BIOS(0))
@@ -1734,7 +1535,7 @@ ROM_START( at )
 	ROM_SYSTEM_BIOS(15, "mitph307", "Mitac Phoenix v3.07") /* (BIOS release date:: 30-07-1987) */
 	ROMX_LOAD( "mitac_phoenix_v3.07_even.bin", 0x10000, 0x8000, CRC(1c4becc9) SHA1(bfdea3f2a248312ed8cf4765a1a7dc1a2f7cecd8), ROM_SKIP(1) | ROM_BIOS(15) )
 	ROMX_LOAD( "mitac_phoenix_v3.07_odd.bin", 0x10001, 0x8000, CRC(3ee16ed1) SHA1(b77e18e10e9187a01cb55c05b2a6e5311981ab56), ROM_SKIP(1) | ROM_BIOS(15) )
-	// 16: BIOS-String: Pyramid Software Development Personal Computer AT Bios Version 2.14
+	// 16: BIOS-String: Pyramid Software Development Personal Computer AT BIOS Version 2.14
 	ROM_SYSTEM_BIOS(16, "precise", "Precise")  /* (no regular BIOS release date) */
 	ROMX_LOAD( "precise 860407_low.bin", 0x10000, 0x8000, CRC(d839c074) SHA1(473ca7b42914ce12f2d6c91afb0b2c2e65194489), ROM_SKIP(1) | ROM_BIOS(16) )
 	ROMX_LOAD( "precise 860407_high.bin", 0x10001, 0x8000, CRC(b5e13c54) SHA1(07f5806fb53d0cb7ef7b54312fd6aa163d58b9a5), ROM_SKIP(1) | ROM_BIOS(16) )
@@ -2027,10 +1828,10 @@ ROM_START( neat )
 	ROMX_LOAD( "286-chips ami78384 even.bin", 0x10000, 0x8000, CRC(5280fee0) SHA1(25051ad6bbccddc0738861b614dbafbca5c3bff5), ROM_SKIP(1) | ROM_BIOS(6) )
 	ROMX_LOAD( "286-chips ami78384 odd.bin", 0x10001, 0x8000, CRC(24526bf3) SHA1(8f8b46fe2e708fa53d0eeb44a16924cd878bdd33), ROM_SKIP(1) | ROM_BIOS(6) )
 	// 7: BIOS-String: ENET-1107-040990-K0
-	ROM_SYSTEM_BIOS(7, "ami211", "AMI 21.1") /*(Motherboard Manufacturer: Dataexpert Corp. Motherboard) (Neat 286 Bios, 82c21x Chipset ) (BIOS release date:: 09-04-1990)*/
+	ROM_SYSTEM_BIOS(7, "ami211", "AMI 21.1") /*(Motherboard Manufacturer: Dataexpert Corp. Motherboard) (Neat 286 BIOS, 82c21x Chipset ) (BIOS release date:: 09-04-1990)*/
 	ROMX_LOAD( "ami211.bin",     0x10000, 0x10000,CRC(a0b5d269) SHA1(44db8227d35a09e39b93ed944f85dcddb0dd0d39), ROM_BIOS(7))
 	// 8: BIOS-String: ENET-1230-043089-K0
-	ROM_SYSTEM_BIOS(8, "amic21", "AMI C 21.1") /* (Motherboard Manufacturer: Unknown.) (Neat 286 Bios, 82c21x Chipset ) (BIOS release date:: 30-04-1989) */
+	ROM_SYSTEM_BIOS(8, "amic21", "AMI C 21.1") /* (Motherboard Manufacturer: Unknown.) (Neat 286 BIOS, 82c21x Chipset ) (BIOS release date:: 30-04-1989) */
 	ROMX_LOAD( "amic21-2.bin",  0x10001, 0x8000, CRC(8ffe7752) SHA1(68215f07a170ee7bdcb3e52b370d470af1741f7e),ROM_SKIP(1) | ROM_BIOS(8) )
 	ROMX_LOAD( "amic21-1.bin",  0x10000, 0x8000, CRC(a76497f6) SHA1(91b47d86967426945b2916cb40e76a8da2d31d54),ROM_SKIP(1) | ROM_BIOS(8) )
 	// 9: BIOS-String: - AGC N286 - CPU: AMD N80L286-16/S, FPU socket provided - RAM: 36xTMC64C1024-80N (18pin), 36x16pin sockets provided as an alternative (2xBank 0, 2xBank 1), 4xSIPP30 (2xBank 0/2 and 2xBank 1/3)
@@ -2146,7 +1947,7 @@ ROM_START( headg2 )
 	ROMX_LOAD( "286-headland 4530-high_32k.bin", 0x10001, 0x8000, CRC(f84c0e75) SHA1(42dc068d1cd5105cd576b023e2ccfe0f0646d4e3), ROM_SKIP(1) | ROM_BIOS(1) )
 	ROMX_LOAD( "286-headland 4530-low_32k.bin", 0x10000, 0x8000, CRC(0856dde8) SHA1(cee5d6002c405df984f3c7fa83c4f3e034f1e586), ROM_SKIP(1) | ROM_BIOS(1) )
 	// 2: Quadtel Enhanced 286 BIOS Version 3.04.02 - Headland HT101, HT102
-	ROM_SYSTEM_BIOS(2, "ami101", "AMI HT 101.1") /* (Quadtel Enhanced 286 Bios Version 3.04.02) (BIOS release date:: 09/11/1989) */
+	ROM_SYSTEM_BIOS(2, "ami101", "AMI HT 101.1") /* (Quadtel Enhanced 286 BIOS Version 3.04.02) (BIOS release date:: 09/11/1989) */
 	ROMX_LOAD( "amiht-h.bin",   0x10001, 0x8000, CRC(8022545f) SHA1(42541d4392ad00b0e064b3a8ccf2786d875c7c19),ROM_SKIP(1) | ROM_BIOS(2) )
 	ROMX_LOAD( "amiht-l.bin",   0x10000, 0x8000, CRC(285f6b8f) SHA1(2fce4ec53b68c9a7580858e16c926dc907820872),ROM_SKIP(1) | ROM_BIOS(2) )
 ROM_END
@@ -2397,13 +2198,24 @@ ROM_START( kma202f )
 ROM_END
 
 
+// ***** unknown chipset
+
+// Octek XT-286 V1.1 - "Keyboard error or locked"
+ROM_START( ocxt286 )
+	ROM_REGION16_LE(0x20000, "bios", 0)
+	ROM_SYSTEM_BIOS(0, "ocxt286_1", "Octek XT-286 V1.1")
+	ROMX_LOAD( "xt286-328.bin", 0x1e000, 0x2000, CRC(d9caefcc) SHA1(dab3403678feb023362df614596d1306ef7f85db), ROM_BIOS(0))
+	ROM_SYSTEM_BIOS(1, "ocxt286_2", "Hedaka HED-919")
+	ROMX_LOAD( "hed919-328f.bin", 0x1e000, 0x2000, CRC(15117381) SHA1(d9dfa796edf7e94b9dacf984763ac046cf80f26d), ROM_BIOS(1))
+ROM_END
+
 //**************************************************************************
 //  80286 Desktop
 //**************************************************************************
 
 // SIIG MiniSys 2000 - Motherboard ID: Labway MS101V1.2 - This is a tiny 286 system, the width of a 3.5" disk drive with an external power supply.
 // A physical switch allows to change between VGA and composite video output.
-// CPU: Intel 286-12 - BIOS: AMIBIOS - Bios string: DH12-1422-061390-K0 - Chipset: Headland HT12/A, Acer M5105 - RAM: 2xSIMM30
+// CPU: Intel 286-12 - BIOS: AMIBIOS - BIOS string: DH12-1422-061390-K0 - Chipset: Headland HT12/A, Acer M5105 - RAM: 2xSIMM30
 // OSC: 14.31818MHz, 24.000MHz, 24.000, another unreadable - ISA16: 1 (on riser board) - on board: IDE, Floppy, 2xser, par, game, composite, VGA,
 // ext. FDD (motherboard and I/O board connected with a riser board - Mass storage: 3.5" FDD, 3.5" HDD (e.g. Seagate ST351A/X in AT mode)
 ROM_START( minisys2k )
@@ -2736,7 +2548,15 @@ ROM_START( n8810m55 )
 	ROM_LOAD16_BYTE( "150-3873_u127_30_4.5.1.bin", 0x10000, 0x8000, CRC(5a7e6643) SHA1(f3890919a772eead7232bd227b2c8677377f6e24))
 ROM_END
 
-// Olivetti M290 - has an Olivetti branded Paradise PVGA1A-JK VGA card - locks up with "Error 2" and a key symbol
+// Olivetti M250E aka DECStation 220 - PVGA1A on board with the ROM included in the main ROM - Board: BA241 - Chips: 16C451, 8742, WD37C65, GA99, GA80
+// CPU: 12MHz 80286 - FPU: 80287-2 socket provided - RAM: 1MB, 2MB, 4MB in SIMM modules - ROM: 64KB BIOS 1.07-1.09 - Mass storage: 2x 3.5" FDD HD,
+// on board: AT/RLL controller - Shadow memory: E0000-FFFFF - Bus: 3xISA8/18 on riser board - Video: PVGA1A on board, 256KB RAM - Connectors: VGA, ser, par, PS/2 keyboard, PS/2 mouse
+ROM_START( m250e )
+	ROM_REGION16_LE(0x20000, "bios", 0 )
+	ROM_LOAD( "biosglas.bin", 0x10000, 0x10000, CRC(83c33ce4) SHA1(0f132072dca06d8c7bb51b0f0d6304a74406cc8c))
+ROM_END
+
+// Olivetti M290 - uses the Olivetti GO481 Paradise PVGA1A-JK VGA card - locks up with "Error 2" and a key symbol
 // Chipset: Olivetti GA099-B/28927F74AT, Olivetti GA098-B 28909F74AS, TI TACT82206FN, Olivetti 8920K5
 // Floppy/IDE card: WD37C65BJM, NS16C450V
 ROM_START( m290 )
@@ -2776,7 +2596,7 @@ ROM_START( prolite286 ) // Initialises graphics card, then dies
 	ROM_LOAD16_BYTE( "caf_prolite_odd.bin", 0x10001, 0x8000, CRC(7c2f6f9f) SHA1(6e72f1458308e521e5715cedb83f40ebe0cc4ad7))
 ROM_END
 
-// AEG Olympia Olyport 40-21 aka Zenith SuperSport - CPU: AMD N80L286-12/8 - Chipset: Chips P82C2185, P82C211C, P82C206 F-1, P82C212B, P82C604, WD37C65BFM, Hitachi HD6305VOP
+// AEG Olympia Olyport 40-21 aka Zenith SuperSport - CPU: AMD N80L286-12/8 - Chipset: Chips P82C2185, P82C211C, P82C206 F-1, P82C212B, P82C604, WD37C65BFM, Hitachi HD6305V0P
 // OSC: 22.500, 24.000 - Video: CGA, LCD with 16 grey intensities - Connectors: CRT, Ext. Bus, RS232C, Printer, Ext.FDD - Mass storage: FDD 1.44MB, HD: Conner CP-323 (IDE with detached controller PCB)
 ROM_START( olyport40 ) // "+++ ERROR: Fatal Slushware RAM Error +++" / "--- Fatal Error: Cannot Continue! ---" - slushware is a ROM shadowing concept cropping up in Zenith brochures
 	ROM_REGION16_LE(0x20000, "bios", 0)
@@ -3197,13 +3017,6 @@ ROM_START( uni386w )
 	ROMX_LOAD( "3ucm002.bin", 0x10000, 0x10000, CRC(9f2e19da) SHA1(ef64c6ad9d02db849d29e3b998ca42b663656bad), ROM_BIOS(1))
 ROM_END
 
-// SCsxAIO - Chipset: Chips 82C236 (SCATsx), Acer M5105 A3E - On board: 2xCOM, Floppy, ISA
-// BIOS-String: Peacock 386sx Ver. 2.0 24.03.92 30-0000-D01131-00101111-070797-SCATsx-8 - ISA16: 6
-ROM_START( scsxaio )
-	ROM_REGION16_LE(0x20000, "bios", 0)
-	ROM_LOAD( "386-peacock_scsxaio.bin", 0x10000, 0x10000, CRC(54c3cacd) SHA1(b3c821b30052d0c771b5004a3746eb2cfd186c79))
-ROM_END
-
 // Shuttle 386SX REV 2.0A - Chipset: KU82335 SX042, Intel N82230-2 (Zymos); Intel N82231-2 (Zymos), BIOS: AMI 80386SX BIOS PLUS Ser #039747
 // BIOS-String: - DINT-1216-073089-K0 / 386-BIOS AMI for MORSE 386SX Personal Computer
 // Keyboard-BIOS: AMI 386 Keyboard BIOS PLUS Ser.# 039747, CPU: unreadable (SMD), FPU: empty socket - OSC: 32.000 MHz, 14.31818 - ISA8: 2, ISA16: 6
@@ -3433,13 +3246,14 @@ ROM_START( ges9051n )
 ROM_END
 
 
-// ***** 386sx motherboards using the Chips SCAMPSX chipset
+// ***** 386sx motherboards using the VLSI SCAMPSX chipset
 
-// ANIX CH-386S-16/20/25G P/N:001-0386S-016 VER 1.0 - Chipset: CHIPS F82C836 - BIOS: AMI 386sx BIOS PLUS S/NO. 141334
+// ANIX CH-386S-16/20/25G P/N:001-0386S-016 VER 1.0 - Chipset: VLSI VL82C311 - BIOS: AMI 386sx BIOS PLUS S/NO. 141334
 // BIOS-String: 30-0100-D01425-00101111-050591-SCAMPSX-0 - Keyboard-BIOS: Intel/AMI - CPU: Intel (SMD), label not readable - FPU: socket available - ISA16: 6 - OSC: 14.31818 - 32.000 MHz
+// Lindata manufactured (1425)
 ROM_START( anch386s )
 	ROM_REGION16_LE(0x20000, "bios", 0)
-	ROM_LOAD( "386-ch-386s.bin", 0x10000, 0x10000, CRC(8902c64b) SHA1(3234bac6240a3a0bd05302c9ca587f5ae083f2f4))
+	ROM_LOAD( "386-ch-386s.bin",     0x10000, 0x10000, CRC(8902c64b) SHA1(3234bac6240a3a0bd05302c9ca587f5ae083f2f4))
 ROM_END
 
 // 80386SX-VH-COM - Chipset: VLSI VL82C311 VL82C113 - BIOS: Award 386SX-BIOS - BIOS-String: 386SX Modular BIOS v3.15 Copyright(c)1984-91 Award Software Inc.
@@ -3819,6 +3633,15 @@ ROM_START( opti495xlc )
 	ROMX_LOAD( "3opm002.bin", 0x10000, 0x10000, CRC(2d9dcbd1) SHA1(d8b0d1411b09767e10e66b455ebc74295bd1b896), ROM_BIOS(3) )
 ROM_END
 
+// Tandy 4000
+
+ROM_START( t4000 )
+	ROM_REGION32_LE(0x20000, "bios", 0)
+	ROM_SYSTEM_BIOS(0, "v010301", "01.03.01")
+	ROMX_LOAD( "t4000_even.u32", 0x18000, 0x4000, CRC(f728ae11) SHA1(3bc151b8d704dde7c340a66072c1a418b7eab7db), ROM_SKIP(1) | ROM_BIOS(0))
+	ROMX_LOAD( "t4000_odd.u25",  0x18001, 0x4000, CRC(6bedcf61) SHA1(df08347f163d6e45bdf9e1b64a811222bffba80a), ROM_SKIP(1) | ROM_BIOS(0))
+ROM_END
+
 
 // 386sx motherboards using the SARC (or CYCLONE) RC2016A5 chipset
 
@@ -4119,6 +3942,18 @@ ROM_END
 //  80386 SX and DX Laptop/Notebook
 //**************************************************************************
 
+// Nixdorf N8810/20 - CPU: Intel 80386DX-20 clocked at 20MHz or 8MHz, Motherboard: FT-3 DFUP0279ZAB3
+// Chipset: VLSI 9021BT 201141 VL16C452-QC, G2 GC132-PC, SED1345F, Headland HT133/A1A4324, Bt476KP50 128 9020
+// RAM: 1MB, upgradeable via memory cards, this example has 4MB ROM: Phoenix keyboard ROM (missing dump)
+// Mass storage: Floppy 3.5" 1.44MB, 3.5" HDD 40MB JVC JDE 3848V10-1A, Video: Paradise PVGA1A-JK
+// Display: 12" bw double supertwisted LCD VGA, Ports: 2xser, Par, beeper, Bus: ISA16bit: 1, OSC: 28.6838M, 40.000MHz
+// Origin: Software dump of the upper 256K
+ROM_START( n8810m20 ) // "Keyboard clock line failure", but keyboard works
+	ROM_REGION32_LE(0x20000, "bios", 0 )
+	ROM_LOAD( "n8810m20_trim.bin", 0x00000, 0x20000, CRC(21b5394d) SHA1(691f50e65398e5c775dedbd9bda71a95ba6a6a29))
+	// LCD Parameter Copyright MEI 1989 DAFT3C1 (missing dump), Keyboard-BIOS: Compability Software Phoenix Technologies LTD RBIOS Even 3ND1A4 Odd 3N1B4 (missing dump)
+ROM_END
+
 // Toshiba T3200SXC - CPU: 80386sx-20 - Floppy - 120 MB Hard disk - 1 MB RAM on board, 4 MB extra memory already installed. Can be upgraded to a total of 13 MB.
 // TFT Display, 640x480, 256 colors - WD 90C21 video chip, 256 KB RAM - ISA8: 1, ISA16: 1
 ROM_START( tot3200sxc ) // KBC ERROR
@@ -4373,7 +4208,7 @@ ROM_START( ar4glx3 ) // BIOS-String: 40-0101-006666-00101111-011094-CTQ-596A / K
 	ROM_LOAD( "4glx3_bios.bin", 0x10000, 0x10000, CRC(3367e0b2) SHA1(8dbe58ed783c56ca2cb61ded6f603314739dcfb8))
 ROM_END
 
-// TMC PAT48AV 1.4 - ALi M1429 A1, M1431 A2 - Bios: AMI 486DX ISA BIOS AB4179743 - Keyboard BIOS: AMI-KB-H-WP - CPU: 486DX socket
+// TMC PAT48AV 1.4 - ALi M1429 A1, M1431 A2 - BIOS: AMI 486DX ISA BIOS AB4179743 - Keyboard BIOS: AMI-KB-H-WP - CPU: 486DX socket
 // RAM: 8xSIMM30 - Cache: 8xIS61C256AH-20N - OSC: 14.31818 - ISA16: 4, ISA16/VLB: 3
 ROM_START( tmpat48av ) // screen remains blank - BIOS-String: 40-0106-001291-00101111-080893-ALI1429 / 486DX-AC-WBu-25/33/40/50-L6-ZZ
 	ROM_REGION32_LE(0x20000, "bios", 0)
@@ -4611,24 +4446,6 @@ ROM_END
 ROM_START( a433cc )
 	ROM_REGION32_LE(0x20000, "bios", 0)
 	ROM_LOAD( "ami_j-bond_a433c-c.bin", 0x10000, 0x10000, CRC(66031e98) SHA1(d2d1a26837d3ca943a6ef09ec3e6fbfaaa62cc46))
-ROM_END
-
-// ASUS PVI-486AP4 (Socket 3, 4xSIMM72, Cache: 128/256/512KB, 4 PCI, 4 ISA, 1 VLB)
-// Intel Aries PCIset S82425EX + S82426EX; DS12887 RTC; VIA VT82C42N - BIOS: 32pin
-ROM_START( a486ap4 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: BIOS-String: 07/20/94-ARIES-P/I-AP4G-00 / #401A0-0104
-	ROM_SYSTEM_BIOS(0, "486ap4v104", "ASUS PVI-486AP4 V1.04")
-	ROMX_LOAD( "awai0104.bin", 0x00000, 0x20000, CRC(52ea7123) SHA1(3d242ea6d1bcdddd41e32e40708133c72f2bd060), ROM_BIOS(0))
-	// 1: BIOS-String: 10/21/94-ARIES-P/I-AP4G-00 / #401A0-0203
-	ROM_SYSTEM_BIOS(1, "486ap4v203", "ASUS PVI-486AP4 V2.03")
-	ROMX_LOAD( "awai0203.bin", 0x00000, 0x20000, CRC(68d3a3f4) SHA1(6eee0c9aed2ede028eb170f8dd7921563293b99f), ROM_BIOS(1))
-	// 2: BIOS-String: 11/08/94-ARIES-P/I-AP4G-00 / #401A0-0204
-	ROM_SYSTEM_BIOS(2, "486ap4v204", "ASUS PVI-486AP4 V2.04")
-	ROMX_LOAD( "awai0204.bin", 0x00000, 0x20000, CRC(b62b35bb) SHA1(b6fa3d7b1c88da37ce74aca329a31d2587652d97), ROM_BIOS(2))
-	// 3: BIOS-String: 11/25/97/ARIES-P/I-AP4G-00 / #401A0-0205-2
-	ROM_SYSTEM_BIOS(3, "486ap4v205-2", "ASUS PVI-486AP4 V2.05-2")
-	ROMX_LOAD( "0205.002", 0x00000, 0x20000, CRC(632e8ee6) SHA1(3cf57b2654b0365e41ef5f5c82f68eeadf0e7a21), ROM_BIOS(3))
 ROM_END
 
 // ASUS PCI/I-486SP3G V3.02 (Socket 3, RAM: 4xSIMM72, Cache: 128/256/512K, 1 IDE, 1 SCSI, 3 PCI, 4 ISA) - BIOS: 32pin
@@ -5009,285 +4826,7 @@ ROM_START( mba029 ) // BIOS-String: 30-0200-ZZ1594-00101111-070791-SISAUTO-0
 ROM_END
 
 // ***** 486 motherboards using the SiS 85C496/85C497 chipset
-
-// A-Trend ATC-1425A - Chipset: SiS 85C496, 85C497 - RAM: 4xSIMM72, Cache: 4x32pin + TAG - ISA16: 4, PCI: 3
-// on board: 2xIDE, Floppy, 2xser, par - BIOS: 32pin
-ROM_START( atc1425a )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: Boot block - BIOS-String: 09/07/95-SiS-496-497/A/B-2A4IBA2HC-00 / 1425 SIS 496/7 BIOS VER : 1.8N   1995/09/25
-	ROM_SYSTEM_BIOS(0, "ver18n", "ver1.8N")
-	ROMX_LOAD( "atc-1425a_original.bin", 0x00000, 0x20000, CRC(040ebc6c) SHA1(266ed07ef13c363234c7a2a88719badeeed9dc4c), ROM_BIOS(0))
-	// 1: Boot block - BIOS-String: 11/03/95-SiS-496-497/A/B-2A4IBA2HC-00 / ATC-1425A SIS496/7 BIOS VER:2.0N  11-04-95
-	ROM_SYSTEM_BIOS(1, "ver20n", "ver2.0N")
-	ROMX_LOAD( "atc-1425a_ver2_0n.bin", 0x00000, 0x20000, CRC(0af2f6c0) SHA1(a1ce34bdee5119b9ae1d8530fcf611ca2f9d592e), ROM_BIOS(1))
-ROM_END
-
-// A-Trend ATC-1425B - BIOS Version: Award 4.51PG 04/18/96 - Chipset: SiS 85C496/85C497, Winbond - Keyboard BIOS: Holtek HT6542B - CPU: Socket 3
-// RAM: 4xSIMM72, Cache: 4xUM61512AK-15, 1xISSI IS61C256AH-15N - on board: 2xIDE, Floppy, par, 2xser - ISA16: 4, PCI: 3
-ROM_START( atc1425b ) // Boot block - BIOS String: 04/18/96-SiS-496-497/A/B-2A4IBA2BC-00
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_LOAD( "1425b231.rom", 0x00000, 0x20000, CRC(1a19f34d) SHA1(09bb5e35ef07b57942cbca933f2a0334615a687e))
-ROM_END
-
-// Abit AB-PI4(T) - Bios: 32pin - Keyboard-BIOS: Winbond 83C42 - CPU: Socket 3 - ISA16: 4, PCI: 3 - Chipset: SiS 85C495, 85C497
-// RAM: 4xSIMM72, Cache: 9x32pin (occupied: 4xW24512AK-20, 1xW2457AK) - On board: 2xIDE
-ROM_START( abpi4 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: BIOS-String: &09/25/95-SiS-496-497/A/B-2A4IBA11C-0B / GREEN 486 PCI SYSTEM BIOS - boots into "boot block" rescue BIOS
-	ROM_SYSTEM_BIOS(0, "pi4092595", "AB-PI4(T) 09/25/95")
-	ROMX_LOAD( "pi4_0b.bin", 0x00000, 0x20000, CRC(2cd67f19) SHA1(4cf0b4ff10645371361d3782c8be06c463e70219), ROM_BIOS(0))
-	// 1: 486IP-B-2-A (ABIT PI4/PI4T PCI clone) REV:2B.31 - Chipset : SiS 496/497 (NV/NU) - BIOS : AWARD 2a4ibb61 - Keyboard BIOS: JETkey V5.0G
-	// RAM: 4xSIMM72, Cache: 9x32pin DIP (filled: 9xUM61256FK-15 CPU: Socket 3 - on board: 2xIDE - ISA16: 4, PCI: 3
-	// BIOS-String : 10/02/95-SiS-496-497/A/B-2A4IBB61C-00 - boots into "boot block" rescue BIOS
-	ROM_SYSTEM_BIOS(1, "486ipb2a", "486IP-B-2-A")
-	ROMX_LOAD( "486ip-b-2-a.bin", 0x00000, 0x20000, CRC(8b1e3094) SHA1(84e8269f310b53497e63791fd3c081d7f631b686), ROM_BIOS(1))
-ROM_END
-
-// Abit AB-PM4
-// BIOS-String: 09/04/95-SiS-496-497/A/B-2A4IBA13C-0C / GREEN 486 PCI SYSTEM BIOS
-ROM_START( abpm4 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_LOAD( "pm4_0c.bin", 0x00000, 0x20000, CRC(eaad7812) SHA1(81670c44e30fa8b8ac0aa28a5c367819ff1ca73c))
-ROM_END
-
-// Abit AB-PV4
-// BIOS-String: 09/26/95-SiS-496-497/A/B-2A4IBA12C-0A / GREEN 486 PCI SYSTEM BIOS
-ROM_START( abpv4 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_LOAD( "pv4v_0a.bin", 0x00000, 0x20000, CRC(91de48d5) SHA1(2e873de152870270f51b5b2c4a30f2611364e739))
-ROM_END
-
-// Aopen AP43 - CPU: Socket 3 - Chipset: SiS 85C496, 85C497, SMC FDC37C665GT - RAM: SIMM72x4, Cache: 9x32pin, used: 9xUM61256FK-15
-// BIOS: 32pin - Keyboard-BIOS: AMIKEY-2 - on board: IDEx2, Floppy, par, 2xser
-// constant chirping
-ROM_START( aoap43 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0:
-	ROM_SYSTEM_BIOS(0, "original", "original")
-	ROMX_LOAD( "aopen_ap43_original.bin", 0x00000, 0x20000, CRC(65075fe4) SHA1(9b150e0b37b4ff3cbfcd8bd2286e1e575c34de02), ROM_BIOS(0))
-	// 1:
-	ROM_SYSTEM_BIOS(1, "updated", "updated")
-	ROMX_LOAD( "aopen_ap43_updated.rom", 0x00000, 0x20000, CRC(68a5595e) SHA1(94551037e9d0b3fb644726b7ba66e676aa58b81a), ROM_BIOS(1))
-ROM_END
-
-// ASUS PCI/I-A486S (4xSIMM72, Cache: 128/256/512KB, 1 EISA) - BIOS: 32pin
-// SiS 85C496/85C497 chipset; SMC 37C665 I/O; AMIKEY-2, S3 Trio 64 on board VGA, the manual also mentions Trio 32
-ROM_START( aa486s )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: BIOS-String: 05/22/95/SiS-496-497B-PCI-A486-0-00 / #401A0-0203
-	ROM_SYSTEM_BIOS(0, "v203", "ASUS PCI/I-A486S V2.03")
-	ROMX_LOAD( "si4a0203.awd", 0x00000, 0x20000, CRC(95fcb7c6) SHA1(c19164d67af18c774e6eb06bd1570d95a24b2856), ROM_BIOS(0))
-	// 1: BIOS-String: 11/27/95-SiS-496-497B-PI-A486SC-00 / #401A0-0304 -  boots into "boot block" rescue BIOS
-	ROM_SYSTEM_BIOS(1, "v304", "ASUS PCI/I-A486S V3.04")
-	ROMX_LOAD( "si4a0304.awd", 0x00000, 0x20000, CRC(a00ad907) SHA1(598d97ea29f930a9359429dc540d27bfdd0fcd20), ROM_BIOS(1))
-ROM_END
-
-// ASUS PVI-486SP3 (Socket 3, 2xSIMM72, Cache: 128/256/512KB, 2 IDE, 3 PCI, 4 ISA, 1 VLB)
-// SiS 85C496 + 85C497; UMC UM8669F; AMIKEY-2; BIOS: 29EE010 (32pin)
-ROM_START( a486sp3 )
-	ROM_REGION32_LE(0x20000, "bios", 0) // Winbond W29EE011-15
-	// 0: BIOS-String: 07/22/94-SATURN-P/I-4SP3-00 / #401A0-0207
-	ROM_SYSTEM_BIOS(0, "v207", "ASUS PVI-486SP3 V2.07")
-	ROMX_LOAD( "awsi0207.bin", 0x00000, 0x20000, CRC(0cb862aa) SHA1(7ffead05c1df47ec36afba395191145279c5e789), ROM_BIOS(0))
-	// 1: BIOS-String: 07/22/94-SATURN-P/I-4SP3-00 / #401A0-0207
-	ROM_SYSTEM_BIOS(1, "v2737", "ASUS PVI-486SP3 V2.07 #2")
-	ROMX_LOAD( "awsi2737.bin", 0x00000, 0x20000, CRC(8cd9a89c) SHA1(6c68c23cc5e8ae66261e9fe931f2ce07efe767b6), ROM_BIOS(1))
-	// 2: BIOS-String: 06/25/96-SiS-496-497B-PVI-4SP3C-00 / #401A0-0306 - boots to Award BootBlock BIOS V1.0
-	ROM_SYSTEM_BIOS(2, "v306", "ASUS PVI-486SP3 V3.06")
-	ROMX_LOAD( "si4i0306.awd", 0x00000, 0x20000, CRC(fc70371a) SHA1(96b10cfa97c5d1d023687f01e8acb54f263069b2), ROM_BIOS(2))
-	// 3: BIOS-String: 02/11/98-SiS-496-497B-PVI-4SP3C-00 / #401A0-0307 - boots to Award BootBlock BIOS V1.0
-	ROM_SYSTEM_BIOS(3, "v307", "ASUS PVI-486SP3 V3.07")
-	ROMX_LOAD( "si4i0307h.bin", 0x00000, 0x20000, CRC(99473cc0) SHA1(a01d253cf434a31e0ca6f6cd2b9026ca424eb463), ROM_BIOS(3))
-	// 4: BIOS-String: 08/08/95-SiS-496-497B-PVI-4SP3C-00 / #401A0-0301 - boots to Award BootBlock BIOS
-	ROM_SYSTEM_BIOS(4, "v301", "ASUS PVI-486SP3 V3.01")
-	ROMX_LOAD( "4siw003.bin", 0x00000, 0x20000, CRC(47a1d815) SHA1(370bfb895646518884a2a82881721efc3aeb04d1), ROM_BIOS(4))
-	// 5: BIOS-String: 11/23/94-SiS-496-497-PVI-4SP3-00 / #401A0-0101
-	ROM_SYSTEM_BIOS(5, "v10101", "ASUS PVI-486SP3 V1.01 #1")
-	ROMX_LOAD( "0101.bin", 0x00000, 0x20000, CRC(7862ca56) SHA1(e609585893b23db10c4ae7d2abd17cc9dda964b6), ROM_BIOS(5))
-	// 6: BIOS-String: 11/23/94-SiS-496-497-PVI-4SP3-00 / #401A0-0101 - screen remains blank
-	ROM_SYSTEM_BIOS(6, "v10102", "ASUS PVI-486SP3 V1.01 #2")
-	ROMX_LOAD( "si4i0101.awd", 0x00000, 0x20000, CRC(18652037) SHA1(7460e90b0a9c825d2e47943a714049fe9e943760), ROM_BIOS(6))
-	// 7: BIOS-String: 07/15/95-SiS-496-497B-PVI-4SP3C-00 / #401A0-0205 - boots to Award BootBlock BIOS
-	ROM_SYSTEM_BIOS(7, "v205", "ASUS PVI-486SP3 V2.05")
-	ROMX_LOAD( "si4i0205.awd", 0x00000, 0x20000, CRC(d90d91b0) SHA1(043151d121780ff56ce32b9a48e9bbccd324625f), ROM_BIOS(7))
-	// 8: BIOS-String: 04/05/96-SiS-496-497B-PVI-4SP3C-00 / #401A0-0305 - boots to Award BootBlock BIOS
-	ROM_SYSTEM_BIOS(8, "v305", "ASUS PCI/I-486SP3 V3.05")
-	ROMX_LOAD( "si4i0305.awd", 0x00000, 0x20000, CRC(2f90e63e) SHA1(a4f16753b5a57d65fba7702ca28e44f10bd5bb6c), ROM_BIOS(8))
-ROM_END
-
-// Chaintech 486SPM - CPU: Socket 3 - Chipset: SiS 85C497, 85C496, UMC UM8663BF - RAM: 4xSIMM72, Cache: 8xIS61C1024-10N, W24512AK-10
-// BIOS: Award E0822859 - Keyboard-BIOS: VIA VT82C42N - on board: 2xISA, Floppy, 2xser, par - ISA16: 4, PCI: 3
-ROM_START( ch486spm )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: BIOS-String: 12/21/95-SiS-496-497/A/B-2A4IBC3IC-00
-	ROM_SYSTEM_BIOS(0, "original", "original")
-	ROMX_LOAD( "chaintech_486spm.bin", 0x00000, 0x20000, CRC(a0c9045a) SHA1(1d0b1994574437549c13541d4b65374d94c9a648), ROM_BIOS(0))
-	// 1: 12/21/95-SiS-496-497/A/B-2A4IBC3IC-00 / Chaintech 486SPM v2015 PS/2
-	ROM_SYSTEM_BIOS(1, "ps2", "PS2 mouse enabled")
-	ROMX_LOAD( "486spm-p.bin", 0x00000, 0x20000, CRC(35b5cb76) SHA1(965b212b28a5badd8d8f4769aa9edc88e47bc925), ROM_BIOS(1))
-ROM_END
-
-// Chaintech 4SPI - Chipset: SiS 85C496 85C497 - BIOS Version: Award v4.50G E0671975 - Keyboard BIOS: Lance Green LT38C41
-// CPU: Socket 3 - RAM: 4xSIMM72, Cache: 9x32pin DIP (used: 4xW24512AK-15, 1xEM51256-15PL) - On board: 2xIDE
-// ISA6: 5, PCI: 3
-ROM_START( ch4spi ) // BIOS String: 02/16/95-SiS-496-497/A/B-2A4IBC31-B2 / 02/17/1995
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_LOAD( "4spibckp.bin", 0x00000, 0x20000, CRC(29b15737) SHA1(e9cb5402eb25a100a15d5ccc520cfa76c7be99a6))
-ROM_END
-
-// Freetech 486F55 - Chipset: SiS 496/497 - CPU: Socket 3 - RAM: 4xSIMM72, Cache: 128KB/256KB/512KB - ISA16: 4, PCI: 3 -
-// On board: 2xser, par, 2xIDE, Floppy - BIOS: Award
-ROM_START( ft486f55 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0:
-	ROM_SYSTEM_BIOS(0, "xsf", "XS-F")
-	ROMX_LOAD( "55xs-f.bin", 0x00000, 0x20000, CRC(b7ee53af) SHA1(6357241ac3c317f60465bf5ad77d821a7dc68b3b), ROM_BIOS(0))
-	// 1:
-	ROM_SYSTEM_BIOS(1, "xsg", "XS-G")
-	ROMX_LOAD( "55xs-g.bin", 0x00000, 0x20000, CRC(adaa3a28) SHA1(27c36b564d11f1dc9a8c6f6d075eeaf850944c08), ROM_BIOS(1))
-ROM_END
-
-// Jamicon KM-S4-1 VER 1.1 - Chipset: SiS 85C496/85C497 (PR/NU revision), Winbond W837F - BIOS/Version: KM-S4-1 VER:4.2 - AWARD
-// BIOS: Award PCI/PNP 486 S/N:024893105 - Keyboard BIOS: Winbond W83C42 - CPU: P24T - RAM: 4xSIMM72, Cache: 4xUM61512AK-15, 1xW24257AK-15
-// on board: 2xser, Floppy, par, 2xIDE - ISA16: 3, PCI: 3
-ROM_START( jakms41 ) // BIOS String: 10/30/95-SiS-496-497/A/B-2A4IBR22C-00 - boots into BootBlock BIOS
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_LOAD( "km-s4-1.bin", 0x00000, 0x20000, CRC(0271356a) SHA1(893048c3390a23810a2af14da30520fbea10ad2f))
-ROM_END
-
-// SOYO SY-4SAW2 - Chipset: SiS 85C497, 85C496, Winbond W83787F - CPU: Socket 3 - RAM: 4xSIMM72, Cache: 4xUM61512AK-15+W24129AK-15
-// BIOS: Award (32pin) - Keyboard-BIOS: Via VT82C42N - ISA16: 3, ISA16/VL: 1, PCI: 4 - On board: 2xser, par, 2xIDE, Floppy
-// keeping the ROMs for the 4SA boards here until the differences between the boards are clear, e.g. difference between SY-4SAW and 4SA2: L2-cache
-ROM_START( so4saw2 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: BIOS-String: 04/15/95-SiS-496-497/A/B-2A4IBS22-00 / REV IO-A
-	ROM_SYSTEM_BIOS(0, "ioa", "IO-A")
-	ROMX_LOAD( "4sa2_bios_isa_486_488755.bin", 0x00000, 0x20000, CRC(21708d9c) SHA1(be4596507df1f5cc8a4e1baafce52b96417ac029), ROM_BIOS(0))
-	// 1: BIOS-String: 08/22/95-SiS-496-497/A/B-2A4IBS2hC-00 / REV IO-B1 (4SA2, http://www.elhvb.com/supportbios.info/Archives/BIOS/R-S/SOYO/4SA2/index.html)
-	ROM_SYSTEM_BIOS(1, "iob1", "IO-B1")
-	ROMX_LOAD( "4sa-iob1.bin", 0x00000, 0x20000, CRC(a74891b6) SHA1(974c3a854a4e83202555bcbcba191f902527b577), ROM_BIOS(1))
-	// 2: BIOS-String: 07/30/97-SiS-496-497/A/B-2A4IBS2hC-00 / SA-0730 (4SA, http://www.elhvb.com/supportbios.info/Archives/BIOS/R-S/SOYO/4SA/index.html)
-	ROM_SYSTEM_BIOS(2, "0730", "0730")
-	ROMX_LOAD( "4sa0730.bin", 0x00000, 0x20000, CRC(dea32658) SHA1(2c89500d9904f61a5426de5f1351ca8004c9920b), ROM_BIOS(2))
-	// 3: BIOS-String: 07/03/96-SiS-496-497/A/B-2A4IBS29C-00 / REV WA53 (4SAW/4SAW2)
-	ROM_SYSTEM_BIOS(3, "wa53", "WA53")
-	ROMX_LOAD( "4saw53.bin", 0x00000, 0x20000, CRC(2265a9d1) SHA1(bd625f0f11e64d2620648cf14e6b6faf09df80bc), ROM_BIOS(3))
-	// 4: BIOS-String: 12/05/95-SiS-496-497/A/B-2A4IBS29C-00 / REV WA3 (4SAW/4SAW2)
-	ROM_SYSTEM_BIOS(4, "wa3", "WA3")
-	ROMX_LOAD( "4saw-wa3.bin", 0x00000, 0x20000, CRC(d47e727e) SHA1(c6ba38e72575127b763a8e5ead49dbaaef85ab06), ROM_BIOS(4))
-	// 5: BIOS-String: 09/11/97-SiS-496-497/A/B-2A4IBS29C-00 / REV WA0911 (4SAW/4SAW2 http://www.elhvb.com/supportbios.info/Archives/BIOS/R-S/SOYO/4SAW/index.html)
-	ROM_SYSTEM_BIOS(5, "0911", "0911")
-	ROMX_LOAD( "4saw0911.bin", 0x00000, 0x20000, CRC(4056b35e) SHA1(bca2d2507b15800ad13bd8f8c6699b49b8e87011), ROM_BIOS(5))
-	// 6: BIOS-String: 09/11/97-SiS-496-497/A/B-2A4IBS29C-00 / REV WA0911 128GB BETA ROM (4SAW)
-	ROM_SYSTEM_BIOS(6, "0911b", "0911b")
-	ROMX_LOAD( "4saw0911b.bin", 0x00000, 0x20000, CRC(000fca3e) SHA1(46ceb550ed08fb013f02e51e1d428a60e220ede6), ROM_BIOS(6))
-ROM_END
-
-// ZIDA Tomato board 4DPS - Chipset: SIS 85C497, SIS 85C496, Winbond W83787IF, W83768F, MX8318-01PC - CPU: 486/5x86 - BIOS: Winbond W29EE011-15 / AWARD PCI/PNP
-// Keyboard-BIOS: HOLTEK HT6542B or AMIKEY-2 - ISA16: 3, PCI: 3 - OSC: 24.000 - On board: 2xIDE, Floppy, 2xCOM, 1xPRN, Mouse, GAME
-// from v4.00 onward it needs FLASH instead of EPROM to update the ESCD at boot time
-ROM_START( zito4dps ) // all revisions land in the Award Boot block BIOS
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: BIOS-String: 01/10/96-SiS-496-497/A/B-2A4IBZ11C-00 / 4DPS  VER 1.5 (2301952A4IBZ11)
-	ROM_SYSTEM_BIOS( 0, "4dps01", "Tomato 4DPS #1")
-	ROMX_LOAD( "4siw004.bin", 0x00000, 0x20000, CRC(0c57cc33) SHA1(04ce27dc89ae15d70c14076ad4f82b50a4f1e6dd), ROM_BIOS(0))
-	// 1: BIOS-String: 06/17/1998-SiS-496-497/A-2A4IBZ11C-00 / 4DPS V4.00A (17/06/98)
-	ROM_SYSTEM_BIOS( 1, "4dps02", "Tomato 4DPS #2")
-	ROMX_LOAD( "4dps02.bin", 0x00000, 0x20000, CRC(757a5ef7) SHA1(e35146f34329a6a7033b1ed9d95a77692826a060), ROM_BIOS(1))
-	// 2: BIOS-String: 10/17/96-SiS-496-497/A/B-2A4IBZ11C-00 / 4DPS  VER 1.71 (1710962A4IBZ11)
-	ROM_SYSTEM_BIOS( 2, "171", "Tomato 4DPS v1.71")
-	ROMX_LOAD( "4dps_170.bin", 0x00000, 0x20000, CRC(10b43a85) SHA1(d77bb2420b98c030add5de52fc90c88384b2036b), ROM_BIOS(2))
-	// 3: BIOS-String: 07/08/97-SiS-496-497/A/B-2A4IBZ1AC-00 / 4DPS VER 1.72F (10072A4IBZ1A)
-	ROM_SYSTEM_BIOS( 3, "172f", "Tomato 4DPS v1.72f")
-	ROMX_LOAD( "4dps172g.bin", 0x00000, 0x20000, CRC(184eeeba) SHA1(248555567e35d4d6a0cfad5abc989e8193a72351), ROM_BIOS(3))
-	// 4: BIOS-String: 06/17/1998-SiS-496-497/A-2A4IBZ11C-00 / 4DPS V4.00A (17/06/98)
-	ROM_SYSTEM_BIOS( 4, "400a", "Tomato 4DPS v4.00a")
-	ROMX_LOAD( "4dps400a.bin", 0x00000, 0x20000, CRC(494da2da) SHA1(9dcae9aa403627df03d5777c1b4de0b9f98bb24f), ROM_BIOS(4))
-	// 5: BIOS-String: 01/10/96-SiS-496-497/A/B-2A4IBZ11C-00 / Tomato 4DPS v4.01 (Y2K ready)
-	ROM_SYSTEM_BIOS( 5, "401e", "Tomato 4DPS v4.01e")
-	ROMX_LOAD( "4dps401e.bin", 0x00000, 0x20000, CRC(e84b2bb2) SHA1(5dd8e801decf87af90ff90e3096819354f657b5a), ROM_BIOS(5))
-	// 6: v2.11, also marked v400a - BIOS-String: 06/17/1998-SiS-496-497/A-2A4IBZ11C-00 / 4DPS V4.00A (17/06/98)
-	ROM_SYSTEM_BIOS( 6, "4dps03", "Tomato 4DPS #3")
-	ROMX_LOAD( "4dps400b.bin", 0x00000, 0x20000, CRC(5910fa95) SHA1(934845038298d2d50f5bd4b20e0a4ccd9aa74e82), ROM_BIOS(6))
-	// 7: BIOS-String: 11/23/95-SiS-496-497/A/B-2A4IBZ11C-00
-	ROM_SYSTEM_BIOS( 7, "4dps04", "Tomato 4DPS #4")
-	ROMX_LOAD( "4dps04.bin", 0x00000, 0x20000, CRC(f704be6a) SHA1(536c17c2a26e8a0f3bc3ddf6b8daa2f694905c24), ROM_BIOS(7))
-	// 8: 01/10/96-SiS496-497/A/B-2A4IBZ11C-00 / 4DPS VER 1.6 (2005962A4IBZ11)
-	ROM_SYSTEM_BIOS( 8, "160", "Tomato 4DPS v1.6")
-	ROMX_LOAD( "4dps_160.bin", 0x00000, 0x20000, CRC(27d23966) SHA1(3fea7573c1897a4bd6d09e4ffc4e26372a25e43a), ROM_BIOS(8))
-ROM_END
-
-// Jetway J-446A - Chipset: SiS 85C497, 82C496 - CPU: Socket 3 - RAM: 4xSIMM72, Cache: 4+1 sockets - BIOS: 32pin
-// Keyboard-BIOS: HOLTEK HT6542B - ISA16: 3, PCI: 3 - On board: 2xIDE, Floppy, par, 2xser
-ROM_START( jwj446a ) // BootBlock BIOS
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0:
-	ROM_SYSTEM_BIOS( 0, "no1", "J-446A #1")
-	ROMX_LOAD( "j446a_original.bin", 0x00000, 0x20000, BAD_DUMP CRC(79d2e360) SHA1(8bf3befa1c869e298ec346cc784fcbc2193e3912), ROM_BIOS(0))
-	// 1: 02/02/96-SiS-496-497/A/B-2A4IBJ19C-00 / V.446 RP5 2-2-1996
-	ROM_SYSTEM_BIOS( 1, "no2", "J-446A #2")
-	ROMX_LOAD( "j446a.rom", 0x00000, 0x20000, CRC(3e3c6abd) SHA1(04952dc143baa7b51cb6fc5eb1961007ecf36aaf), ROM_BIOS(1))
-ROM_END
-
-// LuckyStar LS-486E  - Chipset : SiS496, SiS497, SMC FDC37C665GT - CPU: AMD 486DX4-100 (Socket 3) - RAM: 4xSIMM72, Cache: 4 sockets (UM61512AK-15)+1
-// BIOS : AMIBIOS 486PCI ISA 393824, on a 27C010 type ROM chip - Keyboard-BIOS: AMIKEY-2 - ID string : 41-PH0D-001256-00101111-101094-SIS496AB-H
-// On board: 2xISA, Floppy, par, 2xser - ISA16: 4, PCI: 3
-ROM_START( ls486e )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: Rev:C - no display
-	ROM_SYSTEM_BIOS( 0, "revc01", "Rev.C #1")
-	ROMX_LOAD( "ls486e_revc.bin", 0x00000, 0x20000, CRC(d678a26e) SHA1(603e03171b28f73bdb6ce27b0bbae2a4cfb13517), ROM_BIOS(0))
-	// 1: LS486E Rev.D SiS496/497(PR/NU) EDO Support AWARD 10/21/96 - 10/21/96-SiS-496-497/A/B-2A4IBL12C-00 - 486E 96/10/24 UMC8669 PLUG & PLAY BIOS
-	ROM_SYSTEM_BIOS( 1, "revd01", "Rev.D #1") // boots to BootBlock BIOS
-	ROMX_LOAD( "ls486-d.awa", 0x00000, 0x20000, CRC(5a51a3a3) SHA1(6712ab742676156802fdfc4d08d687c1482f2702), ROM_BIOS(1))
-	// 2: Lucky Star LS486E rev.C,Winbond,SiS496/497  - BIOS Award PNP v4.50PG (486E 96/5/17 W83787) - BIOS-String: 03/14/96-SiS-496-497/A/B-2A4IBL13C-00 / 486E 96/5/17 W83787
-	ROM_SYSTEM_BIOS( 2, "revc02", "Rev.C #2") // boots to BootBlock BIOS
-	ROMX_LOAD( "ls486e-c.awd", 0x00000, 0x20000, CRC(8c290f20) SHA1(33d9a96e5d6b3bd5776480f5535bb1eb1d7cff57), ROM_BIOS(2))
-	//3: BIOS-String: 03/14/96-SiS-496-497/A/B-2A4IBL13C-00 / 486E 96/7/19 W83787 PLUG & PLAY BIOS - boots to BootBlock BIOS
-	ROM_SYSTEM_BIOS( 3, "revc1", "Rev.C1") // also on a Rev.C2 board
-	ROMX_LOAD( "ls486ec1.bin", 0x00000, 0x20000, CRC(e96d1bbc) SHA1(64d0726c4e9ecee8fddf4cc39d92aecaa8184d5c), ROM_BIOS(3))
-	// 4: BootBlock BIOS
-	ROM_SYSTEM_BIOS( 4, "lh5", "LH5")
-	ROMX_LOAD( "ls-486e.bin", 0x00000, 0x20000, CRC(03ca4a97) SHA1(f9e5e2f2fabcb47960dfa91c37bf74fa93398092), ROM_BIOS(4))
-	// 5: BIOS-String: 03/14/96-SiS-496-497/A/B-2A4IBL13C-00 - boots to BootBlock BIOS
-	ROM_SYSTEM_BIOS( 5, "ls486eb", "LS-486E(B)")
-	ROMX_LOAD( "4siw001.bin", 0x00000, 0x20000, CRC(d81d722d) SHA1(bb18324b3679b7419c230244891b626a61006486), ROM_BIOS(5))
-ROM_END
-
-// MSI MS-4144 - Chipset: SiS 85C497, 85C496, Winbond W83787F, W83758F - CPU: Socket 3 - RAM: 4xSIMM72, Cache: 8+1 sockets
-// On board: 2xIDE, Floppy, 2xser, par - ISA16: 4, PCI: 3
-ROM_START( ms4144 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// 0: no display
-	ROM_SYSTEM_BIOS(0, "af53", "AF53")
-	ROMX_LOAD( "ms-4144_af53.rom", 0x00000, 0x20000, CRC(931ebb7d) SHA1(fa7cf64c07a6404518e12c41c197354c7d05b2d2), ROM_BIOS(0))
-	// 1: no display
-	ROM_SYSTEM_BIOS(1, "af54", "AF54")
-	ROMX_LOAD( "ms-4144_af54s.rom", 0x00000, 0x20000, CRC(1eb02779) SHA1(b18cc771fc5a820437a4daca06806188ee1a27a5), ROM_BIOS(1))
-	// 2: BIOS-String: 03/20/96-SiS-496-497/A/B-2A4IBM49C-00 / WF53S 032096 - boots to BootBlock BIOS
-	ROM_SYSTEM_BIOS(2, "wf53", "WF53")
-	ROMX_LOAD( "ms-4144_wf53s.bin", 0x00000, 0x20000, CRC(df83f099) SHA1(b7dc61a2cb71754cddd06d12d3bf81ffce442c89), ROM_BIOS(2))
-	// 3: BIOS-String: 02/07/96-SiS-496-497/A/B-2A4IBM49C-00 / WF54S 020896 - boots to BootBlock BIOS
-	ROM_SYSTEM_BIOS(3, "wf54", "WF54")
-	ROMX_LOAD( "ms-4144_wf54s.bin", 0x00000, 0x20000, CRC(c0ff31df) SHA1(4e138558781a220b340977d56ccbfa61a907d4f5), ROM_BIOS(3))
-	// 4: no display - VER 2.1 - BIOS: AMI 486DX ISA BIOS AC8999569 (32pin)- Keyboard-BIOS: AMIKEY-2
-	ROM_SYSTEM_BIOS(4, "v21", "Ver 2.1")
-	ROMX_LOAD( "486-pci-ms4144.bin", 0x00000, 0x20000, CRC(8bd50381) SHA1(c9853642ac0946c2b1a7e469bcfacbb3351c4067), ROM_BIOS(4))
-ROM_END
-
-// SOYO 30H - CPU: Socket 3 - RAM: SIMM72x4 - Cache: 256K, 512K or 1024K - ISA16: 4, PCI: 3 - on board: 2xIDE
-// BIOS-String: 12/07/95-SiS-496-497/A/B-2A4IBS2AC-00 / REV B2
-ROM_START( so30h )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_LOAD( "30h-b2.bin", 0x00000, 0x20000, CRC(1dd22cef) SHA1(dd0ac15e7a792e8fba2f55d6a1b35256e74bcf4e))
-ROM_END
-
-ROM_START( sis85c496 )
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	// Chipset: SiS 85C496/85C497 - CPU: Socket 3 - RAM: 2xSIMM72, Cache - Keyboard-BIOS: JETkey V5.0
-	// ISA16: 3, PCI: 3 - BIOS: SST29EE010 (128k) AMI 486DX ISA BIOS AA2558003 - screen remains blank
-	ROM_LOAD( "4sim002.bin", 0x00000, 0x20000, CRC(ea898f85) SHA1(7236cd2fc985985f21979e4808cb708be8d0445f))
-ROM_END
+// cfr. pc/pcipc_sis.cpp
 
 
 // ***** 486 motherboards using the SiS 85C471 + 85C407 chipset
@@ -5479,17 +5018,6 @@ ROM_START( mb1433uiv )
 	ROMX_LOAD( "um498-w4.amw", 0x10000, 0x10000, CRC(12fe6697) SHA1(2506dea874728916dc37f7dad8e8caf214a28525), ROM_BIOS(1))
 ROM_END
 
-// PC-Chips M912 - Chipset: UM8498F, UM8496F - CPU: 486 - BIOS: AMI - ISA16: 4, ISA16/VL: 3
-ROM_START( pccm912 ) // no display
-	ROM_REGION32_LE( 0x20000, "bios", 0)
-	// 0:
-	ROM_SYSTEM_BIOS( 0, "072594", "07/25/94")
-	ROMX_LOAD( "m912.bin", 0x10000, 0x10000, CRC(7784aaf5) SHA1(f54935c5da12160251104d0273040fea22ccbc70), ROM_BIOS(0))
-	// 1:
-	ROM_SYSTEM_BIOS( 1, "120295", "12/02/95")
-	ROMX_LOAD( "m912_12-02-1995x.bin", 0x10000, 0x10000, CRC(28a4a140) SHA1(a58989ab5ad5d040ad4f25888c5b7d77f31a4d82), ROM_BIOS(1))
-ROM_END
-
 // Pine Technology PT-430 - Chipset: UMC UM8498F UM8496F - BIOS: AMI 486DX ISA BIOS AB8906726 28pin - Keyboard-BIOS: silkscreen 8742, but socket empty
 // BIOS-String: - ISA8: 1, ISA16: 3, ISA16/VL: 3 - OSC: 14.31818MHz
 ROM_START( pt430 ) // no display
@@ -5524,22 +5052,6 @@ ROM_START( f4dxluc4 ) // BIOS-String: 40-0E0-008060-00101111-12159-UM498-0 / ADI
 	ROM_LOAD( "486_ab345213.bin", 0x10000, 0x10000, CRC(e5b85a92) SHA1(aade1fb1463b07a616c2594293bf0215c9652511))
 ROM_END
 
-ROM_START( um8498f ) // no display
-	ROM_REGION32_LE(0x20000, "bios", 0)
-	ROM_DEFAULT_BIOS("498gp")
-	// 0: BIOS-String: 40-P101-001437-00101111-072594-GREEN-H - CPU: Socket 3 - RAM: 4xSIMM30, 2xSIMM72, Cache: 9xUM61256AK-15
-	// BIOS: AMI AB9300757
-	ROM_SYSTEM_BIOS(0, "v14", "V1.4") // no display
-	ROMX_LOAD( "4umm001.bin", 0x10000, 0x10000, CRC(a5b768b4) SHA1(904ce2814d6542b65acec0c84532946172f2296d), ROM_BIOS(0))
-	// 1:
-	ROM_SYSTEM_BIOS(1, "um849801", "UM8498 #1") // no display
-	ROMX_LOAD( "um8498.ami", 0x10000, 0x10000, CRC(51f71bc7) SHA1(0986d60081d2c578a66789c0c53fe1d5919c553f),ROM_BIOS(1))
-	// 2: Chipset: UM8498F + UM8496F - BIOS label: Award BIOS ISA 486 485427 - BIOS version: Award Modular BIOS v4.50G - CPU: UMC U55X 486-33F, solder pads for 80486socket
-	// RAM: 4xSIMM30, 2xSIMM72 - ISA8: 1, ISA16: 5
-	// BIOS-String: 12/08/94-UMC-498GP-2C4X6S21-00 / REV A1
-	ROM_SYSTEM_BIOS(2, "498gp", "498GP")
-	ROMX_LOAD( "award_bios_isa_486.bin", 0x10000, 0x10000, CRC(ce3ccaa4) SHA1(3fdc9282d9934e18e45b46b50644022fc0387f33), ROM_BIOS(2))
-ROM_END
 
 
 // ***** 486 motherboards using the UM82C482A UM82C481A chipset
@@ -5646,7 +5158,7 @@ ROM_START( hot433 )
 	// 6: Latest AMI BIOS for rev 1-3
 	ROM_SYSTEM_BIOS(6, "aus2c", "AUS2C")
 	ROMX_LOAD( "433aus2c.rom", 0x00000, 0x20000, CRC(bdc65766) SHA1(e87cc4aed14ae7fcdf6423063b0ababe65b41044), ROM_BIOS(6))
-	// 7: AMI Bios for rev 1-3 w/mouse support
+	// 7: AMI BIOS for rev 1-3 w/mouse support
 	ROM_SYSTEM_BIOS(7, "aus26", "AUS26")
 	ROMX_LOAD( "433aus36.rom", 0x00000, 0x20000, CRC(8f864716) SHA1(0bf4b8114cbb406646d89eed7833556611e1fbe6), ROM_BIOS(7))
 	// 8: Latest AMI BIOS for rev4 of the Shuttle HOT-433 motherboard.
@@ -6002,6 +5514,36 @@ ROM_START( pg750eisa )
 	ROM_LOAD( "pg_pg750_486_eisa.bin", 0x10000, 0x10000, CRC(2e6149a9) SHA1(9fcf29a6169efa1359c7c3eff09326dd3e4001dc))
 ROM_END
 
+// Compal TS30A/TS30AS/TS30AT (ODM, sold under various names, for example Epson ActionNote 650/660)
+// Chipset: 486, 28F010, 82C206F-LV, "THE EVERGREEN 2  PICOPOWER", W83767F
+// RAM: 4 MB on board and expansion slot for a maximum of 20 MB
+// Video: F65540 A with 512k or 1024k VRAM
+// Sound (optional): ESS488Y, YM3014, YM3812
+// Storage: 2,5" IDE HDD, 3,5" Floppy
+// PCMCIA: 2 slots with CL-PD6720-QC-B controller
+// Keyboard: KU88C51SL near 16 MHz XTAL
+
+// Greyscale panel, 640x480
+ROM_START( ts30a )
+	ROM_REGION32_LE(0x20000, "bios", 0)
+	ROM_LOAD("ts30mlmq.rom", 0x00000, 0x20000, CRC(d434dbeb) SHA1(ec5246313f1f202a7bf3d837b4f29e50121c69df))
+ROM_END
+
+// STN panel, 640x480
+ROM_START( ts30as )
+	ROM_REGION32_LE(0x20000, "bios", 0)
+	ROM_LOAD("ts30mlsc.rom", 0x00000, 0x20000, CRC(9776554f) SHA1(31d4b466e7063c4ec072063c9041530e45c470d3))
+ROM_END
+
+// TFT panel, 640x480
+ROM_START( ts30at )
+	ROM_REGION32_LE(0x20000, "bios", 0)
+	ROM_LOAD("ts30mlte.rom", 0x00000, 0x20000, CRC(f500fcc1) SHA1(4fa0303928758b5d4ff95b2c464e4e5adf5452cb))
+ROM_END
+
+
+} // anonymous namespace
+
 
 /***************************************************************************
   Game driver(s)
@@ -6048,6 +5590,7 @@ COMP( 1985, k286i,     ibm5170, 0,       k286i,     0,     at_state,     init_at
 COMP( 199?, kma202f,   ibm5170, 0,       atturbo,   0,     at_state,     init_at,        "<unknown>",   "KMA-202F-12R (Winbond chipset)", MACHINE_NOT_WORKING )
 COMP( 19??, kt216wb5,  ibm5170, 0,       ibm5162,   0,     at_state,     init_at,        "KT Technology", "KT216WB5-HI Rev.2", MACHINE_NOT_WORKING )
 COMP( 198?, lm103s,    ibm5170, 0,       ibm5162,   0,     at_state,     init_at,        "<unknown>",   "LM-103S", MACHINE_NOT_WORKING )
+COMP( 198?, m250e,     ibm5170, 0,       atturbo,   0,     at_state,     init_at,        "Olivetti",    "M250E", MACHINE_NOT_WORKING )
 COMP( 1987, m290,      ibm5170, 0,       atturbo,   0,     at_state,     init_at,        "Olivetti",    "M290", MACHINE_NOT_WORKING )
 COMP( 198?, magb233,   ibm5170, 0,       ibm5162,   0,     at_state,     init_at,        "Magitronic Technology", "Magitronic B233", MACHINE_NOT_WORKING )
 COMP( 198?, magb236,   ibm5170, 0,       ibm5162,   0,     at_state,     init_at,        "Magitronic Technology", "Magitronic B236", MACHINE_NOT_WORKING )
@@ -6070,6 +5613,7 @@ COMP( 1986, necapciv,  ibm5170, 0,       atturbo,   0,     at_state,     init_at
 COMP( 198?, o286foxii, ibm5170, 0,       atturbo,   0,     at_state,     init_at,        "Octek",       "Fox II", MACHINE_NOT_WORKING )
 COMP( 1990, ocfoxm,    ibm5170, 0,       atturbo,   0,     at_state,     init_at,        "Octek", "Fox M 286", MACHINE_NOT_WORKING )
 COMP( 199?, octekg2,   ibm5170, 0,       atturbo,   0,     at_state,     init_at,        "Octek", "286 motherboard with Headland G2 chipset", MACHINE_NOT_WORKING )
+COMP( 198?, ocxt286,   ibm5170, 0,       ibm5170,   0,     at_state,     init_at,        "Octek", "XT-286 motherboard", MACHINE_NOT_WORKING )
 COMP( 199?, olim203,   ibm5170, 0,       atturbo,   0,     at_state,     init_at,        "Olivetti", "M203 motherboard", MACHINE_NOT_WORKING )
 COMP( 1988, pc30iii,   ibm5170, 0,       pc30iii,   0,     at_state,     init_at,        "Commodore Business Machines",  "PC 30-III", MACHINE_NOT_WORKING )
 COMP( 1988, pc40iii,   ibm5170, 0,       pc40iii,   0,     at_state,     init_at,        "Commodore Business Machines",  "PC 40-III", MACHINE_NOT_WORKING )
@@ -6106,7 +5650,7 @@ COMP( 199?, 386sxvhcom,ibm5170, 0,       at386sx,   0,     at_state,     init_at
 COMP( 199?, 3siud,     ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "<unknown>",   "3SIUD-1.1", MACHINE_NOT_WORKING )
 COMP( 199?, alaleolx,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Alaris RYC", "LEOPARD LX", MACHINE_NOT_WORKING )
 COMP( 199?, alim1217,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "<unknown>",   "386sx motherboards using the ALi M1217 chipset", MACHINE_NOT_WORKING )
-COMP( 199?, anch386s,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "ANIX",        "CH-386S-16/20/25G", MACHINE_NOT_WORKING )
+COMP( 1991, anch386s,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "ANIX",        "CH-386S-16/20/25G", MACHINE_NOT_WORKING )
 COMP( 199?, asc486slc, ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Computechnik", "ASC486SLC", MACHINE_NOT_WORKING )
 COMP( 1988, at386sx,   ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "<generic>",   "PC/AT 386SX (16 MHz, MF2 Keyboard)", MACHINE_NOT_WORKING )
 COMP( 1990, c386sx16,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Commodore Business Machines", "386SX-16", MACHINE_NOT_WORKING )
@@ -6128,7 +5672,6 @@ COMP( 199?, ilm396b,   ibm5170, 0,       at386sx,   0,     at_state,     init_at
 COMP( 198?, ktx20t02,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Quadtel",     "QTC-SXM KT X20T02/HI Rev.3", MACHINE_NOT_WORKING )
 COMP( 199?, mbc18nb,   ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Sanyo",       "MBC-18NB", MACHINE_NOT_WORKING )
 COMP( 1992, mbc28,     ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Sanyo",       "MBC-28", MACHINE_NOT_WORKING ) // Complains about missing mouse hardware
-COMP( 1993, megapc,    0,       0,       megapc,    0,     megapc_state, init_megapc,    "Amstrad plc", "MegaPC", MACHINE_NOT_WORKING )
 COMP( 199?, mmbo4088,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "<unknown>",   "486MMBO4088 (TI TX486SLC/E)", MACHINE_NOT_WORKING )
 COMP( 199?, mokp386sx, ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Morse",       "KP 386SX V2.21", MACHINE_NOT_WORKING )
 COMP( 199?, ocpanii,   ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Octek",       "Panther II", MACHINE_NOT_WORKING )
@@ -6144,7 +5687,6 @@ COMP( 199?, php3239,   ibm5170, 0,       at386sx,   0,     at_state,     init_at
 COMP( 199?, ppm3333p,  ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "DTK Computer", "PPM-3333P", MACHINE_NOT_WORKING )
 COMP( 199?, pt319a,    ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Pine",        "PT-319A", MACHINE_NOT_WORKING )
 COMP( 199?, scamp386sx,ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "<unknown>",   "386sx motherboards using the SCAMPSX chipset", MACHINE_NOT_WORKING )
-COMP( 199?, scsxaio,   ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Peacock",     "386sx Ver. 2.0 motherboard SCsxAIO", MACHINE_NOT_WORKING )
 COMP( 199?, sh386sx20, ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Shuttle", "386SX REV 2.0A", MACHINE_NOT_WORKING )
 COMP( 1991, t2000sx,   ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "Toshiba",     "T2000SX", MACHINE_NOT_WORKING )
 COMP( 199?, td70a,     ibm5170, 0,       at386sx,   0,     at_state,     init_at,        "<unknown>",   "TD70A and TD70AN", MACHINE_NOT_WORKING )
@@ -6180,7 +5722,7 @@ COMP( 199?, ecsfx3000, ibm5170, 0,       at386,     0,     at_state,     init_at
 COMP( 1992, ecsum386,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "Elitegroup Computer Systems",      "UM386 (Rev 1.1)", MACHINE_NOT_WORKING )
 COMP( 199?, fic4386vchd,ibm5170,0,       at486,     0,     at_state,     init_at,        "First International Computer", "4386-VC-HD", MACHINE_NOT_WORKING )
 COMP( 199?, frx386c,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "Micro-Express Inc.", "Forex 386 Cache", MACHINE_NOT_WORKING )
-COMP( 199?, frxc402,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>", "386 motherboards with a FOREX FRX46C402/FRX36C300/SIS85C206 chipset", MACHINE_NOT_WORKING )
+COMP( 199?, frxc402,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "Modula Tech", "FRX/386DX Cache System", MACHINE_NOT_WORKING )
 COMP( 1991, fu340,     ibm5170, 0,       at386,     0,     at_state,     init_at,        "Abit",        "FU340", MACHINE_NOT_WORKING )
 COMP( 199?, ges9051n,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>",   "GES 9051N-386C VER -0.01", MACHINE_NOT_WORKING )
 COMP( 198?, gs611606a, ibm5170, 0,       at386,     0,     at_state,     init_at,        "Goldstar",    "GOLDSTAR P/N 611-606A Rev 1.0A", MACHINE_NOT_WORKING )
@@ -6191,17 +5733,18 @@ COMP( 1989, isa386c,   ibm5170, 0,       at386,     0,     at_state,     init_at
 COMP( 199?, kma300g,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "Arche Technologies Inc.", "KMA-300G-25", MACHINE_NOT_WORKING )
 COMP( 199?, mb133340,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "Biostar",     "MB-1340UCQ-B", MACHINE_NOT_WORKING )
 COMP( 199?, mba032q,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "DTK", "MBA-032Q TK83305-4N-D-03", MACHINE_NOT_WORKING )
-COMP( 199?, megapcpl,  megapc,  0,       megapcpl,  0,     megapc_state, init_megapcpl,  "Amstrad plc", "MegaPC Plus", MACHINE_NOT_WORKING )
-COMP( 199?, megapcpla, megapc,  0,       megapcpla, 0,     at_vrom_fix_state, init_megapcpla, "Amstrad plc", "MegaPC Plus (WINBUS chipset)", MACHINE_NOT_WORKING )
+COMP( 199?, megapcpla, megapc,  0,       megapcpla, 0,     at_vrom_fix_state, init_megapcpla, "Amstrad plc", "MegaPC Plus (WINBUS chipset)", MACHINE_NOT_WORKING ) // TODO: move to pc/megapc.cpp
 COMP( 199?, mokp386,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "Morse", "KP920121523 V2.20", MACHINE_NOT_WORKING )
 COMP( 199?, mom3v3,    ibm5170, 0,       at386,     0,     at_state,     init_at,        "Morse", "M3 V3.0", MACHINE_NOT_WORKING )
 COMP( 199?, mx83c305,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>", "386 motherboards using the MX83C305(A)(FC)/MX83C05(A)(FC) chipset", MACHINE_NOT_WORKING )
+COMP( 1989, n8810m20,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "Nixdorf", "8810/20", MACHINE_NOT_WORKING )
 COMP( 1992, ocjagii,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "Octek",       "Jaguar II", MACHINE_NOT_WORKING )
 COMP( 1992, ocjagv,    ibm5170, 0,       at386,     0,     at_state,     init_at,        "Octek",       "Jaguar V v1.4", MACHINE_NOT_WORKING )
 COMP( 199?, op82c381,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>",   "386 motherboards using the OPTi 82C381 chipset", MACHINE_NOT_WORKING )
 COMP( 199?, op82c391,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>",   "386 motherboards using the OPTi 82C391 chipset", MACHINE_NOT_WORKING )
 COMP( 199?, opti495slc,ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>", "386 motherboards using a OPTi 82C495SLC chipset", MACHINE_NOT_WORKING )
 COMP( 199?, opti495xlc,ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>", "386 motherboards using a OPTi 82C495XLC chipset", MACHINE_NOT_WORKING )
+COMP( 1987, t4000,     ibm5170, 0,       at386,     0,     at_state,     init_at,        "Tandy Radio Shack", "Tandy 4000", MACHINE_NOT_WORKING )
 COMP( 199?, op386wb,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "OPTi", "OPTi 386WB VER.1.0", MACHINE_NOT_WORKING )
 COMP( 199?, p386dx40,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "Peacock", "P386DX-40", MACHINE_NOT_WORKING )
 COMP( 1989, pc2386,    ibm5170, 0,       at386l,    0,     at_state,     init_at,        "Amstrad plc", "PC2386", MACHINE_NOT_WORKING )
@@ -6216,7 +5759,7 @@ COMP( 199?, qdu386dx,  ibm5170, 0,       at386,     0,     at_state,     init_at
 COMP( 1988, qi600,     ibm5170, 0,       at386,     0,     at_state,     init_at,        "Apricot",     "Apricot Qi 600 (Neptune Motherboard)", MACHINE_NOT_WORKING )
 COMP( 199?, sisrabb,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>",   "386 motherboards using the SiS Rabbit chipset", MACHINE_NOT_WORKING )
 COMP( 199?, sm38640f,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>",   "SM 386-40F", MACHINE_NOT_WORKING )
-COMP( 19??, smih0107,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "Forex Computer Company", "unknown 386 AT clone with Forex chipset", MACHINE_NOT_WORKING )
+COMP( 1991, smih0107,  ibm5170, 0,       at386,     0,     at_state,     init_at,        "AVT Industrial", "unknown 386 AT clone with Forex chipset", MACHINE_NOT_WORKING ) // a.k.a Delta 186-2.1-0392 or Informtech IT386SM-P
 COMP( 199?, sy012,     ibm5170, 0,       at386,     0,     at_state,     init_at,        "<unknown>",   "SY-012 16/25 386MB VER: 5.2", MACHINE_NOT_WORKING )
 COMP( 199?, sy019hi,   ibm5170, 0,       at386,     0,     at_state,     init_at,        "Soyo", "SY-019H and SY-019I", MACHINE_NOT_WORKING )
 COMP( 199?, sybaby386, ibm5170, 0,       at386,     0,     at_state,     init_at,        "Soyo", "Baby AT 386", MACHINE_NOT_WORKING )
@@ -6237,23 +5780,17 @@ COMP( 199?, 486wb6a3,  ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 199?, 4dmshl3g,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "EFA",   "4DMS HL3G-L4-VI", MACHINE_NOT_WORKING )
 COMP( 199?, 4dmuhl3s,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "EFA",   "4DMU HL3S", MACHINE_NOT_WORKING )
 COMP( 1992, a433cc,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "J-Bond",      "A433C-C/A450C-C", MACHINE_NOT_WORKING )
-COMP( 1994, a486ap4,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "PVI-486AP4", MACHINE_NOT_WORKING )
 COMP( 199?, a486isa,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "ISA-486", MACHINE_NOT_WORKING )
 COMP( 199?, a486sio,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "ISA-486SIO rev. 1.2", MACHINE_NOT_WORKING )
-COMP( 1994, a486sp3,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "PVI-486SP3", MACHINE_NOT_WORKING )
 COMP( 1994, a486sp3g,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "PCI/I-486SP3G", MACHINE_NOT_WORKING )
 COMP( 199?, a486sv2,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "ISA-486SV2", MACHINE_NOT_WORKING )
 COMP( 1994, a486sv2g,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "VL/I-486SV2G", MACHINE_NOT_WORKING )
 COMP( 1994, a486sv1,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "VL/EISA-486SV1", MACHINE_NOT_WORKING )
-COMP( 1995, aa486s,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Asus",        "PCI/I-A486S", MACHINE_NOT_WORKING )
 COMP( 199?, abae4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "486 EISA-AE4", MACHINE_NOT_WORKING )
 COMP( 199?, abah4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-AH4", MACHINE_NOT_WORKING )
 COMP( 199?, abav4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-AV4", MACHINE_NOT_WORKING )
 COMP( 199?, abax4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-AX4", MACHINE_NOT_WORKING )
 COMP( 199?, abpb4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-PB4", MACHINE_NOT_WORKING )
-COMP( 199?, abpi4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-PI4", MACHINE_NOT_WORKING )
-COMP( 199?, abpm4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-PM4", MACHINE_NOT_WORKING )
-COMP( 199?, abpv4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-PV4", MACHINE_NOT_WORKING )
 COMP( 199?, abpw4,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Abit", "AB-PW4", MACHINE_NOT_WORKING )
 COMP( 199?, alator2,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Alaris",      "Tornado 2", MACHINE_NOT_WORKING )
 COMP( 199?, alim1489,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "486 motherboards using the ALi 1487/1489 chipset", MACHINE_NOT_WORKING )
@@ -6264,7 +5801,6 @@ COMP( 199?, amisvpci2, ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 199?, amisvvlb,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "AMI",         "Super Voyager VLB", MACHINE_NOT_WORKING )
 COMP( 199?, amisvvlb2, ibm5170, 0,       at486,     0,     at_state,     init_at,        "AMI",         "Super Voyager VLB-II", MACHINE_NOT_WORKING )
 COMP( 199?, amisvvlb3, ibm5170, 0,       at486,     0,     at_state,     init_at,        "AMI",         "Super Voyager VLB-III", MACHINE_NOT_WORKING )
-COMP( 199?, aoap43,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Aopen", "AP43",  MACHINE_NOT_WORKING )
 COMP( 199?, aovi15g,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Aopen", "VI15G", MACHINE_NOT_WORKING )
 COMP( 1992, aplsbon,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Apricot",     "Apricot LS Pro (Bonsai Motherboard)", MACHINE_NOT_WORKING )
 COMP( 1991, aprfte,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Apricot",     "Apricot FT//ex 486 (J3 Motherboard)", MACHINE_NOT_WORKING )
@@ -6278,14 +5814,10 @@ COMP( 199?, ar4glx3,   ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 199?, as496,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Arstoria",    "AS496", MACHINE_NOT_WORKING )
 COMP( 1990, at486,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "<generic>",   "PC/AT 486 (25 MHz, MF2 Keyboard)", MACHINE_NOT_WORKING )
 COMP( 199?, atc1415,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "A-Trend", "ATC-1415", MACHINE_NOT_WORKING )
-COMP( 199?, atc1425a,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "A-Trend", "ATC-1425A", MACHINE_NOT_WORKING )
-COMP( 199?, atc1425b,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "A-Trend", "ATC-1425B", MACHINE_NOT_WORKING )
 COMP( 199?, bluenote,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Highscreen",  "Colani Blue Note", MACHINE_NOT_WORKING )
 COMP( 199?, ch48633c,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Chicony",   "CH-486-33C", MACHINE_NOT_WORKING )
-COMP( 199?, ch486spm,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Chaintech", "486SPM", MACHINE_NOT_WORKING )
 COMP( 199?, ch491e,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Chicony",   "CH-491E", MACHINE_NOT_WORKING )
 COMP( 199?, ch4slez1,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Chaintech", "486SLE M106 4SLE-Z1", MACHINE_NOT_WORKING )
-COMP( 199?, ch4spi,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Chaintech", "4SPI", MACHINE_NOT_WORKING )
 COMP( 199?, comt486,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Commodore Business Machines",  "Tower 486", MACHINE_NOT_WORKING )
 COMP( 199?, dt486,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Commodore Business Machines", "DT486", MACHINE_NOT_WORKING )
 COMP( 199?, ec4913,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Elitegroup", "UC4913 REV:1.1", MACHINE_NOT_WORKING )
@@ -6303,7 +5835,6 @@ COMP( 1994, ficgiovt2, ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 1995, ficpio2,   ibm5170, 0,       ficpio2,   0,     at_state,     init_atpci,     "First International Computer", "486-PIO-2", MACHINE_NOT_WORKING )
 COMP( 1994, ficvipio,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "First International Computer", "486-VIP-IO", MACHINE_NOT_WORKING )
 COMP( 199?, ficvipio2, ibm5170, 0,       at486,     0,     at_state,     init_at,        "First International Computer", "486-VIP-IO2", MACHINE_NOT_WORKING )
-COMP( 1995, ft486f55,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Freetech", "486FT55", MACHINE_NOT_WORKING )
 COMP( 1991, ftsserv,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Apricot",     "Apricot FTs (Scorpion)", MACHINE_NOT_WORKING )
 COMP( 199?, ga486am,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Gigabyte",    "GA-486AM/S", MACHINE_NOT_WORKING )
 COMP( 199?, ga486vf,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Gigabyte",    "GA-486VF", MACHINE_NOT_WORKING )
@@ -6316,11 +5847,8 @@ COMP( 199?, hot409,    ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 199?, hot419,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Shuttle Computer International", "HOT-419", MACHINE_NOT_WORKING )
 COMP( 199?, hot433,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Shuttle Computer International", "HOT-433", MACHINE_NOT_WORKING )
 COMP( 199?, ibm2133,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "International Business Machines",  "PS/1 2133", MACHINE_NOT_WORKING )
-COMP( 199?, jakms41,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Jamicon", "KM-S4-1 VER 1.1", MACHINE_NOT_WORKING )
 COMP( 199?, jwj403tg,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Jetway", "J-403TG", MACHINE_NOT_WORKING )
-COMP( 199?, jwj446a,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Jetway",      "J-446A", MACHINE_NOT_WORKING )
 COMP( 1993, lion3500,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "Lion",        "3500", MACHINE_NOT_WORKING )
-COMP( 199?, ls486e,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "LuckyStar",   "LS-486E Rev:C", MACHINE_NOT_WORKING )
 COMP( 199?, lsucm486v30,ibm5170,0,       at486,     0,     at_state,     init_at,        "Lucky Star", "UCM-486V30", MACHINE_NOT_WORKING )
 COMP( 199?, mb1433aeap,ibm5170, 0,       at486,     0,     at_state,     init_at,        "Biostar",     "MB-1433/50 AEA-P - V:1", MACHINE_NOT_WORKING )
 COMP( 199?, mb1433ucv, ibm5170, 0,       at486,     0,     at_state,     init_at,        "Biostar",     "MB-1433UCV", MACHINE_NOT_WORKING )
@@ -6334,7 +5862,6 @@ COMP( 199?, ms4125,    ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 199?, ms4132,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "MSI",         "MS-4132 G VER:1", MACHINE_NOT_WORKING )
 COMP( 199?, ms4134,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "MSI",         "MS-4134", MACHINE_NOT_WORKING )
 COMP( 199?, ms4138,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "MSI",         "MS-4138", MACHINE_NOT_WORKING )
-COMP( 199?, ms4144,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "MSI",         "MS-4144", MACHINE_NOT_WORKING )
 COMP( 199?, ms4145,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "MSI",         "MS-4145", MACHINE_NOT_WORKING )
 COMP( 199?, nat48pv,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "NAT48PV-1.00 VL", MACHINE_NOT_WORKING )
 COMP( 199?, ncr3433,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "NCR", "Class 3433", MACHINE_NOT_WORKING )
@@ -6345,7 +5872,6 @@ COMP( 199?, ochipvlp,  ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 199?, op82c392,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "486 motherboards using the OPTi OPTi 82C392, 82C493 chipset", MACHINE_NOT_WORKING )
 COMP( 199?, pc70iii,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Commodore Business Machines",  "PC 70-III", MACHINE_NOT_WORKING )
 COMP( 199?, pc9486,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Amstrad",     "PC9486", MACHINE_NOT_WORKING )
-COMP( 199?, pccm912,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "PC-Chips", "M912", MACHINE_NOT_WORKING )
 COMP( 199?, pccm915i,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "PC-Chips", "M915i", MACHINE_NOT_WORKING )
 COMP( 199?, pccm919,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "PC-Chips", "M919", MACHINE_NOT_WORKING )
 COMP( 1993, pcd4nd,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Siemens-Nixdorf", "PCD-4ND", MACHINE_NOT_WORKING )
@@ -6364,26 +5890,25 @@ COMP( 199?, pwaih4077d,ibm5170, 0,       at486,     0,     at_state,     init_at
 COMP( 199?, px486p3,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "QDI", "PX486P3", MACHINE_NOT_WORKING )
 COMP( 1990, qi900,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Apricot",     "Apricot Qi 900 (Scorpion Motherboard)", MACHINE_NOT_WORKING )
 COMP( 199?, sis85c471, ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "486 motherboards using the SiS 85C471/85C407 chipset", MACHINE_NOT_WORKING )
-COMP( 199?, sis85c496, ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "486 motherboards using the SiS 85C496/85C497 chipset", MACHINE_NOT_WORKING )
 COMP( 199?, sm48650usc,ibm5170, 0,       at486,     0,     at_state,     init_at,        "Vintage Sprite", "SM 486-50USC", MACHINE_NOT_WORKING )
 COMP( 199?, so025d2,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "SOYO", "025D2", MACHINE_NOT_WORKING )
 COMP( 199?, so025k2,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "SOYO", "025K2", MACHINE_NOT_WORKING )
 COMP( 199?, so025r2,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "SOYO", "025R2", MACHINE_NOT_WORKING )
-COMP( 199?, so30h,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "SOYO", "30H", MACHINE_NOT_WORKING )
-COMP( 199?, so4saw2,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "SOYO", "SY-4SAW2", MACHINE_NOT_WORKING )
 COMP( 199?, sto486wb,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "See-Thru", "Sto486Wb aka AUVA Cam-33-P2", MACHINE_NOT_WORKING )
 COMP( 199?, td4ipaio,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "TD-4IP-UMC-AIO", MACHINE_NOT_WORKING )
 COMP( 199?, tmpat48pg4,ibm5170, 0,       at486,     0,     at_state,     init_at,        "TMC", "PAT48PG4", MACHINE_NOT_WORKING )
 COMP( 199?, tmpat48av, ibm5170, 0,       at486,     0,     at_state,     init_at,        "TMC", "PAT48AV", MACHINE_NOT_WORKING )
+COMP( 1994, ts30a,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Compal", "TS30A", MACHINE_NOT_WORKING )
+COMP( 1994, ts30as,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Compal", "TS30AS", MACHINE_NOT_WORKING )
+COMP( 1994, ts30at,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Compal", "TS30AT", MACHINE_NOT_WORKING )
 COMP( 199?, ts34t25,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "Highscreen",  "486-25", MACHINE_NOT_WORKING )
 COMP( 199?, um486,     ibm5170, 0,       at486,     0,     at_state,     init_at,        "Elitegroup", "UM486/UM486sx", MACHINE_NOT_WORKING )
 COMP( 199?, um486v,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "Elitegroup", "UM486V-AIO", MACHINE_NOT_WORKING )
 COMP( 199?, um8810paio,ibm5170, 0,       at486,     0,     at_state,     init_at,        "Elitegroup", "UM8810 PAIO", MACHINE_NOT_WORKING )
 COMP( 199?, um8886,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "486 motherboards using the UMC UM8886/UM8881 chipset", MACHINE_NOT_WORKING )
-COMP( 199?, um8498f,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "486 motherboards using the UMC UM8498F, UM8496F chipset", MACHINE_NOT_WORKING )
 COMP( 199?, uni4800,   ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "486 motherboards using the UNI4800 chipset", MACHINE_NOT_WORKING )
 COMP( 199?, uniwb4407, ibm5170, 0,       at486,     0,     at_state,     init_at,        "UNICHIP", "486 WB 4407 REV 1.0", MACHINE_NOT_WORKING )
 COMP( 199?, v4p895p3,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "QDI", "V4P895P3/SMT V5.0", MACHINE_NOT_WORKING )
 COMP( 199?, via4386vio,ibm5170, 0,       at486,     0,     at_state,     init_at,        "<unknown>", "Via 4386 VIO / Highscreen universal board", MACHINE_NOT_WORKING )
 COMP( 199?, zi4dvs,    ibm5170, 0,       at486,     0,     at_state,     init_at,        "ZIDA", "4DVS", MACHINE_NOT_WORKING )
-COMP( 199?, zito4dps,  ibm5170, 0,       at486,     0,     at_state,     init_at,        "ZIDA", "Tomato board 4DPS", MACHINE_NOT_WORKING )
+

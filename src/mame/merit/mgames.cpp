@@ -224,6 +224,8 @@
 #include "mgames.lh"
 
 
+namespace {
+
 class mgames_state : public driver_device
 {
 public:
@@ -255,9 +257,9 @@ private:
 	uint32_t screen_update_mgames(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	TILE_GET_INFO_MEMBER(tile_info);
 
-	void main_map(address_map &map);
+	void main_map(address_map &map) ATTR_COLD;
 
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 	uint8_t m_output[8]{};
 	required_shared_ptr<uint8_t> m_video;
@@ -577,11 +579,11 @@ static INPUT_PORTS_START( mgames )
 	PORT_START("SW1")
 	PORT_DIPNAME( 0x0f, 0x0f, DEF_STR( Coin_A ) )
 	PORT_DIPSETTING(    0x00, "20 Coins/1 Credit" )
-	PORT_DIPSETTING(    0x01, "10 Coins/1 Credit" )
+	PORT_DIPSETTING(    0x01, DEF_STR( 10C_1C ) )
 	PORT_DIPSETTING(    0x02, DEF_STR( 8C_1C ) )
 	PORT_DIPSETTING(    0x03, DEF_STR( 5C_1C ) )
 	PORT_DIPSETTING(    0x04, DEF_STR( 4C_1C ) )
-	PORT_DIPSETTING(    0x05, "5 Coins/2 Credits" )
+	PORT_DIPSETTING(    0x05, DEF_STR( 5C_2C ) )
 	PORT_DIPSETTING(    0x06, DEF_STR( 2C_1C ) )
 	PORT_DIPSETTING(    0x07, DEF_STR( 1C_1C ) )
 	PORT_DIPSETTING(    0x0f, DEF_STR( 1C_1C ) ) // Yes, again...
@@ -590,8 +592,8 @@ static INPUT_PORTS_START( mgames )
 	PORT_DIPSETTING(    0x0c, DEF_STR( 1C_4C ) )
 	PORT_DIPSETTING(    0x0b, DEF_STR( 1C_5C ) )
 	PORT_DIPSETTING(    0x0a, DEF_STR( 1C_8C ) )
-	PORT_DIPSETTING(    0x09, "1 Coin/10 Credits" )
-	PORT_DIPSETTING(    0x08, "1 Coin/20 Credits" )
+	PORT_DIPSETTING(    0x09, DEF_STR( 1C_10C ) )
+	PORT_DIPSETTING(    0x08, DEF_STR( 1C_20C ) )
 	PORT_DIPNAME( 0x30, 0x30, "Game Select" )
 	PORT_DIPSETTING(    0x00, "The White Knight" )
 	PORT_DIPSETTING(    0x10, "Wild Bulls" )
@@ -683,6 +685,8 @@ ROM_START( mgames )
 	ROM_LOAD( "u66_cgm2_mk2716j.bin", 0x1000, 0x0800, CRC(3b6b98d3) SHA1(9fc1d9d61d67ad696750c21ef9a19968ddb0a9e1) )
 	ROM_LOAD( "u65_cgm3_mk2716j.bin", 0x1800, 0x0800, CRC(d61ae9d1) SHA1(219123518999fc925397db4f442ac444dfddffbe) )
 ROM_END
+
+} // anonymous namespace
 
 
 /*************************

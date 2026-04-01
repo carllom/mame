@@ -36,6 +36,9 @@
 #include "machine/bankdev.h"
 #include "sound/msm5205.h"
 
+
+namespace {
+
 class galspanic_ms_state : public driver_device
 {
 public:
@@ -81,9 +84,9 @@ private:
 	required_device<address_map_bank_device> m_soundrom;
 	required_device<generic_latch_8_device> m_soundlatch;
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 	void galspanic_ms_palette(palette_device &palette) const;
 
 	uint32_t screen_update_backgrounds(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
@@ -91,9 +94,9 @@ private:
 
 	// comad
 	uint16_t comad_timer_r();
-	void newquiz_map(address_map &map);
-	void sound_map(address_map &map);
-	void soundrom_map(address_map &map);
+	void newquiz_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
+	void soundrom_map(address_map &map) ATTR_COLD;
 
 	uint8_t unk_r()
 	{
@@ -107,9 +110,9 @@ private:
 
 	tilemap_t *m_bg_tilemap2 = nullptr;
 
-	DECLARE_WRITE_LINE_MEMBER(splash_msm5205_int);
-	void splash_adpcm_data_w(uint8_t data);
-	void splash_adpcm_control_w(uint8_t data);
+	void splash_msm5205_int(int state);
+	[[maybe_unused]] void splash_adpcm_data_w(uint8_t data);
+	[[maybe_unused]] void splash_adpcm_control_w(uint8_t data);
 	int m_adpcm_data = 0;
 
 	void descramble_16x16tiles(uint8_t* src, int len);
@@ -221,7 +224,7 @@ void galspanic_ms_state::splash_adpcm_control_w(uint8_t data)
 	m_soundrom->set_bank(bank & 0xf);
 }
 
-WRITE_LINE_MEMBER(galspanic_ms_state::splash_msm5205_int)
+void galspanic_ms_state::splash_msm5205_int(int state)
 {
 	m_msm->data_w(m_adpcm_data >> 4);
 	m_adpcm_data = (m_adpcm_data << 4) & 0xf0;
@@ -546,19 +549,17 @@ ROM_START( galpanicms )
 	ROM_REGION( 0x100, "prom", 0 )
 	ROM_LOAD( "51_502_63s141n.ic10", 0x0000, 0x100, CRC(15085e44) SHA1(646e7100fcb112594023cf02be036bd3d42cc13c) ) // same as Euro League modular bootleg
 
-	ROM_REGION( 0x117, "gal", 0 )
-	ROM_LOAD( "a_a-147_gal16v8-20hb1.ic47", 0x0000, 0x117, CRC(39102e72) SHA1(227e25df1555c226e5ae8fc7bcb0f2e2996e24cb) )
-	ROM_LOAD( "a_a-347_gal16v8-25lp.ic50", 0x0000, 0x117, CRC(f377f5c7) SHA1(0ae69fe49735fb45245892d40a0bc97b5d387021) )
-
-	ROM_REGION( 0x100, "protgal", 0 ) // all read protected
-	ROM_LOAD( "4_403_gal16v8-20hb1.ic29", 0, 1, NO_DUMP )
-	ROM_LOAD( "5_5147_gal16v8-25hb1.ic9", 0, 1, NO_DUMP )
-	ROM_LOAD( "5_5247_gal16v8-25hb1.ic8", 0, 1, NO_DUMP )
-	ROM_LOAD( "51_503_gal16v8-20hb1.ic46", 0, 1, NO_DUMP )
-	ROM_LOAD( "a_a-247_gal20v8-20hb1.ic8", 0, 1, NO_DUMP )
-	ROM_LOAD( "a_a-447_gal16v8-25lnc.ic51", 0, 1, NO_DUMP )
-	ROM_LOAD( "cpu_606_gal16v8.ic13", 0, 1, NO_DUMP )
-	ROM_LOAD( "cpu_647_gal16v8.ic7", 0, 1, NO_DUMP )
+	ROM_REGION( 0x157, "gal", 0 )
+	ROM_LOAD( "a_a-147_gal16v8-20hb1.ic47", 0x000, 0x117, CRC(39102e72) SHA1(227e25df1555c226e5ae8fc7bcb0f2e2996e24cb) )
+	ROM_LOAD( "a_a-347_gal16v8-25lp.ic50",  0x000, 0x117, CRC(f377f5c7) SHA1(0ae69fe49735fb45245892d40a0bc97b5d387021) )
+	ROM_LOAD( "4_403_gal16v8-20hb1.ic29",   0x000, 0x117, CRC(c136de93) SHA1(116f6d3b456d20621ab07a005c1421f57569915c) )
+	ROM_LOAD( "5_5147_gal16v8-25hb1.ic9",   0x000, 0x117, CRC(702d486a) SHA1(d1b262404f24312c7baa4ba3f030a3cc95fb31b0) )
+	ROM_LOAD( "5_5247_gal16v8-25hb1.ic8",   0x000, 0x117, CRC(493272fb) SHA1(e02efe240e0820842088b5e23f785672e896aa6b) )
+	ROM_LOAD( "51_503_gal16v8-20hb1.ic46",  0x000, 0x117, CRC(11470ea1) SHA1(cfcafbcc7e55be717348f895df61e144fdd0cc9b) )
+	ROM_LOAD( "a_a-247_gal20v8-20hb1.ic8",  0x000, 0x157, CRC(ace1b4e0) SHA1(511fa1fa8f44ad463fba4ece2beb9c35a336b7db) )
+	ROM_LOAD( "a_a-447_gal16v8-25lnc.ic51", 0x000, 0x117, NO_DUMP )
+	ROM_LOAD( "cpu_606_gal16v8.ic13",       0x000, 0x117, CRC(6fc7e412) SHA1(b9512d597bb9cec765b8caf26a51e7e4ed5d07b3) )
+	ROM_LOAD( "cpu_647_gal16v8.ic7",        0x000, 0x117, CRC(f71d744b) SHA1(c44db82e424d0e36144dfc408e8a7e3d43fc8245) )
 ROM_END
 
 // reorganize graphics into something we can decode with a single pass
@@ -581,6 +582,7 @@ void galspanic_ms_state::init_galpanicms()
 	descramble_16x16tiles(memregion("bgtile")->base(), memregion("bgtile")->bytes());
 }
 
+} // anonymous namespace
 
 
-GAME( 1991, galpanicms,  galsnew,  newquiz,  newquiz,  galspanic_ms_state, init_galpanicms, ROT90, "bootleg (Kaenko)", "New Quiz (Modular System bootleg of Gals Panic)", MACHINE_NOT_WORKING | MACHINE_NO_SOUND )
+GAME( 1991, galpanicms, galsnew, newquiz, newquiz, galspanic_ms_state, init_galpanicms, ROT90, "bootleg (Kaenko / Gaelco / Ervisa)", "New Quiz (Modular System bootleg of Gals Panic)", MACHINE_NOT_WORKING | MACHINE_NO_SOUND )

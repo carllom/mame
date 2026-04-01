@@ -21,16 +21,15 @@ TODO:
 
 *******************************************************************************/
 
-#ifndef MAME_MACHINE_CDICDIC_H
-#define MAME_MACHINE_CDICDIC_H
+#ifndef MAME_PHILIPS_CDICDIC_H
+#define MAME_PHILIPS_CDICDIC_H
 
 #pragma once
 
-#include "imagedev/chd_cd.h"
+#include "imagedev/cdromimg.h"
 #include "machine/scc68070.h"
 #include "sound/cdda.h"
 #include "sound/dmadac.h"
-#include "cdrom.h"
 
 //**************************************************************************
 //  TYPE DEFINITIONS
@@ -61,10 +60,9 @@ public:
 	uint8_t intack_r();
 
 protected:
-	// device-level overrides
-	virtual void device_resolve_objects() override;
-	virtual void device_start() override;
-	virtual void device_reset() override;
+	// device_t implementation
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 
 	// internal callbacks
 	TIMER_CALLBACK_MEMBER(sector_tick);
@@ -156,7 +154,7 @@ private:
 	required_address_space m_memory_space;
 	required_device_array<dmadac_sound_device, 2> m_dmadac;
 	required_device<scc68070_device> m_scc;
-	optional_device<cdrom_image_device> m_cdrom_dev;
+	required_device<cdrom_image_device> m_cdrom;
 
 	uint32_t m_clock2;
 
@@ -174,7 +172,6 @@ private:
 	uint16_t m_interrupt_vector;  // CDIC Interrupt Vector Register   (0x303ffc)
 	uint16_t m_data_buffer;       // CDIC Data Buffer Register        (0x303ffe)
 
-	cdrom_file *m_cd;
 	bool m_cd_byteswap;
 
 	emu_timer *m_sector_timer;
@@ -189,10 +186,12 @@ private:
 	bool m_decoding_audio_map;
 	uint16_t m_decode_addr;
 
+	// Should eventually have Audio Attenuation (L->L, L->R, R->R, R->L) here
 	int16_t m_xa_last[4];
 	std::unique_ptr<uint8_t[]> m_ram;
 	std::unique_ptr<int16_t[]> m_samples[2];
 
+	void decode_xa_unit(const uint8_t param, int16_t sample, int16_t &sample0, int16_t &sample1, int16_t &out_buffer);
 	void decode_8bit_xa_unit(int channel, uint8_t param, const uint8_t *data, int16_t *out_buffer);
 	void decode_4bit_xa_unit(int channel, uint8_t param, const uint8_t *data, uint8_t shift, int16_t *out_buffer);
 	void play_raw_group(const uint8_t *data);
@@ -217,10 +216,6 @@ private:
 	uint32_t lba_from_time();
 
 	static uint8_t get_sector_count_for_coding(uint8_t coding);
-	static void decode_xa_mono(int16_t *cdic_xa_last, const uint8_t *xa, int16_t *dp);
-	static void decode_xa_mono8(int16_t *cdic_xa_last, const uint8_t *xa, int16_t *dp);
-	static void decode_xa_stereo(int16_t *cdic_xa_last, const uint8_t *xa, int16_t *dp);
-	static void decode_xa_stereo8(int16_t *cdic_xa_last, const uint8_t *xa, int16_t *dp);
 
 	static const int16_t s_xa_filter_coef[4][2];
 	static const int32_t s_samples_per_sector;
@@ -231,4 +226,4 @@ private:
 // device type definition
 DECLARE_DEVICE_TYPE(CDI_CDIC, cdicdic_device)
 
-#endif // MAME_MACHINE_CDICDIC_H
+#endif // MAME_PHILIPS_CDICDIC_H

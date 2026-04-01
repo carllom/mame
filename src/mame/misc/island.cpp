@@ -11,10 +11,12 @@
 ***************************************************************************/
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i80c52.h"
 #include "sound/okim6295.h"
 #include "speaker.h"
 
+
+namespace {
 
 class island_state : public driver_device
 {
@@ -29,8 +31,8 @@ public:
 	void vortex(machine_config &config);
 
 private:
-	void prog_map(address_map &map);
-	void ext_map(address_map &map);
+	void prog_map(address_map &map) ATTR_COLD;
+	void ext_map(address_map &map) ATTR_COLD;
 
 	required_device<mcs51_cpu_device> m_maincpu;
 	required_device<okim6295_device> m_oki;
@@ -56,7 +58,7 @@ void island_state::vortex(machine_config &config)
 {
 	DS80C320(config, m_maincpu, 20_MHz_XTAL); // FIXME: has more registers, faster machine cycles
 	m_maincpu->set_addrmap(AS_PROGRAM, &island_state::prog_map);
-	m_maincpu->set_addrmap(AS_IO, &island_state::ext_map);
+	m_maincpu->set_addrmap(AS_DATA, &island_state::ext_map);
 
 	SPEAKER(config, "mono").front_center();
 
@@ -76,6 +78,8 @@ ROM_START(isld_vortex)
 	ROM_REGION(0x80000, "oki", 0)
 	ROM_LOAD("vortex.u29", 0x00000, 0x80000, CRC(2b0cc5c7) SHA1(ca9426351cec304b29a47ca66da12080269eb6e3))
 ROM_END
+
+} // anonymous namespace
 
 
 GAME(1995, isld_vortex, 0, vortex, vortex, island_state, empty_init, ROT0, "Island Design", "Vortex (Island Design)", MACHINE_NOT_WORKING | MACHINE_NO_SOUND | MACHINE_MECHANICAL)

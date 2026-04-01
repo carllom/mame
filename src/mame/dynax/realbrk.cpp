@@ -46,7 +46,6 @@ To Do:
 #include "emu.h"
 #include "realbrk.h"
 
-#include "cpu/m68000/m68000.h"
 #include "sound/ymopl.h"
 #include "sound/ymz280b.h"
 #include "speaker.h"
@@ -375,7 +374,7 @@ static INPUT_PORTS_START( pkgnsh )
 	PORT_DIPSETTING(      0x0000, DEF_STR( On ) )
 	PORT_DIPNAME( 0x0800, 0x0800, DEF_STR( Coin_B ) )
 	PORT_DIPSETTING(      0x0800, DEF_STR( 1C_5C ) )
-	PORT_DIPSETTING(      0x0000, "1 Coin/10 Credits" )
+	PORT_DIPSETTING(      0x0000, DEF_STR( 1C_10C ) )
 	PORT_DIPNAME( 0xf000, 0xf000, "Balls Per Credit" )
 	PORT_DIPSETTING(      0x7000, "5 Balls" )
 	PORT_DIPSETTING(      0x6000, "6 Balls" )
@@ -459,7 +458,7 @@ static INPUT_PORTS_START( pkgnshdx )
 	PORT_DIPSETTING(      0x0000, DEF_STR( On ) )
 	PORT_DIPNAME( 0x0008, 0x0008, DEF_STR( Coin_B ) )
 	PORT_DIPSETTING(      0x0008, DEF_STR( 1C_5C ) )
-	PORT_DIPSETTING(      0x0000, "1 Coin/10 Credits" )
+	PORT_DIPSETTING(      0x0000, DEF_STR( 1C_10C ) )
 	PORT_DIPNAME( 0x00f0, 0x00f0, "Balls Per Credit" )
 	PORT_DIPSETTING(      0x0070, "5 Balls" )
 	PORT_DIPSETTING(      0x0060, "6 Balls" )
@@ -748,44 +747,36 @@ GFXDECODE_END
                         Billiard Academy Real Break
 ***************************************************************************/
 
-WRITE_LINE_MEMBER(realbrk_state::vblank_irq)
-{
-	/* VBlank is connected to INT1 (external interrupts pin 1) */
-	if (state)
-		m_maincpu->external_interrupt_1();
-}
-
 void realbrk_state::realbrk(machine_config &config)
 {
 	/* basic machine hardware */
 	TMP68301(config, m_maincpu, XTAL(32'000'000) / 2);
 	m_maincpu->set_addrmap(AS_PROGRAM, &realbrk_state::realbrk_mem);
-	m_maincpu->out_parallel_callback().set(FUNC(realbrk_state::realbrk_flipscreen_w));
+	m_maincpu->parallel_w_cb().set(FUNC(realbrk_state::realbrk_flipscreen_w));
 
 	/* video hardware */
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
 	m_screen->set_refresh_hz(60);
-	m_screen->set_vblank_time(ATTOSECONDS_IN_USEC(0));
+	m_screen->set_vblank_time(ATTOSECONDS_IN_USEC(2500));
 	m_screen->set_size(0x140, 0xe0);
 	m_screen->set_visarea(0, 0x140-1, 0, 0xe0-1);
 	m_screen->set_screen_update(FUNC(realbrk_state::screen_update));
 	m_screen->set_palette(m_palette);
-	m_screen->screen_vblank().set(FUNC(realbrk_state::vblank_irq));
+	m_screen->screen_vblank().set_inputline(m_maincpu, 1);
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_realbrk);
 	PALETTE(config, m_palette).set_format(palette_device::xBGR_555, 0x8000);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ymz280b_device &ymz(YMZ280B(config, "ymz", XTAL(33'868'800) / 2));
-	ymz.add_route(0, "lspeaker", 0.50);
-	ymz.add_route(1, "rspeaker", 0.50);
+	ymz.add_route(0, "speaker", 0.50, 0);
+	ymz.add_route(1, "speaker", 0.50, 1);
 
 	ym2413_device &ymsnd(YM2413(config, "ymsnd", XTAL(3'579'545)));
-	ymsnd.add_route(ALL_OUTPUTS, "lspeaker", 0.25);
-	ymsnd.add_route(ALL_OUTPUTS, "rspeaker", 0.25);
+	ymsnd.add_route(ALL_OUTPUTS, "speaker", 0.25, 0);
+	ymsnd.add_route(ALL_OUTPUTS, "speaker", 0.25, 1);
 }
 
 void realbrk_state::pkgnsh(machine_config &config)
@@ -793,7 +784,7 @@ void realbrk_state::pkgnsh(machine_config &config)
 	realbrk(config);
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &realbrk_state::pkgnsh_mem);
-	m_maincpu->out_parallel_callback().set_nop();
+	m_maincpu->parallel_w_cb().set_nop();
 }
 
 void realbrk_state::pkgnshdx(machine_config &config)
@@ -808,7 +799,7 @@ void realbrk_state::dai2kaku(machine_config &config)
 	realbrk(config);
 
 	m_maincpu->set_addrmap(AS_PROGRAM, &realbrk_state::dai2kaku_mem);
-	m_maincpu->out_parallel_callback().set(FUNC(realbrk_state::dai2kaku_flipscreen_w));
+	m_maincpu->parallel_w_cb().set(FUNC(realbrk_state::dai2kaku_flipscreen_w));
 
 	m_gfxdecode->set_info(gfx_dai2kaku);
 	m_screen->set_screen_update(FUNC(realbrk_state::screen_update_dai2kaku));

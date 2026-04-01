@@ -7,6 +7,9 @@
 #include "spg2xx.h"
 #include "machine/nvram.h"
 
+
+namespace {
+
 class jakks_sharp_state : public spg2xx_game_state
 {
 public:
@@ -95,6 +98,8 @@ ROM_START( jsc_sdoo )
 	ROM_LOAD16_WORD_SWAP( "shckscooby.bin", 0x000000, 0x200000, CRC(ce7039a4) SHA1(d5815149b75262253d03fac946b10c43e96945c0) )
 ROM_END
 
+} // anonymous namespace
+
 
 // The UK version has UK specific voice actors
 CONS( 2007, jsc_thom,  0,        0, base_config_pal,     jak_sharp,      jakks_sharp_state, empty_init, "JAKKS Pacific Inc / Child Guidance / Pronto Games",          "Thomas & Friends - Learning Circus Express (Sharp Cookie) (PAL, UK)", MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
@@ -104,7 +109,7 @@ CONS( 2007, jsc_thomu, jsc_thom, 0, base_config,         jak_sharp,      jakks_s
 CONS( 2007, jsc_spid,  0,        0, base_config,         jak_sharp,      jakks_sharp_state, empty_init, "JAKKS Pacific Inc / Child Guidance / Pronto Games",          "The Amazing Spider-Man - Great Math Caper (Sharp Cookie) (NTSC, US)", MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
 
 // from a UK unit but still says 'Zee' instead of 'Zed' for 'Z'  This does not appear to be controlled by a PAL/NTSC flag in the inputs.
-CONS( 2007, jsc_gdg,   0,        0, base_config_pal,     jak_sharp,      jakks_sharp_state, empty_init, "JAKKS Pacific Inc / Child Guidance / Pronto Games",          "Go Diego Go! - Aztec ABC Adventure (Sharp Cookie) (PAL, UK)", MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
+CONS( 2007, jsc_gdg,   0,        0, base_config_pal,     jak_sharp,      jakks_sharp_state, empty_init, "JAKKS Pacific Inc / Child Guidance / Pronto Games",          "Go, Diego, Go! Aztec ABC Adventure (Sharp Cookie) (PAL, UK)", MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
 
 CONS( 2007, jsc_dora,  0,        0, base_config_pal,     jak_sharp,      jakks_sharp_state, empty_init, "JAKKS Pacific Inc / Child Guidance / Handheld Games",        "Dora the Explorer - Dora Saves the Mermaids (Sharp Cookie) (PAL, UK)", MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS )
 

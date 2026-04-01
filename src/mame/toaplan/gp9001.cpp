@@ -11,7 +11,7 @@
 
   Next we have games that use two GP9001 controllers, the mixing of
   the VDPs depends on a PAL on the motherboard.
-  (mixing handled in toaplan2.cpp)
+  (mixing handled in toaplan/batsugun.cpp)
 
   Finally we have games using one GP9001 controller and an additional
   text tile layer, which has highest priority. This text tile layer
@@ -171,9 +171,9 @@ void gp9001vdp_device::tmap_w(offs_t offset, u16 data, u16 mem_mask)
 
 void gp9001vdp_device::map(address_map &map)
 {
-	map(0x0000, 0x0fff).ram().w(FUNC(gp9001vdp_device::tmap_w<0>)).share("vram_0");
-	map(0x1000, 0x1fff).ram().w(FUNC(gp9001vdp_device::tmap_w<1>)).share("vram_1");
-	map(0x2000, 0x2fff).ram().w(FUNC(gp9001vdp_device::tmap_w<2>)).share("vram_2");
+	map(0x0000, 0x0fff).ram().w(FUNC(gp9001vdp_device::tmap_w<0>)).share(m_vram[0]);
+	map(0x1000, 0x1fff).ram().w(FUNC(gp9001vdp_device::tmap_w<1>)).share(m_vram[1]);
+	map(0x2000, 0x2fff).ram().w(FUNC(gp9001vdp_device::tmap_w<2>)).share(m_vram[2]);
 	map(0x3000, 0x37ff).ram().share("spriteram").mirror(0x0800);
 //  map(0x3800, 0x3fff).ram(); // sprite mirror?
 }
@@ -215,6 +215,14 @@ gp9001vdp_device::gp9001vdp_device(const machine_config &mconfig, const char *ta
 	, device_video_interface(mconfig, *this)
 	, device_memory_interface(mconfig, *this)
 	, m_space_config("gp9001vdp", ENDIANNESS_BIG, 16, 14, 0, address_map_constructor(FUNC(gp9001vdp_device::map), this))
+	, m_bootleg_tm0x_offs(0)
+	, m_bootleg_tm0y_offs(0)
+	, m_bootleg_tm1x_offs(0)
+	, m_bootleg_tm1y_offs(0)
+	, m_bootleg_tm2x_offs(0)
+	, m_bootleg_tm2y_offs(0)
+	, m_bootleg_spx_offs(0)
+	, m_bootleg_spy_offs(0)
 	, m_vram(*this, "vram_%u", 0)
 	, m_spriteram(*this, "spriteram")
 	, m_gp9001_cb(*this)
@@ -278,7 +286,6 @@ void gp9001vdp_device::device_start()
 	create_tilemaps();
 
 	m_gp9001_cb.resolve();
-	m_vint_out_cb.resolve();
 
 	m_raise_irq_timer = timer_alloc(FUNC(gp9001vdp_device::raise_irq), this);
 
@@ -336,8 +343,7 @@ void gp9001vdp_device::device_reset()
 
 	init_scroll_regs();
 
-	if (!m_vint_out_cb.isnull())
-		m_vint_out_cb(0);
+	m_vint_out_cb(0);
 	m_raise_irq_timer->adjust(attotime::never);
 }
 
@@ -372,17 +378,49 @@ u16 gp9001vdp_device::vdpstatus_r()
 	return ((screen().vpos() + 15) % 262) >= 245;
 }
 
+// this is a common form of reading several of the flags provide by the VDP
+u16 gp9001vdp_device::vdpcount_r()
+{
+	/* +---------+---------+--------+---------------------------+ */
+	/* | /H-Sync | /V-Sync | /Blank |       Scanline Count      | */
+	/* | Bit 15  | Bit 14  | Bit 8  |  Bit 7-0 (count from #EF) | */
+	/* +---------+---------+--------+---------------------------+ */
+	/*************** Control Signals are active low ***************/
+
+	int vpos = screen().vpos();
+
+	u16 video_status = 0xff00; // Set signals inactive
+
+	vpos = (vpos + 15) % 262;
+
+	if (!hsync_r())
+		video_status &= ~0x8000;
+	if (!vsync_r())
+		video_status &= ~0x4000;
+	if (!fblank_r())
+		video_status &= ~0x0100;
+	if (vpos < 256)
+		video_status |= (vpos & 0xff);
+	else
+		video_status |= 0xff;
+
+	//logerror("VC: vpos=%04x hpos=%04x VBL=%04x\n",vpos,hpos,m_screen->vblank());
+
+	return video_status;
+}
+
+
 void gp9001vdp_device::scroll_reg_select_w(u16 data, u16 mem_mask)
 {
 	if (ACCESSING_BITS_0_7)
 	{
 		m_scroll_reg = data & 0x8f;
 		if (data & 0x70)
-			logerror("Hmmm, selecting unknown LSB video control register (%04x)\n",m_scroll_reg);
+			logerror("%s: Hmmm, selecting unknown LSB video control register (%04x)\n", machine().describe_context(), m_scroll_reg);
 	}
 	else
 	{
-		logerror("Hmmm, selecting unknown MSB video control register (%04x)\n",m_scroll_reg);
+		logerror("%s: Hmmm, selecting unknown MSB video control register (%04x)\n", machine().describe_context(), m_scroll_reg);
 	}
 }
 
@@ -489,7 +527,7 @@ void gp9001vdp_device::scroll_reg_data_w(u16 data, u16 mem_mask)
 
 		case 0x0e:  /******* Initialise video controller register ? *******/
 
-		case 0x0f: if (!m_vint_out_cb.isnull()) m_vint_out_cb(0); break;
+		case 0x0f: m_vint_out_cb(0); break;
 
 
 		default:    logerror("Hmmm, writing %08x to unknown video control register (%08x) !!!\n",data,m_scroll_reg);
@@ -551,24 +589,24 @@ void gp9001vdp_device::write(offs_t offset, u16 data, u16 mem_mask)
 }
 
 
-/***************************************************************************/
-/**************** PIPIBIBI bootleg interface into this video driver ********/
+/*************************************************************************************/
+/**************** bootlegs without GM9001 VDP interface into this video driver *******/
 
-void gp9001vdp_device::pipibibi_bootleg_scroll_w(offs_t offset, u16 data, u16 mem_mask)
+void gp9001vdp_device::bootleg_scroll_w(offs_t offset, u16 data, u16 mem_mask)
 {
 	if (ACCESSING_BITS_8_15 && ACCESSING_BITS_0_7)
 	{
 		switch (offset)
 		{
-			case 0x00:  data -= 0x01f; break;
-			case 0x01:  data += 0x1ef; break;
-			case 0x02:  data -= 0x01d; break;
-			case 0x03:  data += 0x1ef; break;
-			case 0x04:  data -= 0x01b; break;
-			case 0x05:  data += 0x1ef; break;
-			case 0x06:  data += 0x1d4; break;
-			case 0x07:  data += 0x1f7; break;
-			default:    logerror("PIPIBIBI writing %04x to unknown scroll register %04x",data, offset);
+			case 0x00:  data -= m_bootleg_tm0x_offs; break;
+			case 0x01:  data += m_bootleg_tm0y_offs; break;
+			case 0x02:  data -= m_bootleg_tm1x_offs; break;
+			case 0x03:  data += m_bootleg_tm1y_offs; break;
+			case 0x04:  data -= m_bootleg_tm2x_offs; break;
+			case 0x05:  data += m_bootleg_tm2y_offs; break;
+			case 0x06:  data += m_bootleg_spx_offs; break;
+			case 0x07:  data += m_bootleg_spy_offs; break;
+			default:    logerror("bootleg writing %04x to unknown scroll register %04x", data, offset);
 		}
 
 		m_scroll_reg = offset;
@@ -576,25 +614,25 @@ void gp9001vdp_device::pipibibi_bootleg_scroll_w(offs_t offset, u16 data, u16 me
 	}
 }
 
-u16 gp9001vdp_device::pipibibi_bootleg_videoram16_r(offs_t offset)
+u16 gp9001vdp_device::bootleg_videoram16_r(offs_t offset)
 {
 	voffs_w(offset, 0xffff);
 	return videoram16_r();
 }
 
-void gp9001vdp_device::pipibibi_bootleg_videoram16_w(offs_t offset, u16 data, u16 mem_mask)
+void gp9001vdp_device::bootleg_videoram16_w(offs_t offset, u16 data, u16 mem_mask)
 {
 	voffs_w(offset, 0xffff);
 	videoram16_w(data, mem_mask);
 }
 
-u16 gp9001vdp_device::pipibibi_bootleg_spriteram16_r(offs_t offset)
+u16 gp9001vdp_device::bootleg_spriteram16_r(offs_t offset)
 {
 	voffs_w((0x1800 + offset), 0);
 	return videoram16_r();
 }
 
-void gp9001vdp_device::pipibibi_bootleg_spriteram16_w(offs_t offset, u16 data, u16 mem_mask)
+void gp9001vdp_device::bootleg_spriteram16_w(offs_t offset, u16 data, u16 mem_mask)
 {
 	voffs_w((0x1800 + offset), mem_mask);
 	videoram16_w(data, mem_mask);
@@ -604,23 +642,23 @@ void gp9001vdp_device::pipibibi_bootleg_spriteram16_w(offs_t offset, u16 data, u
     Blanking Signal Polling
 ***************************************************************************/
 
-READ_LINE_MEMBER(gp9001vdp_device::hsync_r)
+int gp9001vdp_device::hsync_r()
 {
-	int hpos = screen().hpos();
+	const int hpos = screen().hpos();
 
 	// active low output
 	return (hpos > 325) && (hpos < 380) ? 0 : 1;
 }
 
-READ_LINE_MEMBER(gp9001vdp_device::vsync_r)
+int gp9001vdp_device::vsync_r()
 {
-	int vpos = screen().vpos();
+	const int vpos = screen().vpos();
 
 	// active low output
 	return (vpos >= 232) && (vpos <= 245) ? 0 : 1;
 }
 
-READ_LINE_MEMBER(gp9001vdp_device::fblank_r)
+int gp9001vdp_device::fblank_r()
 {
 	// ?? Dogyuun is too slow if this is wrong
 	return (hsync_r() == 0 || vsync_r() == 0) ? 0 : 1;
@@ -630,7 +668,7 @@ READ_LINE_MEMBER(gp9001vdp_device::fblank_r)
     Sprite Handlers
 ***************************************************************************/
 
-void gp9001vdp_device::draw_sprites( bitmap_ind16 &bitmap, const rectangle &cliprect, const u8* primap )
+void gp9001vdp_device::draw_sprites(bitmap_ind16 &bitmap, const rectangle &cliprect, bitmap_ind8 &primap)
 {
 	int clk = 0;
 	int clk_max = 432 * 262; // TODO : related to size of whole screen?
@@ -652,7 +690,7 @@ void gp9001vdp_device::draw_sprites( bitmap_ind16 &bitmap, const rectangle &clip
 		int sx_base, sy_base;
 
 		const u16 attrib = source[offs];
-		const int priority = primap[(attrib >> 8) & GP9001_PRIMASK] + 1;
+		const int priority = (attrib >> 8) & GP9001_PRIMASK;
 
 		if ((attrib & 0x8000))
 		{
@@ -785,7 +823,7 @@ void gp9001vdp_device::draw_sprites( bitmap_ind16 &bitmap, const rectangle &clip
 								{
 									const u8 pix = srcdata[count];
 									u16 *const dstptr = &bitmap.pix(drawyy, drawxx);
-									u8 *const dstpri = &this->custom_priority_bitmap->pix(drawyy, drawxx);
+									u8 *const dstpri = &primap.pix(drawyy, drawxx);
 
 									if (priority >= dstpri[0])
 									{
@@ -814,7 +852,7 @@ void gp9001vdp_device::draw_sprites( bitmap_ind16 &bitmap, const rectangle &clip
     Draw the game screen in the given bitmap_ind16.
 ***************************************************************************/
 
-void gp9001vdp_device::draw_custom_tilemap( bitmap_ind16 &bitmap, const rectangle &cliprect, int layer, const u8* priremap, const u8* pri_enable )
+void gp9001vdp_device::draw_custom_tilemap(bitmap_ind16 &bitmap, const rectangle &cliprect, bitmap_ind8 &primap, int layer)
 {
 	tilemap_t* tilemap = m_tm[layer].tmap;
 	bitmap_ind16 &tmb = tilemap->pixmap();
@@ -828,27 +866,23 @@ void gp9001vdp_device::draw_custom_tilemap( bitmap_ind16 &bitmap, const rectangl
 
 		u16 const *const srcptr = &tmb.pix(realy);
 		u16 *const dstptr = &bitmap.pix(y);
-		u8 *const dstpriptr = &this->custom_priority_bitmap->pix(y);
+		u8 *const dstpriptr = &primap.pix(y);
 
 		for (int x = cliprect.left(); x <= cliprect.right(); x++)
 		{
 			const int realx = (x + scrollx) & 0x1ff;
 
 			u16 pixdat = srcptr[realx];
-			u8 pixpri = ((pixdat >> 12) & GP9001_PRIMASK_TMAPS);
+			const u8 pixpri = (pixdat >> 12) & GP9001_PRIMASK_TMAPS;
 
-			if (pri_enable[pixpri])
+			pixdat &= 0x07ff;
+
+			if (pixdat & 0xf)
 			{
-				pixpri = priremap[pixpri] + 1; // priority of 0 isn't desireable
-				pixdat &= 0x07ff;
-
-				if (pixdat & 0xf)
+				if (pixpri >= dstpriptr[x])
 				{
-					if (pixpri >= dstpriptr[x])
-					{
-						dstptr[x] = pixdat;
-						dstpriptr[x] = pixpri;
-					}
+					dstptr[x] = pixdat;
+					dstpriptr[x] = pixpri;
 				}
 			}
 		}
@@ -856,13 +890,7 @@ void gp9001vdp_device::draw_custom_tilemap( bitmap_ind16 &bitmap, const rectangl
 }
 
 
-static const u8 gp9001_primap1[16] =  { 0x00, 0x04, 0x08, 0x0c, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c };
-//static const u8 gp9001_sprprimap1[16] =  { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
-static const u8 gp9001_sprprimap1[16] =  { 0x00, 0x04, 0x08, 0x0c, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c };
-
-static const u8 batsugun_prienable0[16]={ 1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1 };
-
-void gp9001vdp_device::render_vdp(bitmap_ind16 &bitmap, const rectangle &cliprect)
+void gp9001vdp_device::render_vdp(bitmap_ind16 &bitmap, const rectangle &cliprect, bitmap_ind8 &primap)
 {
 	if (m_gfxrom_bank_dirty)
 	{
@@ -872,10 +900,10 @@ void gp9001vdp_device::render_vdp(bitmap_ind16 &bitmap, const rectangle &cliprec
 		m_gfxrom_bank_dirty = false;
 	}
 
-	draw_custom_tilemap(bitmap, cliprect, 0, gp9001_primap1, batsugun_prienable0);
-	draw_custom_tilemap(bitmap, cliprect, 1, gp9001_primap1, batsugun_prienable0);
-	draw_custom_tilemap(bitmap, cliprect, 2, gp9001_primap1, batsugun_prienable0);
-	draw_sprites(bitmap, cliprect, gp9001_sprprimap1);
+	draw_custom_tilemap(bitmap, cliprect, primap, 0);
+	draw_custom_tilemap(bitmap, cliprect, primap, 1);
+	draw_custom_tilemap(bitmap, cliprect, primap, 2);
+	draw_sprites(bitmap, cliprect, primap);
 }
 
 
@@ -885,7 +913,7 @@ void gp9001vdp_device::screen_eof(void)
 	if (m_sp.use_sprite_buffer) m_spriteram->copy();
 
 	// the IRQ appears to fire at line 0xe6
-	if (!m_vint_out_cb.isnull())
+	if (!m_vint_out_cb.isunset())
 		m_raise_irq_timer->adjust(screen().time_until_pos(0xe6));
 }
 

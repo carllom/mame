@@ -28,8 +28,8 @@ public:
 	virtual ~menu_input_groups() override;
 
 private:
-	virtual void populate(float &customtop, float &custombottom) override;
-	virtual void handle(event const *ev) override;
+	virtual void populate() override;
+	virtual bool handle(event const *ev) override;
 };
 
 
@@ -58,13 +58,15 @@ protected:
 		const device_t *    owner = nullptr;            // pointer to the owner of the item
 		ioport_group        group = IPG_INVALID;        // group type
 		uint8_t             type = 0U;                  // type of port
-		bool                is_optional = false;        // true if this input is considered optional
 	};
 	using data_vector = std::vector<input_item_data>;
 
 	menu_input(mame_ui_manager &mui, render_container &container);
 
-	void populate_sorted(float &customtop, float &custombottom);
+	virtual void recompute_metrics(uint32_t width, uint32_t height, float aspect) override;
+	virtual void custom_render(uint32_t flags, void *selectedref, float top, float bottom, float origx1, float origy1, float origx2, float origy2) override;
+
+	void populate_sorted();
 	void toggle_none_default(input_seq &selected_seq, input_seq &original_seq, const input_seq &selected_defseq);
 
 	data_vector data;
@@ -81,8 +83,7 @@ private:
 	osd_ticks_t modified_ticks;
 	input_seq starting_seq;
 
-	virtual void custom_render(void *selectedref, float top, float bottom, float x1, float y1, float x2, float y2) override;
-	virtual void handle(event const *ev) override;
+	virtual bool handle(event const *ev) override;
 	virtual void update_input(input_item_data &seqchangeditem) = 0;
 };
 
@@ -97,7 +98,7 @@ protected:
 	virtual void menu_activated() override;
 
 private:
-	virtual void populate(float &customtop, float &custombottom) override;
+	virtual void populate() override;
 	virtual void update_input(input_item_data &seqchangeditem) override;
 
 	const int group;
@@ -114,7 +115,7 @@ protected:
 	virtual void menu_activated() override;
 
 private:
-	virtual void populate(float &customtop, float &custombottom) override;
+	virtual void populate() override;
 	virtual void update_input(input_item_data &seqchangeditem) override;
 };
 

@@ -18,7 +18,7 @@ ROM hacking, or just investigating how software works.
 
 Use the ``-debug`` command line option to start MAME with the debugger
 activated.  By default, pressing the backtick/tilde (**~**) during
-emulation breaks into the debugger (this can by changed by reassigning
+emulation breaks into the debugger (this can be changed by reassigning
 the **Break in Debugger** input).
 
 The exact appearance of the debugger depends on your operating system
@@ -50,6 +50,7 @@ name of a command, to see documentation directly in MAME.
     breakpoint
     watchpoint
     registerpoints
+    exceptionpoint
     annotation
     cheats
     image
@@ -157,6 +158,10 @@ Examples:
     Address 9660 in the default address space of the device with the
     absolute tag ``:ram``, or the ``ram`` space of the root machine
     device.
+``1883:vram.m``
+    Address 1883 in the memory region with the absolute tag ``:vram``.
+``1923:sprites.s``
+    Address 1923 in the memory share with the absolute tag ``:sprites``.
 
 The examples here include a lot of corner cases, but in general the
 debugger should take the most likely meaning for a device or address
@@ -190,7 +195,7 @@ precedence:
     Addition, subtraction
 ``<<`` ``>>``
     Bitwise left/right shift
-``< ``<=`` ``>`` ``>=``
+``<`` ``<=`` ``>`` ``>=``
     Less than, less than or equal, greater than, greater than or equal
 ``==`` ``!=``
     Equal, not equal
@@ -238,7 +243,7 @@ Examples:
 * ``0x123`` is 123 hexadecimal (291 decimal)
 * ``#123`` is 123 decimal
 * ``0o123`` is 123 octal (83 decimal)
-* ``0b1001`` is is 1001 binary (9 decimal)
+* ``0b1001`` is 1001 binary (9 decimal)
 * ``0b123`` is invalid
 
 
@@ -326,6 +331,7 @@ The size may optionally be preceded by an access type specification:
 * ``o`` specifies direct read/write pointer access defaulting to space 3
   (opcodes)
 * ``m`` specifies a memory region
+* ``s`` specifies a memory share
 
 Finally, this may be preceded by a tag and/or address space name
 followed by a dot (``.``).
@@ -359,7 +365,7 @@ Adding access types gives additional possibilities:
     suppressing side effects
 ``id@400``
     Refers to the double word at 400 in the I/O space of the current CPU
-    CPU while suppressing side effects
+    while suppressing side effects
 ``ppd!<addr>``
     Refers to the double word at physical address **<addr>** in the
     program space of the current CPU while not suppressing side effects
@@ -417,8 +423,8 @@ abs(<x>)
     absolute value.
 bit(<x>, <n>[, <w>])
     Extracts and right-aligns a bit field **<w>** bits wide from **<x>**
-    with least significant bit position position **<n>**, counting from
-    the least significant bit.  If **<w>** is omitted, a single bit is
+    with least significant bit position **<n>**, counting from the
+    least significant bit.  If **<w>** is omitted, a single bit is
     extracted.
 s8(<x>)
     Sign-extends the argument from 8 bits to 64 bits (overwrites bits 8

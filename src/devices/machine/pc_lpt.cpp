@@ -29,8 +29,6 @@ pc_lpt_device::pc_lpt_device(const machine_config &mconfig, const char *tag, dev
 
 void pc_lpt_device::device_start()
 {
-	m_irq_handler.resolve_safe();
-
 	save_item(NAME(m_irq));
 	save_item(NAME(m_data));
 	save_item(NAME(m_control));
@@ -130,6 +128,13 @@ void pc_lpt_device::write(offs_t offset, uint8_t data)
 	case 1: break;
 	case 2: control_w(data); break;
 	}
+}
+
+void pc_lpt_device::isa_map(address_map &map)
+{
+	map(0x00, 0x00).rw(FUNC(pc_lpt_device::data_r), FUNC(pc_lpt_device::data_w));
+	map(0x01, 0x01).r(FUNC(pc_lpt_device::status_r));
+	map(0x02, 0x02).rw(FUNC(pc_lpt_device::control_r), FUNC(pc_lpt_device::control_w));
 }
 
 void pc_lpt_device::update_irq()

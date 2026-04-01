@@ -1,48 +1,71 @@
 // license:BSD-3-Clause
 // copyright-holders:Curt Coder
-/**********************************************************************
+/*******************************************************************************
 
-    Victor 9000 / ACT Sirius 1 emulation
+Victor 9000 / ACT Sirius 1 emulation
 
-**********************************************************************/
+TODO:
+- contrast
+- expansion bus:
+  * Z80 card
+  * RAM cards
+  * clock cards
 
-/*
-
-    TODO:
-
-    - contrast
-    - MC6852
-    - codec sound
-    - expansion bus
-        - Z80 card
-        - Winchester DMA card (Xebec S1410 + Tandon TM502/TM603SE)
-        - RAM cards
-        - clock cards
-    - floppy 8048
-
-*/
+*******************************************************************************/
 
 #include "emu.h"
+
+#include "victor9k_fdc.h"
+#include "victor9k_hdc.h"
+#include "victor9k_kb.h"
+
 #include "bus/centronics/ctronics.h"
 #include "bus/ieee488/ieee488.h"
+#include "bus/nscsi/s1410.h"
 #include "bus/rs232/rs232.h"
 #include "cpu/i86/i86.h"
-#include "formats/victor9k_dsk.h"
 #include "imagedev/floppy.h"
 #include "machine/6522via.h"
 #include "machine/mc6852.h"
-#include "machine/pit8253.h"
 #include "machine/pic8259.h"
+#include "machine/pit8253.h"
 #include "machine/ram.h"
-#include "victor9k_kb.h"
-#include "victor9k_fdc.h"
+#include "machine/rescap.h"
 #include "machine/z80sio.h"
+#include "sound/flt_biquad.h"
 #include "sound/hc55516.h"
 #include "video/mc6845.h"
+
 #include "emupal.h"
 #include "screen.h"
 #include "softlist_dev.h"
 #include "speaker.h"
+
+#include "formats/victor9k_dsk.h"
+
+#include <iostream>
+
+//******************************************************************************
+//  LOGGING
+//******************************************************************************
+
+#define LOG_CONF      (1U << 1)
+#define LOG_KEYBOARD  (1U << 2)
+#define LOG_DISPLAY   (1U << 3)
+
+//#define VERBOSE (LOG_CONF|LOG_DISPLAY|LOG_KEYBOARD)
+//#define LOG_OUTPUT_STREAM std::cout
+
+#include "logmacro.h"
+
+#define LOGCONF(...)     LOGMASKED(LOG_CONF,  __VA_ARGS__)
+#define LOGKEYBOARD(...) LOGMASKED(LOG_KEYBOARD,  __VA_ARGS__)
+#define LOGDISPLAY(...)  LOGMASKED(LOG_DISPLAY,  __VA_ARGS__)
+
+
+//******************************************************************************
+//  MACROS
+//******************************************************************************
 
 #define I8088_TAG       "8l"
 #define I8253_TAG       "13h"
@@ -61,6 +84,9 @@
 #define SCREEN_TAG      "screen"
 #define KB_TAG          "kb"
 
+
+namespace {
+
 class victor9k_state : public driver_device
 {
 public:
@@ -69,6 +95,7 @@ public:
 		m_maincpu(*this, I8088_TAG),
 		m_ieee488(*this, IEEE488_TAG),
 		m_pic(*this, I8259A_TAG),
+		m_pit(*this, I8253_TAG),
 		m_upd7201(*this, UPD7201_TAG),
 		m_ssda(*this, MC6852_TAG),
 		m_via1(*this, M6522_1_TAG),
@@ -77,16 +104,22 @@ public:
 		m_cvsd(*this, HC55516_TAG),
 		m_crtc(*this, HD46505S_TAG),
 		m_ram(*this, RAM_TAG),
+		m_cvsd_filter(*this, "cvsd_filter"),
+		m_cvsd_filter2(*this, "cvsd_filter2"),
 		m_kb(*this, KB_TAG),
 		m_fdc(*this, "fdc"),
+		m_scsibus(*this, "scsi"),
+		m_hdc(*this, "v9kdmaib"),
 		m_centronics(*this, "centronics"),
 		m_rs232a(*this, RS232_A_TAG),
 		m_rs232b(*this, RS232_B_TAG),
 		m_palette(*this, "palette"),
+		m_screen(*this, SCREEN_TAG),
 		m_rom(*this, I8088_TAG),
 		m_video_ram(*this, "video_ram"),
 		m_brt(0),
 		m_cont(0),
+		m_hires(0),
 		m_via1_irq(CLEAR_LINE),
 		m_via2_irq(CLEAR_LINE),
 		m_via3_irq(CLEAR_LINE),
@@ -98,10 +131,16 @@ public:
 
 	void victor9k(machine_config &config);
 
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+
 private:
+	// devices
 	required_device<cpu_device> m_maincpu;
 	required_device<ieee488_device> m_ieee488;
 	required_device<pic8259_device> m_pic;
+	required_device<pit8253_device> m_pit;
 	required_device<upd7201_device> m_upd7201;
 	required_device<mc6852_device> m_ssda;
 	required_device<via6522_device> m_via1;
@@ -110,47 +149,19 @@ private:
 	required_device<hc55516_device> m_cvsd;
 	required_device<mc6845_device> m_crtc;
 	required_device<ram_device> m_ram;
+	optional_device<filter_biquad_device> m_cvsd_filter;
+	optional_device<filter_biquad_device> m_cvsd_filter2;
 	required_device<victor_9000_keyboard_device> m_kb;
 	required_device<victor_9000_fdc_device> m_fdc;
+	required_device<nscsi_bus_device> m_scsibus;
+	required_device<victor_9000_hdc_device> m_hdc;
 	required_device<centronics_device> m_centronics;
 	required_device<rs232_port_device> m_rs232a;
 	required_device<rs232_port_device> m_rs232b;
 	required_device<palette_device> m_palette;
+	required_device<screen_device> m_screen;
 	required_memory_region m_rom;
 	required_shared_ptr<uint8_t> m_video_ram;
-
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-
-	void via1_pa_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER( write_nfrd );
-	DECLARE_WRITE_LINE_MEMBER( write_ndac );
-	void via1_pb_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER( via1_irq_w );
-	DECLARE_WRITE_LINE_MEMBER( codec_vol_w );
-
-	void via2_pa_w(uint8_t data);
-	void via2_pb_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER( via2_irq_w );
-
-	void via3_pb_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER( via3_irq_w );
-
-	DECLARE_WRITE_LINE_MEMBER( fdc_irq_w );
-
-	DECLARE_WRITE_LINE_MEMBER( ssda_irq_w );
-	DECLARE_WRITE_LINE_MEMBER( ssda_sm_dtr_w );
-
-	DECLARE_WRITE_LINE_MEMBER( kbrdy_w );
-	DECLARE_WRITE_LINE_MEMBER( kbdata_w );
-	DECLARE_WRITE_LINE_MEMBER( vert_w );
-
-	MC6845_UPDATE_ROW( crtc_update_row );
-
-	DECLARE_WRITE_LINE_MEMBER( mux_serial_b_w );
-	DECLARE_WRITE_LINE_MEMBER( mux_serial_a_w );
-
-	void victor9k_palette(palette_device &palette) const;
 
 	// video state
 	int m_brt;
@@ -168,24 +179,48 @@ private:
 	int m_kbrdy;
 	int m_kbackctl;
 
+	void via1_pa_w(uint8_t data);
+	void write_nfrd(int state);
+	void write_ndac(int state);
+	void via1_pb_w(uint8_t data);
+	void via1_irq_w(int state);
+	void codec_vol_w(int state);
+
+	void via2_pa_w(uint8_t data);
+	void via2_pb_w(uint8_t data);
+	void via2_irq_w(int state);
+
+	void via3_pb_w(uint8_t data);
+	void via3_irq_w(int state);
+
+	void fdc_irq_w(int state);
+
+	void ssda_irq_w(int state);
+	void ssda_sm_dtr_w(int state);
+
+	void kbrdy_w(int state);
+	void kbdata_w(int state);
+	void vert_w(int state);
+
+	uint8_t hd_dma_r(offs_t offset);
+	void hd_dma_w(offs_t offset, uint8_t data);
+
+	MC6845_UPDATE_ROW( crtc_update_row );
+	MC6845_BEGIN_UPDATE( crtc_begin_update );
+
+	void victor9k_palette(palette_device &palette) const;
+
 	void update_kback();
 
-	void victor9k_mem(address_map &map);
+	static void scsi_devices(device_slot_interface &device);
+
+	void victor9k_mem(address_map &map) ATTR_COLD;
 };
 
 
-
-//**************************************************************************
-//  MACROS / CONSTANTS
-//**************************************************************************
-
-#define LOG 0
-
-
-
-//**************************************************************************
+//******************************************************************************
 //  ADDRESS MAPS
-//**************************************************************************
+//******************************************************************************
 
 //-------------------------------------------------
 //  ADDRESS_MAP( victor9k_mem )
@@ -195,27 +230,28 @@ void victor9k_state::victor9k_mem(address_map &map)
 {
 	map(0x00000, 0x1ffff).ram();
 	map(0x20000, 0xdffff).noprw();
-	map(0xe0000, 0xe0001).mirror(0x7f00).rw(m_pic, FUNC(pic8259_device::read), FUNC(pic8259_device::write));
-	map(0xe0020, 0xe0023).mirror(0x7f00).rw(I8253_TAG, FUNC(pit8253_device::read), FUNC(pit8253_device::write));
-	map(0xe0040, 0xe0043).mirror(0x7f00).rw(m_upd7201, FUNC(upd7201_device::cd_ba_r), FUNC(upd7201_device::cd_ba_w));
-	map(0xe8000, 0xe8000).mirror(0x7f00).rw(m_crtc, FUNC(mc6845_device::status_r), FUNC(mc6845_device::address_w));
-	map(0xe8001, 0xe8001).mirror(0x7f00).rw(m_crtc, FUNC(mc6845_device::register_r), FUNC(mc6845_device::register_w));
-	map(0xe8020, 0xe802f).mirror(0x7f00).m(m_via1, FUNC(via6522_device::map));
-	map(0xe8040, 0xe804f).mirror(0x7f00).m(m_via2, FUNC(via6522_device::map));
-	map(0xe8060, 0xe8061).mirror(0x7f00).rw(m_ssda, FUNC(mc6852_device::read), FUNC(mc6852_device::write));
-	map(0xe8080, 0xe808f).mirror(0x7f00).m(m_via3, FUNC(via6522_device::map));
-	map(0xe80a0, 0xe80af).mirror(0x7f00).rw(m_fdc, FUNC(victor_9000_fdc_device::cs5_r), FUNC(victor_9000_fdc_device::cs5_w));
-	map(0xe80c0, 0xe80cf).mirror(0x7f00).rw(m_fdc, FUNC(victor_9000_fdc_device::cs6_r), FUNC(victor_9000_fdc_device::cs6_w));
-	map(0xe80e0, 0xe80ef).mirror(0x7f00).rw(m_fdc, FUNC(victor_9000_fdc_device::cs7_r), FUNC(victor_9000_fdc_device::cs7_w));
+	map(0xe0000, 0xe0001).rw(m_pic, FUNC(pic8259_device::read), FUNC(pic8259_device::write));
+	map(0xe0020, 0xe0023).rw(m_pit, FUNC(pit8253_device::read), FUNC(pit8253_device::write));
+	map(0xe0040, 0xe0043).rw(m_upd7201, FUNC(upd7201_device::cd_ba_r), FUNC(upd7201_device::cd_ba_w));
+	map(0xe8000, 0xe8000).rw(m_crtc, FUNC(mc6845_device::status_r), FUNC(mc6845_device::address_w));
+	map(0xe8001, 0xe8001).rw(m_crtc, FUNC(mc6845_device::register_r), FUNC(mc6845_device::register_w));
+	map(0xe8020, 0xe802f).m(m_via1, FUNC(via6522_device::map));
+	map(0xe8040, 0xe804f).m(m_via2, FUNC(via6522_device::map));
+	map(0xe8060, 0xe8061).rw(m_ssda, FUNC(mc6852_device::read), FUNC(mc6852_device::write));
+	map(0xe8080, 0xe808f).m(m_via3, FUNC(via6522_device::map));
+	map(0xe80a0, 0xe80af).rw(m_fdc, FUNC(victor_9000_fdc_device::cs5_r), FUNC(victor_9000_fdc_device::cs5_w));
+	map(0xe80c0, 0xe80cf).rw(m_fdc, FUNC(victor_9000_fdc_device::cs6_r), FUNC(victor_9000_fdc_device::cs6_w));
+	map(0xe80e0, 0xe80ef).rw(m_fdc, FUNC(victor_9000_fdc_device::cs7_r), FUNC(victor_9000_fdc_device::cs7_w));
+	map(0xef300, 0xef3ff).rw(m_hdc, FUNC(victor_9000_hdc_device::read), FUNC(victor_9000_hdc_device::write));
 	map(0xf0000, 0xf0fff).mirror(0x1000).ram().share("video_ram");
 	map(0xf8000, 0xf9fff).mirror(0x6000).rom().region(I8088_TAG, 0);
 }
 
 
 
-//**************************************************************************
+//******************************************************************************
 //  INPUT PORTS
-//**************************************************************************
+//******************************************************************************
 
 //-------------------------------------------------
 //  INPUT_PORTS( victor9k )
@@ -227,9 +263,9 @@ INPUT_PORTS_END
 
 
 
-//**************************************************************************
+//******************************************************************************
 //  DEVICE CONFIGURATION
-//**************************************************************************
+//******************************************************************************
 
 //-------------------------------------------------
 //  MC6845
@@ -245,13 +281,6 @@ MC6845_UPDATE_ROW( victor9k_state::crtc_update_row )
 	int hires = BIT(ma, 13);
 	int dot_addr = BIT(ma, 12);
 	int width = hires ? 16 : 10;
-
-	if (m_hires != hires)
-	{
-		m_hires = hires;
-		m_crtc->set_unscaled_clock(XTAL(30'000'000) / width);
-		m_crtc->set_hpixels_per_column(width);
-	}
 
 	address_space &program = m_maincpu->space(AS_PROGRAM);
 	const rgb_t *palette = m_palette->palette()->entry_list_raw();
@@ -312,20 +341,25 @@ MC6845_UPDATE_ROW( victor9k_state::crtc_update_row )
 	}
 }
 
-WRITE_LINE_MEMBER(victor9k_state::vert_w)
+MC6845_BEGIN_UPDATE( victor9k_state::crtc_begin_update )
+{
+	uint16_t ma = m_crtc->get_ma();
+	int hires = BIT(ma, 13);
+	int width = hires ? 16 : 10;
+	if (hires != m_hires)
+	{
+		//LOGDISPLAY("mc6845 begin update change resolution: %s\n", hires ? "high" : "low");
+		m_crtc->set_hpixels_per_column(width);
+		m_crtc->set_char_width(width);
+		//m_crtc->set_visarea_adjust(0, 0, 0, 10);  //show line 25
+		m_hires = hires;
+	}
+}
+
+void victor9k_state::vert_w(int state)
 {
 	m_via2->write_pa7(state);
 	m_pic->ir7_w(state);
-}
-
-
-
-WRITE_LINE_MEMBER(victor9k_state::mux_serial_b_w)
-{
-}
-
-WRITE_LINE_MEMBER(victor9k_state::mux_serial_a_w)
-{
 }
 
 //-------------------------------------------------
@@ -351,7 +385,7 @@ WRITE_LINE_MEMBER(victor9k_state::mux_serial_a_w)
 //  MC6852_INTERFACE( ssda_intf )
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER( victor9k_state::ssda_irq_w )
+void victor9k_state::ssda_irq_w(int state)
 {
 	m_ssda_irq = state;
 
@@ -359,11 +393,16 @@ WRITE_LINE_MEMBER( victor9k_state::ssda_irq_w )
 }
 
 
-WRITE_LINE_MEMBER( victor9k_state::ssda_sm_dtr_w )
+void victor9k_state::ssda_sm_dtr_w(int state)
 {
 	m_ssda->cts_w(state);
 	m_ssda->dcd_w(!state);
-	//m_cvsd->enc_dec_w(!state);
+
+	/*
+	 * We're supposed to set the _ENC/DEC input of the HC55516 to !state,
+	 * but only playback/decode is currently supported, and that input
+	 * is not implemenented.
+	 */
 }
 
 
@@ -398,13 +437,13 @@ void victor9k_state::via1_pa_w(uint8_t data)
 	m_ieee488->host_dio_w(data);
 }
 
-DECLARE_WRITE_LINE_MEMBER( victor9k_state::write_nfrd )
+void victor9k_state::write_nfrd(int state)
 {
 	m_via1->write_pb6(state);
 	m_via1->write_ca1(state);
 }
 
-DECLARE_WRITE_LINE_MEMBER( victor9k_state::write_ndac )
+void victor9k_state::write_ndac(int state)
 {
 	m_via1->write_pb7(state);
 	m_via1->write_ca2(state);
@@ -441,11 +480,11 @@ void victor9k_state::via1_pb_w(uint8_t data)
 	m_ieee488->host_ndac_w(BIT(data, 7));
 }
 
-WRITE_LINE_MEMBER( victor9k_state::codec_vol_w )
+void victor9k_state::codec_vol_w(int state)
 {
 }
 
-WRITE_LINE_MEMBER( victor9k_state::via1_irq_w )
+void victor9k_state::via1_irq_w(int state)
 {
 	m_via1_irq = state;
 
@@ -504,10 +543,10 @@ void victor9k_state::via2_pb_w(uint8_t data)
 	// contrast
 	m_cont = data >> 5;
 
-	if (LOG) logerror("BRT %u CONT %u\n", m_brt, m_cont);
+	LOGDISPLAY("BRT %u CONT %u\n", m_brt, m_cont);
 }
 
-WRITE_LINE_MEMBER( victor9k_state::via2_irq_w )
+void victor9k_state::via2_irq_w(int state)
 {
 	m_via2_irq = state;
 
@@ -549,7 +588,7 @@ void victor9k_state::via3_pb_w(uint8_t data)
 	m_cvsd->clock_w(!BIT(data, 7));
 }
 
-WRITE_LINE_MEMBER( victor9k_state::via3_irq_w )
+void victor9k_state::via3_irq_w(int state)
 {
 	m_via3_irq = state;
 
@@ -561,9 +600,9 @@ WRITE_LINE_MEMBER( victor9k_state::via3_irq_w )
 //  VICTOR9K_KEYBOARD_INTERFACE( kb_intf )
 //-------------------------------------------------
 
-WRITE_LINE_MEMBER( victor9k_state::kbrdy_w )
+void victor9k_state::kbrdy_w(int state)
 {
-	if (LOG) logerror("KBRDY %u\n", state);
+	LOGKEYBOARD("KBRDY %u\n", state);
 
 	m_via2->write_cb1(state);
 
@@ -571,26 +610,37 @@ WRITE_LINE_MEMBER( victor9k_state::kbrdy_w )
 	update_kback();
 }
 
-WRITE_LINE_MEMBER( victor9k_state::kbdata_w )
+void victor9k_state::kbdata_w(int state)
 {
-	if (LOG) logerror("KBDATA %u\n", state);
+	LOGKEYBOARD("KBDATA %u\n", state);
 
 	m_via2->write_cb2(state);
 	m_via2->write_pa6(state);
 }
 
 
-WRITE_LINE_MEMBER( victor9k_state::fdc_irq_w )
+void victor9k_state::fdc_irq_w(int state)
 {
 	m_fdc_irq = state;
 
 	m_pic->ir3_w(m_ssda_irq || m_via1_irq || m_via3_irq || m_fdc_irq);
 }
 
+uint8_t victor9k_state::hd_dma_r(offs_t offset)
+{
+	address_space &program = m_maincpu->space(AS_PROGRAM);
+	return program.read_byte(offset);
+}
 
-//**************************************************************************
+void victor9k_state::hd_dma_w(offs_t offset, uint8_t data)
+{
+	address_space &program = m_maincpu->space(AS_PROGRAM);
+	program.write_byte(offset, data);
+}
+
+//******************************************************************************
 //  MACHINE INITIALIZATION
-//**************************************************************************
+//******************************************************************************
 
 void victor9k_state::victor9k_palette(palette_device &palette) const
 {
@@ -600,20 +650,20 @@ void victor9k_state::victor9k_palette(palette_device &palette) const
 	// BRT1 39K
 	// BRT2 20K
 	// 12V 220K pullup
-	palette.set_pen_color(1, rgb_t(0x00, 0x10, 0x00));
-	palette.set_pen_color(2, rgb_t(0x00, 0x20, 0x00));
-	palette.set_pen_color(3, rgb_t(0x00, 0x40, 0x00));
-	palette.set_pen_color(4, rgb_t(0x00, 0x60, 0x00));
-	palette.set_pen_color(5, rgb_t(0x00, 0x80, 0x00));
-	palette.set_pen_color(6, rgb_t(0x00, 0xa0, 0x00));
-	palette.set_pen_color(7, rgb_t(0x00, 0xc0, 0x00));
-	palette.set_pen_color(8, rgb_t(0x00, 0xff, 0x00));
+	palette.set_pen_color(1, rgb_t(0x00, 0x10, 0x04));
+	palette.set_pen_color(2, rgb_t(0x00, 0x20, 0x09));
+	palette.set_pen_color(3, rgb_t(0x00, 0x40, 0x11));
+	palette.set_pen_color(4, rgb_t(0x00, 0x60, 0x1a));
+	palette.set_pen_color(5, rgb_t(0x00, 0x80, 0x23));
+	palette.set_pen_color(6, rgb_t(0x00, 0xa0, 0x2c));
+	palette.set_pen_color(7, rgb_t(0x00, 0xc0, 0x34));
+	palette.set_pen_color(8, rgb_t(0x00, 0xff, 0x45));
 
 	// CONT0 620R
 	// CONT1 332R
 	// CONT2 162R
 	// 12V 110R pullup
-	palette.set_pen_color(9, rgb_t(0xff, 0x00, 0x00));
+	palette.set_pen_color(9, rgb_t(0x00, 0xff, 0x45));
 }
 
 void victor9k_state::machine_start()
@@ -631,6 +681,7 @@ void victor9k_state::machine_start()
 
 #ifndef USE_SCP
 	// patch out SCP self test
+	LOGCONF("patch out SCP self test");
 	m_rom->base()[0x11ab] = 0xc3;
 
 	// patch out ROM checksum error
@@ -639,6 +690,20 @@ void victor9k_state::machine_start()
 	m_rom->base()[0x1d53] = 0x90;
 	m_rom->base()[0x1d54] = 0x90;
 #endif
+
+	//update RAM for ramsize
+	int m_ram_size = m_ram->size();
+	u8 *m_ram_ptr = m_ram->pointer();
+
+	int ramsize = m_ram_size;
+	if (ramsize > 0)
+	{
+		address_space& space = m_maincpu->space(AS_PROGRAM);
+		if (ramsize > 0xdffff)   //the 896KB option overlaps 1 bit with
+			ramsize = 0xdffff;   //the I/O memory space, truncating
+		LOGCONF("install_ram ramsize %x\n", ramsize);
+		space.install_ram(0x0, ramsize, m_ram_ptr);
+	}
 }
 
 void victor9k_state::machine_reset()
@@ -655,44 +720,53 @@ void victor9k_state::machine_reset()
 
 
 
-//**************************************************************************
+//******************************************************************************
 //  MACHINE CONFIGURATION
-//**************************************************************************
+//******************************************************************************
 
 //-------------------------------------------------
 //  machine_config( victor9k )
 //-------------------------------------------------
 
+void victor9k_state::scsi_devices(device_slot_interface &device)
+{
+	device.option_add("harddisk", NSCSI_S1410);
+}
+
 void victor9k_state::victor9k(machine_config &config)
 {
 	// basic machine hardware
-	I8088(config, m_maincpu, XTAL(30'000'000)/6);
+	I8088(config, m_maincpu, 15_MHz_XTAL / 3);
 	m_maincpu->set_addrmap(AS_PROGRAM, &victor9k_state::victor9k_mem);
 	m_maincpu->set_irq_acknowledge_callback(I8259A_TAG, FUNC(pic8259_device::inta_cb));
 
 	// video hardware
-	screen_device &screen(SCREEN(config, SCREEN_TAG, SCREEN_TYPE_RASTER));
-	screen.set_color(rgb_t::green());
-	screen.set_refresh_hz(50);
-	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); // not accurate
-	screen.set_screen_update(HD46505S_TAG, FUNC(hd6845s_device::screen_update));
-	screen.set_size(640, 480);
-	screen.set_visarea(0, 640-1, 0, 480-1);
+	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
+	m_screen->set_color(rgb_t::green());
+	m_screen->set_refresh_hz(72);
+	m_screen->set_vblank_time(ATTOSECONDS_IN_USEC(1200));
+	m_screen->set_size(800, 400);
+	m_screen->set_visarea(0, 799, 0, 399);
+	m_screen->set_screen_update(HD46505S_TAG, FUNC(hd6845s_device::screen_update));
 
 	PALETTE(config, m_palette, FUNC(victor9k_state::victor9k_palette), 16);
-
-	HD6845S(config, m_crtc, XTAL(30'000'000)/10); // HD6845 == HD46505S
+	HD6845S(config, m_crtc, 15_MHz_XTAL / 10); // HD6845 == HD46505S
 	m_crtc->set_screen(SCREEN_TAG);
-	m_crtc->set_show_border_area(true);
+	m_crtc->set_show_border_area(false);
 	m_crtc->set_char_width(10);
+	m_crtc->set_visarea_adjust(0, 0, 0, 10);  //show line 25
+
 	m_crtc->set_update_row_callback(FUNC(victor9k_state::crtc_update_row));
 	m_crtc->out_vsync_callback().set(FUNC(victor9k_state::vert_w));
+	m_crtc->set_begin_update_callback(FUNC(victor9k_state::crtc_begin_update));
 
 	// sound hardware
+	FILTER_BIQUAD(config, m_cvsd_filter2).opamp_mfb_lowpass_setup(RES_K(27), RES_K(15), RES_K(27), CAP_P(4700), CAP_P(1200));
+	FILTER_BIQUAD(config, m_cvsd_filter).opamp_mfb_lowpass_setup(RES_K(43), RES_K(36), RES_K(180), CAP_P(1800), CAP_P(180));
+	HC55516(config, m_cvsd, 0).add_route(ALL_OUTPUTS, m_cvsd_filter, 1.0);
+	m_cvsd_filter->add_route(ALL_OUTPUTS, m_cvsd_filter2, 1.0);
+	m_cvsd_filter2->add_route(ALL_OUTPUTS, "mono", 0.25);
 	SPEAKER(config, "mono").front_center();
-	HC55516(config, m_cvsd, 0);
-	//MCFG_HC55516_DIG_OUT_CB(WRITELINE(MC6852_TAG, mc6852_device, rx_w))
-	m_cvsd->add_route(ALL_OUTPUTS, "mono", 0.25);
 
 	// devices
 	IEEE488(config, m_ieee488, 0);
@@ -709,15 +783,17 @@ void victor9k_state::victor9k(machine_config &config)
 	PIC8259(config, m_pic, 0);
 	m_pic->out_int_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
 
-	pit8253_device &pit(PIT8253(config, I8253_TAG, 0));
-	pit.set_clk<0>(2500000);
-	pit.out_handler<0>().set(FUNC(victor9k_state::mux_serial_b_w));
-	pit.set_clk<1>(2500000);
-	pit.out_handler<1>().set(FUNC(victor9k_state::mux_serial_a_w));
-	pit.set_clk<2>(100000);
-	pit.out_handler<2>().set(I8259A_TAG, FUNC(pic8259_device::ir2_w));
+	PIT8253(config, m_pit, 0);
+	m_pit->set_clk<0>(15_MHz_XTAL / 12);
+	m_pit->out_handler<0>().set(m_upd7201, FUNC(upd7201_device::rxca_w));
+	m_pit->out_handler<0>().append(m_upd7201, FUNC(upd7201_device::txca_w));
+	m_pit->set_clk<1>(15_MHz_XTAL / 12);
+	m_pit->out_handler<1>().set(m_upd7201, FUNC(upd7201_device::rxcb_w));
+	m_pit->out_handler<1>().append(m_upd7201, FUNC(upd7201_device::txcb_w));
+	m_pit->set_clk<2>(125000);
+	m_pit->out_handler<2>().set(I8259A_TAG, FUNC(pic8259_device::ir2_w));
 
-	UPD7201(config, m_upd7201, XTAL(30'000'000)/30);
+	UPD7201(config, m_upd7201, 15_MHz_XTAL / 6);
 	m_upd7201->out_txda_callback().set(RS232_A_TAG, FUNC(rs232_port_device::write_txd));
 	m_upd7201->out_dtra_callback().set(RS232_A_TAG, FUNC(rs232_port_device::write_dtr));
 	m_upd7201->out_rtsa_callback().set(RS232_A_TAG, FUNC(rs232_port_device::write_rts));
@@ -726,24 +802,24 @@ void victor9k_state::victor9k(machine_config &config)
 	m_upd7201->out_rtsb_callback().set(RS232_B_TAG, FUNC(rs232_port_device::write_rts));
 	m_upd7201->out_int_callback().set(I8259A_TAG, FUNC(pic8259_device::ir1_w));
 
-	MC6852(config, m_ssda, XTAL(30'000'000)/30);
+	MC6852(config, m_ssda, 15_MHz_XTAL / 15);
 	m_ssda->tx_data_callback().set(HC55516_TAG, FUNC(hc55516_device::digit_w));
 	m_ssda->sm_dtr_callback().set(FUNC(victor9k_state::ssda_sm_dtr_w));
 	m_ssda->irq_callback().set(FUNC(victor9k_state::ssda_irq_w));
 
-	MOS6522(config, m_via1, XTAL(30'000'000)/30);
+	MOS6522(config, m_via1, 15_MHz_XTAL / 15);
 	m_via1->readpa_handler().set(IEEE488_TAG, FUNC(ieee488_device::dio_r));
 	m_via1->writepa_handler().set(FUNC(victor9k_state::via1_pa_w));
 	m_via1->writepb_handler().set(FUNC(victor9k_state::via1_pb_w));
 	m_via1->cb2_handler().set(FUNC(victor9k_state::codec_vol_w));
 	m_via1->irq_handler().set(FUNC(victor9k_state::via1_irq_w));
 
-	MOS6522(config, m_via2, XTAL(30'000'000)/30);
+	MOS6522(config, m_via2, 15_MHz_XTAL / 15);
 	m_via2->writepa_handler().set(FUNC(victor9k_state::via2_pa_w));
 	m_via2->writepb_handler().set(FUNC(victor9k_state::via2_pb_w));
 	m_via2->irq_handler().set(FUNC(victor9k_state::via2_irq_w));
 
-	MOS6522(config, m_via3, XTAL(30'000'000)/30);
+	MOS6522(config, m_via3, 15_MHz_XTAL / 15);
 	m_via3->writepb_handler().set(FUNC(victor9k_state::via3_pb_w));
 	m_via3->irq_handler().set(FUNC(victor9k_state::via3_irq_w));
 
@@ -775,16 +851,31 @@ void victor9k_state::victor9k(machine_config &config)
 	m_fdc->syn_wr_callback().set(I8259A_TAG, FUNC(pic8259_device::ir0_w)).invert();
 	m_fdc->lbrdy_wr_callback().set_inputline(I8088_TAG, INPUT_LINE_TEST).invert();
 
-	RAM(config, m_ram).set_default_size("128K");
+	NSCSI_BUS(config, m_scsibus);
+	NSCSI_CONNECTOR(config, "scsi:0", scsi_devices, "harddisk", false);
+	NSCSI_CONNECTOR(config, "scsi:1", scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:2", scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:3", scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:4", scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:5", scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:6", scsi_devices, nullptr);
+
+	VICTOR_9000_HDC(config, m_hdc, 15_MHz_XTAL / 3);
+	m_scsibus->set_external_device(7, m_hdc);
+	m_hdc->irq_handler().append(m_pic, FUNC(pic8259_device::ir4_w));
+	m_hdc->dma_read().set(DEVICE_SELF, FUNC(victor9k_state::hd_dma_r));
+	m_hdc->dma_write().set(DEVICE_SELF, FUNC(victor9k_state::hd_dma_w));
+
+	RAM(config, m_ram).set_default_size("128K").set_extra_options("128K,256K,512K,640K,768K,896K");
 
 	SOFTWARE_LIST(config, "flop_list").set_original("victor9k_flop");
 }
 
 
 
-//**************************************************************************
+//******************************************************************************
 //  ROMS
-//**************************************************************************
+//******************************************************************************
 
 //-------------------------------------------------
 //  ROM( victor9k )
@@ -801,11 +892,12 @@ ROM_START( victor9k )
 	ROMX_LOAD( "v9000 univ. ff f3f7 39fe.8j", 0x1000, 0x1000, CRC(496c7467) SHA1(eccf428f62ef94ab85f4a43ba59ae6a066244a66), ROM_BIOS(1) )
 ROM_END
 
+} // anonymous namespace
 
 
-//**************************************************************************
+//******************************************************************************
 //  SYSTEM DRIVERS
-//**************************************************************************
+//******************************************************************************
 
 //    YEAR  NAME      PARENT  COMPAT  MACHINE   INPUT     CLASS           INIT        COMPANY                     FULLNAME       FLAGS
-COMP( 1982, victor9k, 0,      0,      victor9k, victor9k, victor9k_state, empty_init, "Victor Business Products", "Victor 9000", MACHINE_IMPERFECT_COLORS | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+COMP( 1982, victor9k, 0,      0,      victor9k, victor9k, victor9k_state, empty_init, "Victor Business Products", "Victor 9000", MACHINE_IMPERFECT_COLORS )

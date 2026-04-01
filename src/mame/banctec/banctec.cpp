@@ -16,11 +16,14 @@
 */
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i80c51.h"
 #include "cpu/m6800/m6801.h"
 #include "video/mc6845.h"
 #include "emupal.h"
 #include "screen.h"
+
+
+namespace {
 
 class banctec_state : public driver_device
 {
@@ -41,9 +44,9 @@ protected:
 	MC6845_ON_UPDATE_ADDR_CHANGED(crtc_addr);
 	void videoram_w(u8 data);
 
-	virtual void machine_reset() override;
-	void banctec_mcu_mem(address_map &map);
-	void banctec_mem(address_map &map);
+	virtual void machine_reset() override ATTR_COLD;
+	void banctec_mcu_mem(address_map &map) ATTR_COLD;
+	void banctec_mem(address_map &map) ATTR_COLD;
 
 private:
 	required_device<palette_device> m_palette;
@@ -173,6 +176,9 @@ ROM_START(banctec)
 	ROM_REGION(0x1000, "chargen", 0)
 	ROM_LOAD("banctec_eseries_panel.u20", 0x0000, 0x1000, CRC(5b6ecec9) SHA1(35aff8f965bce77205e3a43d71e39097585091a7))
 ROM_END
+
+} // anonymous namespace
+
 
 /***************************************************************************
 

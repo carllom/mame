@@ -56,6 +56,8 @@ TODO:
 #include "speaker.h"
 
 
+namespace {
+
 #define I86_CLOCK XTAL(24'000'000)
 #define Z80_CLOCK XTAL(16'000'000)
 
@@ -71,9 +73,9 @@ public:
 
 protected:
 	// driver_device overrides
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	// devices
@@ -104,10 +106,10 @@ private:
 
 	void molecula_palette(palette_device &palette) const;
 
-	void molecula_app_io(address_map &map);
-	void molecula_app_map(address_map &map);
-	void molecula_file_io(address_map &map);
-	void molecula_file_map(address_map &map);
+	void molecula_app_io(address_map &map) ATTR_COLD;
+	void molecula_app_map(address_map &map) ATTR_COLD;
+	void molecula_file_io(address_map &map) ATTR_COLD;
+	void molecula_file_map(address_map &map) ATTR_COLD;
 };
 
 void molecula_state::video_start()
@@ -153,7 +155,7 @@ void molecula_state::file_output_w(offs_t offset, uint8_t data)
 		file_ram_enable = (data & 0x80) >> 7;
 
 	if(data & 0x7f || offset)
-		printf("FILE output -> %02x %02x\n",data,offset);
+		logerror("FILE output -> %02x %02x\n", data, offset);
 }
 
 
@@ -162,7 +164,7 @@ void molecula_state::app_output_w(uint8_t data)
 	app_ram_enable = (data & 0x80) >> 7;
 
 	if(data & 0x7f)
-		printf("APP 0x10 -> %02x\n",data);
+		logerror("APP 0x10 -> %02x\n", data);
 }
 
 uint8_t molecula_state::sio_r(offs_t offset)
@@ -176,7 +178,7 @@ uint8_t molecula_state::sio_r(offs_t offset)
 void molecula_state::sio_w(offs_t offset, uint8_t data)
 {
 	if(offset == 0)
-		printf("%c\n",data);
+		logerror("%c\n", data);
 }
 
 void molecula_state::molecula_file_map(address_map &map)
@@ -366,4 +368,7 @@ ROM_START( molecula )
 	ROM_LOAD( "wait_16r4.jed", 0x000000, 0x00caef, CRC(3aacfeb4) SHA1(1af1a8046e5a8a0337c85b55adceaef6e45702b7) )
 ROM_END
 
-COMP( 1982, molecula, 0, 0, molecula, molecula, molecula_state, empty_init, "MOLECULAR", "MOLECULAR Computer", MACHINE_IS_SKELETON )
+} // anonymous namespace
+
+
+COMP( 1982, molecula, 0, 0, molecula, molecula, molecula_state, empty_init, "MOLECULAR", "MOLECULAR Computer", MACHINE_NO_SOUND | MACHINE_NOT_WORKING )

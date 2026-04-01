@@ -59,7 +59,7 @@
         NRST (pin 14) - Not RESET. This is an active low output from the system reset line. It may
                         be used to initialise peripherals whenever a power up or a BREAK causes a
                         reset.
-   Analog In (pin 16) - This is an input to the audio amplifier on the main computer. The amplified
+    Audio In (pin 16) - This is an input to the audio amplifier on the main computer. The amplified
                         signal is produced over the speaker on the keyboard. Its input impedance is
                         9K Ohms and a 3 volt RMS signal will produce maximum volume on the speaker.
                         Note however that signals as large as this will cause distortion if the sound
@@ -87,7 +87,7 @@
 
 class device_bbc_1mhzbus_interface;
 
-class bbc_1mhzbus_slot_device : public device_t, public device_single_card_slot_interface<device_bbc_1mhzbus_interface>
+class bbc_1mhzbus_slot_device : public device_t, public device_single_card_slot_interface<device_bbc_1mhzbus_interface>, public device_mixer_interface
 {
 public:
 	// construction/destruction
@@ -112,12 +112,12 @@ public:
 	virtual uint8_t jim_r(offs_t offset);
 	virtual void jim_w(offs_t offset, uint8_t data);
 
-	DECLARE_WRITE_LINE_MEMBER( irq_w ) { m_irq_handler(state); }
-	DECLARE_WRITE_LINE_MEMBER( nmi_w ) { m_nmi_handler(state); }
+	void irq_w(int state) { m_irq_handler(state); }
+	void nmi_w(int state) { m_nmi_handler(state); }
 
 protected:
-	// device-level overrides
-	virtual void device_start() override;
+	// device_t overrides
+	virtual void device_start() override ATTR_COLD;
 
 	device_bbc_1mhzbus_interface *m_card;
 
@@ -140,7 +140,7 @@ public:
 protected:
 	device_bbc_1mhzbus_interface(const machine_config &mconfig, device_t &device);
 
-	bbc_1mhzbus_slot_device *m_slot;
+	bbc_1mhzbus_slot_device *const m_slot;
 };
 
 

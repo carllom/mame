@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
 <!--
-license:CC0
+license:CC0-1.0
 
 
     Missing stuff:
@@ -88,7 +88,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="ae1" cloneof="ae" supported="partial">
-		<description>A.E. (Alt)</description>
+		<description>A.E. (alt)</description>
 		<year>1982</year>
 		<publisher>Brøderbund</publisher>
 		<info name="serial" value="VicCart-224" />
@@ -206,7 +206,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="agressora" cloneof="agressor">
-		<description>Aggressor (Alt)</description>
+		<description>Aggressor (alt)</description>
 		<year>1982</year>
 		<publisher>HES</publisher>
 		<info name="serial" value="C305" />
@@ -522,7 +522,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="radarrr1" cloneof="radarrr">
-		<description>Radar Rat Race (NTSC, Alt)</description>
+		<description>Radar Rat Race (NTSC, alt)</description>
 		<year>1981</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1910" />
@@ -775,7 +775,7 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="capflag" supported="partial">
+	<software name="capflag" supported="no">
 		<description>Capture the Flag (NTSC)</description>
 		<year>1983</year>
 		<publisher>Sirius</publisher>
@@ -788,7 +788,7 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="capflag1" cloneof="capflag" supported="partial">
+	<software name="capflag1" cloneof="capflag" supported="no">
 		<description>Capture the Flag (NTSC-M)</description>
 		<!-- Requires 6560-101 (NTSC-M) video timing. -->
 		<year>1983</year>
@@ -999,7 +999,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="compwar1" cloneof="compwar">
-		<description>Computer War (Alt)</description>
+		<description>Computer War (alt)</description>
 		<year>1983</year>
 		<publisher>Thorn EMI</publisher>
 		<info name="serial" value="THC22006" />
@@ -1042,7 +1042,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="cosmic1" cloneof="cosmic">
-		<description>Cosmic Cruncher (Alt)</description>
+		<description>Cosmic Cruncher (alt)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1922" />
@@ -1311,7 +1311,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="et1" cloneof="et">
-		<description>E.T.: The Extra Terrestrial (PAL, Alt)</description>
+		<description>E.T.: The Extra Terrestrial (PAL, alt)</description>
 		<year>1983</year>
 		<publisher>H. Jans</publisher>
 		<sharedfeat name="compatibility" value="PAL"/>
@@ -1429,7 +1429,7 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="frogman">
+	<software name="frogman" supported="no">
 		<description>Frogman</description>
 		<year>198?</year>
 		<publisher>&lt;unknown&gt;</publisher>
@@ -1570,7 +1570,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="hesmona" cloneof="hesmon">
-		<description>HesMon v1.1 (Alt)</description>
+		<description>HesMon v1.1 (alt)</description>
 		<year>1982</year>
 		<publisher>HES</publisher>
 		<info name="serial" value="C302" />
@@ -1664,7 +1664,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="fltsima" cloneof="fltsim">
-		<description>IFR: Flight Simulator (Alt)</description>
+		<description>IFR: Flight Simulator (alt)</description>
 		<year>1983</year>
 		<publisher>Academy</publisher>
 		<sharedfeat name="compatibility" value="NTSC,PAL"/>
@@ -1951,7 +1951,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="mjousta" cloneof="mjoust">
-		<description>Medieval Joust (Alt)</description>
+		<description>Medieval Joust (alt)</description>
 		<year>1983</year>
 		<publisher>Thorn EMI</publisher>
 		<info name="serial" value="THC22007" />
@@ -2021,7 +2021,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="mine2049a" cloneof="mine2049">
-		<description>Miner 2049er (PAL, Alt)</description>
+		<description>Miner 2049er (PAL, alt)</description>
 		<year>1983</year>
 		<publisher>Reston</publisher>
 		<sharedfeat name="compatibility" value="PAL"/>
@@ -2059,7 +2059,7 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="moneywar">
+	<software name="moneywar" supported="no">
 		<description>Money Wars (NTSC)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
@@ -2072,8 +2072,8 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="moneywar1" cloneof="moneywar">
-		<description>Money Wars (NTSC, Alt)</description>
+	<software name="moneywar1" cloneof="moneywar" supported="no">
+		<description>Money Wars (NTSC, alt)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1925" />
@@ -2087,8 +2087,8 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="moneywar2" cloneof="moneywar">
-		<description>Money Wars (NTSC, Alt 2)</description>
+	<software name="moneywar2" cloneof="moneywar" supported="no">
+		<description>Money Wars (NTSC, alt 2)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1925" />
@@ -2395,7 +2395,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="poker1" cloneof="poker">
-		<description>Poker (AKA Draw Poker, Alt)</description>
+		<description>Poker (AKA Draw Poker, alt)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1908" />
@@ -2576,7 +2576,7 @@ B-2007 : Innovative Computing
 		<sharedfeat name="compatibility" value="NTSC,PAL"/>
 		<part name="cart" interface="vic1001_cart">
 			<dataarea name="blk5" size="0x2000">
-				<rom name="road race (aka midnight  drive) (commodore)(1981)(vic-1909).a0" size="0x2000" crc="49ed41da" sha1="5cb8f3cc2529a0144b1e66e1cd7af41ad1ba78b4" offset="0x0000" />
+				<rom name="road race (aka midnight drive) (commodore)(1981)(vic-1909).a0" size="0x2000" crc="49ed41da" sha1="5cb8f3cc2529a0144b1e66e1cd7af41ad1ba78b4" offset="0x0000" />
 			</dataarea>
 		</part>
 	</software>
@@ -2703,7 +2703,7 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="scram20">
+	<software name="scram20" supported="no">
 		<description>Scram 20</description>
 		<year>1983</year>
 		<publisher>Nalin Sharma</publisher>
@@ -2945,7 +2945,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="spidcity1" cloneof="spidcity">
-		<description>Spider City (NTSC, Alt)</description>
+		<description>Spider City (NTSC, alt)</description>
 		<year>1983</year>
 		<publisher>Sirius</publisher>
 		<info name="serial" value="22015" />
@@ -3173,7 +3173,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="sprsmash1" cloneof="sprsmash">
-		<description>Super Smash (NTSC, Alt)</description>
+		<description>Super Smash (NTSC, alt)</description>
 		<!-- File Difference -->
 				<!-- 0x1fff : 0x00 ('sprsmash') - 0xaa ('sprsmash1') -->
 		<year>1982</year>
@@ -3239,7 +3239,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="teragard1" cloneof="teragard">
-		<description>Terraguard (NTSC, Alt)</description>
+		<description>Terraguard (NTSC, alt)</description>
 		<year>1982</year>
 		<publisher>Creative</publisher>
 		<info name="serial" value="VI TG C" />
@@ -3282,7 +3282,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="skyfall1" cloneof="skyfall">
-		<description>The Sky is Falling (Alt)</description>
+		<description>The Sky is Falling (alt)</description>
 		<year>1981</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1911" />
@@ -3402,7 +3402,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="turtle1" cloneof="turtle">
-		<description>Turtle Graphics (Alt)</description>
+		<description>Turtle Graphics (alt)</description>
 		<year>1982</year>
 		<publisher>HES</publisher>
 		<info name="serial" value="C303" />
@@ -3415,7 +3415,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="turtle2" cloneof="turtle">
-		<description>Turtle Graphics (Alt 2)</description>
+		<description>Turtle Graphics (alt 2)</description>
 		<year>1982</year>
 		<publisher>HES</publisher>
 		<info name="serial" value="C303" />
@@ -3490,7 +3490,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="madboogy1" cloneof="madboogy">
-		<description>VC Song-Cartridge: The Mad Boogy (Ger, Alt)</description>
+		<description>VC Song-Cartridge: The Mad Boogy (Ger, alt)</description>
 		<year>198?</year>
 		<publisher>&lt;unknown&gt;</publisher>
 		<sharedfeat name="compatibility" value="NTSC,PAL"/>
@@ -3626,13 +3626,13 @@ B-2007 : Innovative Computing
 		<sharedfeat name="compatibility" value="NTSC,PAL"/>
 		<part name="cart" interface="vic1001_cart">
 			<dataarea name="blk5" size="0x2000">
-				<rom name="menagerie  (commodore)(1982)(vic-1926)(jue).a0" size="0x2000" crc="a3c74629" sha1="aec46a3e6f9797b116cbe6a8792e00530234ae80" offset="0x0000" />
+				<rom name="menagerie (commodore)(1982)(vic-1926)(jue).a0" size="0x2000" crc="a3c74629" sha1="aec46a3e6f9797b116cbe6a8792e00530234ae80" offset="0x0000" />
 			</dataarea>
 		</part>
 	</software>
 
 	<software name="vicmenag1" cloneof="vicmenag">
-		<description>VIC Menagerie (Alt)</description>
+		<description>VIC Menagerie (alt)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1926" />
@@ -3660,7 +3660,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="composer1" cloneof="composer">
-		<description>The VIC Music Composer (NTSC, Alt)</description>
+		<description>The VIC Music Composer (NTSC, alt)</description>
 		<year>1982</year>
 		<publisher>Thorn EMI</publisher>
 		<info name="serial" value="THC22002" />
@@ -3684,7 +3684,7 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="vicdiag">
+	<software name="vicdiag" supported="no">
 		<description>VIC 20 Diagnostic Cartridge (NTSC)</description>
 		<year>1980</year>
 		<publisher>Commodore</publisher>
@@ -3696,7 +3696,7 @@ B-2007 : Innovative Computing
 		</part>
 	</software>
 
-	<software name="vicdiagp" cloneof="vicdiag">
+	<software name="vicdiagp" cloneof="vicdiag" supported="no">
 		<description>VIC 20 Diagnostic Cartridge (PAL)</description>
 		<year>1980</year>
 		<publisher>Commodore</publisher>
@@ -3761,7 +3761,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="vsolsys1" cloneof="vsolsys">
-		<description>Visible Solar System (Alt)</description>
+		<description>Visible Solar System (alt)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1930" />
@@ -3774,7 +3774,7 @@ B-2007 : Innovative Computing
 	</software>
 
 	<software name="vsolsys2" cloneof="vsolsys">
-		<description>Visible Solar System (Alt 2)</description>
+		<description>Visible Solar System (alt 2)</description>
 		<year>1982</year>
 		<publisher>Commodore</publisher>
 		<info name="serial" value="VIC-1930" />

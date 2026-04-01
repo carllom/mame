@@ -1,18 +1,28 @@
 // license:BSD-3-Clause
-// copyright-holders:Aaron Giles
+// copyright-holders: Aaron Giles
+
 /***************************************************************************
 
-    Jaleco Exerion hardware
+Jaleco Exerion hardware
+Jaleco EX-8313 + EX-8315 PCBs
+
+Exerion is a unique driver in that it has idiosyncrasies that are straight
+out of Bizarro World. I submit for your approval:
+
+* The mystery reads from $d802 - timer-based protection?
+* The freakish graphics encoding scheme, which no other MAME-supported game uses
+* The sprite-ram, and all the funky parameters that go along with it
+
+
+Main XTAL is 19.968 MHz (some PCBs also seen with 20 MHz)
+
+HSync: 15.44568kHz
+VSync: 61.27464Hz
+
+The protection chip is marked ICX in the schematics, next to the AYs, same input
+clock as the AYs. It's probably a M54824P or M54828P.
 
 ****************************************************************************
-
-    Exerion is a unique driver in that it has idiosyncrasies that are straight
-    out of Bizarro World. I submit for your approval:
-
-    * The mystery reads from $d802 - timer-based protection?
-    * The freakish graphics encoding scheme, which no other MAME-supported game uses
-    * The sprite-ram, and all the funky parameters that go along with it
-
 
 Stephh's notes (based on the games Z80 code and some tests) :
 
@@ -44,15 +54,15 @@ Stephh's notes (based on the games Z80 code and some tests) :
     to 0x4dff (code at 0x07d8) if 1st score in the high-score table is >= 80000.
     If checksum doesn't match the hardcoded value (0x63), you get 255 credits !
     Notice that the displayed number of credits won't be correct as the game
-    isn't suppose to allow more than 9 credits.
-  - In a 2 players game, when player changes, if player it was player 2 turn,
+    isn't supposed to allow more than 9 credits.
+  - In a 2 players game, when player changes, if it was player 2 turn,
     values from 0x6030 to 0x6032 (see above) are compared with hard-coded values
     (code at 0x04c8). If they don't match respectively 0xfe, 0xb3 and 0x4c,
     and if 9th score in the high-score table is not 0, the game resets !
   - Before entering player's initials, a checksum is computed from 0x5f00 to 0x5fff
     (code at 0x5bd0) if player has reached level 6 (2nd kind of enemies after bonus
     stage). If checksum doesn't match the hardcoded value (0x9a), the game resets !
-  - There is sort of protection routine at 0x4120 which has an effect when
+  - There is a sort of protection routine at 0x4120 which has an effect when
     player loses a life on reaching first bonus stage or after. If values read
     from 0x6008 to 0x600b don't match values from ROM area 0x33c0-0x33ff,
     the game resets. See 'protection_r' read handler.
@@ -120,12 +130,488 @@ Stephh's notes (based on the games Z80 code and some tests) :
 ***************************************************************************/
 
 #include "emu.h"
-#include "exerion.h"
 
 #include "cpu/z80/z80.h"
 #include "machine/gen_latch.h"
 #include "sound/ay8910.h"
+#include "video/resnet.h"
+
+#include "emupal.h"
+#include "screen.h"
 #include "speaker.h"
+
+
+// configurable logging
+#define LOG_AYPORTB     (1U << 1)
+
+//#define VERBOSE (LOG_GENERAL | LOG_AYPORTB)
+
+#include "logmacro.h"
+
+#define LOGAYPORTB(...)     LOGMASKED(LOG_AYPORTB,     __VA_ARGS__)
+
+
+namespace {
+
+class exerion_state : public driver_device
+{
+public:
+	exerion_state(const machine_config &mconfig, device_type type, const char *tag) :
+		driver_device(mconfig, type, tag),
+		m_maincpu(*this, "maincpu"),
+		m_subcpu(*this, "subcpu"),
+		m_gfxdecode(*this, "gfxdecode"),
+		m_screen(*this, "screen"),
+		m_palette(*this, "palette"),
+		m_inputs(*this, "P%u", 1U),
+		m_main_ram(*this, "main_ram"),
+		m_videoram(*this, "videoram"),
+		m_spriteram(*this, "spriteram"),
+		m_maincpu_region(*this, "maincpu"),
+		m_background_mixer(*this, "bg_char_mixer_prom")
+	{ }
+
+	void exerion(machine_config &config);
+	void irion(machine_config &config);
+
+	void init_exerion();
+	void init_exerionb();
+	void init_irion();
+
+	ioport_value controls_r();
+	DECLARE_INPUT_CHANGED_MEMBER(coin_inserted);
+
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
+
+private:
+	// devices
+	required_device<cpu_device> m_maincpu;
+	optional_device<cpu_device> m_subcpu;
+	required_device<gfxdecode_device> m_gfxdecode;
+	required_device<screen_device> m_screen;
+	required_device<palette_device> m_palette;
+
+	required_ioport_array<2> m_inputs;
+
+	// memory pointers
+	required_shared_ptr<uint8_t> m_main_ram;
+	required_shared_ptr<uint8_t> m_videoram;
+	required_shared_ptr<uint8_t> m_spriteram;
+	required_region_ptr<uint8_t> m_maincpu_region;
+	required_region_ptr<uint8_t> m_background_mixer;
+
+	// video-related
+	uint8_t m_cocktail_flip = 0U;
+	uint8_t m_char_palette = 0U;
+	uint8_t m_sprite_palette = 0U;
+	uint8_t m_char_bank = 0U;
+	std::unique_ptr<uint16_t[]>  m_background_gfx[4]{};
+	uint8_t m_background_latches[13]{};
+
+	// protection?
+	uint8_t m_porta = 0U;
+	uint8_t m_portb = 0U;
+
+	uint8_t protection_r(offs_t offset);
+	void videoreg_w(uint8_t data);
+	void video_latch_w(offs_t offset, uint8_t data);
+	uint8_t video_timing_r();
+	uint8_t porta_r();
+	void portb_w(uint8_t data);
+	void palette(palette_device &palette) const;
+	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+	void draw_background(bitmap_ind16 &bitmap, const rectangle &cliprect);
+	void main_map(address_map &map) ATTR_COLD;
+	void sub_map(address_map &map) ATTR_COLD;
+};
+
+
+/***************************************************************************
+
+  Convert the color PROMs into a more useable format.
+
+  The palette PROM is connected to the RGB output this way:
+
+  bit 7 -- 220 ohm resistor  -- BLUE
+        -- 470 ohm resistor  -- BLUE
+        -- 220 ohm resistor  -- GREEN
+        -- 470 ohm resistor  -- GREEN
+        -- 1  kohm resistor  -- GREEN
+        -- 220 ohm resistor  -- RED
+        -- 470 ohm resistor  -- RED
+  bit 0 -- 1  kohm resistor  -- RED
+
+***************************************************************************/
+
+void exerion_state::palette(palette_device &palette) const
+{
+	const uint8_t *color_prom = memregion("proms")->base();
+	static constexpr int resistances_rg[3] = { 1000, 470, 220 };
+	static constexpr int resistances_b [2] = { 470, 220 };
+
+	// compute the color output resistor weights
+	double rweights[3], gweights[3], bweights[2];
+	compute_resistor_weights(0, 255, -1.0,
+			3, &resistances_rg[0], rweights, 0, 0,
+			3, &resistances_rg[0], gweights, 0, 0,
+			2, &resistances_b[0],  bweights, 0, 0);
+
+	// create a lookup table for the palette
+	for (int i = 0; i < 0x20; i++)
+	{
+		int bit0, bit1, bit2;
+
+		// red component
+		bit0 = BIT(color_prom[i], 0);
+		bit1 = BIT(color_prom[i], 1);
+		bit2 = BIT(color_prom[i], 2);
+		int const r = combine_weights(rweights, bit0, bit1, bit2);
+
+		// green component
+		bit0 = BIT(color_prom[i], 3);
+		bit1 = BIT(color_prom[i], 4);
+		bit2 = BIT(color_prom[i], 5);
+		int const g = combine_weights(gweights, bit0, bit1, bit2);
+
+		// blue component
+		bit0 = BIT(color_prom[i], 6);
+		bit1 = BIT(color_prom[i], 7);
+		int const b = combine_weights(bweights, bit0, bit1);
+
+		palette.set_indirect_color(i, rgb_t(r, g, b));
+	}
+
+	// color_prom now points to the beginning of the lookup table
+	color_prom += 0x20;
+
+	// fg chars and sprites
+	for (int i = 0; i < 0x200; i++)
+	{
+		uint8_t const ctabentry = 0x10 | (color_prom[(i & 0x1c0) | ((i & 3) << 4) | ((i >> 2) & 0x0f)] & 0x0f);
+		palette.set_pen_indirect(i, ctabentry);
+	}
+
+	// bg chars (this is not the full story... there are four layers mixed using another PROM)
+	for (int i = 0x200; i < 0x300; i++)
+	{
+		uint8_t const ctabentry = color_prom[i] & 0x0f;
+		palette.set_pen_indirect(i, ctabentry);
+	}
+}
+
+
+
+/*************************************
+ *
+ *  Video system startup
+ *
+ *************************************/
+
+void exerion_state::video_start()
+{
+	// allocate memory for the decoded background graphics
+	m_background_gfx[0] = std::make_unique<uint16_t[]>(256 * 256);
+	m_background_gfx[1] = std::make_unique<uint16_t[]>(256 * 256);
+	m_background_gfx[2] = std::make_unique<uint16_t[]>(256 * 256);
+	m_background_gfx[3] = std::make_unique<uint16_t[]>(256 * 256);
+
+	save_pointer(NAME(m_background_gfx[0]), 256 * 256);
+	save_pointer(NAME(m_background_gfx[1]), 256 * 256);
+	save_pointer(NAME(m_background_gfx[2]), 256 * 256);
+	save_pointer(NAME(m_background_gfx[3]), 256 * 256);
+
+	m_cocktail_flip = 0;
+
+	/*---------------------------------
+	 * Decode the background graphics
+	 *
+	 * We decode the 4 background layers separately, but shuffle the bits so that
+	 * we can OR all four layers together. Each layer has 2 bits per pixel. Each
+	 * layer is decoded into the following bit patterns:
+	 *
+	 *  000a 0000 00AA
+	 *  00b0 0000 BB00
+	 *  0c00 00CC 0000
+	 *  d000 DD00 0000
+	 *
+	 * Where AA,BB,CC,DD are the 2bpp data for the pixel,and a,b,c,d are the OR
+	 * of these two bits together.
+	 */
+	uint8_t *gfx = memregion("bgdata")->base();
+	for (int i = 0; i < 4; i++)
+	{
+		uint8_t *src = gfx + i * 0x2000;
+		uint16_t *dst = m_background_gfx[i].get();
+
+		for (int y = 0; y < 0x100; y++)
+		{
+			int x;
+
+			for (x = 0; x < 0x80; x += 4)
+			{
+				uint8_t data = *src++;
+				uint16_t val;
+
+				val = ((data >> 3) & 2) | ((data >> 0) & 1);
+				if (val) val |= 0x100 >> i;
+				*dst++ = val << (2 * i);
+
+				val = ((data >> 4) & 2) | ((data >> 1) & 1);
+				if (val) val |= 0x100 >> i;
+				*dst++ = val << (2 * i);
+
+				val = ((data >> 5) & 2) | ((data >> 2) & 1);
+				if (val) val |= 0x100 >> i;
+				*dst++ = val << (2 * i);
+
+				val = ((data >> 6) & 2) | ((data >> 3) & 1);
+				if (val) val |= 0x100 >> i;
+				*dst++ = val << (2 * i);
+			}
+
+			for (; x < 0x100; x++)
+				*dst++ = 0;
+		}
+	}
+}
+
+
+
+/*************************************
+ *
+ *  Video register I/O
+ *
+ *************************************/
+
+void exerion_state::videoreg_w(uint8_t data)
+{
+	// bit 0 = flip screen and joystick input multiplexer
+	m_cocktail_flip = data & 1;
+
+	// bits 1-2 char lookup table bank
+	m_char_palette = (data & 0x06) >> 1;
+
+	// bits 3 char bank
+	m_char_bank = (data & 0x08) >> 3;
+
+	// bits 4-5 unused
+
+	// bits 6-7 sprite lookup table bank
+	m_sprite_palette = (data & 0xc0) >> 6;
+}
+
+
+void exerion_state::video_latch_w(offs_t offset, uint8_t data)
+{
+	int const scanline = m_screen->vpos();
+	if (scanline > 0)
+		m_screen->update_partial(scanline - 1);
+	m_background_latches[offset] = data;
+}
+
+
+uint8_t exerion_state::video_timing_r()
+{
+	// bit 0 is the SNMI signal, which is the negated value of H6, if H7=1 & H8=1 & VBLANK=0, otherwise 1
+	// bit 1 is VBLANK
+
+	uint16_t const hcount_start = 0x200 - m_screen->width();
+	uint16_t const hcounter = m_screen->hpos() + hcount_start;
+	uint8_t snmi = 1;
+
+	if (((hcounter & 0x180) == 0x180) && !m_screen->vblank())
+		snmi = !((hcounter >> 6) & 0x01);
+
+	return (m_screen->vblank() << 1) | snmi;
+}
+
+
+/*************************************
+ *
+ *  Background rendering
+ *
+ *************************************/
+
+void exerion_state::draw_background(bitmap_ind16 &bitmap, const rectangle &cliprect)
+{
+	// loop over all visible scanlines
+	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
+	{
+		uint16_t const *src0 = &m_background_gfx[0][m_background_latches[1] * 256];
+		uint16_t const *src1 = &m_background_gfx[1][m_background_latches[3] * 256];
+		uint16_t const *src2 = &m_background_gfx[2][m_background_latches[5] * 256];
+		uint16_t const *src3 = &m_background_gfx[3][m_background_latches[7] * 256];
+		int xoffs0 = m_background_latches[0];
+		int xoffs1 = m_background_latches[2];
+		int xoffs2 = m_background_latches[4];
+		int xoffs3 = m_background_latches[6];
+		int start0 = m_background_latches[8] & 0x0f;
+		int start1 = m_background_latches[9] & 0x0f;
+		int start2 = m_background_latches[10] & 0x0f;
+		int start3 = m_background_latches[11] & 0x0f;
+		int stop0 = m_background_latches[8] >> 4;
+		int stop1 = m_background_latches[9] >> 4;
+		int stop2 = m_background_latches[10] >> 4;
+		int stop3 = m_background_latches[11] >> 4;
+		int const bg_x_start = 0x20;
+		uint8_t *const mixer = &m_background_mixer[(m_background_latches[12] << 4) & 0xf0];
+		std::vector<uint16_t> scanline(m_screen->width());
+		pen_t const pen_base = 0x200 + ((m_background_latches[12] >> 4) << 4);
+
+		// the cocktail flip flag controls whether we count up or down in X
+		if (!m_cocktail_flip)
+		{
+			// skip processing anything that's not visible
+			for (int x = bg_x_start; x < cliprect.min_x; x++)
+			{
+				if (!(++xoffs0 & 0x1f)) start0++, stop0++;
+				if (!(++xoffs1 & 0x1f)) start1++, stop1++;
+				if (!(++xoffs2 & 0x1f)) start2++, stop2++;
+				if (!(++xoffs3 & 0x1f)) start3++, stop3++;
+			}
+
+			// draw the rest of the scanline fully
+			for (int x = cliprect.min_x; x <= cliprect.max_x; x++)
+			{
+				uint16_t combined = 0;
+
+				// the output enable is controlled by the carries on the start/stop counters
+				// they are only active when the start has carried but the stop hasn't
+				if ((start0 ^ stop0) & 0x10) combined |= src0[xoffs0 & 0xff];
+				if ((start1 ^ stop1) & 0x10) combined |= src1[xoffs1 & 0xff];
+				if ((start2 ^ stop2) & 0x10) combined |= src2[xoffs2 & 0xff];
+				if ((start3 ^ stop3) & 0x10) combined |= src3[xoffs3 & 0xff];
+
+				// bits 8-11 of the combined value contains the lookup for the mixer PROM
+				uint8_t const lookupval = mixer[combined >> 8] & 3;
+
+				// the color index comes from the looked up value combined with the pixel data
+				scanline[x] = pen_base | (lookupval << 2) | ((combined >> (2 * lookupval)) & 3);
+
+				// the start/stop counters are clocked when the low 5 bits of the X counter overflow
+				if (!(++xoffs0 & 0x1f)) start0++, stop0++;
+				if (!(++xoffs1 & 0x1f)) start1++, stop1++;
+				if (!(++xoffs2 & 0x1f)) start2++, stop2++;
+				if (!(++xoffs3 & 0x1f)) start3++, stop3++;
+			}
+		}
+		else
+		{
+			// skip processing anything that's not visible
+			for (int x = bg_x_start; x < cliprect.min_x; x++)
+			{
+				if (!(xoffs0-- & 0x1f)) start0++, stop0++;
+				if (!(xoffs1-- & 0x1f)) start1++, stop1++;
+				if (!(xoffs2-- & 0x1f)) start2++, stop2++;
+				if (!(xoffs3-- & 0x1f)) start3++, stop3++;
+			}
+
+			// draw the rest of the scanline fully
+			for (int x = cliprect.min_x; x <= cliprect.max_x; x++)
+			{
+				uint16_t combined = 0;
+
+				// the output enable is controlled by the carries on the start/stop counters
+				// they are only active when the start has carried but the stop hasn't
+				if ((start0 ^ stop0) & 0x10) combined |= src0[xoffs0 & 0xff];
+				if ((start1 ^ stop1) & 0x10) combined |= src1[xoffs1 & 0xff];
+				if ((start2 ^ stop2) & 0x10) combined |= src2[xoffs2 & 0xff];
+				if ((start3 ^ stop3) & 0x10) combined |= src3[xoffs3 & 0xff];
+
+				// bits 8-11 of the combined value contains the lookup for the mixer PROM
+				uint8_t const lookupval = mixer[combined >> 8] & 3;
+
+				// the color index comes from the looked up value combined with the pixel data
+				scanline[x] = pen_base | (lookupval << 2) | ((combined >> (2 * lookupval)) & 3);
+
+				// the start/stop counters are clocked when the low 5 bits of the X counter overflow
+				if (!(xoffs0-- & 0x1f)) start0++, stop0++;
+				if (!(xoffs1-- & 0x1f)) start1++, stop1++;
+				if (!(xoffs2-- & 0x1f)) start2++, stop2++;
+				if (!(xoffs3-- & 0x1f)) start3++, stop3++;
+			}
+		}
+
+		// draw the scanline
+		draw_scanline16(bitmap, cliprect.min_x, y, cliprect.width(), &scanline[cliprect.min_x], nullptr);
+	}
+}
+
+
+/*************************************
+ *
+ *  Core refresh routine
+ *
+ *************************************/
+
+uint32_t exerion_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+{
+	// draw background
+	draw_background(bitmap, cliprect);
+
+	// draw sprites
+	for (int i = 0; i < m_spriteram.bytes(); i += 4)
+	{
+		int const flags = m_spriteram[i + 0];
+		int y = m_spriteram[i + 1] ^ 255;
+		int code = m_spriteram[i + 2];
+		int x = m_spriteram[i + 3] * 2 + 72;
+
+		int xflip = flags & 0x80;
+		int yflip = flags & 0x40;
+		int const doubled = flags & 0x10;
+		int const wide = flags & 0x08;
+		int code2 = code;
+
+		int const color = ((flags >> 1) & 0x03) | ((code >> 5) & 0x04) | (code & 0x08) | (m_sprite_palette * 16);
+		gfx_element *gfx = m_gfxdecode->gfx(doubled ? 2 : 1);
+
+		if (m_cocktail_flip)
+		{
+			x = 64 * 8 - gfx->width() - x;
+			y = 32 * 8 - gfx->height() - y;
+			if (wide) y -= gfx->height();
+			xflip = !xflip;
+			yflip = !yflip;
+		}
+
+		if (wide)
+		{
+			if (yflip)
+				code |= 0x10, code2 &= ~0x10;
+			else
+				code &= ~0x10, code2 |= 0x10;
+
+			gfx->transmask(bitmap, cliprect, code2, color, xflip, yflip, x, y + gfx->height(),
+					m_palette->transpen_mask(*gfx, color, 0x10));
+		}
+
+		gfx->transmask(bitmap, cliprect, code, color, xflip, yflip, x, y,
+				m_palette->transpen_mask(*gfx, color, 0x10));
+
+		if (doubled)
+			i += 4;
+	}
+
+	// draw the visible text layer
+	for (int sy = cliprect.min_y / 8; sy <= cliprect.max_y / 8; sy++)
+		for (int sx = cliprect.min_x / 8; sx <= cliprect.max_x / 8; sx++)
+		{
+			int const x = m_cocktail_flip ? (63 * 8 - 8 * sx) : 8 * sx;
+			int const y = m_cocktail_flip ? (31 * 8 - 8 * sy) : 8 * sy;
+
+			int const offs = sx + sy * 64;
+			m_gfxdecode->gfx(0)->transpen(bitmap, cliprect,
+					m_videoram[offs] + 256 * m_char_bank,
+					((m_videoram[offs] & 0xf0) >> 4) + m_char_palette * 16,
+					m_cocktail_flip, m_cocktail_flip, x, y, 0);
+		}
+
+	return 0;
+}
 
 
 /*************************************
@@ -135,7 +621,7 @@ Stephh's notes (based on the games Z80 code and some tests) :
  *************************************/
 
 // Players inputs are muxed at 0xa000
-CUSTOM_INPUT_MEMBER(exerion_state::controls_r)
+ioport_value exerion_state::controls_r()
 {
 	return m_inputs[m_cocktail_flip]->read() & 0x3f;
 }
@@ -170,7 +656,7 @@ void exerion_state::portb_w(uint8_t data)
 	m_porta = m_maincpu_region[0x5f76];
 	m_portb = data;
 
-	logerror("Port B = %02X\n", data);
+	LOGAYPORTB("Port B = %02X\n", data);
 }
 
 
@@ -236,12 +722,12 @@ void exerion_state::sub_map(address_map &map)
 // verified from Z80 code
 static INPUT_PORTS_START( exerion )
 	PORT_START("IN0")
-	PORT_BIT( 0x3f, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(exerion_state, controls_r)
+	PORT_BIT( 0x3f, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(exerion_state::controls_r))
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_START1 )
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_START2 )
 
-	PORT_START("DSW0")
-	PORT_DIPNAME( 0x07, 0x02, DEF_STR( Lives ) )
+	PORT_START("DSW0")      // 8-position DIP switch
+	PORT_DIPNAME( 0x07, 0x02, DEF_STR( Lives ) )       PORT_DIPLOCATION("SW1:1,2,3")
 	PORT_DIPSETTING(    0x00, "1" )
 	PORT_DIPSETTING(    0x01, "2" )
 	PORT_DIPSETTING(    0x02, "3" )
@@ -250,23 +736,23 @@ static INPUT_PORTS_START( exerion )
 	PORT_DIPSETTING(    0x05, "5" )                         // duplicated setting
 	PORT_DIPSETTING(    0x06, "5" )                         // duplicated setting
 	PORT_DIPSETTING(    0x07, "254 (Cheat)")
-	PORT_DIPNAME( 0x18, 0x00, DEF_STR( Bonus_Life ) )
+	PORT_DIPNAME( 0x18, 0x00, DEF_STR( Bonus_Life ) )  PORT_DIPLOCATION("SW1:4,5")
 	PORT_DIPSETTING(    0x00, "10000" )
 	PORT_DIPSETTING(    0x08, "20000" )
 	PORT_DIPSETTING(    0x10, "30000" )
 	PORT_DIPSETTING(    0x18, "40000" )
-	PORT_DIPNAME( 0x60, 0x00, DEF_STR( Difficulty ) )       // see notes
+	PORT_DIPNAME( 0x60, 0x00, DEF_STR( Difficulty ) )  PORT_DIPLOCATION("SW1:6,7") // see notes
 	PORT_DIPSETTING(    0x00, DEF_STR( Easy ) )
 	PORT_DIPSETTING(    0x20, DEF_STR( Medium ) )
 	PORT_DIPSETTING(    0x40, DEF_STR( Hard ) )
 	PORT_DIPSETTING(    0x60, DEF_STR( Hardest ) )
 	PORT_DIPNAME( 0x80, 0x00, DEF_STR( Cabinet ) )
-	PORT_DIPSETTING(    0x00, DEF_STR( Upright ) )
+	PORT_DIPSETTING(    0x00, DEF_STR( Upright ) )     PORT_DIPLOCATION("SW1:8")
 	PORT_DIPSETTING(    0x80, DEF_STR( Cocktail ) )
 
-	PORT_START("DSW1")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_VBLANK("screen")
-	PORT_DIPNAME( 0x0e, 0x00, DEF_STR( Coinage ) )          // see notes
+	PORT_START("DSW1")      // 4-position DIP switch / VBLANK
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("screen", FUNC(screen_device::vblank))
+	PORT_DIPNAME( 0x0e, 0x00, DEF_STR( Coinage ) )     PORT_DIPLOCATION("SW2:1,2,3") // see notes
 	PORT_DIPSETTING(    0x0e, DEF_STR( 5C_1C ) )
 	PORT_DIPSETTING(    0x0a, DEF_STR( 4C_1C ) )
 	PORT_DIPSETTING(    0x06, DEF_STR( 3C_1C ) )
@@ -275,10 +761,11 @@ static INPUT_PORTS_START( exerion )
 	PORT_DIPSETTING(    0x04, DEF_STR( 1C_2C ) )
 	PORT_DIPSETTING(    0x08, DEF_STR( 1C_3C ) )
 	PORT_DIPSETTING(    0x0c, DEF_STR( 1C_4C ) )
-	PORT_BIT( 0xf0, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_UNUSED )        PORT_DIPLOCATION("SW2:4")
+	PORT_BIT( 0xe0, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("COIN")
-	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_COIN1 ) PORT_CHANGED_MEMBER(DEVICE_SELF, exerion_state, coin_inserted, 0)
+	PORT_BIT( 0x01, IP_ACTIVE_HIGH, IPT_COIN1 ) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(exerion_state::coin_inserted), 0)
 
 	PORT_START("P1")          // fake input port
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_JOYSTICK_UP )    PORT_8WAY
@@ -371,30 +858,32 @@ void exerion_state::machine_reset()
 
 void exerion_state::exerion(machine_config &config)
 {
-	Z80(config, m_maincpu, EXERION_CPU_CLOCK);
+	// basic machine hardware
+	constexpr XTAL MASTER_CLOCK = 19.968_MHz_XTAL; // also seen with 20_MHz_XTAL
+
+	Z80(config, m_maincpu, MASTER_CLOCK / 6);
 	m_maincpu->set_addrmap(AS_PROGRAM, &exerion_state::main_map);
 
-	z80_device &sub(Z80(config, "sub", EXERION_CPU_CLOCK));
-	sub.set_addrmap(AS_PROGRAM, &exerion_state::sub_map);
-
+	Z80(config, m_subcpu, MASTER_CLOCK / 6);
+	m_subcpu->set_addrmap(AS_PROGRAM, &exerion_state::sub_map);
 
 	// video hardware
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
-	m_screen->set_raw(EXERION_PIXEL_CLOCK, EXERION_HTOTAL, EXERION_HBEND, EXERION_HBSTART, EXERION_VTOTAL, EXERION_VBEND, EXERION_VBSTART);
+	m_screen->set_raw(MASTER_CLOCK / 3, 424, 96, 96+320, 256, 16, 240);
 	m_screen->set_screen_update(FUNC(exerion_state::screen_update));
 	m_screen->set_palette(m_palette);
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_exerion);
-	PALETTE(config, m_palette, FUNC(exerion_state::palette), 256*3, 32);
+	PALETTE(config, m_palette, FUNC(exerion_state::palette), 256 * 3, 32);
 
 	// audio hardware
 	SPEAKER(config, "mono").front_center();
 
 	GENERIC_LATCH_8(config, "soundlatch");
 
-	AY8910(config, "ay1", EXERION_AY8910_CLOCK).add_route(ALL_OUTPUTS, "mono", 0.30);
+	AY8910(config, "ay1", MASTER_CLOCK / 12).add_route(ALL_OUTPUTS, "mono", 0.30);
 
-	ay8910_device &ay2(AY8910(config, "ay2", EXERION_AY8910_CLOCK));
+	ay8910_device &ay2(AY8910(config, "ay2", MASTER_CLOCK / 12));
 	ay2.port_a_read_callback().set(FUNC(exerion_state::porta_r));
 	ay2.port_b_write_callback().set(FUNC(exerion_state::portb_w));
 	ay2.add_route(ALL_OUTPUTS, "mono", 0.30);
@@ -403,7 +892,7 @@ void exerion_state::exerion(machine_config &config)
 void exerion_state::irion(machine_config &config)
 {
 	exerion(config);
-	config.device_remove("sub");
+	config.device_remove("subcpu");
 }
 
 
@@ -420,7 +909,7 @@ ROM_START( exerion )
 	ROM_LOAD( "exerion.08",   0x2000, 0x2000, CRC(dcadc1df) SHA1(91388f617cfaa4289ca1c84c697fcfdd8834ae15) )
 	ROM_LOAD( "exerion.09",   0x4000, 0x2000, CRC(34cc4d14) SHA1(511c9de038f7bcaf6f7c96f2cbbe50a80673fa72) )
 
-	ROM_REGION( 0x2000, "sub", 0 )
+	ROM_REGION( 0x2000, "subcpu", 0 )
 	ROM_LOAD( "exerion.05",   0x0000, 0x2000, CRC(32f6bff5) SHA1(a4d0289f9d1d9eea7ca9a32a0616af48da74b401) )
 
 	ROM_REGION( 0x02000, "fgchars", 0 )
@@ -452,7 +941,7 @@ ROM_START( exeriont )
 	ROM_LOAD( "prom5.4p",     0x0000, 0x4000, CRC(58b4dc1b) SHA1(3e34d1eda0b0537dac1062e96259d4cc7c64049c) )
 	ROM_LOAD( "prom6.4s",     0x4000, 0x2000, CRC(fca18c2d) SHA1(31077dada3ed4aa2e26af933f589e01e0c71e5cd) )
 
-	ROM_REGION( 0x2000, "sub", 0 )
+	ROM_REGION( 0x2000, "subcpu", 0 )
 	ROM_LOAD( "exerion.05",   0x0000, 0x2000, CRC(32f6bff5) SHA1(a4d0289f9d1d9eea7ca9a32a0616af48da74b401) )
 
 	ROM_REGION( 0x02000, "fgchars", 0 )
@@ -484,7 +973,7 @@ ROM_START( exerionb )
 	ROM_LOAD( "eb5.bin",      0x0000, 0x4000, CRC(da175855) SHA1(11ea46fd1d504e16e5ffc604d74c1ce210d6be1c) )
 	ROM_LOAD( "eb6.bin",      0x4000, 0x2000, CRC(0dbe2eff) SHA1(5b0e5e8453619beec46c4350d1b2ed571fe3dc24) )
 
-	ROM_REGION( 0x2000, "sub", 0 )
+	ROM_REGION( 0x2000, "subcpu", 0 )
 	ROM_LOAD( "exerion.05",   0x0000, 0x2000, CRC(32f6bff5) SHA1(a4d0289f9d1d9eea7ca9a32a0616af48da74b401) )
 
 	ROM_REGION( 0x02000, "fgchars", 0 )
@@ -517,7 +1006,7 @@ ROM_START( exerionb2 )
 	ROM_LOAD( "e8.bin",   0x2000, 0x2000, CRC(b7b5eb9b) SHA1(6980ba29ac9178adf93f6b89dff52d9aa8db17ae) )
 	ROM_LOAD( "e9.bin",   0x4000, 0x2000, CRC(11a30c5a) SHA1(1fa512af5771939d54cea76c7d9c09a6ab39aca9) )
 
-	ROM_REGION( 0x2000, "sub", 0 ) // same as the original
+	ROM_REGION( 0x2000, "subcpu", 0 ) // same as the original
 	ROM_LOAD( "e5.bin",   0x0000, 0x2000, CRC(32f6bff5) SHA1(a4d0289f9d1d9eea7ca9a32a0616af48da74b401) )
 
 	ROM_REGION( 0x02000, "fgchars", 0 ) // slight differences compared to the original
@@ -553,7 +1042,7 @@ ROM_START( exerionba )
 	ROM_LOAD( "2_8.bin",  0x2000, 0x2000, CRC(b7b5eb9b) SHA1(6980ba29ac9178adf93f6b89dff52d9aa8db17ae) )
 	ROM_LOAD( "2_9.bin",  0x4000, 0x2000, CRC(11a30c5a) SHA1(1fa512af5771939d54cea76c7d9c09a6ab39aca9) )
 
-	ROM_REGION( 0x2000, "sub", 0 )
+	ROM_REGION( 0x2000, "subcpu", 0 )
 	ROM_LOAD( "8.bin",    0x0000, 0x2000, CRC(32f6bff5) SHA1(a4d0289f9d1d9eea7ca9a32a0616af48da74b401) )
 
 	ROM_REGION( 0x02000, "fgchars", 0 )
@@ -673,7 +1162,7 @@ void exerion_state::init_exerionb()
 
 void exerion_state::init_irion()
 {
-	// convert the gfx and cpu roms like in ExerionB
+	// convert the gfx and cpu ROMS like in ExerionB
 	init_exerionb();
 
 	// a further unscramble of gfx2
@@ -689,6 +1178,7 @@ void exerion_state::init_irion()
 	}
 }
 
+} // anonymous namespace
 
 
 /*************************************

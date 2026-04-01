@@ -20,7 +20,8 @@ Notes:
 - Increased "sprites" to address 0x400 sprites, to avoid Ghosts'n Goblins
   drawing a bad sprite. (18/08/2005 Pierpaolo Prazzoli)
 
- Notes by Jose Tejada (jotego)
+
+Notes by Jose Tejada (jotego):
 
 There is no watchdog in GnG, as previously stated in the MAME driver.
 Instead, there is a DMA circuit that copies object data from the CPU RAM to a buffer,
@@ -63,12 +64,12 @@ public:
 	{ }
 
 	void gng(machine_config &config);
-	void diamond(machine_config &config);
+	void diamrun(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	// memory pointers
@@ -89,25 +90,22 @@ private:
 	required_device<palette_device> m_palette;
 
 	void bankswitch_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(ym_reset_w);
-	uint8_t diamond_hack_r();
+	void ym_reset_w(int state);
+	uint8_t diamrun_hack_r();
 	void fgvideoram_w(offs_t offset, uint8_t data);
 	void bgvideoram_w(offs_t offset, uint8_t data);
 	void bgscrollx_w(offs_t offset, uint8_t data);
 	void bgscrolly_w(offs_t offset, uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(flipscreen_w);
 	TILE_GET_INFO_MEMBER(get_fg_tile_info);
 	TILE_GET_INFO_MEMBER(get_bg_tile_info);
 	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	void draw_sprites(bitmap_ind16 &bitmap, const rectangle &cliprect);
 
-	void diamond_main_map(address_map &map);
-	void gng_main_map(address_map &map);
-	void sound_map(address_map &map);
+	void diamrun_main_map(address_map &map) ATTR_COLD;
+	void gng_main_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
 };
 
-
-// video
 
 /***************************************************************************
 
@@ -150,11 +148,6 @@ void gng_state::video_start()
 	m_fg_tilemap->set_transparent_pen(3);
 	m_bg_tilemap->set_transmask(0, 0xff, 0x00); // split type 0 is totally transparent in front half
 	m_bg_tilemap->set_transmask(1, 0x41, 0xbe); // split type 1 has pens 0 and 6 transparent in front half
-
-	m_bg_tilemap->set_scrolldx(128, 128);
-	m_bg_tilemap->set_scrolldy(  6,   6);
-	m_fg_tilemap->set_scrolldx(128, 128);
-	m_fg_tilemap->set_scrolldy(  6,   6);
 }
 
 
@@ -190,12 +183,6 @@ void gng_state::bgscrolly_w(offs_t offset, uint8_t data)
 }
 
 
-WRITE_LINE_MEMBER(gng_state::flipscreen_w)
-{
-	flip_screen_set(!state);
-}
-
-
 
 /***************************************************************************
 
@@ -205,14 +192,14 @@ WRITE_LINE_MEMBER(gng_state::flipscreen_w)
 
 void gng_state::draw_sprites(bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
-	uint8_t *buffered_spriteram = m_spriteram->buffer();
+	uint8_t *spriteram = m_spriteram->buffer();
 	gfx_element *gfx = m_gfxdecode->gfx(2);
 
 	for (int offs = m_spriteram->bytes() - 4; offs >= 0; offs -= 4)
 	{
-		uint8_t attributes = buffered_spriteram[offs + 1];
-		int sx = buffered_spriteram[offs + 3] - 0x100 * (attributes & 0x01);
-		int sy = buffered_spriteram[offs + 2];
+		uint8_t attributes = spriteram[offs + 1];
+		int sx = spriteram[offs + 3] - 0x100 * (attributes & 0x01);
+		int sy = spriteram[offs + 2];
 		int flipx = attributes & 0x04;
 		int flipy = attributes & 0x08;
 
@@ -225,10 +212,10 @@ void gng_state::draw_sprites(bitmap_ind16 &bitmap, const rectangle &cliprect)
 		}
 
 		gfx->transpen(bitmap,cliprect,
-				buffered_spriteram[offs] + ((attributes << 2) & 0x300),
+				spriteram[offs] + ((attributes << 2) & 0x300),
 				(attributes >> 4) & 3,
 				flipx, flipy,
-				sx + 128, sy + 6, 15);
+				sx, sy, 15);
 	}
 }
 
@@ -242,8 +229,6 @@ uint32_t gng_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, c
 }
 
 
-// machine
-
 void gng_state::bankswitch_w(uint8_t data)
 {
 	if (data == 4)
@@ -252,7 +237,7 @@ void gng_state::bankswitch_w(uint8_t data)
 		m_mainbank->set_entry(data & 0x03);
 }
 
-WRITE_LINE_MEMBER(gng_state::ym_reset_w)
+void gng_state::ym_reset_w(int state)
 {
 	if (!state)
 	{
@@ -261,7 +246,7 @@ WRITE_LINE_MEMBER(gng_state::ym_reset_w)
 	}
 }
 
-uint8_t gng_state::diamond_hack_r()
+uint8_t gng_state::diamrun_hack_r()
 {
 	return 0;
 }
@@ -282,14 +267,14 @@ void gng_state::gng_main_map(address_map &map)
 	map(0x3a00, 0x3a00).w("soundlatch", FUNC(generic_latch_8_device::write));
 	map(0x3b08, 0x3b09).w(FUNC(gng_state::bgscrollx_w));
 	map(0x3b0a, 0x3b0b).w(FUNC(gng_state::bgscrolly_w));
-	// 0x3c00 is the DMA trigger. Not emulated.
+	map(0x3c00, 0x3c00).w(m_spriteram, FUNC(buffered_spriteram8_device::write));
 	map(0x3d00, 0x3d07).w("mainlatch", FUNC(ls259_device::write_d0));
 	map(0x3e00, 0x3e00).w(FUNC(gng_state::bankswitch_w));
 	map(0x4000, 0x5fff).bankr(m_mainbank);
 	map(0x6000, 0xffff).rom();
 }
 
-void gng_state::diamond_main_map(address_map &map)
+void gng_state::diamrun_main_map(address_map &map)
 {
 	map(0x0000, 0x1dff).ram();
 	map(0x1e00, 0x1fff).ram().share("spriteram");
@@ -306,13 +291,13 @@ void gng_state::diamond_main_map(address_map &map)
 	map(0x3a00, 0x3a00).w("soundlatch", FUNC(generic_latch_8_device::write));
 	map(0x3b08, 0x3b09).w(FUNC(gng_state::bgscrollx_w));
 	map(0x3b0a, 0x3b0b).w(FUNC(gng_state::bgscrolly_w));
-	map(0x3c00, 0x3c00).noprw(); // watchdog?
+	map(0x3c00, 0x3c00).w(m_spriteram, FUNC(buffered_spriteram8_device::write));
 	map(0x3d00, 0x3d00).nopw(); // ? (writes $01 and $0F)
 	map(0x3d01, 0x3d01).nopw(); // ?
 	map(0x3e00, 0x3e00).w(FUNC(gng_state::bankswitch_w));
 	map(0x4000, 0x5fff).bankr(m_mainbank);
 	map(0x6000, 0xffff).rom();
-	map(0x6000, 0x6000).r(FUNC(gng_state::diamond_hack_r));
+	map(0x6000, 0x6000).r(FUNC(gng_state::diamrun_hack_r));
 	map(0x6048, 0x6048).nopw(); // ?
 }
 
@@ -332,32 +317,29 @@ static INPUT_PORTS_START( gng )
 	PORT_START("SYSTEM")
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_START1 )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_START2 )
-	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_UNKNOWN )
-	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_UNKNOWN )
-	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_UNKNOWN )
+	PORT_BIT( 0x0c, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_UNUSED ) // pin 17 on edge connector
 	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_SERVICE1 )
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_COIN1 )
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_COIN2 )
 
 	PORT_START("P1")
-	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT ) PORT_8WAY
-	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_8WAY
-	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN ) PORT_8WAY
-	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_UP ) PORT_8WAY
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT ) PORT_4WAY
+	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_4WAY
+	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN ) PORT_4WAY
+	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_UP ) PORT_4WAY
 	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_BUTTON1 )
 	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_BUTTON2 )
-	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_UNKNOWN )
-	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_UNKNOWN )
+	PORT_BIT( 0xc0, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("P2")
-	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT ) PORT_8WAY PORT_COCKTAIL
-	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_8WAY PORT_COCKTAIL
-	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN ) PORT_8WAY PORT_COCKTAIL
-	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_UP ) PORT_8WAY PORT_COCKTAIL
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT ) PORT_4WAY PORT_COCKTAIL
+	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT ) PORT_4WAY PORT_COCKTAIL
+	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN ) PORT_4WAY PORT_COCKTAIL
+	PORT_BIT( 0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_UP ) PORT_4WAY PORT_COCKTAIL
 	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_BUTTON1 ) PORT_COCKTAIL
 	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_BUTTON2 ) PORT_COCKTAIL
-	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_UNKNOWN )
-	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_UNKNOWN )
+	PORT_BIT( 0xc0, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("DSW1")
 	PORT_DIPNAME( 0x0f, 0x0f, DEF_STR( Coinage ) )      PORT_DIPLOCATION("SW1:8,7,6,5")
@@ -420,7 +402,7 @@ static INPUT_PORTS_START( makaimur )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 INPUT_PORTS_END
 
-static INPUT_PORTS_START( diamond )
+static INPUT_PORTS_START( diamrun )
 	PORT_START("SYSTEM")
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_START1 )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_START2 )
@@ -570,36 +552,34 @@ void gng_state::machine_reset()
 	m_scrolly[0] = 0;
 	m_scrolly[1] = 0;
 
+	/* TODO: PCB reference clearly shows that the POST has random/filled data on the paletteram.
+	         For now let's fill everything with white colors until we have better info about it */
+	for (int i = 0 ; i < 0x100; i += 4)
 	{
-		/* TODO: PCB reference clearly shows that the POST has random/filled data on the paletteram.
-		         For now let's fill everything with white colors until we have better info about it */
-		for(int i = 0 ; i < 0x100; i += 4)
-		{
-			m_palette->basemem().write8(i, 0x00); m_palette->extmem().write8(i, 0x00);
-			m_palette->basemem().write8(i + 1, 0x55); m_palette->extmem().write8(i + 1, 0x55);
-			m_palette->basemem().write8(i + 2, 0xaa); m_palette->extmem().write8(i + 2, 0xaa);
-			m_palette->basemem().write8(i + 3, 0xff); m_palette->extmem().write8(i + 3, 0xff);
-			m_palette->set_pen_color(i + 0, 0x00, 0x00, 0x00);
-			m_palette->set_pen_color(i + 1, 0x55, 0x55, 0x55);
-			m_palette->set_pen_color(i + 2, 0xaa, 0xaa, 0xaa);
-			m_palette->set_pen_color(i + 3, 0xff, 0xff, 0xff);
-		}
+		m_palette->basemem().write8(i, 0x00); m_palette->extmem().write8(i, 0x00);
+		m_palette->basemem().write8(i + 1, 0x55); m_palette->extmem().write8(i + 1, 0x55);
+		m_palette->basemem().write8(i + 2, 0xaa); m_palette->extmem().write8(i + 2, 0xaa);
+		m_palette->basemem().write8(i + 3, 0xff); m_palette->extmem().write8(i + 3, 0xff);
+		m_palette->set_pen_color(i + 0, 0x00, 0x00, 0x00);
+		m_palette->set_pen_color(i + 1, 0x55, 0x55, 0x55);
+		m_palette->set_pen_color(i + 2, 0xaa, 0xaa, 0xaa);
+		m_palette->set_pen_color(i + 3, 0xff, 0xff, 0xff);
 	}
 }
 
 void gng_state::gng(machine_config &config)
 {
 	// basic machine hardware
-	MC6809(config, m_maincpu, XTAL(12'000'000) / 2);        // verified on PCB
+	MC6809(config, m_maincpu, XTAL(12'000'000) / 2); // verified on PCB
 	m_maincpu->set_addrmap(AS_PROGRAM, &gng_state::gng_main_map);
 	m_maincpu->set_vblank_int("screen", FUNC(gng_state::irq0_line_hold));
 
-	z80_device &audiocpu(Z80(config, "audiocpu", XTAL(12'000'000) / 4));     // verified on PCB
+	z80_device &audiocpu(Z80(config, "audiocpu", XTAL(12'000'000) / 4)); // verified on PCB
 	audiocpu.set_addrmap(AS_PROGRAM, &gng_state::sound_map);
 	audiocpu.set_periodic_int(FUNC(gng_state::irq0_line_hold), attotime::from_hz(4 * 60));
 
 	ls259_device &mainlatch(LS259(config, "mainlatch")); // 9B on A board
-	mainlatch.q_out_cb<0>().set(FUNC(gng_state::flipscreen_w));
+	mainlatch.q_out_cb<0>().set(FUNC(gng_state::flip_screen_set)).invert();
 	mainlatch.q_out_cb<1>().set_inputline("audiocpu", INPUT_LINE_RESET).invert();
 	mainlatch.q_out_cb<1>().append(FUNC(gng_state::ym_reset_w));
 	mainlatch.q_out_cb<2>().set([this] (int state) { machine().bookkeeping().coin_counter_w(0, state); });
@@ -609,9 +589,8 @@ void gng_state::gng(machine_config &config)
 	BUFFERED_SPRITERAM8(config, m_spriteram);
 
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
-	screen.set_raw(XTAL(12'000'000) / 2, 384, 128, 0, 262, 22, 246);  // hsync is 50..77, vsync is 257..259
+	screen.set_raw(XTAL(12'000'000) / 2, 384, 0, 256, 262, 16, 240); // hsync is 306..333 (offset by 128), vsync is 251..253 (offset by 6)
 	screen.set_screen_update(FUNC(gng_state::screen_update));
-	screen.screen_vblank().set(m_spriteram, FUNC(buffered_spriteram8_device::vblank_copy_rising));
 	screen.set_palette(m_palette);
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_gng);
@@ -623,23 +602,23 @@ void gng_state::gng(machine_config &config)
 
 	GENERIC_LATCH_8(config, "soundlatch");
 
-	YM2203(config, m_ym[0], XTAL(12'000'000) / 8);     // verified on PCB
+	YM2203(config, m_ym[0], XTAL(12'000'000) / 8); // verified on PCB
 	m_ym[0]->add_route(0, "mono", 0.40);
 	m_ym[0]->add_route(1, "mono", 0.40);
 	m_ym[0]->add_route(2, "mono", 0.40);
 	m_ym[0]->add_route(3, "mono", 0.20);
 
-	YM2203(config, m_ym[1], XTAL(12'000'000) / 8);     // verified on PCB
+	YM2203(config, m_ym[1], XTAL(12'000'000) / 8); // verified on PCB
 	m_ym[1]->add_route(0, "mono", 0.40);
 	m_ym[1]->add_route(1, "mono", 0.40);
 	m_ym[1]->add_route(2, "mono", 0.40);
 	m_ym[1]->add_route(3, "mono", 0.20);
 }
 
-void gng_state::diamond(machine_config &config)
+void gng_state::diamrun(machine_config &config)
 {
 	gng(config);
-	m_maincpu->set_addrmap(AS_PROGRAM, &gng_state::diamond_main_map);
+	m_maincpu->set_addrmap(AS_PROGRAM, &gng_state::diamrun_main_map);
 
 	config.device_remove("mainlatch");
 }
@@ -652,7 +631,53 @@ void gng_state::diamond(machine_config &config)
 
 ***************************************************************************/
 
+/* Newer PCB, with visible wires and mask ROMs (85606-A-5 / 85606-B-4).
+   The ROM contents are a mix between 'gnga' and 'makaimurb'.
+   
+   The ROM configuration is set with a jumpers bank at 1F.
+    Mask ROMs:     EPROMs (eg. gnga):
+	J2 = Short     Open
+    J3 = Short     Open
+    J4 = Open      Short
+    J5 = Short     Open
+    J6 = Open      Short
+    J7 = Short     Open
+*/
 ROM_START( gng )
+	ROM_REGION( 0x18000, "maincpu", 0 ) // All EPROMs
+	ROM_LOAD( "mjg_04.10n",                           0x04000, 0x4000, CRC(66606beb) SHA1(4c640f49be93c7d2b12d4d4c56c56e74099b6c2f) ) // 4000-5fff is page 4
+	ROM_LOAD( "mjg_03.8n",                            0x08000, 0x8000, CRC(9e01c65e) SHA1(a87880d87c64a6d61313c3bc69c8d49511e0f9c3) )
+	ROM_LOAD( "mjg_05.12n",                           0x10000, 0x8000, CRC(d6397b2b) SHA1(39aa3cb8c229e60ac0ac410ff61e0c09dba78501) ) // page 0, 1, 2, 3
+
+	ROM_REGION( 0x10000, "audiocpu", 0 ) // Mask ROM
+	ROM_LOAD( "capsom_m5m23256p_p_62410p_mjg_02.14h", 0x00000, 0x8000, CRC(615f5b6f) SHA1(7ef9ec5c2072e21c787a6bbf700033f50c759c1d) ) // yes, really "CAPSOM" (same goes for the other mask ROMs)
+
+	ROM_REGION( 0x04000, "chars", 0 ) // Mask ROM
+	ROM_LOAD( "capsom_m5m23256p_p_616105_mjg_01.11e", 0x00000, 0x4000, CRC(1ab9038a) SHA1(907f2e2753f8e11a4addd19c225a5f333ff74344) )
+	ROM_IGNORE( 0x4000 )
+
+	ROM_REGION( 0x18000, "tiles", 0 ) // All mask ROMs
+	ROM_LOAD( "capsom_m5m23256p_p_616105_mmg_08.3e",  0x00000, 0x8000, CRC(c09a716f) SHA1(d30d31ae8458ac22b61a01bf52dd50788e15c51f) ) // 0-1-2-3 Plane 1
+	ROM_LOAD( "capsom_m5m23256p_p_61710z_mmg_07.3c",  0x08000, 0x8000, CRC(0b92b129) SHA1(8e06b03323b470482e068a9d60f0263ac5088876) ) // 0-1-2-3 Plane 2
+	ROM_LOAD( "capsom_m5m23256p_p_616105_mmg_06.3b",  0x10000, 0x8000, CRC(830176af) SHA1(1053adf458f2613a3ce6f3eb5d7d917906341d5c) ) // 0-1-2-3 Plane 3
+
+	ROM_REGION( 0x20000, "sprites", ROMREGION_ERASEFF ) // All mask ROMs
+	ROM_LOAD( "capsom_m5m23256p_p_61710g_mjg_12.4n",  0x00000, 0x8000, CRC(dbf05081) SHA1(c0a327e8c1a899a7b6c35ae197f2640b89491dd9) ) // sprites 0 Plane 1-2, sprites 1 Plane 1-2
+	ROM_LOAD( "capsom_m5m23256p_p_620108_mjg_11.3n",  0x08000, 0x4000, CRC(cf533077) SHA1(9ad39aa884daaf757668063f6c8a1a2037308441) ) // sprites 2 Plane 1-2
+	ROM_IGNORE( 0x4000 )
+	ROM_LOAD( "capsom_m5m23256p_p_62410p_mjg_10.4l",  0x10000, 0x8000, CRC(5f36734e) SHA1(b0eb666b2ef31c0a801f17cc797bd0d2fdae9511) ) // sprites 0 Plane 3-4, sprites 1 Plane 3-4
+	ROM_LOAD( "capsom_m5m23256p_p_61710g_mjg_09.3l",  0x18000, 0x4000, CRC(89c71940) SHA1(9dd7decf4c776a2ebcf27a4b71e520774b9563eb) ) // sprites 2 Plane 3-4
+	ROM_IGNORE( 0x4000 )
+
+	ROM_REGION( 0x0200, "proms", 0 )
+	ROM_LOAD( "m-02_63s141.14k", 0x0000, 0x0100, CRC(0eaf5158) SHA1(bafd4108708f66cd7b280e47152b108f3e254fc9) ) // video timing (not used)
+	ROM_LOAD( "m-01_63s141.2e",  0x0100, 0x0100, CRC(4a1285a4) SHA1(5018c3950b675af58db499e2883ecbc55419b491) ) // priority (not used)
+
+	ROM_REGION( 0x0100, "plds", 0 )
+	ROM_LOAD( "gg-pal10l8.bin",  0x0000, 0x002c, CRC(87f1b7e0) SHA1(b719c3be7bd4a02660bb0887f752e9769cbd37d2) )
+ROM_END
+
+ROM_START( gnga )
 	ROM_REGION( 0x18000, "maincpu", 0 )
 	ROM_LOAD( "gg4.bin",      0x04000, 0x4000, CRC(66606beb) SHA1(4c640f49be93c7d2b12d4d4c56c56e74099b6c2f) ) // 4000-5fff is page 4
 	ROM_LOAD( "gg3.bin",      0x08000, 0x8000, CRC(9e01c65e) SHA1(a87880d87c64a6d61313c3bc69c8d49511e0f9c3) )
@@ -688,13 +713,46 @@ ROM_START( gng )
 	ROM_LOAD( "gg-pal10l8.bin",  0x0000, 0x002c, CRC(87f1b7e0) SHA1(b719c3be7bd4a02660bb0887f752e9769cbd37d2) )
 ROM_END
 
-ROM_START( gnga )
+ROM_START( gngb )
 	ROM_REGION( 0x18000, "maincpu", 0 )
 	ROM_LOAD( "gng.n10",      0x04000, 0x4000, CRC(60343188) SHA1(dfc95d3f23a3a4b05b559f1dc76488b2659fbf66) )
 	ROM_LOAD( "gng.n9",       0x08000, 0x4000, CRC(b6b91cfb) SHA1(019a38b1c4e987715be1575948a3dc06ee59123d) )
 	ROM_LOAD( "gng.n8",       0x0c000, 0x4000, CRC(a5cfa928) SHA1(29dada8c4dbe04969d0d68faac559d2b4a3db711) )
 	ROM_LOAD( "gng.n13",      0x10000, 0x4000, CRC(fd9a8dda) SHA1(222c3c759c6b60f82351b9e6bf748fb4872e82b4) )
 	ROM_LOAD( "gng.n12",      0x14000, 0x4000, CRC(13cf6238) SHA1(0305908e922891a6a6b6c29e6a099867215d084e) )
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "gg2.bin",      0x0000, 0x8000, CRC(615f5b6f) SHA1(7ef9ec5c2072e21c787a6bbf700033f50c759c1d) )
+
+	ROM_REGION( 0x04000, "chars", 0 )
+	ROM_LOAD( "gg1.bin",      0x00000, 0x4000, CRC(ecfccf07) SHA1(0a1518e19a2e0a4cc3dde4b9568202ea911b5ece) )
+
+	ROM_REGION( 0x18000, "tiles", 0 )
+	ROM_LOAD( "gg11.bin",     0x00000, 0x4000, CRC(ddd56fa9) SHA1(f9d77eee5e2738b7e83ba02fcc55dd480391479f) ) // 0-1 Plane 1
+	ROM_LOAD( "gg10.bin",     0x04000, 0x4000, CRC(7302529d) SHA1(8434c994cc55d2586641f3b90b6b15fd65dfb67c) ) // 2-3 Plane 1
+	ROM_LOAD( "gg9.bin",      0x08000, 0x4000, CRC(20035bda) SHA1(bbb1fba0eb19471f66d29526fa8423ccb047bd63) ) // 0-1 Plane 2
+	ROM_LOAD( "gg8.bin",      0x0c000, 0x4000, CRC(f12ba271) SHA1(1c42fa02cb27b35d10c3f7f036005e747f9f6b79) ) // 2-3 Plane 2
+	ROM_LOAD( "gg7.bin",      0x10000, 0x4000, CRC(e525207d) SHA1(1947f159189b3a53f1251d8653b6e7c65c91fc3c) ) // 0-1 Plane 3
+	ROM_LOAD( "gg6.bin",      0x14000, 0x4000, CRC(2d77e9b2) SHA1(944da1ce29a18bf0fc8deff78bceacba0bf23a07) ) // 2-3 Plane 3
+
+	ROM_REGION( 0x20000, "sprites", ROMREGION_ERASEFF )
+	ROM_LOAD( "gg17.bin",     0x00000, 0x4000, CRC(93e50a8f) SHA1(42d367f57bb2fdf60a0445ac1533da99cfeaa617) ) // sprites 0 Plane 1-2
+	ROM_LOAD( "gg16.bin",     0x04000, 0x4000, CRC(06d7e5ca) SHA1(9e06012bcd82f98fad43de666ef9a75979d940ab) ) // sprites 1 Plane 1-2
+	ROM_LOAD( "gg15.bin",     0x08000, 0x4000, CRC(bc1fe02d) SHA1(e3a1421d465b87148ffa94f5673b2307f0246afe) ) // sprites 2 Plane 1-2
+	ROM_LOAD( "gg14.bin",     0x10000, 0x4000, CRC(6aaf12f9) SHA1(207a7407288182a4f3eddaea634c6a6452131182) ) // sprites 0 Plane 3-4
+	ROM_LOAD( "gg13.bin",     0x14000, 0x4000, CRC(e80c3fca) SHA1(cb641c25bb04b970b2cbeca41adb792bbe142fb5) ) // sprites 1 Plane 3-4
+	ROM_LOAD( "gg12.bin",     0x18000, 0x4000, CRC(7780a925) SHA1(3f129ca6d695548b659955fe538584bd9ac2ff17) ) // sprites 2 Plane 3-4
+
+	ROM_REGION( 0x0200, "proms", 0 )
+	ROM_LOAD( "tbp24s10.14k", 0x0000, 0x0100, CRC(0eaf5158) SHA1(bafd4108708f66cd7b280e47152b108f3e254fc9) )  // video timing (not used)
+	ROM_LOAD( "63s141.2e",    0x0100, 0x0100, CRC(4a1285a4) SHA1(5018c3950b675af58db499e2883ecbc55419b491) )  // priority (not used)
+ROM_END
+
+ROM_START( gngc )
+	ROM_REGION( 0x18000, "maincpu", 0 )
+	ROM_LOAD( "mm_c_04",    0x04000, 0x4000, CRC(4f94130f) SHA1(6863fee3c97c76ba314ccbada7efacb6783e7d32) )
+	ROM_LOAD( "mm_c_03",    0x08000, 0x8000, CRC(1def138a) SHA1(d29e12082c4d5c06a9910b3500ef66242cdec905) )
+	ROM_LOAD( "mm_c_05",    0x10000, 0x8000, CRC(ed28e86e) SHA1(064871918547a56be330c6994d4db2c9932e14db) )
 
 	ROM_REGION( 0x10000, "audiocpu", 0 )
 	ROM_LOAD( "gg2.bin",      0x0000, 0x8000, CRC(615f5b6f) SHA1(7ef9ec5c2072e21c787a6bbf700033f50c759c1d) )
@@ -752,6 +810,37 @@ ROM_START( gngbl )
 	ROM_LOAD( "16.84472.4l",     0x10000, 0x4000, CRC(608d68d5) SHA1(af207f9ee2f93a0cf9cf25cfe72b0fdfe55481b8) ) // sprites 0 Plane 3-4
 	ROM_LOAD( "15.84490.3l",     0x14000, 0x4000, CRC(e80c3fca) SHA1(cb641c25bb04b970b2cbeca41adb792bbe142fb5) ) // sprites 1 Plane 3-4
 	ROM_LOAD( "14.84490.1l",     0x18000, 0x4000, CRC(7780a925) SHA1(3f129ca6d695548b659955fe538584bd9ac2ff17) ) // sprites 2 Plane 3-4
+ROM_END
+
+ROM_START( gngbla )
+	ROM_REGION( 0x18000, "maincpu", 0 )
+	ROM_LOAD( "3.10n",           0x04000, 0x4000, CRC(4f94130f) SHA1(6863fee3c97c76ba314ccbada7efacb6783e7d32) )
+	ROM_LOAD( "4.9n",            0x08000, 0x4000, CRC(08322bef) SHA1(7107ed1f9eae2618b0d420d53af04df680bd4b99) )
+	ROM_LOAD( "5.8n",            0x0c000, 0x4000, CRC(b6582167) SHA1(47be2b9d6a23fefcc131e10456c5ba71df5461c5) )
+	ROM_LOAD( "1.13n",           0x10000, 0x4000, CRC(fd9a8dda) SHA1(222c3c759c6b60f82351b9e6bf748fb4872e82b4) )
+	ROM_LOAD( "2.12n",           0x14000, 0x4000, CRC(f32c2e55) SHA1(0eab4b4e567f4b87233a5f259654c4dde4f8cad2) )
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "6.13h",           0x00000, 0x8000, CRC(615f5b6f) SHA1(7ef9ec5c2072e21c787a6bbf700033f50c759c1d) )
+
+	ROM_REGION( 0x04000, "chars", 0 )
+	ROM_LOAD( "7.10e",           0x00000, 0x4000, CRC(ecfccf07) SHA1(0a1518e19a2e0a4cc3dde4b9568202ea911b5ece) )
+
+	ROM_REGION( 0x18000, "tiles", 0 )
+	ROM_LOAD( "19.e3",           0x00000, 0x4000, CRC(ddd56fa9) SHA1(f9d77eee5e2738b7e83ba02fcc55dd480391479f) ) // 0-1 Plane 1
+	ROM_LOAD( "12.e1",           0x04000, 0x4000, CRC(7302529d) SHA1(8434c994cc55d2586641f3b90b6b15fd65dfb67c) ) // 2-3 Plane 1
+	ROM_LOAD( "11.c3",           0x08000, 0x4000, CRC(20035bda) SHA1(bbb1fba0eb19471f66d29526fa8423ccb047bd63) ) // 0-1 Plane 2
+	ROM_LOAD( "10.c1",           0x0c000, 0x4000, CRC(f12ba271) SHA1(1c42fa02cb27b35d10c3f7f036005e747f9f6b79) ) // 2-3 Plane 2
+	ROM_LOAD( "9.b3",            0x10000, 0x4000, CRC(e525207d) SHA1(1947f159189b3a53f1251d8653b6e7c65c91fc3c) ) // 0-1 Plane 3
+	ROM_LOAD( "8.1b",            0x14000, 0x4000, CRC(2d77e9b2) SHA1(944da1ce29a18bf0fc8deff78bceacba0bf23a07) ) // 2-3 Plane 3
+
+	ROM_REGION( 0x20000, "sprites", ROMREGION_ERASEFF )
+	ROM_LOAD( "13.n4",           0x00000, 0x4000, CRC(4613afdc) SHA1(13e5a38a134bd7cfa16c63a18fa332c6d66b9345) ) // sprites 0 Plane 1-2
+	ROM_LOAD( "14.n3",           0x04000, 0x4000, CRC(06d7e5ca) SHA1(9e06012bcd82f98fad43de666ef9a75979d940ab) ) // sprites 1 Plane 1-2
+	ROM_LOAD( "15.n1",           0x08000, 0x4000, CRC(bc1fe02d) SHA1(e3a1421d465b87148ffa94f5673b2307f0246afe) ) // sprites 2 Plane 1-2
+	ROM_LOAD( "16.l4",           0x10000, 0x4000, CRC(608d68d5) SHA1(af207f9ee2f93a0cf9cf25cfe72b0fdfe55481b8) ) // sprites 0 Plane 3-4
+	ROM_LOAD( "17.l3",           0x14000, 0x4000, CRC(e80c3fca) SHA1(cb641c25bb04b970b2cbeca41adb792bbe142fb5) ) // sprites 1 Plane 3-4
+	ROM_LOAD( "18.l1",           0x18000, 0x4000, CRC(7780a925) SHA1(3f129ca6d695548b659955fe538584bd9ac2ff17) ) // sprites 2 Plane 3-4
 ROM_END
 
 ROM_START( gngprot )
@@ -822,39 +911,6 @@ ROM_START( gngblita )
 	ROM_LOAD( "gg-pal10l8.bin",  0x0000, 0x002c, CRC(87f1b7e0) SHA1(b719c3be7bd4a02660bb0887f752e9769cbd37d2) )
 ROM_END
 
-ROM_START( gngc )
-	ROM_REGION( 0x18000, "maincpu", 0 )
-	ROM_LOAD( "mm_c_04",    0x04000, 0x4000, CRC(4f94130f) SHA1(6863fee3c97c76ba314ccbada7efacb6783e7d32) )
-	ROM_LOAD( "mm_c_03",    0x08000, 0x8000, CRC(1def138a) SHA1(d29e12082c4d5c06a9910b3500ef66242cdec905) )
-	ROM_LOAD( "mm_c_05",    0x10000, 0x8000, CRC(ed28e86e) SHA1(064871918547a56be330c6994d4db2c9932e14db) )
-
-	ROM_REGION( 0x10000, "audiocpu", 0 )
-	ROM_LOAD( "gg2.bin",      0x0000, 0x8000, CRC(615f5b6f) SHA1(7ef9ec5c2072e21c787a6bbf700033f50c759c1d) )
-
-	ROM_REGION( 0x04000, "chars", 0 )
-	ROM_LOAD( "gg1.bin",      0x00000, 0x4000, CRC(ecfccf07) SHA1(0a1518e19a2e0a4cc3dde4b9568202ea911b5ece) )
-
-	ROM_REGION( 0x18000, "tiles", 0 )
-	ROM_LOAD( "gg11.bin",     0x00000, 0x4000, CRC(ddd56fa9) SHA1(f9d77eee5e2738b7e83ba02fcc55dd480391479f) ) // 0-1 Plane 1
-	ROM_LOAD( "gg10.bin",     0x04000, 0x4000, CRC(7302529d) SHA1(8434c994cc55d2586641f3b90b6b15fd65dfb67c) ) // 2-3 Plane 1
-	ROM_LOAD( "gg9.bin",      0x08000, 0x4000, CRC(20035bda) SHA1(bbb1fba0eb19471f66d29526fa8423ccb047bd63) ) // 0-1 Plane 2
-	ROM_LOAD( "gg8.bin",      0x0c000, 0x4000, CRC(f12ba271) SHA1(1c42fa02cb27b35d10c3f7f036005e747f9f6b79) ) // 2-3 Plane 2
-	ROM_LOAD( "gg7.bin",      0x10000, 0x4000, CRC(e525207d) SHA1(1947f159189b3a53f1251d8653b6e7c65c91fc3c) ) // 0-1 Plane 3
-	ROM_LOAD( "gg6.bin",      0x14000, 0x4000, CRC(2d77e9b2) SHA1(944da1ce29a18bf0fc8deff78bceacba0bf23a07) ) // 2-3 Plane 3
-
-	ROM_REGION( 0x20000, "sprites", ROMREGION_ERASEFF )
-	ROM_LOAD( "gg17.bin",     0x00000, 0x4000, CRC(93e50a8f) SHA1(42d367f57bb2fdf60a0445ac1533da99cfeaa617) ) // sprites 0 Plane 1-2
-	ROM_LOAD( "gg16.bin",     0x04000, 0x4000, CRC(06d7e5ca) SHA1(9e06012bcd82f98fad43de666ef9a75979d940ab) ) // sprites 1 Plane 1-2
-	ROM_LOAD( "gg15.bin",     0x08000, 0x4000, CRC(bc1fe02d) SHA1(e3a1421d465b87148ffa94f5673b2307f0246afe) ) // sprites 2 Plane 1-2
-	ROM_LOAD( "gg14.bin",     0x10000, 0x4000, CRC(6aaf12f9) SHA1(207a7407288182a4f3eddaea634c6a6452131182) ) // sprites 0 Plane 3-4
-	ROM_LOAD( "gg13.bin",     0x14000, 0x4000, CRC(e80c3fca) SHA1(cb641c25bb04b970b2cbeca41adb792bbe142fb5) ) // sprites 1 Plane 3-4
-	ROM_LOAD( "gg12.bin",     0x18000, 0x4000, CRC(7780a925) SHA1(3f129ca6d695548b659955fe538584bd9ac2ff17) ) // sprites 2 Plane 3-4
-
-	ROM_REGION( 0x0200, "proms", 0 )
-	ROM_LOAD( "tbp24s10.14k", 0x0000, 0x0100, CRC(0eaf5158) SHA1(bafd4108708f66cd7b280e47152b108f3e254fc9) )  // video timing (not used)
-	ROM_LOAD( "63s141.2e",    0x0100, 0x0100, CRC(4a1285a4) SHA1(5018c3950b675af58db499e2883ecbc55419b491) )  // priority (not used)
-ROM_END
-
 
 /*
     Ghosts'n Goblins (US)
@@ -862,7 +918,6 @@ ROM_END
     CPU/Sound Board: 85606-A-4
     Video Board:     85606-B-3
 */
-
 ROM_START( gngt )
 	ROM_REGION( 0x18000, "maincpu", 0 )
 	ROM_LOAD( "mmt04d.10n", 0x04000, 0x4000, CRC(652406f6) SHA1(3b2bafd31f670ea26c568c48f3bd00597e5a2ed6) ) // 4000-5fff is page 4
@@ -927,6 +982,79 @@ ROM_START( makaimur )
 	ROM_REGION( 0x0200, "proms", 0 )
 	ROM_LOAD( "tbp24s10.14k", 0x0000, 0x0100, CRC(0eaf5158) SHA1(bafd4108708f66cd7b280e47152b108f3e254fc9) )  // video timing (not used)
 	ROM_LOAD( "63s141.2e",    0x0100, 0x0100, CRC(4a1285a4) SHA1(5018c3950b675af58db499e2883ecbc55419b491) )  // priority (not used)
+ROM_END
+
+ROM_START( makaimurb ) // 85606-A-3/85606-B-3
+	ROM_REGION( 0x18000, "maincpu", 0 )
+	ROM_LOAD( "mj04b.10n",      0x04000, 0x4000, CRC(f8bda78f) SHA1(ed5d67996475504cdf7b9fa356f6e160cbbcfa77) )   // 4000-5fff is page 4
+	ROM_LOAD( "mj03b.8n",       0x08000, 0x8000, CRC(0ba14114) SHA1(ce72044e22906dcd3a88d5f177905a787ac229ce) )
+	ROM_LOAD( "mj05b.12n",      0x10000, 0x8000, CRC(3040a574) SHA1(fbb2fb77ef2e45ca4e54c82c8fda3b3ceca34d2d) )   // page 0, 1, 2, 3
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "mm02.14h",     0x00000, 0x8000, CRC(615f5b6f) SHA1(7ef9ec5c2072e21c787a6bbf700033f50c759c1d) )
+
+	ROM_REGION( 0x04000, "chars", 0 )
+	ROM_LOAD( "mj01.11e",     0x00000, 0x4000, CRC(178366b4) SHA1(6c22657d91f04b327f921d99a58ebb8324c7c549) )
+
+	ROM_REGION( 0x18000, "tiles", 0 )
+	ROM_LOAD( "mm11.3e",      0x00000, 0x4000, CRC(ddd56fa9) SHA1(f9d77eee5e2738b7e83ba02fcc55dd480391479f) ) // 0-1 Plane 1
+	ROM_LOAD( "mm10.1e",      0x04000, 0x4000, CRC(7302529d) SHA1(8434c994cc55d2586641f3b90b6b15fd65dfb67c) ) // 2-3 Plane 1
+	ROM_LOAD( "mm09.3c",      0x08000, 0x4000, CRC(20035bda) SHA1(bbb1fba0eb19471f66d29526fa8423ccb047bd63) ) // 0-1 Plane 2
+	ROM_LOAD( "mm08.1c",      0x0c000, 0x4000, CRC(f12ba271) SHA1(1c42fa02cb27b35d10c3f7f036005e747f9f6b79) ) // 2-3 Plane 2
+	ROM_LOAD( "mm07.3b",      0x10000, 0x4000, CRC(e525207d) SHA1(1947f159189b3a53f1251d8653b6e7c65c91fc3c) ) // 0-1 Plane 3
+	ROM_LOAD( "mm06.1b",      0x14000, 0x4000, CRC(2d77e9b2) SHA1(944da1ce29a18bf0fc8deff78bceacba0bf23a07) ) // 2-3 Plane 3
+
+	ROM_REGION( 0x20000, "sprites", ROMREGION_ERASEFF )
+	ROM_LOAD( "mj17.4n",      0x00000, 0x4000, CRC(4613afdc) SHA1(13e5a38a134bd7cfa16c63a18fa332c6d66b9345) ) // sprites 0 Plane 1-2
+	ROM_LOAD( "mj16.3n",      0x04000, 0x4000, CRC(06d7e5ca) SHA1(9e06012bcd82f98fad43de666ef9a75979d940ab) ) // sprites 1 Plane 1-2
+	ROM_LOAD( "mj15.1n",      0x08000, 0x4000, CRC(bc1fe02d) SHA1(e3a1421d465b87148ffa94f5673b2307f0246afe) ) // sprites 2 Plane 1-2
+	ROM_LOAD( "mj14.4l",      0x10000, 0x4000, CRC(608d68d5) SHA1(af207f9ee2f93a0cf9cf25cfe72b0fdfe55481b8) ) // sprites 0 Plane 3-4
+	ROM_LOAD( "mj13.3l",      0x14000, 0x4000, CRC(e80c3fca) SHA1(cb641c25bb04b970b2cbeca41adb792bbe142fb5) ) // sprites 1 Plane 3-4
+	ROM_LOAD( "mj12.1l",      0x18000, 0x4000, CRC(7780a925) SHA1(3f129ca6d695548b659955fe538584bd9ac2ff17) ) // sprites 2 Plane 3-4
+
+	ROM_REGION( 0x0200, "proms", 0 )
+	ROM_LOAD( "tbp24s10.14k", 0x0000, 0x0100, CRC(0eaf5158) SHA1(bafd4108708f66cd7b280e47152b108f3e254fc9) )  // video timing (not used)
+	ROM_LOAD( "63s141.2e",    0x0100, 0x0100, CRC(4a1285a4) SHA1(5018c3950b675af58db499e2883ecbc55419b491) )  // priority (not used)
+ROM_END
+
+/*
+  Makaimura bootleg
+  Program is the same as set makaimurb, but different sized/arranged ROMs.
+  Sprite ROMs are the same as gng, so it has the shield instead of cross.
+*/
+ROM_START( makaimurbbl )
+	ROM_REGION( 0x18000, "maincpu", 0 )
+	ROM_LOAD( "gg5.bin",      0x04000, 0x4000, CRC(f8bda78f) SHA1(ed5d67996475504cdf7b9fa356f6e160cbbcfa77) ) // 4000-5fff is page 4
+	ROM_LOAD( "gg4.bin",      0x08000, 0x4000, CRC(ac0b25fb) SHA1(81b349b969e1ea4f90e8e523ec05a93b62252433) )
+	ROM_LOAD( "gg3.bin",      0x0c000, 0x4000, CRC(762b5af0) SHA1(1752b825b936f0f5ff338f81006f1dc84705d875) )
+	ROM_LOAD( "gg7.bin",      0x10000, 0x4000, CRC(fd9a8dda) SHA1(222c3c759c6b60f82351b9e6bf748fb4872e82b4) ) // page 0, 1, 2, 3
+	ROM_LOAD( "gg6.bin",      0x14000, 0x4000, CRC(2e44634f) SHA1(60b6b8630f14688488593ee439ef77a7a65cd467) ) // page 0, 1, 2, 3
+
+	ROM_REGION( 0x10000, "audiocpu", 0 )
+	ROM_LOAD( "gg2.bin",      0x0000, 0x8000, CRC(615f5b6f) SHA1(7ef9ec5c2072e21c787a6bbf700033f50c759c1d) )
+
+	ROM_REGION( 0x04000, "chars", 0 )
+	ROM_LOAD( "gg1.bin",      0x00000, 0x4000, CRC(ecfccf07) SHA1(0a1518e19a2e0a4cc3dde4b9568202ea911b5ece) )
+
+	ROM_REGION( 0x18000, "tiles", 0 )
+	ROM_LOAD( "gg13.bin",     0x00000, 0x4000, CRC(ddd56fa9) SHA1(f9d77eee5e2738b7e83ba02fcc55dd480391479f) ) // 0-1 Plane 1
+	ROM_LOAD( "gg12.bin",     0x04000, 0x4000, CRC(7302529d) SHA1(8434c994cc55d2586641f3b90b6b15fd65dfb67c) ) // 2-3 Plane 1
+	ROM_LOAD( "gg11.bin",     0x08000, 0x4000, CRC(20035bda) SHA1(bbb1fba0eb19471f66d29526fa8423ccb047bd63) ) // 0-1 Plane 2
+	ROM_LOAD( "gg10.bin",     0x0c000, 0x4000, CRC(f12ba271) SHA1(1c42fa02cb27b35d10c3f7f036005e747f9f6b79) ) // 2-3 Plane 2
+	ROM_LOAD( "gg9.bin",      0x10000, 0x4000, CRC(e525207d) SHA1(1947f159189b3a53f1251d8653b6e7c65c91fc3c) ) // 0-1 Plane 3
+	ROM_LOAD( "gg8.bin",      0x14000, 0x4000, CRC(2d77e9b2) SHA1(944da1ce29a18bf0fc8deff78bceacba0bf23a07) ) // 2-3 Plane 3
+
+	ROM_REGION( 0x20000, "sprites", ROMREGION_ERASEFF )
+	ROM_LOAD( "gg19.bin",     0x00000, 0x4000, CRC(93e50a8f) SHA1(42d367f57bb2fdf60a0445ac1533da99cfeaa617) ) // sprites 0 Plane 1-2
+	ROM_LOAD( "gg18.bin",     0x04000, 0x4000, CRC(06d7e5ca) SHA1(9e06012bcd82f98fad43de666ef9a75979d940ab) ) // sprites 1 Plane 1-2
+	ROM_LOAD( "gg17.bin",     0x08000, 0x4000, CRC(bc1fe02d) SHA1(e3a1421d465b87148ffa94f5673b2307f0246afe) ) // sprites 2 Plane 1-2
+	ROM_LOAD( "gg16.bin",     0x10000, 0x4000, CRC(6aaf12f9) SHA1(207a7407288182a4f3eddaea634c6a6452131182) ) // sprites 0 Plane 3-4
+	ROM_LOAD( "gg15.bin",     0x14000, 0x4000, CRC(e80c3fca) SHA1(cb641c25bb04b970b2cbeca41adb792bbe142fb5) ) // sprites 1 Plane 3-4
+	ROM_LOAD( "gg14.bin",     0x18000, 0x4000, CRC(7780a925) SHA1(3f129ca6d695548b659955fe538584bd9ac2ff17) ) // sprites 2 Plane 3-4
+
+	ROM_REGION( 0x0200, "proms", 0 )
+	ROM_LOAD( "prom1",        0x0000, 0x0100, NO_DUMP )  // video timing (not used)
+	ROM_LOAD( "prom2",        0x0100, 0x0100, NO_DUMP )  // priority (not used)
 ROM_END
 
 ROM_START( makaimurc )
@@ -995,7 +1123,7 @@ ROM_START( makaimurg )
 	ROM_LOAD( "63s141.2e",    0x0100, 0x0100, CRC(4a1285a4) SHA1(5018c3950b675af58db499e2883ecbc55419b491) )  // priority (not used)
 ROM_END
 
-ROM_START( diamond )
+ROM_START( diamrun )
 	ROM_REGION( 0x20000, "maincpu", 0 )
 	ROM_LOAD( "d3o",          0x04000, 0x4000, CRC(ba4bf9f1) SHA1(460e01f5ba9cd0c76d1a2ea1e66e9ad49ef1e13b) ) // 4000-5fff is page 4
 	ROM_LOAD( "d3",           0x08000, 0x8000, CRC(f436d6fa) SHA1(18287ac51e717ea2ba9b307a738f76735120f21b) )
@@ -1028,14 +1156,19 @@ ROM_END
 } // anonymous namespace
 
 
-GAME( 1985, gng,       0,   gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (World? set 1)",            MACHINE_SUPPORTS_SAVE )
-GAME( 1985, gnga,      gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (World? set 2)",            MACHINE_SUPPORTS_SAVE )
-GAME( 1985, gngbl,     gng, gng,     gng,      gng_state, empty_init, ROT0, "bootleg",  "Ghosts'n Goblins (bootleg with Cross)",      MACHINE_SUPPORTS_SAVE )
-GAME( 1985, gngprot,   gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (prototype)",               MACHINE_SUPPORTS_SAVE )
-GAME( 1985, gngblita,  gng, gng,     gng,      gng_state, empty_init, ROT0, "bootleg",  "Ghosts'n Goblins (Italian bootleg, harder)", MACHINE_SUPPORTS_SAVE )
-GAME( 1985, gngc,      gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (World? set 3)",            MACHINE_SUPPORTS_SAVE ) // rev c?
-GAME( 1985, gngt,      gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom (Taito America license)", "Ghosts'n Goblins (US)", MACHINE_SUPPORTS_SAVE )
-GAME( 1985, makaimur,  gng, gng,     makaimur, gng_state, empty_init, ROT0, "Capcom",   "Makaimura (Japan)",                          MACHINE_SUPPORTS_SAVE )
-GAME( 1985, makaimurc, gng, gng,     makaimur, gng_state, empty_init, ROT0, "Capcom",   "Makaimura (Japan Revision C)",               MACHINE_SUPPORTS_SAVE )
-GAME( 1985, makaimurg, gng, gng,     makaimur, gng_state, empty_init, ROT0, "Capcom",   "Makaimura (Japan Revision G)",               MACHINE_SUPPORTS_SAVE )
-GAME( 1989, diamond,   0,   diamond, diamond,  gng_state, empty_init, ROT0, "KH Video", "Diamond Run",                                MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gng,         0,   gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (World? set 1)",             MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gnga,        gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (World? set 2)",             MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gngb,        gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (World? set 3)",             MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gngc,        gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (World? set 4)",             MACHINE_SUPPORTS_SAVE ) // rev c?
+GAME( 1985, gngbl,       gng, gng,     gng,      gng_state, empty_init, ROT0, "bootleg",  "Ghosts'n Goblins (bootleg with Cross)",       MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gngbla,      gng, gng,     gng,      gng_state, empty_init, ROT0, "bootleg",  "Ghosts'n Goblins (bootleg)",                  MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gngprot,     gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom",   "Ghosts'n Goblins (prototype)",                MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gngblita,    gng, gng,     gng,      gng_state, empty_init, ROT0, "bootleg",  "Ghosts'n Goblins (Italian bootleg, harder)",  MACHINE_SUPPORTS_SAVE )
+GAME( 1985, gngt,        gng, gng,     gng,      gng_state, empty_init, ROT0, "Capcom (Taito America license)", "Ghosts'n Goblins (US)", MACHINE_SUPPORTS_SAVE )
+GAME( 1985, makaimur,    gng, gng,     makaimur, gng_state, empty_init, ROT0, "Capcom",   "Makaimura (Japan)",                           MACHINE_SUPPORTS_SAVE )
+GAME( 1985, makaimurb,   gng, gng,     makaimur, gng_state, empty_init, ROT0, "Capcom",   "Makaimura (Japan revision B)",                MACHINE_SUPPORTS_SAVE )
+GAME( 1985, makaimurbbl, gng, gng,     makaimur, gng_state, empty_init, ROT0, "bootleg",  "Makaimura (Japan revision B bootleg)",        MACHINE_SUPPORTS_SAVE )
+GAME( 1985, makaimurc,   gng, gng,     makaimur, gng_state, empty_init, ROT0, "Capcom",   "Makaimura (Japan revision C)",                MACHINE_SUPPORTS_SAVE )
+GAME( 1985, makaimurg,   gng, gng,     makaimur, gng_state, empty_init, ROT0, "Capcom",   "Makaimura (Japan revision G)",                MACHINE_SUPPORTS_SAVE )
+
+GAME( 1989, diamrun,     0,   diamrun, diamrun,  gng_state, empty_init, ROT0, "KH Video", "Diamond Run",                                 MACHINE_SUPPORTS_SAVE ) // Kyle Hodgetts

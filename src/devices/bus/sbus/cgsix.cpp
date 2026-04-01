@@ -154,7 +154,7 @@ void sbus_cgsix_device::device_start()
 	save_item(NAME(m_fbc.m_vertex_count));
 
 	m_fbc.m_prim_buf = std::make_unique<vertex[]>(0x1000); // Unknown size on hardware
-	save_pointer(NAME(reinterpret_cast<uint8_t*>(m_fbc.m_prim_buf.get())), sizeof(vertex) * 0x1000);
+	save_pointer(reinterpret_cast<uint8_t*>(m_fbc.m_prim_buf.get()), "m_fbc.m_prim_buf", sizeof(vertex) * 0x1000);
 
 	save_item(NAME(m_fbc.m_curr_prim_type));
 
@@ -1274,7 +1274,7 @@ void sbus_cgsix_device::thc_misc_w(offs_t offset, uint32_t data, uint32_t mem_ma
 	m_thc_misc &= THC_MISC_WRITE_MASK;
 }
 
-WRITE_LINE_MEMBER(sbus_cgsix_device::vblank_w)
+void sbus_cgsix_device::vblank_w(int state)
 {
 	int old_state = BIT(m_thc_misc, THC_MISC_VSYNC_BIT);
 	if (old_state != state)

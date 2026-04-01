@@ -752,7 +752,7 @@ static INPUT_PORTS_START( wecleman )
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_SERVICE2 ) PORT_NAME("Right SW")  // right sw
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_SERVICE3 ) PORT_NAME("Left SW")  // left sw
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_SERVICE4 ) PORT_NAME("Thermo SW")  // thermo
-	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("adc", adc0804_device, intr_r)
+	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("adc", FUNC(adc0804_device::intr_r))
 	PORT_BIT( 0xf0, IP_ACTIVE_LOW, IPT_UNKNOWN )
 
 	PORT_START("DSWA")  /* $140015.b */
@@ -829,7 +829,7 @@ INPUT_PORTS_END
                             Hot Chase Input Ports
 ***************************************************************************/
 
-READ_LINE_MEMBER(wecleman_state::hotchase_sound_status_r)
+int wecleman_state::hotchase_sound_status_r()
 {
 	return m_hotchase_sound_hs;
 }
@@ -849,32 +849,34 @@ static INPUT_PORTS_START( hotchase )
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_SERVICE2 ) PORT_NAME("Right SW")   // right sw
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_SERVICE3 ) PORT_NAME("Left SW")  // left sw
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_SERVICE4 ) PORT_NAME("Thermo SW")  // thermo
-	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("adc", adc0804_device, intr_r)
-	PORT_BIT( 0x10, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(wecleman_state, hotchase_sound_status_r)
+	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("adc", FUNC(adc0804_device::intr_r))
+	PORT_BIT( 0x10, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(FUNC(wecleman_state::hotchase_sound_status_r))
 	PORT_BIT( 0xe0, IP_ACTIVE_LOW, IPT_UNKNOWN )
 
+	// dips and defaults verified with US manual
 	PORT_START("DSW2")  /* $140015.b */
+	// defaults to imperial unit for (undumped) US version
 	PORT_DIPNAME( 0x01, 0x01, "Speed Unit" )
 	PORT_DIPSETTING(    0x01, "KM" )
 	PORT_DIPSETTING(    0x00, "M.P.H." )
-	PORT_DIPNAME( 0x02, 0x02, "Unknown 2-1" )   // single (wheel related)
-	PORT_DIPSETTING(    0x02, DEF_STR( Off ) )
-	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
-	PORT_DIPNAME( 0x04, 0x04, "Unknown 2-2" )
-	PORT_DIPSETTING(    0x04, DEF_STR( Off ) )
-	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
-	PORT_DIPNAME( 0x18, 0x18, "Unknown 2-3&4" ) // Most likely Difficulty
-	PORT_DIPSETTING(    0x18, "0" )
-	PORT_DIPSETTING(    0x10, "4" )
-	PORT_DIPSETTING(    0x08, "8" )
-	PORT_DIPSETTING(    0x00, "c" )
-	PORT_DIPNAME( 0x20, 0x20, "Unknown 2-5" )   // single
+	PORT_DIPNAME( 0x02, 0x02, "Motor Control" )
+	PORT_DIPSETTING(    0x02, DEF_STR( Off ) ) // Wec Mini Spin. Upright
+	PORT_DIPSETTING(    0x00, DEF_STR( On ) )  // Wec Spin Type
+	PORT_DIPNAME( 0x04, 0x00, "Driving Technique" )
+	PORT_DIPSETTING(    0x04, DEF_STR( Normal ) )
+	PORT_DIPSETTING(    0x00, "High Technique Required" )
+	PORT_DIPNAME( 0x18, 0x10, DEF_STR( Difficulty ) )
+	PORT_DIPSETTING(    0x18, DEF_STR( Easy ) )
+	PORT_DIPSETTING(    0x10, DEF_STR( Normal ) )
+	PORT_DIPSETTING(    0x08, DEF_STR( Difficult ) )
+	PORT_DIPSETTING(    0x00, DEF_STR( Very_Difficult ) )
+	PORT_DIPNAME( 0x20, 0x20, "Steering and Seat Vibration" )
 	PORT_DIPSETTING(    0x20, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 	/* wheel <-> brake ; accel -> start */
-	PORT_DIPNAME( 0x40, 0x40, "Unknown 2-6" )   // single (wheel<->brake)
-	PORT_DIPSETTING(    0x40, DEF_STR( Off ) )
-	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
+	PORT_DIPNAME( 0x40, 0x40, "Steering Wheel Specifications" )
+	PORT_DIPSETTING(    0x40, "Potentiometer" ) // Wec Chequered Flag Type
+	PORT_DIPSETTING(    0x00, "Optical Sensor" ) // Konami GT Type
 	PORT_DIPNAME( 0x80, 0x00, DEF_STR( Demo_Sounds ) )
 	PORT_DIPSETTING(    0x80, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
@@ -939,15 +941,15 @@ static const gfx_layout wecleman_bg_layout =
 
 static const uint32_t wecleman_road_layout_xoffset[64] =
 {
-		0,7,6,5,4,3,2,1,
-		8,15,14,13,12,11,10,9,
-		16,23,22,21,20,19,18,17,
-		24,31,30,29,28,27,26,25,
+	0,7,6,5,4,3,2,1,
+	8,15,14,13,12,11,10,9,
+	16,23,22,21,20,19,18,17,
+	24,31,30,29,28,27,26,25,
 
-		0+32,7+32,6+32,5+32,4+32,3+32,2+32,1+32,
-		8+32,15+32,14+32,13+32,12+32,11+32,10+32,9+32,
-		16+32,23+32,22+32,21+32,20+32,19+32,18+32,17+32,
-		24+32,31+32,30+32,29+32,28+32,27+32,26+32,25+32
+	0+32,7+32,6+32,5+32,4+32,3+32,2+32,1+32,
+	8+32,15+32,14+32,13+32,12+32,11+32,10+32,9+32,
+	16+32,23+32,22+32,21+32,20+32,19+32,18+32,17+32,
+	24+32,31+32,30+32,29+32,28+32,27+32,26+32,25+32
 };
 
 /* We draw the road, made of 512 pixel lines, using 64x1 tiles */
@@ -977,10 +979,10 @@ GFXDECODE_END
 
 static const uint32_t hotchase_road_layout_xoffset[64] =
 {
-		0*4,0*4,1*4,1*4,2*4,2*4,3*4,3*4,4*4,4*4,5*4,5*4,6*4,6*4,7*4,7*4,
-		8*4,8*4,9*4,9*4,10*4,10*4,11*4,11*4,12*4,12*4,13*4,13*4,14*4,14*4,15*4,15*4,
-		16*4,16*4,17*4,17*4,18*4,18*4,19*4,19*4,20*4,20*4,21*4,21*4,22*4,22*4,23*4,23*4,
-		24*4,24*4,25*4,25*4,26*4,26*4,27*4,27*4,28*4,28*4,29*4,29*4,30*4,30*4,31*4,31*4
+	0*4,0*4,1*4,1*4,2*4,2*4,3*4,3*4,4*4,4*4,5*4,5*4,6*4,6*4,7*4,7*4,
+	8*4,8*4,9*4,9*4,10*4,10*4,11*4,11*4,12*4,12*4,13*4,13*4,14*4,14*4,15*4,15*4,
+	16*4,16*4,17*4,17*4,18*4,18*4,19*4,19*4,20*4,20*4,21*4,21*4,22*4,22*4,23*4,23*4,
+	24*4,24*4,25*4,25*4,26*4,26*4,27*4,27*4,28*4,28*4,29*4,29*4,30*4,30*4,31*4,31*4
 };
 
 /* We draw the road, made of 512 pixel lines, using 64x1 tiles */
@@ -1071,17 +1073,16 @@ void wecleman_state::wecleman(machine_config &config)
 	PALETTE(config, m_palette).set_entries(2048);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	GENERIC_LATCH_8(config, "soundlatch");
 
-	YM2151(config, "ymsnd", 3579545).add_route(0, "lspeaker", 0.85).add_route(1, "rspeaker", 0.85);
+	YM2151(config, "ymsnd", 3579545).add_route(0, "speaker", 0.85, 0).add_route(1, "speaker", 0.85, 1);
 
 	K007232(config, m_k007232[0], 3579545);
 	m_k007232[0]->port_write().set(FUNC(wecleman_state::wecleman_volume_callback));
-	m_k007232[0]->add_route(ALL_OUTPUTS, "lspeaker", 0.20);
-	m_k007232[0]->add_route(ALL_OUTPUTS, "rspeaker", 0.20);
+	m_k007232[0]->add_route(ALL_OUTPUTS, "speaker", 0.20, 0);
+	m_k007232[0]->add_route(ALL_OUTPUTS, "speaker", 0.20, 1);
 }
 
 
@@ -1096,14 +1097,12 @@ INTERRUPT_GEN_MEMBER(hotchase_state::hotchase_sound_timer)
 
 void hotchase_state::machine_reset()
 {
-	int i;
-
 	/* TODO: PCB reference clearly shows that the POST has random/filled data on the paletteram.
 	         For now let's fill everything with white colors until we have better info about it */
-	for(i=0;i<0x2000/2;i++)
+	for (int i = 0; i < 0x2000/2; i++)
 	{
 		m_generic_paletteram_16[i] = 0xffff;
-		m_palette->set_pen_color(i,0xff,0xff,0xff);
+		m_palette->set_pen_color(i, 0xff, 0xff, 0xff);
 	}
 }
 
@@ -1141,35 +1140,34 @@ void hotchase_state::hotchase(machine_config &config)
 
 	K051316(config, m_k051316[0], 0);
 	m_k051316[0]->set_palette(m_palette);
-	m_k051316[0]->set_offsets(-0xb0 / 2, -16);
+	m_k051316[0]->set_offsets(8, -16);
 	m_k051316[0]->set_wrap(1);
 	m_k051316[0]->set_zoom_callback(FUNC(hotchase_state::hotchase_zoom_callback_1));
 
 	K051316(config, m_k051316[1], 0);
 	m_k051316[1]->set_palette(m_palette);
-	m_k051316[1]->set_offsets(-0xb0 / 2, -16);
+	m_k051316[1]->set_offsets(8, -16);
 	m_k051316[1]->set_zoom_callback(FUNC(hotchase_state::hotchase_zoom_callback_2));
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	GENERIC_LATCH_8(config, "soundlatch");
 
 	K007232(config, m_k007232[0], 3579545);
 	// SLEV not used, volume control is elsewhere
-	m_k007232[0]->add_route(0, "lspeaker", 0.20);
-	m_k007232[0]->add_route(1, "rspeaker", 0.20);
+	m_k007232[0]->add_route(0, "speaker", 0.20, 0);
+	m_k007232[0]->add_route(1, "speaker", 0.20, 1);
 
 	K007232(config, m_k007232[1], 3579545);
 	// SLEV not used, volume control is elsewhere
-	m_k007232[1]->add_route(0, "lspeaker", 0.20);
-	m_k007232[1]->add_route(1, "rspeaker", 0.20);
+	m_k007232[1]->add_route(0, "speaker", 0.20, 0);
+	m_k007232[1]->add_route(1, "speaker", 0.20, 1);
 
 	K007232(config, m_k007232[2], 3579545);
 	// SLEV not used, volume control is elsewhere
-	m_k007232[2]->add_route(0, "lspeaker", 0.20);
-	m_k007232[2]->add_route(1, "rspeaker", 0.20);
+	m_k007232[2]->add_route(0, "speaker", 0.20, 0);
+	m_k007232[2]->add_route(1, "speaker", 0.20, 1);
 }
 
 

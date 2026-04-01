@@ -72,6 +72,8 @@ Dumping Notes:
 #include "speaker.h"
 
 
+namespace {
+
 class lgp_state : public driver_device
 {
 public:
@@ -90,19 +92,19 @@ public:
 	void init_lgp();
 
 protected:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 private:
 	uint8_t ldp_read();
 	uint32_t screen_update_lgp(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 	INTERRUPT_GEN_MEMBER(vblank_callback_lgp);
-	DECLARE_WRITE_LINE_MEMBER(ld_command_strobe_cb);
+	void ld_command_strobe_cb(int state);
 	void lgp_palette(palette_device &palette) const;
 
-	void main_io_map(address_map &map);
-	void main_program_map(address_map &map);
-	void sound_io_map(address_map &map);
-	void sound_program_map(address_map &map);
+	void main_io_map(address_map &map) ATTR_COLD;
+	void main_program_map(address_map &map) ATTR_COLD;
+	void sound_io_map(address_map &map) ATTR_COLD;
+	void sound_program_map(address_map &map) ATTR_COLD;
 
 	required_device<pioneer_ldv1000_device> m_laserdisc;
 	required_shared_ptr<uint8_t> m_tile_ram;
@@ -152,7 +154,7 @@ uint32_t lgp_state::screen_update_lgp(screen_device &screen, bitmap_rgb32 &bitma
 /* Main Z80 R/W */
 uint8_t lgp_state::ldp_read()
 {
-	return m_laserdisc->status_r();
+	return m_laserdisc->data_r();
 }
 
 /* Sound Z80 R/W */
@@ -365,7 +367,7 @@ void lgp_state::machine_start()
 {
 }
 
-WRITE_LINE_MEMBER(lgp_state::ld_command_strobe_cb)
+void lgp_state::ld_command_strobe_cb(int state)
 {
 	//m_maincpu->set_input_line(INPUT_LINE_NMI, state ? ASSERT_LINE : CLEAR_LINE);
 }
@@ -416,8 +418,8 @@ void lgp_state::lgp(machine_config &config)
 	PIONEER_LDV1000(config, m_laserdisc, 0);
 	m_laserdisc->command_strobe_callback().set(FUNC(lgp_state::ld_command_strobe_cb));
 	m_laserdisc->set_overlay(256, 256, FUNC(lgp_state::screen_update_lgp));
-	m_laserdisc->add_route(0, "lspeaker", 1.0);
-	m_laserdisc->add_route(1, "rspeaker", 1.0);
+	m_laserdisc->add_route(0, "speaker", 1.0, 0);
+	m_laserdisc->add_route(1, "speaker", 1.0, 1);
 
 	/* video hardware */
 	m_laserdisc->add_ntsc_screen(config, "screen");
@@ -427,8 +429,7 @@ void lgp_state::lgp(machine_config &config)
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_lgp);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 }
 
 
@@ -608,6 +609,9 @@ ROM_END
 void lgp_state::init_lgp()
 {
 }
+
+} // anonymous namespace
+
 
 /*    YEAR  NAME PARENT   MACHINE INPUT STATE      INIT      MONITOR  COMPANY   FULLNAME                         FLAGS) */
 GAME( 1983, lgp, 0,       lgp,    lgp,  lgp_state, init_lgp, ROT0,    "Taito",  "Laser Grand Prix",              MACHINE_NOT_WORKING|MACHINE_NO_SOUND)

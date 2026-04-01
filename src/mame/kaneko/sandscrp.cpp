@@ -90,6 +90,8 @@ Is there another alt program rom set labeled 9 & 10?
 #include "speaker.h"
 
 
+namespace {
+
 class sandscrp_state : public driver_device
 {
 public:
@@ -114,10 +116,10 @@ private:
 
 	required_memory_bank m_audiobank;
 
-	u8 m_sprite_irq;
-	u8 m_unknown_irq;
-	u8 m_vblank_irq;
-	bool m_latch_full[2];
+	u8 m_sprite_irq = 0;
+	u8 m_unknown_irq = 0;
+	u8 m_vblank_irq = 0;
+	bool m_latch_full[2]{};
 
 	u8 irq_cause_r();
 	void irq_cause_w(u8 data);
@@ -129,16 +131,16 @@ private:
 	void bankswitch_w(u8 data);
 	u8 latchstatus_r();
 
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 	u32 screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
-	DECLARE_WRITE_LINE_MEMBER(screen_vblank);
+	void screen_vblank(int state);
 
 	INTERRUPT_GEN_MEMBER(interrupt);
 	void update_irq_state();
-	void sandscrp_mem(address_map &map);
-	void sandscrp_soundmem(address_map &map);
-	void sandscrp_soundport(address_map &map);
+	void sandscrp_mem(address_map &map) ATTR_COLD;
+	void sandscrp_soundmem(address_map &map) ATTR_COLD;
+	void sandscrp_soundport(address_map &map) ATTR_COLD;
 };
 
 
@@ -150,17 +152,17 @@ u32 sandscrp_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, c
 
 	m_view2->prepare(bitmap, cliprect);
 
-	for ( int l = 0; l < 4; l++ )
+	for (int l = 0; l < 4; l++)
 	{
-		m_view2->render_tilemap(screen,bitmap,cliprect,l);
+		m_view2->render_tilemap(screen, bitmap, cliprect, l);
 	}
 
 	// copy sprite bitmap to screen
 	m_pandora->update(bitmap, cliprect);
 
-	for ( int h = 4; h < 8; h++ ) // high bit of tile priority : above sprites
+	for (int h = 4; h < 8; h++) // high bit of tile priority : above sprites
 	{
-		m_view2->render_tilemap(screen,bitmap,cliprect,h);
+		m_view2->render_tilemap(screen, bitmap, cliprect, h);
 	}
 
 	return 0;
@@ -196,7 +198,7 @@ INTERRUPT_GEN_MEMBER(sandscrp_state::interrupt)
 }
 
 
-WRITE_LINE_MEMBER(sandscrp_state::screen_vblank)
+void sandscrp_state::screen_vblank(int state)
 {
 	// rising edge
 	if (state)
@@ -210,21 +212,24 @@ WRITE_LINE_MEMBER(sandscrp_state::screen_vblank)
 /* Reads the cause of the interrupt */
 u8 sandscrp_state::irq_cause_r()
 {
-	return  ( m_sprite_irq  ?  0x08  : 0 ) |
-			( m_unknown_irq ?  0x10  : 0 ) |
-			( m_vblank_irq  ?  0x20  : 0 ) ;
+	return  (m_sprite_irq  ?  0x08  : 0) |
+			(m_unknown_irq ?  0x10  : 0) |
+			(m_vblank_irq  ?  0x20  : 0);
 }
 
 
 /* Clear the cause of the interrupt */
 void sandscrp_state::irq_cause_w(u8 data)
 {
-//  m_sprite_flipx  =   data & 1;
-//  m_sprite_flipy  =   data & 1;
+//  m_sprite_flipx = BIT(data, 0);
+//  m_sprite_flipy = BIT(data, 0);
 
-	if (BIT(data, 3))    m_sprite_irq  = 0;
-	if (BIT(data, 4))    m_unknown_irq = 0;
-	if (BIT(data, 5))    m_vblank_irq  = 0;
+	if (BIT(data, 3))
+		m_sprite_irq  = 0;
+	if (BIT(data, 4))
+		m_unknown_irq = 0;
+	if (BIT(data, 5))
+		m_vblank_irq  = 0;
 
 	update_irq_state();
 }
@@ -244,7 +249,7 @@ void sandscrp_state::coincounter_w(u8 data)
 u8 sandscrp_state::latchstatus_68k_r()
 {
 	return  (m_latch_full[0] ? 0x80 : 0) |
-			(m_latch_full[1] ? 0x40 : 0) ;
+			(m_latch_full[1] ? 0x40 : 0);
 }
 
 void sandscrp_state::latchstatus_68k_w(u8 data)
@@ -256,7 +261,8 @@ void sandscrp_state::latchstatus_68k_w(u8 data)
 template<unsigned Latch>
 u8 sandscrp_state::soundlatch_r()
 {
-	m_latch_full[Latch] = false;
+	if (!machine().side_effects_disabled())
+		m_latch_full[Latch] = false;
 	return m_soundlatch[Latch]->read();
 }
 
@@ -272,10 +278,10 @@ void sandscrp_state::sandscrp_mem(address_map &map)
 	map(0x000000, 0x07ffff).rom();     // ROM
 	map(0x100001, 0x100001).w(FUNC(sandscrp_state::irq_cause_w)); // IRQ Ack
 
-	map(0x200000, 0x20001f).rw("calc1_mcu", FUNC(kaneko_hit_device::kaneko_hit_r), FUNC(kaneko_hit_device::kaneko_hit_w));
+	map(0x200000, 0x20001f).rw("calc1", FUNC(kaneko_hit_device::kaneko_hit_r), FUNC(kaneko_hit_device::kaneko_hit_w));
 	map(0x300000, 0x30001f).rw(m_view2, FUNC(kaneko_view2_tilemap_device::regs_r), FUNC(kaneko_view2_tilemap_device::regs_w));
 	map(0x400000, 0x403fff).m(m_view2, FUNC(kaneko_view2_tilemap_device::vram_map));
-	map(0x500000, 0x501fff).rw(m_pandora, FUNC(kaneko_pandora_device::spriteram_LSB_r), FUNC(kaneko_pandora_device::spriteram_LSB_w)); // sprites
+	map(0x500000, 0x501fff).rw(m_pandora, FUNC(kaneko_pandora_device::spriteram_lsb_r), FUNC(kaneko_pandora_device::spriteram_lsb_w)); // sprites
 	map(0x600000, 0x600fff).ram().w("palette", FUNC(palette_device::write16)).share("palette");    // Palette
 	map(0x700000, 0x70ffff).ram();     // RAM
 	map(0x800001, 0x800001).r(FUNC(sandscrp_state::irq_cause_r));  // IRQ Cause
@@ -302,13 +308,13 @@ void sandscrp_state::bankswitch_w(u8 data)
 u8 sandscrp_state::latchstatus_r()
 {
 	return  (m_latch_full[1] ? 0x80 : 0) |    // swapped!?
-			(m_latch_full[0] ? 0x40 : 0) ;
+			(m_latch_full[0] ? 0x40 : 0);
 }
 
 void sandscrp_state::sandscrp_soundmem(address_map &map)
 {
 	map(0x0000, 0x7fff).rom();     // ROM
-	map(0x8000, 0xbfff).bankr("audiobank");    // Banked ROM
+	map(0x8000, 0xbfff).bankr(m_audiobank);    // Banked ROM
 	map(0xc000, 0xdfff).ram();     // RAM
 }
 
@@ -418,8 +424,8 @@ static INPUT_PORTS_START( sandscrp )
 INPUT_PORTS_END
 
 
-static GFXDECODE_START( gfx_sandscrp )
-	GFXDECODE_ENTRY( "gfx1", 0, gfx_8x8x4_row_2x2_group_packed_msb, 0x000, 0x10 ) // [0] Sprites
+static GFXDECODE_START( gfx_sandscrp_spr )
+	GFXDECODE_ENTRY( "sprites", 0, gfx_8x8x4_row_2x2_group_packed_msb, 0x000, 0x10 ) // [0] Sprites
 GFXDECODE_END
 
 
@@ -451,7 +457,6 @@ void sandscrp_state::sandscrp(machine_config &config)
 	screen.screen_vblank().set(FUNC(sandscrp_state::screen_vblank));
 	screen.set_palette("palette");
 
-	GFXDECODE(config, "gfxdecode", "palette", gfx_sandscrp);
 	PALETTE(config, "palette").set_format(palette_device::xGRB_555, 2048);
 
 	KANEKO_TMAP(config, m_view2);
@@ -459,10 +464,9 @@ void sandscrp_state::sandscrp(machine_config &config)
 	m_view2->set_offset(0x5b, 0, 256, 224);
 	m_view2->set_palette("palette");
 
-	KANEKO_HIT(config, "calc1_mcu").set_type(0);
+	KANEKO_HIT(config, "calc1").set_type(0);
 
-	KANEKO_PANDORA(config, m_pandora, 0);
-	m_pandora->set_gfxdecode_tag("gfxdecode");
+	KANEKO_PANDORA(config, m_pandora, 0, "palette", gfx_sandscrp_spr);
 
 	/* sound hardware */
 	SPEAKER(config, "mono").front_center();
@@ -497,7 +501,7 @@ ROM_START( sandscrp ) /* Z03VA-003 PCB */
 	ROM_REGION( 0x20000, "audiocpu", 0 )        /* Z80 Code */
 	ROM_LOAD( "8.ic51", 0x00000, 0x20000, CRC(6f3e9db1) SHA1(06a04fa17f44319986913bff70433510c89e38f1) )
 
-	ROM_REGION( 0x100000, "gfx1", 0 )   /* Sprites */
+	ROM_REGION( 0x100000, "sprites", 0 )
 	ROM_LOAD( "5.ic16", 0x000000, 0x080000, CRC(9bb675f6) SHA1(c3f6768cfd99a0e19ca2224fff9aa4e27ec0da24) )
 	ROM_LOAD( "6.ic17", 0x080000, 0x080000, CRC(7df2f219) SHA1(e2a59e201bfededa92d6c86f8dc1b212527ef66f) )
 
@@ -517,7 +521,7 @@ ROM_START( sandscrpa ) /* Z03VA-003 PCB, earlier program version */
 	ROM_REGION( 0x20000, "audiocpu", 0 )        /* Z80 Code */
 	ROM_LOAD( "8.ic51", 0x00000, 0x20000, CRC(6f3e9db1) SHA1(06a04fa17f44319986913bff70433510c89e38f1) )
 
-	ROM_REGION( 0x100000, "gfx1", 0 )   /* Sprites */
+	ROM_REGION( 0x100000, "sprites", 0 )
 	ROM_LOAD( "5.ic16", 0x000000, 0x080000, CRC(9bb675f6) SHA1(c3f6768cfd99a0e19ca2224fff9aa4e27ec0da24) )
 	ROM_LOAD( "6.ic17", 0x080000, 0x080000, CRC(7df2f219) SHA1(e2a59e201bfededa92d6c86f8dc1b212527ef66f) )
 
@@ -539,7 +543,7 @@ ROM_START( sandscrpb ) /* Different rev PCB */
 	ROM_REGION( 0x20000, "audiocpu", 0 )        /* Z80 Code */
 	ROM_LOAD( "8.ic51", 0x00000, 0x20000, CRC(6f3e9db1) SHA1(06a04fa17f44319986913bff70433510c89e38f1) )
 
-	ROM_REGION( 0x100000, "gfx1", 0 )   /* Sprites */
+	ROM_REGION( 0x100000, "sprites", 0 )
 	ROM_LOAD( "ss502.ic16", 0x000000, 0x100000, CRC(d8012ebb) SHA1(975bbb3b57a09e41d2257d4fa3a64097144de554) )
 
 	ROM_REGION( 0x100000, "view2", 0 )   /* Layers */
@@ -548,6 +552,8 @@ ROM_START( sandscrpb ) /* Different rev PCB */
 	ROM_REGION( 0x040000, "oki", 0 )    /* Samples */
 	ROM_LOAD( "7.ic55", 0x000000, 0x040000, CRC(9870ab12) SHA1(5ea3412cbc57bfaa32a1e2552b2eb46f4ceb5fa8) )
 ROM_END
+
+} // anonymous namespace
 
 
 GAME( 1992, sandscrp,  0,        sandscrp, sandscrp, sandscrp_state, empty_init, ROT90, "Face",   "Sand Scorpion", MACHINE_SUPPORTS_SAVE )

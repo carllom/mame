@@ -10,6 +10,11 @@
 #include "cpu/rsp/rsp.h"
 #include "cpu/mips/mips3.h"
 #include "sound/dmadac.h"
+#include "bus/generic/slot.h"
+#include "bus/generic/carts.h"
+#include "imagedev/harddriv.h"
+
+#include "screen.h"
 
 /*----------- driver state -----------*/
 
@@ -28,21 +33,17 @@ public:
 		, m_rsp_imem(*this, "rsp_imem")
 		, m_rsp_dmem(*this, "rsp_dmem")
 		, m_rcp_periphs(*this, "rcp")
+		, m_screen(*this, "screen")
 	{
 	}
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 	void n64_machine_stop();
 
-	uint32_t screen_update_n64(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
-	DECLARE_WRITE_LINE_MEMBER(screen_vblank_n64);
-
-	// Getters
-	n64_rdp* rdp() { return m_rdp.get(); }
-	uint32_t* rdram() { return m_rdram; }
-	uint32_t* sram() { return m_sram; }
+	uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
+	void screen_vblank(int state);
 
 protected:
 	required_device<mips3_device> m_vr4300;
@@ -55,8 +56,12 @@ protected:
 
 	required_device<n64_periphs> m_rcp_periphs;
 
+	required_device<screen_device> m_screen;
+
 	/* video-related */
 	std::unique_ptr<n64_rdp> m_rdp;
+
+	bitmap_rgb32 m_interlace_bitmap[2];
 };
 
 /*----------- devices -----------*/
@@ -83,6 +88,11 @@ private:
 public:
 	// construction/destruction
 	n64_periphs(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+
+	template <typename T> void set_sram(T &&tag) { m_sram.set_tag(std::forward<T>(tag)); }
+	template <typename T> void set_rdram(T &&tag) { m_rdram.set_tag(std::forward<T>(tag)); }
+
+	void set_rdp(n64_rdp& rdp) { m_rdp = &rdp; }
 
 	uint32_t is64_r(offs_t offset);
 	void is64_w(offs_t offset, uint32_t data);
@@ -126,6 +136,9 @@ public:
 	void si_dma_tick();
 	void reset_tick();
 	void video_update(bitmap_rgb32 &bitmap);
+	void field_update();
+	u8 get_current_field() { return field; }
+	bool is_interlace_mode() { return bool(BIT(vi_control, 6)); }
 
 	// Video Interface (VI) registers
 	uint32_t vi_width = 0;
@@ -165,19 +178,19 @@ public:
 
 protected:
 	// device-level overrides
-	virtual void device_start() override;
-	virtual void device_reset() override;
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 
 private:
-	n64_state* m_n64 = nullptr;
+	n64_rdp* m_rdp = nullptr;
 	address_space *m_mem_map = nullptr;
 	required_device<mips3_device> m_vr4300;
 	required_device<rsp_device> m_rsp;
 	required_shared_ptr<uint32_t> m_rsp_imem;
 	required_shared_ptr<uint32_t> m_rsp_dmem;
 
-	uint32_t *m_rdram = nullptr;
-	uint32_t *m_sram = nullptr;
+	optional_shared_ptr<uint32_t> m_sram;
+	required_shared_ptr<uint32_t> m_rdram;
 
 	void clear_rcp_interrupt(int interrupt);
 

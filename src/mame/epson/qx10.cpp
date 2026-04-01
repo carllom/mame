@@ -17,47 +17,52 @@
     - Interrupts (pic8295)
 
     banking:
-    - 0x1c = 0
-    map(0x0000,0x1fff).rom()
-    map(0x2000,0xdfff).noprw()
-    map(0xe000,0xffff).ram()
-    - 0x1c = 1 0x20 = 1
-    map(0x0000,0x7fff).ram() (0x18 selects bank)
-    map(0x8000,0x87ff) CMOS
-    map(0x8800,0xdfff).noprw() or previous bank?
-    map(0xe000,0xffff).ram()
-    - 0x1c = 1 0x20 = 0
-    map(0x0000,0xdfff).ram() (0x18 selects bank)
-    map(0xe000,0xffff).ram()
+    * 0x1c = 0 0x20 = 0
+      - 0x0000-0xdfff: ROM (8KB mirrored to 56KB)
+      - 0xe000-0xffff: Resident RAM
+    * 0x1c = 0 0x20 = 1
+      - 0x0000-0x7fff: ROM (8KB mirrored to 32KB)
+      - 0x8000-0xdfff: CMOS (2KB mirrored to 24KB)
+      - 0xe000-0xffff: Resident RAM
+    * 0x1c = 1 0x20 = 0
+      - 0x0000-0xdfff: Bankable RAM (current bank via 0x18)
+      - 0xe000-0xffff: Resident RAM
+    * 0x1c = 1 0x20 = 1
+      - 0x0000-0x7fff: Bankable RAM (current bank via 0x18)
+      - 0x8000-0xdfff: CMOS (2KB mirrored to 24KB)
+      - 0xe000-0xffff: Resident RAM
 ****************************************************************************/
 
 
 #include "emu.h"
 
 #include "bus/centronics/ctronics.h"
+#include "bus/epson_qx/keyboard/keyboard.h"
 #include "bus/epson_qx/option.h"
 #include "bus/rs232/rs232.h"
 #include "cpu/z80/z80.h"
 #include "imagedev/floppy.h"
+#include "imagedev/snapquik.h"
 #include "machine/am9517a.h"
 #include "machine/i8255.h"
 #include "machine/mc146818.h"
+#include "machine/nvram.h"
 #include "machine/output_latch.h"
 #include "machine/pic8259.h"
 #include "machine/pit8253.h"
-#include "qx10kbd.h"
 #include "machine/ram.h"
 #include "machine/upd765.h"
 #include "machine/z80sio.h"
 #include "sound/spkrdev.h"
-#include "speaker.h"
 #include "video/upd7220.h"
-#include "emupal.h"
 
+#include "emupal.h"
+#include "speaker.h"
 #include "screen.h"
 #include "softlist_dev.h"
-#include "imagedev/snapquik.h"
 
+
+namespace {
 
 #define MAIN_CLK    15974400
 
@@ -88,13 +93,19 @@ public:
 		m_centronics(*this, "centronics"),
 		m_bus(*this, "bus"),
 		m_speaker(*this, "speaker"),
-		m_vram_bank(0),
-		m_char_rom(*this, "chargen"),
 		m_maincpu(*this, "maincpu"),
 		m_screen(*this, "screen"),
+		m_lower_view(*this, "lower_ram"),
+		m_upper_view(*this, "upper_ram"),
+		m_external_view(*this, "external_ram"),
 		m_ram(*this, RAM_TAG),
-		m_palette(*this, "palette"),
-		m_ram_view(*this, "ramview")
+		m_rambank(*this, "rambank"),
+		m_cmosram(*this, "cmosram", 0x800, ENDIANNESS_LITTLE),
+		m_nvram(*this, "cmosram"),
+		m_video_ram(*this, "vram", 0x60000, ENDIANNESS_LITTLE),
+		m_vram_bank(*this, "vrambank"),
+		m_char_rom(*this, "chargen"),
+		m_palette(*this, "palette")
 	{
 	}
 
@@ -103,10 +114,8 @@ public:
 private:
 	uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 	void update_memory_mapping();
 
@@ -115,21 +124,17 @@ private:
 	void qx10_18_w(uint8_t data);
 	void prom_sel_w(uint8_t data);
 	void cmos_sel_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER( qx10_upd765_interrupt );
+	void qx10_upd765_interrupt(int state);
 	void update_fdd_motor(uint8_t state);
 	void fdd_motor_w(uint8_t data);
 	uint8_t qx10_30_r();
 	void zoom_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER( tc_w );
+	void tc_w(int state);
 	void sqw_out(uint8_t state);
-	uint8_t mc146818_r(offs_t offset);
-	void mc146818_w(offs_t offset, uint8_t data);
 	IRQ_CALLBACK_MEMBER( inta_call );
 	uint8_t get_slave_ack(offs_t offset);
 	uint8_t vram_bank_r();
 	void vram_bank_w(uint8_t data);
-	uint16_t vram_r(offs_t offset);
-	void vram_w(offs_t offset, uint16_t data, uint16_t mem_mask = ~0);
 	uint8_t memory_read_byte(offs_t offset);
 	void memory_write_byte(offs_t offset, uint8_t data);
 
@@ -142,22 +147,22 @@ private:
 	void centronics_select_handler(uint8_t state);
 	void centronics_sense_handler(uint8_t state);
 
-	DECLARE_WRITE_LINE_MEMBER(keyboard_clk);
-	DECLARE_WRITE_LINE_MEMBER(keyboard_irq);
-	DECLARE_WRITE_LINE_MEMBER(speaker_freq);
-	DECLARE_WRITE_LINE_MEMBER(speaker_duration);
+	void keyboard_clk(int state);
+	void keyboard_irq(int state);
+	void speaker_freq(int state);
+	void speaker_duration(int state);
 
 	DECLARE_QUICKLOAD_LOAD_MEMBER(quickload_cb);
 
 	void qx10_palette(palette_device &palette) const;
-	DECLARE_WRITE_LINE_MEMBER(dma_hrq_changed);
+	void dma_hrq_changed(int state);
 
 	UPD7220_DISPLAY_PIXELS_MEMBER( hgdc_display_pixels );
 	UPD7220_DRAW_TEXT_LINE_MEMBER( hgdc_draw_text );
 
-	void qx10_io(address_map &map);
-	void qx10_mem(address_map &map);
-	void upd7220_map(address_map &map);
+	void qx10_io(address_map &map) ATTR_COLD;
+	void qx10_mem(address_map &map) ATTR_COLD;
+	void upd7220_map(address_map &map) ATTR_COLD;
 
 	required_device<pit8253_device> m_pit_1;
 	required_device<pit8253_device> m_pit_2;
@@ -171,18 +176,22 @@ private:
 	required_device_array<floppy_connector, 2> m_floppy;
 	required_device<upd7220_device> m_hgdc;
 	required_device<mc146818_device> m_rtc;
-	required_device<rs232_port_device> m_kbd;
+	required_device<bus::epson_qx::keyboard::keyboard_port_device> m_kbd;
 	required_device<centronics_device> m_centronics;
 	required_device<bus::epson_qx::option_bus_device> m_bus;
 	required_device<speaker_sound_device>   m_speaker;
-	uint8_t m_vram_bank;
-	//required_shared_ptr<uint8_t> m_video_ram;
-	std::unique_ptr<uint16_t[]> m_video_ram;
-	required_region_ptr<uint8_t> m_char_rom;
-
 	required_device<cpu_device> m_maincpu;
 	required_device<screen_device> m_screen;
+	memory_view m_lower_view;
+	memory_view m_upper_view;
+	memory_view m_external_view;
 	required_device<ram_device> m_ram;
+	memory_bank_creator m_rambank;
+	memory_share_creator<u8> m_cmosram;
+	required_device<nvram_device> m_nvram;
+	memory_share_creator<uint16_t> m_video_ram;
+	memory_bank_creator m_vram_bank;
+	required_region_ptr<uint8_t> m_char_rom;
 	required_device<palette_device> m_palette;
 
 	/* FDD */
@@ -204,13 +213,12 @@ private:
 
 
 	/* memory */
-	memory_view m_ram_view;
 	int     m_external_bank = 0;
 	int     m_membank = 0;
 	int     m_memprom = 0;
 	int     m_memcmos = 0;
-	uint8_t   m_cmosram[0x800]{};
 
+	uint8_t m_vram_bank_val = 0;
 	uint8_t m_color_mode = 0;
 	uint8_t m_zoom = 0;
 };
@@ -259,7 +267,8 @@ UPD7220_DRAW_TEXT_LINE_MEMBER( qx10_state::hgdc_draw_text )
 		int tile = m_video_ram[((addr+x)*2) >> 1] & 0xff;
 		int attr = m_video_ram[((addr+x)*2) >> 1] >> 8;
 
-		uint8_t color = (m_color_mode) ? 1 : (attr & 4) ? 2 : 1; /* TODO: color mode */
+		// TODO: color mode support
+		uint8_t color = (m_color_mode) ? 1 : (attr & 4) ? 2 : 1;
 
 		for (int yi = 0; yi < lr; yi++)
 		{
@@ -268,10 +277,11 @@ UPD7220_DRAW_TEXT_LINE_MEMBER( qx10_state::hgdc_draw_text )
 			if(attr & 8)
 				tile_data^=0xff;
 
-			if(cursor_on && cursor_addr == addr+x) //TODO
+			if(cursor_on && cursor_addr == addr+x)
 				tile_data^=0xff;
 
-			if(attr & 0x80 && m_screen->frame_number() & 0x10) //TODO: check for blinking interval
+			 //TODO: check for blinking interval
+			if(attr & 0x80 && m_screen->frame_number() & 0x10)
 				tile_data=0;
 
 			for (int xi = 0; xi < 8; xi++)
@@ -279,6 +289,7 @@ UPD7220_DRAW_TEXT_LINE_MEMBER( qx10_state::hgdc_draw_text )
 				int res_x = ((x * 8) + xi) * (m_zoom + 1);
 				int res_y = y + (yi * (m_zoom + 1));
 
+				// TODO: cpm22mf:flop2 display random character test will go out of bounds here
 				if(!m_screen->visible_area().contains(res_x, res_y))
 					continue;
 
@@ -334,55 +345,46 @@ void qx10_state::update_memory_mapping()
 {
 	int drambank = -1;
 
-	if (m_membank & 1)
+	if (m_membank & 1)      { drambank = 0; }
+	else if (m_membank & 2) { drambank = 1; }
+	else if (m_membank & 4) { drambank = 2; }
+	else if (m_membank & 8) { drambank = 3; }
+
+	if (drambank >= 0)
 	{
-		drambank = 0;
-	}
-	else if (m_membank & 2)
-	{
-		drambank = 1;
-	}
-	else if (m_membank & 4)
-	{
-		drambank = 2;
-	}
-	else if (m_membank & 8)
-	{
-		drambank = 3;
+		m_rambank->set_entry(drambank);
 	}
 
-	if (drambank >= 0 || !m_memprom || m_memcmos)
+	if (m_external_bank)
 	{
-		m_ram_view.select(0);
-		if (!m_memprom)
-		{
-			membank("bank1")->set_base(memregion("maincpu")->base());
-		}
-		else
-		{
-			membank("bank1")->set_base(m_ram->pointer() + drambank*64*1024);
-		}
-		if (m_memcmos)
-		{
-			membank("bank2")->set_base(m_cmosram);
-		}
-		else
-		{
-			membank("bank2")->set_base(m_ram->pointer() + drambank*64*1024 + 32*1024);
-		}
+		m_external_view.select(0);
 	}
 	else
 	{
-		if (m_external_bank)
-		{
-			m_ram_view.select(1);
-		}
-		else
-		{
-			m_ram_view.disable();
-		}
+		m_external_view.disable();
 	}
 
+	if (!m_memprom)
+	{
+		m_lower_view.select(0);
+	}
+	else
+	{
+		m_lower_view.disable();
+	}
+
+	if (m_memcmos)
+	{
+		m_upper_view.select(1);
+	}
+	else if(!m_memprom)
+	{
+		m_upper_view.select(0);
+	}
+	else
+	{
+		m_upper_view.disable();
+	}
 }
 
 void qx10_state::qx10_18_w(uint8_t data)
@@ -429,7 +431,7 @@ QUICKLOAD_LOAD_MEMBER(qx10_state::quickload_cb)
 	address_space& prog_space = m_maincpu->space(AS_PROGRAM);
 
 	if (image.length() >= 0xfd00)
-		return image_init_result::FAIL;
+		return std::make_pair(image_error::INVALIDLENGTH, std::string());
 
 	/* The right RAM bank must be active */
 	m_membank = 0;
@@ -439,7 +441,7 @@ QUICKLOAD_LOAD_MEMBER(qx10_state::quickload_cb)
 	if ((prog_space.read_byte(0) != 0xc3) || (prog_space.read_byte(5) != 0xc3))
 	{
 		machine_reset();
-		return image_init_result::FAIL;
+		return std::make_pair(image_error::UNSUPPORTED, std::string());
 	}
 
 	/* Load image to the TPA (Transient Program Area) */
@@ -448,7 +450,7 @@ QUICKLOAD_LOAD_MEMBER(qx10_state::quickload_cb)
 	{
 		uint8_t data;
 		if (image.fread( &data, 1) != 1)
-			return image_init_result::FAIL;
+			return std::make_pair(image_error::UNSPECIFIED, std::string());
 		prog_space.write_byte(i+0x100, data);
 	}
 
@@ -459,7 +461,7 @@ QUICKLOAD_LOAD_MEMBER(qx10_state::quickload_cb)
 	m_maincpu->set_state_int(Z80_SP, 256 * prog_space.read_byte(7) - 300);
 	m_maincpu->set_pc(0x100);       // start program
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 /*
@@ -471,7 +473,7 @@ static void qx10_floppies(device_slot_interface &device)
 	device.option_add("525dd", FLOPPY_525_DD);
 }
 
-WRITE_LINE_MEMBER( qx10_state::qx10_upd765_interrupt )
+void qx10_state::qx10_upd765_interrupt(int state)
 {
 	m_fdcint = state;
 
@@ -561,13 +563,13 @@ void qx10_state::portc_w(uint8_t data)
 /*
     DMA8237
 */
-WRITE_LINE_MEMBER(qx10_state::dma_hrq_changed)
+void qx10_state::dma_hrq_changed(int state)
 {
 	/* Assert HLDA */
 	m_dma_1->hack_w(state);
 }
 
-WRITE_LINE_MEMBER( qx10_state::tc_w )
+void qx10_state::tc_w(int state)
 {
 	/* floppy terminal count */
 	m_fdc->tc_w(!state);
@@ -621,36 +623,27 @@ void qx10_state::sqw_out(uint8_t state)
 	m_counter = cnt;
 }
 
-void qx10_state::mc146818_w(offs_t offset, uint8_t data)
-{
-	m_rtc->write(!offset, data);
-}
-
-uint8_t qx10_state::mc146818_r(offs_t offset)
-{
-	return m_rtc->read(!offset);
-}
-
-WRITE_LINE_MEMBER(qx10_state::keyboard_irq)
+void qx10_state::keyboard_irq(int state)
 {
 	m_scc->m1_r(); // always set
 	m_pic_m->ir4_w(state);
 }
 
-WRITE_LINE_MEMBER(qx10_state::keyboard_clk)
+void qx10_state::keyboard_clk(int state)
 {
 	// clock keyboard too
+	m_kbd->clk_w(state);
 	m_scc->rxca_w(state);
 	m_scc->txca_w(state);
 }
 
-WRITE_LINE_MEMBER(qx10_state::speaker_duration)
+void qx10_state::speaker_duration(int state)
 {
 	m_pit1_out0 = state;
 	update_speaker();
 }
 
-WRITE_LINE_MEMBER(qx10_state::speaker_freq)
+void qx10_state::speaker_freq(int state)
 {
 	m_spkr_freq = state;
 	update_speaker();
@@ -700,26 +693,52 @@ uint8_t qx10_state::get_slave_ack(offs_t offset)
 
 uint8_t qx10_state::vram_bank_r()
 {
-	return m_vram_bank;
+	return m_vram_bank_val;
 }
 
 void qx10_state::vram_bank_w(uint8_t data)
 {
+	m_vram_bank_val = data;
+
 	if(m_color_mode)
 	{
-		m_vram_bank = data & 7;
-		if(data != 1 && data != 2 && data != 4)
-			printf("%02x\n",data);
+		int bank = -1;
+
+		if (data & 1)      { bank = 0; } // B
+		else if (data & 2) { bank = 1; } // G
+		else if (data & 4) { bank = 2; } // R
+
+		if (bank >= 0)
+		{
+			m_vram_bank->set_entry(bank);
+		}
 	}
 }
 
 void qx10_state::qx10_mem(address_map &map)
 {
 	map.unmap_value_high();
-	map(0x0000, 0xdfff).view(m_ram_view);
-	m_ram_view[0](0x0000, 0x7fff).bankrw("bank1");
-	m_ram_view[0](0x8000, 0xdfff).bankrw("bank2");
-	m_ram_view[1](0x0000, 0xdfff).unmaprw();
+
+	// 56KB bankable RAM (4 banks)¬
+	map(0x0000, 0xdfff).bankrw("rambank");
+
+	// External RAM: unmapped, cards install handlers here
+	map(0x0000, 0xdfff).view(m_external_view);
+	m_external_view[0](0x0000, 0xdfff).unmaprw();
+
+	// ROM: 8KB → 32K
+	map(0x0000, 0x7fff).view(m_lower_view);
+	m_lower_view[0](0x0000, 0x1fff).mirror(0x6000).rom().region("maincpu", 0).nopw();
+
+	// ROM: 8KB → 24K
+	// CMOS: 2KB → 24K
+	map(0x8000, 0xdfff).view(m_upper_view);
+	m_upper_view[0](0x8000, 0x9fff).mirror(0x2000).rom().region("maincpu", 0).nopw();
+	m_upper_view[0](0xc000, 0xdfff).rom().region("maincpu", 0).nopw();
+	m_upper_view[1](0x8000, 0x87ff).mirror(0x3800).ram().share("cmosram");
+	m_upper_view[1](0xc000, 0xc7ff).mirror(0x1800).ram().share("cmosram");
+
+	// Resident RAM
 	map(0xe000, 0xffff).ram();
 }
 
@@ -742,7 +761,8 @@ void qx10_state::qx10_io(address_map &map)
 	map(0x38, 0x39).rw(m_hgdc, FUNC(upd7220_device::read), FUNC(upd7220_device::write));
 	map(0x3a, 0x3a).w(FUNC(qx10_state::zoom_w));
 //  map(0x3b, 0x3b) GDC light pen req
-	map(0x3c, 0x3d).rw(FUNC(qx10_state::mc146818_r), FUNC(qx10_state::mc146818_w));
+	map(0x3c, 0x3c).rw(m_rtc, FUNC(mc146818_device::data_r), FUNC(mc146818_device::data_w));
+	map(0x3d, 0x3d).w(m_rtc, FUNC(mc146818_device::address_w));
 	map(0x40, 0x4f).rw(m_dma_1, FUNC(am9517a_device::read), FUNC(am9517a_device::write));
 	map(0x50, 0x5f).rw(m_dma_2, FUNC(am9517a_device::read), FUNC(am9517a_device::write));
 }
@@ -799,7 +819,37 @@ INPUT_PORTS_END
 
 void qx10_state::machine_start()
 {
-	m_bus->set_memview(m_ram_view[1]);
+	m_rambank->configure_entries(0, 4, m_ram->pointer(), 0x10000);
+	m_vram_bank->configure_entries(0, 3, &m_video_ram[0], 0x20000);
+	m_bus->set_memview(m_external_view[0]);
+
+	// FDD
+	save_item(NAME(m_fdcint));
+	save_item(NAME(m_motor_clk));
+	save_item(NAME(m_counter));
+
+	// Speaker
+	save_item(NAME(m_spkr_enable));
+	save_item(NAME(m_spkr_freq));
+	save_item(NAME(m_pit1_out0));
+
+	// Centronics
+	save_item(NAME(m_centronics_error));
+	save_item(NAME(m_centronics_busy));
+	save_item(NAME(m_centronics_paper));
+	save_item(NAME(m_centronics_select));
+	save_item(NAME(m_centronics_sense));
+
+	// Memory banking
+	save_item(NAME(m_external_bank));
+	save_item(NAME(m_membank));
+	save_item(NAME(m_memprom));
+	save_item(NAME(m_memcmos));
+
+	// Video
+	save_item(NAME(m_vram_bank_val));
+	save_item(NAME(m_color_mode));
+	save_item(NAME(m_zoom));
 }
 
 void qx10_state::machine_reset()
@@ -823,6 +873,7 @@ void qx10_state::machine_reset()
 
 		/* TODO: is there a bit that sets this up? */
 		m_color_mode = ioport("CONFIG")->read() & 1;
+		vram_bank_w(1);
 
 		if(m_color_mode) //color
 		{
@@ -836,7 +887,6 @@ void qx10_state::machine_reset()
 
 			m_palette->set_pen_color(1, 0x00, 0x9f, 0x00);
 			m_palette->set_pen_color(2, 0x00, 0xff, 0x00);
-			m_vram_bank = 0;
 		}
 	}
 }
@@ -859,47 +909,15 @@ static GFXDECODE_START( gfx_qx10 )
 	GFXDECODE_ENTRY( "chargen", 0x0000, qx10_charlayout, 1, 1 )
 GFXDECODE_END
 
-void qx10_state::video_start()
-{
-	// allocate memory
-	m_video_ram = make_unique_clear<uint16_t[]>(0x30000);
-}
 
 void qx10_state::qx10_palette(palette_device &palette) const
 {
 	// ...
 }
 
-uint16_t qx10_state::vram_r(offs_t offset)
-{
-	int bank = 0;
-
-	if (m_vram_bank & 1)     { bank = 0; } // B
-	else if(m_vram_bank & 2) { bank = 1; } // G
-	else if(m_vram_bank & 4) { bank = 2; } // R
-
-	return m_video_ram[offset + (0x10000 * bank)];
-}
-
-void qx10_state::vram_w(offs_t offset, uint16_t data, uint16_t mem_mask)
-{
-	int bank = 0;
-
-	if (m_vram_bank & 1)     { bank = 0; } // B
-	else if(m_vram_bank & 2) { bank = 1; } // G
-	else if(m_vram_bank & 4) { bank = 2; } // R
-
-	COMBINE_DATA(&m_video_ram[offset + (0x10000 * bank)]);
-}
-
 void qx10_state::upd7220_map(address_map &map)
 {
-	map(0x0000, 0xffff).rw(FUNC(qx10_state::vram_r), FUNC(qx10_state::vram_w)).mirror(0x30000);
-}
-
-static void keyboard(device_slot_interface &device)
-{
-	device.option_add("qx10", QX10_KEYBOARD);
+	map(0x0000, 0xffff).bankrw("vrambank").mirror(0x30000);
 }
 
 void qx10_state::qx10(machine_config &config)
@@ -960,7 +978,7 @@ void qx10_state::qx10(machine_config &config)
 
 	UPD7201(config, m_scc, MAIN_CLK/4); // channel b clock set by pit2 channel 2
 	// Channel A: Keyboard
-	m_scc->out_txda_callback().set(m_kbd, FUNC(rs232_port_device::write_txd));
+	m_scc->out_txda_callback().set(m_kbd, FUNC(bus::epson_qx::keyboard::keyboard_port_device::rxd_w));
 	// Channel B: RS232
 	m_scc->out_txdb_callback().set(RS232_TAG, FUNC(rs232_port_device::write_txd));
 	m_scc->out_dtrb_callback().set(RS232_TAG, FUNC(rs232_port_device::write_dtr));
@@ -1006,8 +1024,8 @@ void qx10_state::qx10(machine_config &config)
 	rs232_port_device &rs232(RS232_PORT(config, RS232_TAG, default_rs232_devices, nullptr));
 	rs232.rxd_handler().set(m_scc, FUNC(upd7201_device::rxb_w));
 
-	RS232_PORT(config, m_kbd, keyboard, "qx10");
-	m_kbd->rxd_handler().set(m_scc, FUNC(upd7201_device::rxa_w));
+	EPSON_QX_KEYBOARD_PORT(config, m_kbd, bus::epson_qx::keyboard::keyboard_devices, "qx10_hasci");
+	m_kbd->txd_handler().set(m_scc, FUNC(upd7201_device::rxa_w));
 
 	output_latch_device &prndata(OUTPUT_LATCH(config, "prndata"));
 	CENTRONICS(config, m_centronics, centronics_devices, nullptr);
@@ -1025,6 +1043,7 @@ void qx10_state::qx10(machine_config &config)
 
 	/* internal ram */
 	RAM(config, RAM_TAG).set_default_size("256K");
+	NVRAM(config, m_nvram, nvram_device::DEFAULT_NONE);
 
 	EPSON_QX_OPTION_BUS(config, m_bus, MAIN_CLK / 4);
 	m_dma_1->out_iow_callback<2>().set(m_bus, FUNC(bus::epson_qx::option_bus_device::dackf_w));
@@ -1067,17 +1086,26 @@ void qx10_state::qx10(machine_config &config)
 
 /* ROM definition */
 ROM_START( qx10 )
-	ROM_REGION( 0x10000, "maincpu", ROMREGION_ERASEFF )
+	ROM_REGION( 0x2000, "maincpu", ROMREGION_ERASEFF )
 	ROM_SYSTEM_BIOS(0, "v006", "v0.06")
 	ROMX_LOAD( "ipl006.bin", 0x0000, 0x0800, CRC(3155056a) SHA1(67cc0ae5055d472aa42eb40cddff6da69ffc6553), ROM_BIOS(0))
+	ROM_RELOAD(0x800, 0x800)
+	ROM_RELOAD(0x1000, 0x800)
+	ROM_RELOAD(0x1800, 0x800)
 	ROM_SYSTEM_BIOS(1, "v003", "v0.03")
 	ROMX_LOAD( "ipl003.bin", 0x0000, 0x0800, CRC(3cbc4008) SHA1(cc8c7d1aa0cca8f9753d40698b2dc6802fd5f890), ROM_BIOS(1))
+	ROM_RELOAD(0x800, 0x800)
+	ROM_RELOAD(0x1000, 0x800)
+	ROM_RELOAD(0x1800, 0x800)
 
 	ROM_REGION( 0x1000, "chargen", 0 )
 //  ROM_LOAD( "qge.2e",   0x0000, 0x0800, BAD_DUMP CRC(ed93cb81) SHA1(579e68bde3f4184ded7d89b72c6936824f48d10b))  //this one contains special characters only
 //  ROM_LOAD( "qge.2e",   0x0000, 0x1000, BAD_DUMP CRC(eb31a2d5) SHA1(6dc581bf2854a07ae93b23b6dfc9c7abd3c0569e))
 	ROM_LOAD( "qga.2e",   0x0000, 0x1000, CRC(4120b128) SHA1(9b96f6d78cfd402f8aec7c063ffb70a21b78eff0))
 ROM_END
+
+} // anonymous namespace
+
 
 /* Driver */
 

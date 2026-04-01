@@ -35,10 +35,13 @@
 **************************************************************************/
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 #include "speaker.h"
 
 #include "barata.lh"
+
+
+namespace {
 
 #define CPU_CLOCK       (XTAL(6'000'000))         /* main cpu clock */
 
@@ -335,6 +338,9 @@ ROM_START( barata )
 	ROM_REGION( 0x1000, "maincpu", 0 )
 	ROM_LOAD( "barata.bin",      0x0000, 0x06a8, CRC(a5b68617) SHA1(4c7cd7c494d20236732c8d1f2b2904bfe99f5252) )
 ROM_END
+
+} // anonymous namespace
+
 
 /*************************
 *      Game Drivers      *

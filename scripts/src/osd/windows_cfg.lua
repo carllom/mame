@@ -3,15 +3,11 @@
 
 defines {
 	"OSD_WINDOWS",
+	"UNICODE",
+	"_UNICODE",
 	"WIN32_LEAN_AND_MEAN",
 	"NOMINMAX",
 }
-
-configuration { "mingw* or vs*" }
-	defines {
-		"UNICODE",
-		"_UNICODE"
-	}
 
 configuration { "vs*" }
 	flags {
@@ -33,7 +29,7 @@ if _OPTIONS["MODERN_WIN_API"]=="1" then
 	}
 else
 	defines {
-		"_WIN32_WINNT=0x0600",
+		"_WIN32_WINNT=0x0602",
 		"NTDDI_VERSION=0x06000000",
 	}
 end
@@ -59,6 +55,13 @@ if _OPTIONS["USE_SDL"]=="1" then
 		"SDLMAME_SDL2=1",
 		"USE_XINPUT=0",
 		"USE_SDL=1",
+		"USE_SDL_SOUND",
+	}
+elseif _OPTIONS["USE_SDL3"]=="1" then
+	defines {
+		"SDLMAME_SDL3=1",
+		"USE_XINPUT=0",
+		"USE_SDL3=1",
 		"USE_SDL_SOUND",
 	}
 else

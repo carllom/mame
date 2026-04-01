@@ -12,23 +12,12 @@
 
 /******************************************************************************/
 
-/******************************************************************************/
-
 void dec0_state::hbarrel_colpri_cb(u32 &colour, u32 &pri_mask)
 {
 	pri_mask = GFX_PMASK_4; // above background, foreground
 	if (colour & 8)
 	{
 		pri_mask |= GFX_PMASK_2; // behind foreground
-	}
-}
-
-void dec0_state::bandit_colpri_cb(u32 &colour, u32 &pri_mask)
-{
-	pri_mask = 0; // above all
-	if (m_pri == 0)
-	{
-		pri_mask |= GFX_PMASK_4; // behind foreground
 	}
 }
 
@@ -45,7 +34,49 @@ uint32_t dec0_state::screen_update_hbarrel(screen_device &screen, bitmap_ind16 &
 	m_tilegen[2]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_OPAQUE, 1);
 	m_tilegen[1]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 2);
 	m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 4);
-	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_gfxdecode->gfx(3), m_buffered_spriteram, 0x800/2);
+	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2);
+	return 0;
+}
+
+void dec0_state::bandit_colpri_cb(u32 &colour, u32 &pri_mask)
+{
+	pri_mask = 0; // above all
+	if (m_pri == 0)
+	{
+		pri_mask |= GFX_PMASK_4; // behind foreground
+	}
+
+	// ending and some gameplay portions (wood roads, with trees covering sprites) uses pri == 7
+	// TODO: no way to make the truck go below the (sprite) car but above the girl in background
+	if (m_pri == 7)
+	{
+		pri_mask |= GFX_PMASK_4 | GFX_PMASK_2;
+	}
+}
+
+uint32_t dec0_state::screen_update_bandit(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+{
+	screen.priority().fill(0,cliprect);
+	bool flip = m_tilegen[0]->get_flip_state();
+	m_tilegen[0]->set_flip_screen(flip);
+	m_tilegen[1]->set_flip_screen(flip);
+	m_tilegen[2]->set_flip_screen(flip);
+	m_spritegen->set_flip_screen(flip);
+
+	if (m_pri == 7)
+	{
+		m_tilegen[1]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_OPAQUE, 1);
+		m_tilegen[2]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 2);
+		m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 4);
+	}
+	else
+	{
+		m_tilegen[2]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_OPAQUE, 1);
+		m_tilegen[1]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 2);
+		m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 4);
+	}
+
+	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2);
 	return 0;
 }
 
@@ -73,7 +104,7 @@ uint32_t dec0_state::screen_update_baddudes(screen_device &screen, bitmap_ind16 
 	if (m_pri & 2)
 		m_tilegen[bg]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_LAYER0, 0); // upper 8 pens of upper 8 priority marked tiles /* Foreground pens only */
 
-	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_gfxdecode->gfx(3), m_buffered_spriteram, 0x800/2);
+	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2);
 
 	if (m_pri & 4)
 		m_tilegen[fg]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_LAYER0, 0); // upper 8 pens of upper 8 priority marked tiles /* Foreground pens only */
@@ -81,6 +112,7 @@ uint32_t dec0_state::screen_update_baddudes(screen_device &screen, bitmap_ind16 
 	m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 0);
 	return 0;
 }
+
 
 /******************************************************************************/
 
@@ -124,12 +156,12 @@ uint32_t dec0_state::screen_update_robocop(screen_device &screen, bitmap_ind16 &
 	const u8 bg = (m_pri & 0x01) ? 1 : 2;
 	m_tilegen[bg]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_OPAQUE, 1);
 	m_tilegen[fg]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 2);
-	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_gfxdecode->gfx(3), m_buffered_spriteram, 0x800/2);
+	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2);
 	m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 0);
 	return 0;
 }
 
-uint32_t dec0_automat_state::screen_update_automat(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+uint32_t automat_state::screen_update_automat(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	screen.priority().fill(0,cliprect);
 
@@ -172,10 +204,11 @@ uint32_t dec0_automat_state::screen_update_automat(screen_device &screen, bitmap
 	const u8 bg = (m_pri & 0x01) ? 1 : 2;
 	m_tilegen[bg]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_OPAQUE, 1);
 	m_tilegen[fg]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 2);
-	m_spritegen->draw_sprites_bootleg(screen, bitmap, cliprect, m_gfxdecode->gfx(3), m_buffered_spriteram, 0x800/2); // TODO : RAM size
+	m_spritegen->draw_sprites_bootleg(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2); // TODO : RAM size
 	m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 0);
 	return 0;
 }
+
 
 /******************************************************************************/
 
@@ -190,14 +223,15 @@ uint32_t dec0_state::screen_update_birdtry(screen_device &screen, bitmap_ind16 &
 	the palette does show through. */
 	bitmap.fill(m_palette->pen(768), cliprect);
 	m_tilegen[1]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 0);
-	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_gfxdecode->gfx(3), m_buffered_spriteram, 0x800/2);
+	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2);
 	m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0, 0);
 	return 0;
 }
 
+
 /******************************************************************************/
 
-uint32_t dec0_state::screen_update_slyspy(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+uint32_t slyspy_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	bool flip = m_tilegen[0]->get_flip_state();
 	m_tilegen[0]->set_flip_screen(flip);
@@ -208,7 +242,7 @@ uint32_t dec0_state::screen_update_slyspy(screen_device &screen, bitmap_ind16 &b
 	m_tilegen[2]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_OPAQUE, 0);
 	m_tilegen[1]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_LAYER0 | TILEMAP_DRAW_LAYER1, 0);
 
-	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_gfxdecode->gfx(3), m_buffered_spriteram, 0x800/2);
+	m_spritegen->draw_sprites(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2);
 
 	/* Redraw top 8 pens of top 8 palettes over sprites */
 	if (m_pri & 0x80)
@@ -218,7 +252,7 @@ uint32_t dec0_state::screen_update_slyspy(screen_device &screen, bitmap_ind16 &b
 	return 0;
 }
 
-uint32_t dec0_automat_state::screen_update_secretab(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+uint32_t automat_state::screen_update_secretab(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
 	// layer enables seem different... where are they?
 
@@ -257,7 +291,7 @@ uint32_t dec0_automat_state::screen_update_secretab(screen_device &screen, bitma
 	m_tilegen[2]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_OPAQUE, 0);
 	m_tilegen[1]->deco_bac06_pf_draw(screen,bitmap,cliprect,TILEMAP_DRAW_LAYER0 | TILEMAP_DRAW_LAYER1, 0);
 
-	m_spritegen->draw_sprites_bootleg(screen, bitmap, cliprect, m_gfxdecode->gfx(3), m_buffered_spriteram, 0x800/2); // TODO : RAM size
+	m_spritegen->draw_sprites_bootleg(screen, bitmap, cliprect, m_buffered_spriteram, 0x800/2); // TODO : RAM size
 
 	/* Redraw top 8 pens of top 8 palettes over sprites */
 	if (m_pri & 0x80)
@@ -266,6 +300,7 @@ uint32_t dec0_automat_state::screen_update_secretab(screen_device &screen, bitma
 	m_tilegen[0]->deco_bac06_pf_draw(screen,bitmap,cliprect,0,0);
 	return 0;
 }
+
 
 /******************************************************************************/
 
@@ -307,5 +342,3 @@ VIDEO_START_MEMBER(dec0_state,slyspy)
 	m_tilegen[1]->set_transmask(0, 0xffff, 0x0001);
 	m_tilegen[1]->set_transmask(1, 0x00ff, 0xff01);
 }
-
-/******************************************************************************/

@@ -15,13 +15,16 @@
 ***************************************************************************/
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 #include "bus/rs232/rs232.h"
 #include "machine/eepromser.h"
 #include "sound/spkrdev.h"
 #include "video/crt9028.h"
 #include "screen.h"
 #include "speaker.h"
+
+
+namespace {
 
 class cardinal_state : public driver_device
 {
@@ -39,7 +42,7 @@ public:
 	void cardinal(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 private:
 	u8 p1_r();
@@ -48,9 +51,9 @@ private:
 	u8 vtlc_r();
 	void vtlc_w(u8 data);
 
-	void prog_map(address_map &map);
-	void ext_map(address_map &map);
-	void ram_map(address_map &map);
+	void prog_map(address_map &map) ATTR_COLD;
+	void ext_map(address_map &map) ATTR_COLD;
+	void ram_map(address_map &map) ATTR_COLD;
 
 	required_device<eeprom_serial_93cxx_device> m_eeprom;
 	required_device<crt9028_device> m_vtlc;
@@ -126,7 +129,7 @@ void cardinal_state::cardinal(machine_config &config)
 {
 	i8031_device &maincpu(I8031(config, "maincpu", 7.3728_MHz_XTAL));
 	maincpu.set_addrmap(AS_PROGRAM, &cardinal_state::prog_map);
-	maincpu.set_addrmap(AS_IO, &cardinal_state::ext_map);
+	maincpu.set_addrmap(AS_DATA, &cardinal_state::ext_map);
 	maincpu.port_in_cb<1>().set(FUNC(cardinal_state::p1_r));
 	maincpu.port_out_cb<1>().set(FUNC(cardinal_state::p1_w));
 	maincpu.port_in_cb<3>().set_ioport("P3");
@@ -169,5 +172,7 @@ ROM_START(cardinal)
 	ROM_LOAD("smc_8031_crt9028.bin", 0x0000, 0x1000, CRC(486705d0) SHA1(39f3fd80a72756b3267d771202cf917060eb04e1))
 ROM_END
 
+} // anonymous namespace
 
-COMP(1984, cardinal, 0, 0, cardinal, cardinal, cardinal_state, empty_init, "Standard Microsystems", "Cardinal Video Terminal", MACHINE_IS_SKELETON)
+
+COMP(1984, cardinal, 0, 0, cardinal, cardinal, cardinal_state, empty_init, "Standard Microsystems", "Cardinal Video Terminal", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)

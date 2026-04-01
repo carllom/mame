@@ -19,6 +19,7 @@
         * Freeze
 
     To do:
+        * Untangle CoJag from Jagaur console, split drivers;
         * (CoJag) map out unused RAM per-game via memory_nop_read/write
         * (Jaguar) support is very poor, most games aren't properly playable
           or have severe performance issues or crashes related to the unsafe
@@ -40,7 +41,7 @@
     Components:
     sdt79r3041-20j
     Atari Jaguar CPU V1.0 6sc880hf106
-    Atari Jaguar DSP V1.0 sc414201ft (has Motorolla logo)
+    Atari Jaguar DSP V1.0 sc414201ft (has Motorola logo)
     Altera epm7128elc84-15 marked A-21652
     VIA vt83c461 IDE controller
     Actel a1010b marked A-22096 near IDE and gun inputs
@@ -149,8 +150,8 @@ ATARI GAMES (C) 1994
 Notes:
       JAGUAR CPU - Atari Jaguar CPU (QFP208)
       JAGUAR DSP - Atari Jaguar DSP (QFP160)
-      45160      - TMS45160DZ-70 512K x16 DRAM (SOJ40)
-                   Note: This RAM is in banks. There are 4 banks, each bank is 2MBytes x 64bit
+      45160      - TMS45160DZ-70 256K*16 DRAM. Compatible with Toshiba TC514260, NEC 424260 etc (SOJ40)
+                   Note: This RAM is in banks. There are 4 banks, each bank is 2MiB organised as 256K*64
                    Only banks 0 and 1 are populated.
       *          - Unpopulated DRAM positions (banks 2 and 3)
       TDA1554Q   - Philips TDA1554Q power AMP
@@ -337,21 +338,23 @@ Notes:
 #include "emu.h"
 #include "jaguar.h"
 
-#include "bus/generic/slot.h"
+#include "bus/ata/hdd.h"
 #include "bus/generic/carts.h"
-#include "bus/ata/idehd.h"
-#include "cpu/m68000/m68000.h"
-#include "cpu/mips/mips1.h"
 #include "cpu/jaguar/jaguar.h"
-#include "imagedev/chd_cd.h"
+#include "cpu/m68000/m68000.h"
+#include "cpu/m68000/m68020.h"
+#include "cpu/mips/mips1.h"
+#include "imagedev/cdromimg.h"
 #include "imagedev/snapquik.h"
 #include "machine/eepromser.h"
-#include "machine/watchdog.h"
 #include "machine/vt83c461.h"
+#include "machine/watchdog.h"
 #include "sound/cdda.h"
-#include "cdrom.h"
+
 #include "softlist_dev.h"
 #include "speaker.h"
+
+#include "cdrom.h"
 
 #define COJAG_CLOCK         XTAL(52'000'000)
 #define R3000_CLOCK         XTAL(40'000'000)
@@ -364,37 +367,11 @@ Notes:
  *
  *************************************/
 
-/// HACK: Maximum force requests data but doesn't transfer it all before issuing another command.
-/// According to the ATA specification this is not allowed, more investigation is required.
-
-DECLARE_DEVICE_TYPE(COJAG_HARDDISK, cojag_hdd)
-
-class cojag_hdd : public ide_hdd_device
-{
-public:
-	cojag_hdd(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-		: ide_hdd_device(mconfig, COJAG_HARDDISK, tag, owner, clock)
-	{
-	}
-
-	virtual void write_cs0(offs_t offset, uint16_t data, uint16_t mem_mask) override
-	{
-		// the first write is to the device head register
-		if( offset == 6 && (m_status & IDE_STATUS_DRQ))
-		{
-			m_status &= ~IDE_STATUS_DRQ;
-		}
-
-		ide_hdd_device::write_cs0(offset, data, mem_mask);
-	}
-};
-
-DEFINE_DEVICE_TYPE(COJAG_HARDDISK, cojag_hdd, "cojag_hdd", "HDD CoJag")
-
 void cojag_devices(device_slot_interface &device)
 {
-	device.option_add("hdd", COJAG_HARDDISK);
+	device.option_add("hdd", IDE_HARDDISK);
 }
+
 
 /*************************************
  *
@@ -419,6 +396,16 @@ void jaguar_state::machine_start()
 		/* sound banks */
 		m_mainsndbank->configure_entries(0, 8, romboard + 0x000000, 0x200000);
 		m_dspsndbank->configure_entries(0, 8, romboard + 0x000000, 0x200000);
+	}
+
+	// HACK: for battlesp/battlesg after main menu
+	// GPU reads the blitter status then translates the result as a pointer
+	// i.e. looping at $805 expecting bit 0 to be on.
+	// This depends on what shared RAM contains at power on and what's the actual blitter status
+	// when going idle ...
+	if (m_is_cojag == false)
+	{
+		m_shared_ram[0x804 / 4] = 0xffffffff;
 	}
 }
 
@@ -464,7 +451,6 @@ void jaguar_state::machine_reset()
 	/* set blitter idle flag */
 	m_blitter_status = 1;
 	m_joystick_data = 0xffffffff;
-	m_eeprom_bit_count = 0;
 
 	if ((m_using_cart) && (m_config_io->read() & 2))
 	{
@@ -477,9 +463,6 @@ void jaguarcd_state::machine_reset()
 {
 	jaguar_state::machine_reset();
 
-	m_shared_ram[0x4/4] = 0x00802000; /* hack until I understand */
-
-	m_cd_file = m_cdrom->get_cdrom_file();
 	m_butch_cmd_index = 0;
 	m_butch_cmd_size = 1;
 }
@@ -564,41 +547,6 @@ static NVRAM_HANDLER( jaguar )
     }
 }
 */
-void jaguar_state::eeprom_w(uint32_t data)
-{
-	m_eeprom_bit_count++;
-	if (m_eeprom_bit_count != 9)        /* kill extra bit at end of address */
-	{
-		m_eeprom->di_write(data >> 31);
-		m_eeprom->clk_write(0);
-		m_eeprom->clk_write(1);
-	}
-}
-
-uint32_t jaguar_state::eeprom_clk()
-{
-	if (!machine().side_effects_disabled())
-	{
-		m_eeprom->clk_write(0);
-		m_eeprom->clk_write(1); /* get next bit when reading */
-	}
-	return 0;
-}
-
-uint32_t jaguar_state::eeprom_cs()
-{
-	if (!machine().side_effects_disabled())
-	{
-		m_eeprom->cs_write(CLEAR_LINE);   /* must do at end of an operation */
-		m_eeprom->cs_write(ASSERT_LINE);        /* enable chip for next operation */
-		m_eeprom->di_write(1);           /* write a start bit */
-		m_eeprom->clk_write(0);
-		m_eeprom->clk_write(1);
-		m_eeprom_bit_count = 0;
-	}
-	return 0;
-}
-
 
 
 /*************************************
@@ -670,6 +618,7 @@ void jaguar_state::gpuctrl_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 	m_gpu->iobus_w(offset, data, mem_mask);
 }
 
+
 /*************************************
  *
  *  32-bit access to the DSP
@@ -686,6 +635,7 @@ void jaguar_state::dspctrl_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 	m_dsp->iobus_w(offset, data, mem_mask);
 }
 
+
 /*************************************
  *
  *  Input ports
@@ -695,24 +645,24 @@ void jaguar_state::dspctrl_w(offs_t offset, uint32_t data, uint32_t mem_mask)
  *
  *************************************/
 
+/*
+ *   16        12        8         4         0
+ *   +---------+---------+---------^---------+
+ *   |  pad 1  |  pad 0  |      unused       |
+ *   +---------+---------+-------------------+
+ *     15...12   11...8          7...0
+ *
+ *   Reading this register gives you the output of the selected columns
+ *   of the pads.
+ *   The buttons pressed will appear as cleared bits.
+ *   See the description of the column addressing to map the bits
+ *   to the buttons.
+ */
 uint32_t jaguar_state::joystick_r()
 {
-	uint16_t joystick_result = 0xfffe;
 	uint16_t joybuts_result = 0xffef;
-
-	/*
-	 *   16        12        8         4         0
-	 *   +---------+---------+---------^---------+
-	 *   |  pad 1  |  pad 0  |      unused       |
-	 *   +---------+---------+-------------------+
-	 *     15...12   11...8          7...0
-	 *
-	 *   Reading this register gives you the output of the selected columns
-	 *   of the pads.
-	 *   The buttons pressed will appear as cleared bits.
-	 *   See the description of the column addressing to map the bits
-	 *   to the buttons.
-	 */
+	// bit 7 returns 0, bit 4 is NTSC/PAL flag
+	uint16_t joystick_result = 0xff6e;
 
 	for (int i = 0; i < 8; i++)
 	{
@@ -729,55 +679,56 @@ uint32_t jaguar_state::joystick_r()
 	return (joystick_result << 16) | joybuts_result;
 }
 
+/*
+ *   16        12         8         4         0
+ *   +-+-------^------+--+---------+---------+
+ *   |r|    unused    |mu|  col 1  |  col 0  |
+ *   +-+--------------+--+---------+---------+
+ *    15                8   7...4     3...0
+ *
+ *   col 0:   column control of joypad 0
+ *
+ *      Here you select which column of the joypad to poll.
+ *      The columns are:
+ *
+ *                Joystick       Joybut
+ *      col_bit|11 10  9  8     1    0
+ *      -------+--+--+--+--    ---+------
+ *         0   | R  L  D  U     A  PAUSE       (RLDU = Joypad directions)
+ *         1   | 1  4  7  *     B
+ *         2   | 2  5  8  0     C
+ *         3   | 3  6  9  #   OPTION
+ *
+ *      You select a column my clearing the appropriate bit and setting
+ *      all the other "column" bits.
+ *
+ *
+ *   col1:    column control of joypad 1
+ *
+ *      This is pretty much the same as for joypad EXCEPT that the
+ *      column addressing is reversed (strange!!)
+ *
+ *                Joystick      Joybut
+ *      col_bit|15 14 13 12     3    2
+ *      -------+--+--+--+--    ---+------
+ *         4   | 3  6  9  #   OPTION
+ *         5   | 2  5  8  0     C
+ *         6   | 1  4  7  *     B
+ *         7   | R  L  D  U     A  PAUSE     (RLDU = Joypad directions)
+ *
+ *   mute (mu):   sound control
+ *
+ *      You can turn off the sound by clearing this bit.
+ *
+ *   read enable (r):
+ *
+ *      Set this bit to read from the joysticks, clear it to write
+ *      to them.
+ */
 void jaguar_state::joystick_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
-	/*
-	 *   16        12         8         4         0
-	 *   +-+-------^------+--+---------+---------+
-	 *   |r|    unused    |mu|  col 1  |  col 0  |
-	 *   +-+--------------+--+---------+---------+
-	 *    15                8   7...4     3...0
-	 *
-	 *   col 0:   column control of joypad 0
-	 *
-	 *      Here you select which column of the joypad to poll.
-	 *      The columns are:
-	 *
-	 *                Joystick       Joybut
-	 *      col_bit|11 10  9  8     1    0
-	 *      -------+--+--+--+--    ---+------
-	 *         0   | R  L  D  U     A  PAUSE       (RLDU = Joypad directions)
-	 *         1   | 1  4  7  *     B
-	 *         2   | 2  5  8  0     C
-	 *         3   | 3  6  9  #   OPTION
-	 *
-	 *      You select a column my clearing the appropriate bit and setting
-	 *      all the other "column" bits.
-	 *
-	 *
-	 *   col1:    column control of joypad 1
-	 *
-	 *      This is pretty much the same as for joypad EXCEPT that the
-	 *      column addressing is reversed (strange!!)
-	 *
-	 *                Joystick      Joybut
-	 *      col_bit|15 14 13 12     3    2
-	 *      -------+--+--+--+--    ---+------
-	 *         4   | 3  6  9  #   OPTION
-	 *         5   | 2  5  8  0     C
-	 *         6   | 1  4  7  *     B
-	 *         7   | R  L  D  U     A  PAUSE     (RLDU = Joypad directions)
-	 *
-	 *   mute (mu):   sound control
-	 *
-	 *      You can turn off the sound by clearing this bit.
-	 *
-	 *   read enable (r):
-	 *
-	 *      Set this bit to read from the joysticks, clear it to write
-	 *      to them.
-	 */
 	COMBINE_DATA(&m_joystick_data);
+	// TODO: audio enable bit 8 & joystick enable bit 15
 }
 
 
@@ -868,7 +819,6 @@ void jaguar_state::eeprom_data_w(offs_t offset, uint32_t data)
     run it until we get back to the spin loop.
 */
 
-
 void jaguar_state::gpu_jump_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	/* update the data in memory */
@@ -922,9 +872,6 @@ uint32_t jaguar_state::gpu_jump_r()
     crank through some random numbers, just not several thousand every frame.
 */
 
-#if ENABLE_SPEEDUP_HACKS
-
-
 uint32_t jaguar_state::cojagr3k_main_speedup_r()
 {
 	uint64_t curcycles = m_maincpu->total_cycles();
@@ -951,8 +898,6 @@ uint32_t jaguar_state::cojagr3k_main_speedup_r()
 	return *m_main_speedup;
 }
 
-#endif
-
 
 
 /*************************************
@@ -970,17 +915,12 @@ uint32_t jaguar_state::cojagr3k_main_speedup_r()
     makes sure we don't waste time emulating that spin loop.
 */
 
-#if ENABLE_SPEEDUP_HACKS
-
-
 uint32_t jaguar_state::main_gpu_wait_r()
 {
 	if (m_gpu_command_pending)
 		m_maincpu->spin_until_interrupt();
 	return *m_main_gpu_wait;
 }
-
-#endif
 
 
 
@@ -996,8 +936,6 @@ uint32_t jaguar_state::main_gpu_wait_r()
     Very similar to the R3000 code, except we need to verify that the value in
     *main_speedup is actually 0.
 */
-
-#if ENABLE_SPEEDUP_HACKS
 
 void jaguar_state::area51_main_speedup_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
@@ -1059,7 +997,6 @@ void jaguar_state::area51mx_main_speedup_w(offs_t offset, uint32_t data, uint32_
 	m_main_speedup_last_cycles = curcycles;
 }
 
-#endif
 
 
 /*************************************
@@ -1079,17 +1016,16 @@ uint16_t jaguar_state::serial_r16(offs_t offset){ if (!(offset&1)) { return seri
 void jaguar_state::serial_w16(offs_t offset, uint16_t data){ if (!(offset&1)) { serial_w(offset>>1, data << 16); } else { serial_w(offset>>1, data); } }
 uint16_t jaguar_state::dspctrl_r16(offs_t offset, uint16_t mem_mask){ if (!(offset&1)) { return dspctrl_r(offset>>1, mem_mask<<16) >> 16;  } else { return dspctrl_r(offset>>1, mem_mask); } }
 void jaguar_state::dspctrl_w16(offs_t offset, uint16_t data, uint16_t mem_mask){ if (!(offset&1)) { dspctrl_w(offset>>1, data << 16, mem_mask << 16); } else { dspctrl_w(offset>>1, data, mem_mask); } }
-uint16_t jaguar_state::eeprom_cs16(offs_t offset){ if (!(offset&1)) { return eeprom_cs() >> 16;  } else { return eeprom_cs(); } }
-uint16_t jaguar_state::eeprom_clk16(offs_t offset){ if (!(offset&1)) { return eeprom_clk() >> 16;  } else { return eeprom_clk(); } }
-void jaguar_state::eeprom_w16(offs_t offset, uint16_t data){ if (!(offset&1)) { eeprom_w(data << 16); } else { eeprom_w(data); } }
 uint16_t jaguar_state::joystick_r16(offs_t offset){ if (!(offset&1)) { return joystick_r() >> 16;  } else { return joystick_r(); } }
 void jaguar_state::joystick_w16(offs_t offset, uint16_t data, uint16_t mem_mask){ if (!(offset&1)) { joystick_w(offset>>1, data << 16, mem_mask << 16); } else { joystick_w(offset>>1, data, mem_mask); } }
 
 uint32_t jaguar_state::shared_ram_r(offs_t offset){ return m_shared_ram[offset]; }
 void jaguar_state::shared_ram_w(offs_t offset, uint32_t data, uint32_t mem_mask){ COMBINE_DATA(&m_shared_ram[offset]); }
+// TODO: as below?
 uint32_t jaguar_state::rom_base_r(offs_t offset){ return m_rom_base[offset*2+1] << 16 | m_rom_base[offset*2]; }
-uint32_t jaguar_state::wave_rom_r(offs_t offset){ return m_wave_rom[offset*2+1] << 16 | m_wave_rom[offset*2]; }
-uint32_t jaguarcd_state::cd_bios_r(offs_t offset){ return m_cd_bios[offset*2+1] << 16 | m_cd_bios[offset*2]; }
+// NOTE: BIOS ATARI SFX notes at startup depends on the correct endianness of this
+// - also cfr. several games (rayman, superx3d, ironsold)
+uint32_t jaguar_state::wave_rom_r(offs_t offset){ return m_wave_rom[offset*2+1] | m_wave_rom[offset*2] << 16; }
 uint32_t jaguar_state::dsp_ram_r(offs_t offset){ return m_dsp_ram[offset]; }
 void jaguar_state::dsp_ram_w(offs_t offset, uint32_t data, uint32_t mem_mask){ COMBINE_DATA(&m_dsp_ram[offset]); }
 uint32_t jaguar_state::gpu_clut_r(offs_t offset){ return m_gpu_clut[offset]; }
@@ -1109,17 +1045,56 @@ void jaguar_state::gpu_ram_w16(offs_t offset, uint16_t data, uint16_t mem_mask){
 
 void jaguar_state::console_base_map(address_map &map)
 {
-	map(0x000000, 0x1fffff).mirror(0x200000).rw(FUNC(jaguar_state::shared_ram_r16), FUNC(jaguar_state::shared_ram_w16));
+	map(0x000000, 0x1fffff).mirror(0x600000).rw(FUNC(jaguar_state::shared_ram_r16), FUNC(jaguar_state::shared_ram_w16));
 	map(0xe00000, 0xe1ffff).rom().region("mainrom", 0);
+	// Tom section
 	map(0xf00000, 0xf003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w)); // might be reversed endian of the others..
 	map(0xf00400, 0xf005ff).mirror(0x000200).rw(FUNC(jaguar_state::gpu_clut_r16), FUNC(jaguar_state::gpu_clut_w16));
 	map(0xf02100, 0xf021ff).rw(FUNC(jaguar_state::gpuctrl_r16), FUNC(jaguar_state::gpuctrl_w16));
 	map(0xf02200, 0xf022ff).mirror(0x008000).rw(FUNC(jaguar_state::blitter_r16), FUNC(jaguar_state::blitter_w16));
 	map(0xf03000, 0xf03fff).mirror(0x008000).rw(FUNC(jaguar_state::gpu_ram_r16), FUNC(jaguar_state::gpu_ram_w16));
+	// Jerry section
 	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w)); // might be reversed endian of the others..
 	map(0xf14000, 0xf14003).rw(FUNC(jaguar_state::joystick_r16), FUNC(jaguar_state::joystick_w16));
-	map(0xf14800, 0xf14803).rw(FUNC(jaguar_state::eeprom_clk16), FUNC(jaguar_state::eeprom_w16));  // GPI00
-	map(0xf15000, 0xf15003).r(FUNC(jaguar_state::eeprom_cs16));               // GPI01
+	// GPI00 "CD-interface"
+	map(0xf14801, 0xf14801).lrw8(
+		NAME([this] (offs_t offset) {
+			if (!machine().side_effects_disabled())
+			{
+				m_eeprom->clk_write(0);
+				m_eeprom->clk_write(1);
+			}
+			return 0;
+		}),
+		NAME([this] (offs_t offset, u8 data) {
+			m_eeprom->di_write(data & 1);
+			m_eeprom->clk_write(0);
+			m_eeprom->clk_write(1);
+		})
+	);
+	// GPI01 "DMA ACK"
+	map(0xf15001, 0xf15001).lrw8(
+		NAME([this] (offs_t offset) {
+			if (!machine().side_effects_disabled())
+			{
+				m_eeprom->cs_write(CLEAR_LINE);
+				m_eeprom->cs_write(ASSERT_LINE);
+			}
+			return 0;
+		}),
+		NAME([this] (offs_t offset, u8 data) {
+			m_eeprom->cs_write(CLEAR_LINE);
+			m_eeprom->cs_write(ASSERT_LINE);
+		})
+	);
+	// GPI02 "Cartridge"
+	// map(0xf16000, 0xf16fff)
+	// GPI03
+	// map(0xf17000, 0xf177ff)
+	// GPI04
+	// map(0xf17800, 0xf17bff)
+	// GPI05 "Paddle Interface"
+	// map(0xf17c00, 0xf17fff)
 	map(0xf1a100, 0xf1a13f).rw(FUNC(jaguar_state::dspctrl_r16), FUNC(jaguar_state::dspctrl_w16));
 	map(0xf1a140, 0xf1a17f).rw(FUNC(jaguar_state::serial_r16), FUNC(jaguar_state::serial_w16));
 	map(0xf1b000, 0xf1cfff).rw(FUNC(jaguar_state::dsp_ram_r16), FUNC(jaguar_state::dsp_ram_w16));
@@ -1132,10 +1107,168 @@ void jaguar_state::jaguar_map(address_map &map)
 	map(0x800000, 0xdfffff).r(FUNC(jaguar_state::cart_base_r16));
 }
 
+// TODO: JTRM claims "no autovectors / no VPA pin, all irqs are at vector 0x40"
+// cfr. section 7 of "Tom bugs"
 void jaguar_state::cpu_space_map(address_map &map)
 {
 	map(0xfffff0, 0xffffff).m(m_maincpu, FUNC(m68000_base_device::autovectors_map));
 	map(0xfffff5, 0xfffff5).lr8([] () -> u8 { return 0x40; }, "level2");
+}
+
+/*************************************
+ *
+ *  Main CPU memory handlers
+ *
+ *************************************/
+
+void jaguar_state::r3000_map(address_map &map)
+{
+	map(0x04000000, 0x047fffff).ram().share("sharedram");
+	map(0x04e00030, 0x04e0003f).rw(m_ide, FUNC(vt83c461_device::config_r), FUNC(vt83c461_device::config_w));
+	map(0x04e001f0, 0x04e001f7).rw(m_ide, FUNC(vt83c461_device::cs0_r), FUNC(vt83c461_device::cs0_w));
+	map(0x04e003f0, 0x04e003f7).rw(m_ide, FUNC(vt83c461_device::cs1_r), FUNC(vt83c461_device::cs1_w));
+	map(0x04f00000, 0x04f003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
+	map(0x04f00400, 0x04f007ff).ram().share("gpuclut");
+	map(0x04f02100, 0x04f021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
+	map(0x04f02200, 0x04f022ff).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
+	map(0x04f03000, 0x04f03fff).mirror(0x00008000).ram().share("gpuram");
+	map(0x04f10000, 0x04f103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
+	map(0x04f16000, 0x04f1600b).r(FUNC(jaguar_state::cojag_gun_input_r)); // GPIO2
+	map(0x04f17000, 0x04f17003).lr16(NAME([this] () { return uint16_t(m_system->read()); })); // GPIO3
+	map(0x04f17800, 0x04f17803).w(FUNC(jaguar_state::latch_w));          // GPIO4
+	map(0x04f17c00, 0x04f17c03).portr("P1_P2");      // GPIO5
+	map(0x04f1a100, 0x04f1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
+	map(0x04f1a140, 0x04f1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
+	map(0x04f1b000, 0x04f1cfff).ram().share("dspram");
+
+	map(0x06000000, 0x06000003).rw(FUNC(jaguar_state::misc_control_r), FUNC(jaguar_state::misc_control_w));
+	map(0x10000000, 0x1007ffff).ram().share("mainram");
+	map(0x12000000, 0x120fffff).ram().share("mainram2");    // tested in self-test only?
+	map(0x14000004, 0x14000007).w("watchdog", FUNC(watchdog_timer_device::reset32_w));
+	map(0x16000000, 0x16000003).w(FUNC(jaguar_state::eeprom_enable_w));
+	map(0x18000000, 0x18001fff).rw(FUNC(jaguar_state::eeprom_data_r), FUNC(jaguar_state::eeprom_data_w)).share("nvram");
+	map(0x1fc00000, 0x1fdfffff).rom().region("maincpu", 0);
+}
+
+void jaguar_state::r3000_rom_map(address_map &map)
+{
+	r3000_map(map);
+	map(0x04800000, 0x04bfffff).bankr("maingfxbank");
+	map(0x04c00000, 0x04dfffff).bankr("mainsndbank");
+	// TODO: fishfren access latter when entering service mode (writeonly mirror or btanb?)
+	// map(0x04d001f0, 0x04d001f7).w(m_ide, FUNC(vt83c461_device::cs0_w));
+	// map(0x04d003f0, 0x04d003f7).w(m_ide, FUNC(vt83c461_device::cs1_w));
+}
+
+
+void jaguar_state::m68020_map(address_map &map)
+{
+	map(0x000000, 0x7fffff).ram().share("sharedram");
+	map(0x800000, 0x9fffff).rom().region("maincpu", 0);
+	map(0xa00000, 0xa1ffff).ram().share("mainram");
+	map(0xa20000, 0xa21fff).rw(FUNC(jaguar_state::eeprom_data_r), FUNC(jaguar_state::eeprom_data_w)).share("nvram");
+	map(0xa30000, 0xa30003).w("watchdog", FUNC(watchdog_timer_device::reset32_w));
+	map(0xa40000, 0xa40003).w(FUNC(jaguar_state::eeprom_enable_w));
+	map(0xb70000, 0xb70003).rw(FUNC(jaguar_state::misc_control_r), FUNC(jaguar_state::misc_control_w));
+//  map(0xc00000, 0xdfffff).bankr("mainsndbank");
+	map(0xe00030, 0xe0003f).rw(m_ide, FUNC(vt83c461_device::config_r), FUNC(vt83c461_device::config_w));
+	map(0xe001f0, 0xe001f7).rw(m_ide, FUNC(vt83c461_device::cs0_r), FUNC(vt83c461_device::cs0_w));
+	map(0xe003f0, 0xe003f7).rw(m_ide, FUNC(vt83c461_device::cs1_r), FUNC(vt83c461_device::cs1_w));
+	map(0xf00000, 0xf003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
+	map(0xf00400, 0xf007ff).ram().share("gpuclut");
+	map(0xf02100, 0xf021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
+	map(0xf02200, 0xf022ff).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
+	map(0xf03000, 0xf03fff).mirror(0x008000).ram().share("gpuram");
+	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
+	map(0xf16000, 0xf1600b).r(FUNC(jaguar_state::cojag_gun_input_r)); // GPIO2
+	map(0xf17000, 0xf17003).lr16(NAME([this] () { return uint16_t(m_system->read()); })); // GPIO3
+//  map(0xf17800, 0xf17803).w(FUNC(jaguar_state::(latch_w));          // GPIO4
+	map(0xf17c00, 0xf17c03).portr("P1_P2");      // GPIO5
+	map(0xf1a100, 0xf1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
+	map(0xf1a140, 0xf1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
+	map(0xf1b000, 0xf1cfff).ram().share("dspram");
+}
+
+
+/*************************************
+ *
+ *  GPU memory handlers
+ *
+ *************************************/
+
+void jaguar_state::gpu_map(address_map &map)
+{
+	map(0x000000, 0x7fffff).ram().share("sharedram");
+	map(0xe00030, 0xe0003f).rw(m_ide, FUNC(vt83c461_device::config_r), FUNC(vt83c461_device::config_w));
+	map(0xe001f0, 0xe001f7).rw(m_ide, FUNC(vt83c461_device::cs0_r), FUNC(vt83c461_device::cs0_w));
+	map(0xe003f0, 0xe003f7).rw(m_ide, FUNC(vt83c461_device::cs1_r), FUNC(vt83c461_device::cs1_w));
+	map(0xf00000, 0xf003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
+	map(0xf00400, 0xf007ff).ram().share("gpuclut");
+	map(0xf02100, 0xf021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
+	map(0xf02200, 0xf022ff).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
+	map(0xf03000, 0xf03fff).ram().share("gpuram");
+	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
+}
+
+void jaguar_state::gpu_rom_map(address_map &map)
+{
+	gpu_map(map);
+	map(0x800000, 0xbfffff).bankr("gpugfxbank");
+	map(0xc00000, 0xdfffff).bankr("dspsndbank");
+}
+
+
+/*************************************
+ *
+ *  DSP memory handlers
+ *
+ *************************************/
+
+void jaguar_state::dsp_map(address_map &map)
+{
+	map(0x000000, 0x7fffff).ram().share("sharedram");
+	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
+	map(0xf1a100, 0xf1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
+	map(0xf1a140, 0xf1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
+	map(0xf1b000, 0xf1cfff).ram().share("dspram");
+	map(0xf1d000, 0xf1dfff).r(FUNC(jaguar_state::wave_rom_r));
+}
+
+void jaguar_state::dsp_rom_map(address_map &map)
+{
+	dsp_map(map);
+	map(0x800000, 0xbfffff).bankr("gpugfxbank");
+	map(0xc00000, 0xdfffff).bankr("dspsndbank");
+}
+
+// Handle mapping separately for console for the time being, for waitstates et al.
+// TODO: .mirror(0x008000) isn't one, but 32-bit path for GPU (and DSP?)
+
+void jaguar_state::console_base_gpu_map(address_map &map)
+{
+	map.global_mask(0xffffff);
+	map(0x000000, 0x1fffff).ram().mirror(0x600000).share("sharedram");
+	map(0xe00000, 0xe1ffff).r(FUNC(jaguar_state::rom_base_r));
+	map(0xf00000, 0xf003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
+	map(0xf00400, 0xf005ff).mirror(0x000200).ram().share("gpuclut");
+//  map(0xf00800, 0xf00d9f).mirror(0x008000) line buffer A "for diagnostic only"
+//  map(0xf01000, 0xf0159f).mirror(0x008000) line buffer B ^
+//  map(0xf01800, 0xf01d9f).mirror(0x008000) current line buffer
+	map(0xf02100, 0xf021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
+	map(0xf02200, 0xf022ff).mirror(0x008000).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
+	map(0xf03000, 0xf03fff).mirror(0x008000).ram().share("gpuram");
+	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
+	map(0xf14000, 0xf14003).rw(FUNC(jaguar_state::joystick_r), FUNC(jaguar_state::joystick_w));
+	map(0xf1a100, 0xf1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
+	map(0xf1a140, 0xf1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
+	map(0xf1b000, 0xf1cfff).ram().share("dspram");
+	map(0xf1d000, 0xf1dfff).r(FUNC(jaguar_state::wave_rom_r));
+}
+
+void jaguar_state::jag_gpu_dsp_map(address_map &map)
+{
+	console_base_gpu_map(map);
+	map(0x800000, 0xdfffff).rom().region("cart", 0);
 }
 
 /*
@@ -1202,20 +1335,24 @@ TODO: this needs to be device-ized, of course ...
 [0x20]: Subcode time and compare enable
 [0x24]: I2S FIFO data
 [0x28]: I2S FIFO data (old)
-[0x2c]: ? (used at start-up)
+[0x2c]: EEPROM access, splash screen changes depending on what's there
 
 */
 
 uint16_t jaguarcd_state::butch_regs_r16(offs_t offset){ if (!(offset&1)) { return butch_regs_r(offset>>1) >> 16;  } else { return butch_regs_r(offset>>1); } }
 void jaguarcd_state::butch_regs_w16(offs_t offset, uint16_t data, uint16_t mem_mask){ if (!(offset&1)) { butch_regs_w(offset>>1, data << 16, mem_mask << 16); } else { butch_regs_w(offset>>1, data, mem_mask); } }
 
-uint32_t jaguarcd_state::butch_regs_r(offs_t offset)
+uint32_t jaguarcd_state::butch_regs_r(offs_t offset, uint32_t mem_mask)
 {
 	switch(offset*4)
 	{
 		case 8: //DS DATA
 			//m_butch_regs[0] &= ~0x2000;
 			return m_butch_cmd_response[(m_butch_cmd_index++) % m_butch_cmd_size];
+		case 0x2c:
+		{
+			return m_eeprom->do_read() << 3;
+		}
 	}
 
 	return m_butch_regs[offset];
@@ -1232,7 +1369,7 @@ void jaguarcd_state::butch_regs_w(offs_t offset, uint32_t data, uint32_t mem_mas
 			{
 				case 0x03: // Read TOC
 				{
-					if(!m_cd_file) // No disc
+					if(!m_cdrom->exists()) // No disc
 					{
 						m_butch_cmd_response[0] = 0x400;
 						m_butch_regs[0] |= 0x2000;
@@ -1249,12 +1386,12 @@ void jaguarcd_state::butch_regs_w(offs_t offset, uint32_t data, uint32_t mem_mas
 						return;
 					}
 
-					uint32_t msf = m_cd_file->get_track_start(0) + 150;
+					uint32_t msf = m_cdrom->get_track_start(0) + 150;
 
 					/* first track number */
 					m_butch_cmd_response[0] = 0x2000 | 1;
 					/* last track number */
-					m_butch_cmd_response[1] = 0x2100 | m_cd_file->get_last_track();
+					m_butch_cmd_response[1] = 0x2100 | m_cdrom->get_last_track();
 
 					/* start of first track minutes */
 					m_butch_cmd_response[2] = 0x2200 | ((msf / 60) / 60);
@@ -1270,7 +1407,7 @@ void jaguarcd_state::butch_regs_w(offs_t offset, uint32_t data, uint32_t mem_mas
 
 				case 0x14: // Read Long TOC
 				{
-					if(!m_cd_file) // No disc
+					if(!m_cdrom->exists()) // No disc
 					{
 						m_butch_cmd_response[0] = 0x400;
 						m_butch_regs[0] |= 0x2000;
@@ -1279,11 +1416,11 @@ void jaguarcd_state::butch_regs_w(offs_t offset, uint32_t data, uint32_t mem_mas
 						return;
 					}
 
-					int ntrks = m_cd_file->get_last_track();
+					int ntrks = m_cdrom->get_last_track();
 
 					for(int i=0;i<ntrks;i++)
 					{
-						uint32_t msf = m_cd_file->get_track_start(i) + 150;
+						uint32_t msf = m_cdrom->get_track_start(i) + 150;
 
 						/* track number */
 						m_butch_cmd_response[i*5+0] = 0x6000 | (i+1);
@@ -1318,11 +1455,33 @@ void jaguarcd_state::butch_regs_w(offs_t offset, uint32_t data, uint32_t mem_mas
 					break;
 
 				default:
-					printf("%04x CMD\n",m_butch_regs[offset]);
+					logerror("%04x CMD\n", m_butch_regs[offset]);
 					break;
 			}
 			break;
+		case 0x2c:
+			if (ACCESSING_BITS_0_7)
+			{
+				m_eeprom->di_write(BIT(data, 2));
+				m_eeprom->clk_write(BIT(data, 1));
+				m_eeprom->cs_write(BIT(data, 0));
+			}
+			break;
+		default:
+			break;
 	}
+}
+
+uint32_t jaguarcd_state::cd_bios_r(address_space &space, offs_t offset)
+{
+	// HACK: keeps resetting otherwise
+	// From BIOS, 68k should see a 0x03d0dead from GPU, but then DSP will ROM checksum the entire
+	// area, will throw a 0x03d0dead on its own and cause a system reset (more bus priority shenanigans?)
+	if (offset * 4 == 0x408 && &space.device() == m_dsp)
+	{
+		return 5;
+	}
+	return m_cd_bios[offset*2+1] | m_cd_bios[offset*2] << 16;
 }
 
 void jaguarcd_state::jaguarcd_map(address_map &map)
@@ -1332,154 +1491,6 @@ void jaguarcd_state::jaguarcd_map(address_map &map)
 	map(0xdfff00, 0xdfff3f).rw(FUNC(jaguarcd_state::butch_regs_r16), FUNC(jaguarcd_state::butch_regs_w16));
 }
 
-/*************************************
- *
- *  Main CPU memory handlers
- *
- *************************************/
-
-void jaguar_state::r3000_map(address_map &map)
-{
-	map(0x04000000, 0x047fffff).ram().share("sharedram");
-	map(0x04e00030, 0x04e0003f).rw(m_ide, FUNC(vt83c461_device::config_r), FUNC(vt83c461_device::config_w));
-	map(0x04e001f0, 0x04e001f7).rw(m_ide, FUNC(vt83c461_device::cs0_r), FUNC(vt83c461_device::cs0_w));
-	map(0x04e003f0, 0x04e003f7).rw(m_ide, FUNC(vt83c461_device::cs1_r), FUNC(vt83c461_device::cs1_w));
-	map(0x04f00000, 0x04f003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
-	map(0x04f00400, 0x04f007ff).ram().share("gpuclut");
-	map(0x04f02100, 0x04f021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
-	map(0x04f02200, 0x04f022ff).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
-	map(0x04f03000, 0x04f03fff).mirror(0x00008000).ram().share("gpuram");
-	map(0x04f10000, 0x04f103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
-	map(0x04f16000, 0x04f1600b).r(FUNC(jaguar_state::cojag_gun_input_r)); // GPI02
-	map(0x04f17000, 0x04f17003).lr16(NAME([this] () { return uint16_t(m_system->read()); })); // GPI03
-	map(0x04f17800, 0x04f17803).w(FUNC(jaguar_state::latch_w));          // GPI04
-	map(0x04f17c00, 0x04f17c03).portr("P1_P2");      // GPI05
-	map(0x04f1a100, 0x04f1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
-	map(0x04f1a140, 0x04f1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
-	map(0x04f1b000, 0x04f1cfff).ram().share("dspram");
-
-	map(0x06000000, 0x06000003).rw(FUNC(jaguar_state::misc_control_r), FUNC(jaguar_state::misc_control_w));
-	map(0x10000000, 0x1007ffff).ram().share("mainram");
-	map(0x12000000, 0x120fffff).ram().share("mainram2");    // tested in self-test only?
-	map(0x14000004, 0x14000007).w("watchdog", FUNC(watchdog_timer_device::reset32_w));
-	map(0x16000000, 0x16000003).w(FUNC(jaguar_state::eeprom_enable_w));
-	map(0x18000000, 0x18001fff).rw(FUNC(jaguar_state::eeprom_data_r), FUNC(jaguar_state::eeprom_data_w)).share("nvram");
-	map(0x1fc00000, 0x1fdfffff).rom().region("maincpu", 0);
-}
-
-void jaguar_state::r3000_rom_map(address_map &map)
-{
-	r3000_map(map);
-	map(0x04800000, 0x04bfffff).bankr("maingfxbank");
-	map(0x04c00000, 0x04dfffff).bankr("mainsndbank");
-}
-
-
-void jaguar_state::m68020_map(address_map &map)
-{
-	map(0x000000, 0x7fffff).ram().share("sharedram");
-	map(0x800000, 0x9fffff).rom().region("maincpu", 0);
-	map(0xa00000, 0xa1ffff).ram().share("mainram");
-	map(0xa20000, 0xa21fff).rw(FUNC(jaguar_state::eeprom_data_r), FUNC(jaguar_state::eeprom_data_w)).share("nvram");
-	map(0xa30000, 0xa30003).w("watchdog", FUNC(watchdog_timer_device::reset32_w));
-	map(0xa40000, 0xa40003).w(FUNC(jaguar_state::eeprom_enable_w));
-	map(0xb70000, 0xb70003).rw(FUNC(jaguar_state::misc_control_r), FUNC(jaguar_state::misc_control_w));
-//  map(0xc00000, 0xdfffff).bankr("mainsndbank");
-	map(0xe00030, 0xe0003f).rw(m_ide, FUNC(vt83c461_device::config_r), FUNC(vt83c461_device::config_w));
-	map(0xe001f0, 0xe001f7).rw(m_ide, FUNC(vt83c461_device::cs0_r), FUNC(vt83c461_device::cs0_w));
-	map(0xe003f0, 0xe003f7).rw(m_ide, FUNC(vt83c461_device::cs1_r), FUNC(vt83c461_device::cs1_w));
-	map(0xf00000, 0xf003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
-	map(0xf00400, 0xf007ff).ram().share("gpuclut");
-	map(0xf02100, 0xf021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
-	map(0xf02200, 0xf022ff).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
-	map(0xf03000, 0xf03fff).mirror(0x008000).ram().share("gpuram");
-	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
-	map(0xf16000, 0xf1600b).r(FUNC(jaguar_state::cojag_gun_input_r)); // GPI02
-	map(0xf17000, 0xf17003).lr16(NAME([this] () { return uint16_t(m_system->read()); })); // GPI03
-//  map(0xf17800, 0xf17803).w(FUNC(jaguar_state::(latch_w));          // GPI04
-	map(0xf17c00, 0xf17c03).portr("P1_P2");      // GPI05
-	map(0xf1a100, 0xf1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
-	map(0xf1a140, 0xf1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
-	map(0xf1b000, 0xf1cfff).ram().share("dspram");
-}
-
-
-/*************************************
- *
- *  GPU memory handlers
- *
- *************************************/
-
-void jaguar_state::gpu_map(address_map &map)
-{
-	map(0x000000, 0x7fffff).ram().share("sharedram");
-	map(0xe00030, 0xe0003f).rw(m_ide, FUNC(vt83c461_device::config_r), FUNC(vt83c461_device::config_w));
-	map(0xe001f0, 0xe001f7).rw(m_ide, FUNC(vt83c461_device::cs0_r), FUNC(vt83c461_device::cs0_w));
-	map(0xe003f0, 0xe003f7).rw(m_ide, FUNC(vt83c461_device::cs1_r), FUNC(vt83c461_device::cs1_w));
-	map(0xf00000, 0xf003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
-	map(0xf00400, 0xf007ff).ram().share("gpuclut");
-	map(0xf02100, 0xf021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
-	map(0xf02200, 0xf022ff).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
-	map(0xf03000, 0xf03fff).ram().share("gpuram");
-	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
-}
-
-void jaguar_state::gpu_rom_map(address_map &map)
-{
-	gpu_map(map);
-	map(0x800000, 0xbfffff).bankr("gpugfxbank");
-	map(0xc00000, 0xdfffff).bankr("dspsndbank");
-}
-
-
-/*************************************
- *
- *  DSP memory handlers
- *
- *************************************/
-
-void jaguar_state::dsp_map(address_map &map)
-{
-	map(0x000000, 0x7fffff).ram().share("sharedram");
-	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
-	map(0xf1a100, 0xf1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
-	map(0xf1a140, 0xf1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
-	map(0xf1b000, 0xf1cfff).ram().share("dspram");
-	map(0xf1d000, 0xf1dfff).r(FUNC(jaguar_state::wave_rom_r));
-}
-
-void jaguar_state::dsp_rom_map(address_map &map)
-{
-	dsp_map(map);
-	map(0x800000, 0xbfffff).bankr("gpugfxbank");
-	map(0xc00000, 0xdfffff).bankr("dspsndbank");
-}
-
-/* ToDo, these maps SHOULD be merged with the ones above */
-
-void jaguar_state::console_base_gpu_map(address_map &map)
-{
-	map.global_mask(0xffffff);
-	map(0x000000, 0x1fffff).ram().mirror(0x200000).share("sharedram");
-	map(0xe00000, 0xe1ffff).r(FUNC(jaguar_state::rom_base_r));
-	map(0xf00000, 0xf003ff).rw(FUNC(jaguar_state::tom_regs_r), FUNC(jaguar_state::tom_regs_w));
-	map(0xf00400, 0xf005ff).mirror(0x000200).ram().share("gpuclut");
-	map(0xf02100, 0xf021ff).rw(FUNC(jaguar_state::gpuctrl_r), FUNC(jaguar_state::gpuctrl_w));
-	map(0xf02200, 0xf022ff).mirror(0x008000).rw(FUNC(jaguar_state::blitter_r), FUNC(jaguar_state::blitter_w));
-	map(0xf03000, 0xf03fff).mirror(0x008000).ram().share("gpuram");
-	map(0xf10000, 0xf103ff).rw(FUNC(jaguar_state::jerry_regs_r), FUNC(jaguar_state::jerry_regs_w));
-	map(0xf14000, 0xf14003).rw(FUNC(jaguar_state::joystick_r), FUNC(jaguar_state::joystick_w));
-	map(0xf1a100, 0xf1a13f).rw(FUNC(jaguar_state::dspctrl_r), FUNC(jaguar_state::dspctrl_w));
-	map(0xf1a140, 0xf1a17f).rw(FUNC(jaguar_state::serial_r), FUNC(jaguar_state::serial_w));
-	map(0xf1b000, 0xf1cfff).ram().share("dspram");
-	map(0xf1d000, 0xf1dfff).r(FUNC(jaguar_state::wave_rom_r));
-}
-
-void jaguar_state::jag_gpu_dsp_map(address_map &map)
-{
-	console_base_gpu_map(map);
-	map(0x800000, 0xdfffff).rom().region("cart", 0);
-}
 
 void jaguarcd_state::jagcd_gpu_dsp_map(address_map &map)
 {
@@ -1487,6 +1498,7 @@ void jaguarcd_state::jagcd_gpu_dsp_map(address_map &map)
 	map(0x800000, 0x83ffff).r(FUNC(jaguarcd_state::cd_bios_r));
 	map(0xdfff00, 0xdfff3f).rw(FUNC(jaguarcd_state::butch_regs_r), FUNC(jaguarcd_state::butch_regs_w));
 }
+
 
 /*************************************
  *
@@ -1622,6 +1634,15 @@ static INPUT_PORTS_START( fishfren )
 	PORT_BIT( 0x000f0000, IP_ACTIVE_HIGH, IPT_CUSTOM ) // coin returns
 	PORT_BIT( 0x00f00000, IP_ACTIVE_LOW, IPT_UNUSED )
 	PORT_BIT( 0xff000000, IP_ACTIVE_LOW, IPT_UNUSED )
+
+	PORT_START("FAKE1_X")
+
+	PORT_START("FAKE1_Y")
+
+	PORT_START("FAKE2_X")
+
+	PORT_START("FAKE2_Y")
+
 INPUT_PORTS_END
 
 
@@ -1746,21 +1767,21 @@ static INPUT_PORTS_START( jaguar )
 	PORT_BIT( 0xfffd, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("BUTTONS4")
-	PORT_BIT( 0x0002, IP_ACTIVE_LOW, IPT_BUTTON4 ) PORT_NAME("P2 Option") PORT_PLAYER(2)
-	PORT_BIT( 0xfffd, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_BIT( 0x0008, IP_ACTIVE_LOW, IPT_BUTTON4 ) PORT_NAME("P2 Option") PORT_PLAYER(2)
+	PORT_BIT( 0xfff7, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("BUTTONS5")
-	PORT_BIT( 0x0002, IP_ACTIVE_LOW, IPT_BUTTON3 ) PORT_NAME("P2 C") PORT_PLAYER(2)
-	PORT_BIT( 0xfffd, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_BIT( 0x0008, IP_ACTIVE_LOW, IPT_BUTTON3 ) PORT_NAME("P2 C") PORT_PLAYER(2)
+	PORT_BIT( 0xfff7, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("BUTTONS6")
-	PORT_BIT( 0x0002, IP_ACTIVE_LOW, IPT_BUTTON2 ) PORT_NAME("P2 B") PORT_PLAYER(2)
-	PORT_BIT( 0xfffd, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_BIT( 0x0008, IP_ACTIVE_LOW, IPT_BUTTON2 ) PORT_NAME("P2 B") PORT_PLAYER(2)
+	PORT_BIT( 0xfff7, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("BUTTONS7")
-	PORT_BIT( 0x0001, IP_ACTIVE_LOW, IPT_BUTTON5 ) PORT_NAME("P2 Pause") PORT_PLAYER(2)
-	PORT_BIT( 0x0002, IP_ACTIVE_LOW, IPT_BUTTON1 ) PORT_NAME("P2 A") PORT_PLAYER(2)
-	PORT_BIT( 0xfffc, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_BIT( 0x0004, IP_ACTIVE_LOW, IPT_BUTTON5 ) PORT_NAME("P2 Pause") PORT_PLAYER(2)
+	PORT_BIT( 0x0008, IP_ACTIVE_LOW, IPT_BUTTON1 ) PORT_NAME("P2 A") PORT_PLAYER(2)
+	PORT_BIT( 0xfff3, IP_ACTIVE_LOW, IPT_UNUSED )
 
 	PORT_START("CONFIG")
 	PORT_CONFNAME( 0x02, 0x00, "Show Logo")
@@ -1770,6 +1791,7 @@ static INPUT_PORTS_START( jaguar )
 	PORT_CONFSETTING(    0x00, "PAL")
 	PORT_CONFSETTING(    0x10, "NTSC")
 INPUT_PORTS_END
+
 
 /*************************************
  *
@@ -1786,6 +1808,7 @@ void jaguar_state::video_config(machine_config &config, const XTAL clock)
 	m_dsp->irq().set(FUNC(jaguar_state::dsp_cpu_int));
 
 	// TODO: Tom
+	// TODO: Jerry
 	// TODO: Object Processor
 
 	JAG_BLITTER(config, m_blitter, clock);
@@ -1794,10 +1817,12 @@ void jaguar_state::video_config(machine_config &config, const XTAL clock)
 void jaguar_state::cojagr3k(machine_config &config)
 {
 	/* basic machine hardware */
-	R3041(config, m_maincpu, R3000_CLOCK).set_endianness(ENDIANNESS_BIG);
+	R3041(config, m_maincpu, R3000_CLOCK / 2).set_endianness(ENDIANNESS_BIG); // divider not verified, but chip is rated for 20 MHz
 	m_maincpu->set_addrmap(AS_PROGRAM, &jaguar_state::r3000_map);
 
 	video_config(config, COJAG_CLOCK/2);
+	m_gpu->set_branch_hack(true);
+	m_dsp->set_branch_hack(true);
 	m_gpu->set_addrmap(AS_PROGRAM, &jaguar_state::gpu_map);
 	m_dsp->set_addrmap(AS_PROGRAM, &jaguar_state::dsp_map);
 
@@ -1811,16 +1836,15 @@ void jaguar_state::cojagr3k(machine_config &config)
 	/* video hardware */
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
 	m_screen->set_video_attributes(VIDEO_UPDATE_BEFORE_VBLANK);
-	m_screen->set_raw(COJAG_PIXEL_CLOCK/2, 456, 42, 402, 262, 17, 257);
+	m_screen->set_raw(COJAG_PIXEL_CLOCK / 2, 456, 42, 402, 262, 17, 257);
 	m_screen->set_screen_update(FUNC(jaguar_state::screen_update));
 
 	PALETTE(config, m_palette, FUNC(jaguar_state::jagpal_ycc), 65536);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
-	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_ldac, 0).add_route(ALL_OUTPUTS, "lspeaker", 1.0); // unknown DAC
-	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_rdac, 0).add_route(ALL_OUTPUTS, "rspeaker", 1.0); // unknown DAC
+	SPEAKER(config, "speaker", 2).front();
+	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_ldac, 0).add_route(ALL_OUTPUTS, "speaker", 1.0, 0); // unknown DAC
+	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_rdac, 0).add_route(ALL_OUTPUTS, "speaker", 1.0, 1); // unknown DAC
 
 	// TODO: subwoofer speaker
 }
@@ -1848,7 +1872,7 @@ void jaguar_state::cojag68k(machine_config &config)
 void jaguar_state::jaguar(machine_config &config)
 {
 	/* basic machine hardware */
-	M68000(config, m_maincpu, JAGUAR_CLOCK/2); // MC68000FN12F 16 MHz
+	M68000(config, m_maincpu, JAGUAR_CLOCK / 2); // MC68000FN12F 16 MHz
 	m_maincpu->set_addrmap(AS_PROGRAM, &jaguar_state::jaguar_map);
 	m_maincpu->set_addrmap(m68000_device::AS_CPU_SPACE, &jaguar_state::cpu_space_map);
 
@@ -1861,22 +1885,23 @@ void jaguar_state::jaguar(machine_config &config)
 	/* video hardware */
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
 	m_screen->set_video_attributes(VIDEO_UPDATE_BEFORE_VBLANK);
-	m_screen->set_raw(JAGUAR_CLOCK, 456, 42, 402, 262, 17, 257);
+	// TODO: vestigial, dynamically changed in jaguar_v anyway
+	m_screen->set_raw(JAGUAR_CLOCK / 2, 845, 101, 741, 262, 19, 248);
 	m_screen->set_screen_update(FUNC(jaguar_state::screen_update));
 
 	PALETTE(config, m_palette, FUNC(jaguar_state::jagpal_ycc), 65536);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
-	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_ldac, 0).add_route(ALL_OUTPUTS, "lspeaker", 1.0); // unknown DAC
-	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_rdac, 0).add_route(ALL_OUTPUTS, "rspeaker", 1.0); // unknown DAC
+	SPEAKER(config, "speaker", 2).front();
+	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_ldac, 0).add_route(ALL_OUTPUTS, "speaker", 1.0, 0); // unknown DAC
+	DAC_16BIT_R2R_TWOS_COMPLEMENT(config, m_rdac, 0).add_route(ALL_OUTPUTS, "speaker", 1.0, 1); // unknown DAC
 
 	/* quickload */
-	QUICKLOAD(config, "quickload", "abs,bin,cof,jag,prg").set_load_callback(FUNC(jaguar_state::quickload_cb));
+	// need to skip BIOS asap for quickload to work (particularly after DSP sound fixes)
+	QUICKLOAD(config, "quickload", "abs,bin,cof,jag,prg,rom", attotime::from_usec(10)).set_load_callback(FUNC(jaguar_state::quickload_cb));
 
 	/* cartridge */
-	generic_cartslot_device &cartslot(GENERIC_CARTSLOT(config, "cartslot", generic_plain_slot, "jaguar_cart", "j64,rom,bin"));
+	generic_cartslot_device &cartslot(GENERIC_CARTSLOT(config, "cartslot", generic_plain_slot, "jaguar_cart", "j64"));
 	cartslot.set_device_load(FUNC(jaguar_state::cart_load));
 
 	/* software lists */
@@ -1894,8 +1919,11 @@ void jaguarcd_state::jaguarcd(machine_config &config)
 
 	m_dsp->set_addrmap(AS_PROGRAM, &jaguarcd_state::jagcd_gpu_dsp_map);
 
-	CDROM(config, "cdrom").set_interface("jag_cdrom");
+	CDROM(config, "cdrom").set_interface("cdrom");
+
+	// TODO: software list, requires multisession support first
 }
+
 
 /*************************************
  *
@@ -1927,16 +1955,15 @@ void jaguarcd_state::init_jaguarcd()
 	save_item(NAME(m_joystick_data));
 }
 
-image_init_result jaguar_state::quickload_cb(device_image_interface &image)
+std::pair<std::error_condition, std::string> jaguar_state::quickload_cb(snapshot_image_device &image)
 {
-	offs_t quickload_begin = 0x4000, start = quickload_begin, skip = 0;
+	offs_t quickload_begin = 0x1000, start = 0x4000, skip = 0;
 
-	memset(m_shared_ram, 0, 0x200000);
-	offs_t quickload_size = std::min(offs_t(image.length()), 0x200000 - quickload_begin);
+	offs_t quickload_size = std::min(offs_t(image.length()), 0x20000 - start);
 
-	image.fread( &memregion("maincpu")->base()[quickload_begin], quickload_size);
+	image.fread( &m_shared_ram[quickload_begin], quickload_size);
 
-	fix_endian(&memregion("maincpu")->base()[quickload_begin], quickload_size);
+	fix_endian(&m_shared_ram[quickload_begin], quickload_size);
 
 	/* Deal with some of the numerous homebrew header systems */
 		/* COF */
@@ -1972,27 +1999,38 @@ image_init_result jaguar_state::quickload_cb(device_image_interface &image)
 	else    /* JAG binary */
 	if (image.is_filetype("jag"))
 		start = 0x5000;
+	else
+	if (image.is_filetype("rom"))
+		start = 0x802000;
 
+	quickload_size = image.length();
 
 	/* Now that we have the info, reload the file */
-	if ((start != quickload_begin) || (skip))
+	if ((start + quickload_size) < 0x200000)
 	{
 		memset(m_shared_ram, 0, 0x200000);
-		image.fseek(0, SEEK_SET);
-		image.fread( &m_shared_ram[(start-skip)/4], quickload_size);
-		quickload_begin = start;
-		fix_endian(&memregion("maincpu")->base()[(start-skip)&0xfffffc], quickload_size);
+		image.fseek(skip, SEEK_SET);
+		image.fread( &m_shared_ram[start/4], quickload_size-skip);
+		fix_endian(&m_shared_ram[start/4], quickload_size-skip);
 	}
-
+	else
+	if (start >= 0x800000)
+	{
+		image.fseek(skip, SEEK_SET);
+		image.fread( &m_cart_base[(start - 0x800000) / 4], quickload_size - skip);
+		fix_endian(&m_cart_base[(start - 0x800000) / 4], quickload_size - skip);
+	}
+	else
+		return std::make_pair(image_error::UNSUPPORTED, "Unsupported start address for this quickload.");
 
 	/* Some programs are too lazy to set a stack pointer */
 	m_maincpu->set_state_int(M68K_SP, 0x1000);
 	m_shared_ram[0]=0x1000;
 
 	/* Transfer control to image */
-	m_maincpu->set_pc(quickload_begin);
+	m_maincpu->set_pc(start);
 	m_shared_ram[1]=quickload_begin;
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 DEVICE_IMAGE_LOAD_MEMBER( jaguar_state::cart_load )
@@ -2002,13 +2040,6 @@ DEVICE_IMAGE_LOAD_MEMBER( jaguar_state::cart_load )
 	if (!image.loaded_through_softlist())
 	{
 		size = image.length();
-
-		/* .rom files load & run at 802000 */
-		if (image.is_filetype("rom"))
-		{
-			load_offset = 0x2000;             // fix load address
-			m_cart_base[0x101] = 0x802000;    // fix exec address
-		}
 
 		/* Load cart into memory */
 		image.fread(&m_cart_base[load_offset/4], size);
@@ -2029,8 +2060,9 @@ DEVICE_IMAGE_LOAD_MEMBER( jaguar_state::cart_load )
 
 	/* Transfer control to the bios */
 	m_maincpu->reset();
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
+
 
 /*************************************
  *
@@ -2064,6 +2096,8 @@ ROM_START( jaguarcd )
 	ROM_REGION16_BE(0x40000, "cdbios", 0 )
 	ROM_SYSTEM_BIOS( 0, "default", "Jaguar CD" )
 	ROMX_LOAD( "jag_cd.bin", 0x00000, 0x040000, CRC(687068d5) SHA1(73883e7a6e9b132452436f7ab1aeaeb0776428e5), ROM_GROUPWORD | ROM_BIOS(0) )
+	// TODO: can't boot on its own, needs a Stubulator BIOS mounted
+	// $800000-$801fff is empty, won't pass retail BIOS checks
 	ROM_SYSTEM_BIOS( 1, "dev", "Jaguar Developer CD" )
 	ROMX_LOAD( "jagdevcd.bin", 0x00000, 0x040000, CRC(55a0669c) SHA1(d61b7b5912118f114ef00cf44966a5ef62e455a5), ROM_GROUPWORD | ROM_BIOS(1) )
 
@@ -2088,7 +2122,7 @@ ROM_START( area51t ) /* 68020 based, Area51 Time Warner License - MAIN: Oct 17 1
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "area51t", 0, SHA1(d2865cc7b1bb08a4393a72013a90e18d8a8f9860) )
 ROM_END
 
@@ -2102,7 +2136,7 @@ ROM_START( area51ta ) /* 68020 based, Area51 Time Warner License - MAIN: Nov 27 
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "area51t", 0, SHA1(d2865cc7b1bb08a4393a72013a90e18d8a8f9860) )
 ROM_END
 
@@ -2116,21 +2150,21 @@ ROM_START( area51a ) /* 68020 based, Area51 Atari Games License - MAIN: Oct 25 1
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "area51", 0, SHA1(3b303bc37e206a6d7339352c869f050d04186f11) )
 ROM_END
 
 ROM_START( area51 ) /* R3000 based, Area51 Atari Games License - MAIN: Oct 24 1996 12:02:23 / GUTS: 2.06CJ Nov 11 1996 11:46:43 */
 	ROM_REGION( 0x200000, "maincpu", 0 )    /* 2MB for IDT 79R3041 code */
-	ROM_LOAD32_BYTE( "2-c_area_51_hh.hh", 0x00000, 0x80000, CRC(13af6a1e) SHA1(69da54ed6886e825156bbcc256e8d7abd4dc1ff8) ) /* Green labels: 2-C AREA 51 HH */
-	ROM_LOAD32_BYTE( "2-c_area_51_hl.hl", 0x00001, 0x80000, CRC(8ab6649b) SHA1(9b4945bc04f8a73161638a2c5fa2fd84c6fd31b4) ) /* Green labels: 2-C AREA 51 HL */
-	ROM_LOAD32_BYTE( "2-c_area_51_lh.lh", 0x00002, 0x80000, CRC(a6524f73) SHA1(ae377a6803a4f7d1bbcc111725af121a3e82317d) ) /* Green labels: 2-C AREA 51 LH */
-	ROM_LOAD32_BYTE( "2-c_area_51_ll.ll", 0x00003, 0x80000, CRC(471b15d2) SHA1(4b5f45ee140b03a6be61475cae1c2dbef0f07457) ) /* Green labels: 2-C AREA 51 LL */
+	ROM_LOAD32_BYTE( "2-c_area_51_hh.hh", 0x00000, 0x80000, CRC(13af6a1e) SHA1(69da54ed6886e825156bbcc256e8d7abd4dc1ff8) ) /* Green labels: 2-C AREA 51 HH  - also found labeled as AREA 51 HH   136105-1004 */
+	ROM_LOAD32_BYTE( "2-c_area_51_hl.hl", 0x00001, 0x80000, CRC(8ab6649b) SHA1(9b4945bc04f8a73161638a2c5fa2fd84c6fd31b4) ) /* Green labels: 2-C AREA 51 HL  - also found labeled as AREA 51 HL   136105-1003 */
+	ROM_LOAD32_BYTE( "2-c_area_51_lh.lh", 0x00002, 0x80000, CRC(a6524f73) SHA1(ae377a6803a4f7d1bbcc111725af121a3e82317d) ) /* Green labels: 2-C AREA 51 LH  - also found labeled as AREA 51 LH   136105-1002 */
+	ROM_LOAD32_BYTE( "2-c_area_51_ll.ll", 0x00003, 0x80000, CRC(471b15d2) SHA1(4b5f45ee140b03a6be61475cae1c2dbef0f07457) ) /* Green labels: 2-C AREA 51 LL  - also found labeled as AREA 51 LL   136105-1001 */
 
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "area51", 0, SHA1(3b303bc37e206a6d7339352c869f050d04186f11) )
 ROM_END
 
@@ -2145,7 +2179,7 @@ ROM_START( maxforce ) /* R3000 based, labeled as "Maximum Force 5-23-97 v1.05" -
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "maxforce", 0, SHA1(d54e7a8f3866bb2a1d28ae637e7c92ffa4dbe558) )
 ROM_END
 
@@ -2159,7 +2193,7 @@ ROM_START( maxf_102 ) /* R3000 based, labeled as "Maximum Force 2-27-97 v1.02" -
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "maxforce", 0, SHA1(d54e7a8f3866bb2a1d28ae637e7c92ffa4dbe558) )
 ROM_END
 
@@ -2176,7 +2210,7 @@ ROM_START( maxf_ng ) /* R3000 based - MAIN: Apr 18 1997 11:08:45 */
 	ROM_REGION( 0x800, "user2", 0 ) /* 28C16 style eeprom, currently loaded but not used */
 	ROM_LOAD( "28c16.17z", 0x000, 0x800, CRC(1cdd9088) SHA1(4f01f02ff95f31ced87a3cdd7f171afd92551266) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "maxforce", 0, SHA1(d54e7a8f3866bb2a1d28ae637e7c92ffa4dbe558) )
 ROM_END
 
@@ -2191,7 +2225,7 @@ ROM_START( area51mx )   /* 68020 based - MAIN: Apr 22 1998 17:53:57 / GUTS: 2.04
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "area51mx", 0, SHA1(5ff10f4e87094d4449eabf3de7549564ca568c7e) )
 ROM_END
 
@@ -2205,7 +2239,7 @@ ROM_START( a51mxr3k ) /* R3000 based - MAIN: Feb 10 1998 11:52:51 / GUTS: 2.07CJ
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "area51mx", 0, SHA1(5ff10f4e87094d4449eabf3de7549564ca568c7e) )
 ROM_END
 
@@ -2219,7 +2253,7 @@ ROM_START( a51mxr3ka ) /* R3000 based - MAIN: Feb  2 1998 14:10:29 / GUTS: 2.07C
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "area51mx", 0, SHA1(5ff10f4e87094d4449eabf3de7549564ca568c7e) )
 ROM_END
 
@@ -2234,7 +2268,7 @@ ROM_START( vcircle )
 	ROM_REGION16_BE( 0x1000, "waverom", 0 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
-	DISK_REGION( "ide:0:hdd:image" )
+	DISK_REGION( "ide:0:hdd" )
 	DISK_IMAGE( "vcircle", 0, SHA1(bfa79c4cacdc9c2cd6362f62a23056b3e35a2034) )
 ROM_END
 
@@ -2245,7 +2279,6 @@ ROM_END
        ROM based games
 
 ****************************************/
-
 
 ROM_START( fishfren )
 	ROM_REGION( 0x200000, "maincpu", 0 )    /* 2MB for R3000 code */
@@ -2258,22 +2291,22 @@ ROM_START( fishfren )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "l63-56", 0x000000, 0x100000, CRC(42764ea5) SHA1(805245f01006bd974fbac56f688cfcf137ddc914), ROM_SKIP(7) )
-	ROMX_LOAD( "l55-48", 0x000001, 0x100000, CRC(0c7592bb) SHA1(d5bd6b872abad58947842205f9eac46fd065e88f), ROM_SKIP(7) )
-	ROMX_LOAD( "l47-40", 0x000002, 0x100000, CRC(6d7dcdb1) SHA1(914dae3b9df5c861f794b683571c5fb0c2c3c3fd), ROM_SKIP(7) )
-	ROMX_LOAD( "l39-32", 0x000003, 0x100000, CRC(ef3b8d98) SHA1(858c3342e9693bfe887b91dde1116a1656a1a105), ROM_SKIP(7) )
-	ROMX_LOAD( "l31-24", 0x000004, 0x100000, CRC(132d628e) SHA1(3ff9fa86092eb01f21ca3ccf1ee1e3a583cbdecb), ROM_SKIP(7) )
-	ROMX_LOAD( "l23-16", 0x000005, 0x100000, CRC(b841f039) SHA1(79f661aee009aef2f5ad4122ae3e0ac94097a427), ROM_SKIP(7) )
-	ROMX_LOAD( "l15-08", 0x000006, 0x100000, CRC(0800214e) SHA1(5372f2c3470619a4967958c76055486f76b5f150), ROM_SKIP(7) )
-	ROMX_LOAD( "l07-00", 0x000007, 0x100000, CRC(f83b2e78) SHA1(83ee9d2bfba83e04fb794270926bd3e558c9aaa4), ROM_SKIP(7) )
-	ROMX_LOAD( "h63-56", 0x800000, 0x080000, CRC(67740765) SHA1(8b22413d25e0dbfe2227d1a8a023961a4c13cb76), ROM_SKIP(7) )
-	ROMX_LOAD( "h55-48", 0x800001, 0x080000, CRC(ffed0091) SHA1(6c8104acd7e6d95a111f9c7a4d3b6984293d72c4), ROM_SKIP(7) )
-	ROMX_LOAD( "h47-40", 0x800002, 0x080000, CRC(6f448f72) SHA1(3a298b9851e4ba7aa611aa6c2b0dcf06f4301463), ROM_SKIP(7) )
-	ROMX_LOAD( "h39-32", 0x800003, 0x080000, CRC(25a5bd67) SHA1(79f29bd36afb4574b9c923eee293964284713540), ROM_SKIP(7) )
-	ROMX_LOAD( "h31-24", 0x800004, 0x080000, CRC(e7088cc0) SHA1(4cb184de748c5633e669a4675e6db9920d34811e), ROM_SKIP(7) )
-	ROMX_LOAD( "h23-16", 0x800005, 0x080000, CRC(ab477a76) SHA1(ae9aa97dbc758cd741710fe08c6ea94a0a318451), ROM_SKIP(7) )
-	ROMX_LOAD( "h15-08", 0x800006, 0x080000, CRC(25a423f1) SHA1(7530cf2e28e0755bfcbd70789ef5cbbfb3d94f9f), ROM_SKIP(7) )
-	ROMX_LOAD( "h07-00", 0x800007, 0x080000, CRC(0f5f4cc6) SHA1(caa2b514fb1f2a815e63f7b8c6b79ce2dfa308c4), ROM_SKIP(7) )
+	ROM_LOAD64_BYTE( "l63-56", 0x000000, 0x100000, CRC(42764ea5) SHA1(805245f01006bd974fbac56f688cfcf137ddc914) )
+	ROM_LOAD64_BYTE( "l55-48", 0x000001, 0x100000, CRC(0c7592bb) SHA1(d5bd6b872abad58947842205f9eac46fd065e88f) )
+	ROM_LOAD64_BYTE( "l47-40", 0x000002, 0x100000, CRC(6d7dcdb1) SHA1(914dae3b9df5c861f794b683571c5fb0c2c3c3fd) )
+	ROM_LOAD64_BYTE( "l39-32", 0x000003, 0x100000, CRC(ef3b8d98) SHA1(858c3342e9693bfe887b91dde1116a1656a1a105) )
+	ROM_LOAD64_BYTE( "l31-24", 0x000004, 0x100000, CRC(132d628e) SHA1(3ff9fa86092eb01f21ca3ccf1ee1e3a583cbdecb) )
+	ROM_LOAD64_BYTE( "l23-16", 0x000005, 0x100000, CRC(b841f039) SHA1(79f661aee009aef2f5ad4122ae3e0ac94097a427) )
+	ROM_LOAD64_BYTE( "l15-08", 0x000006, 0x100000, CRC(0800214e) SHA1(5372f2c3470619a4967958c76055486f76b5f150) )
+	ROM_LOAD64_BYTE( "l07-00", 0x000007, 0x100000, CRC(f83b2e78) SHA1(83ee9d2bfba83e04fb794270926bd3e558c9aaa4) )
+	ROM_LOAD64_BYTE( "h63-56", 0x800000, 0x080000, CRC(67740765) SHA1(8b22413d25e0dbfe2227d1a8a023961a4c13cb76) )
+	ROM_LOAD64_BYTE( "h55-48", 0x800001, 0x080000, CRC(ffed0091) SHA1(6c8104acd7e6d95a111f9c7a4d3b6984293d72c4) )
+	ROM_LOAD64_BYTE( "h47-40", 0x800002, 0x080000, CRC(6f448f72) SHA1(3a298b9851e4ba7aa611aa6c2b0dcf06f4301463) )
+	ROM_LOAD64_BYTE( "h39-32", 0x800003, 0x080000, CRC(25a5bd67) SHA1(79f29bd36afb4574b9c923eee293964284713540) )
+	ROM_LOAD64_BYTE( "h31-24", 0x800004, 0x080000, CRC(e7088cc0) SHA1(4cb184de748c5633e669a4675e6db9920d34811e) )
+	ROM_LOAD64_BYTE( "h23-16", 0x800005, 0x080000, CRC(ab477a76) SHA1(ae9aa97dbc758cd741710fe08c6ea94a0a318451) )
+	ROM_LOAD64_BYTE( "h15-08", 0x800006, 0x080000, CRC(25a423f1) SHA1(7530cf2e28e0755bfcbd70789ef5cbbfb3d94f9f) )
+	ROM_LOAD64_BYTE( "h07-00", 0x800007, 0x080000, CRC(0f5f4cc6) SHA1(caa2b514fb1f2a815e63f7b8c6b79ce2dfa308c4) )
 	ROM_COPY( "romboard", 0x800000, 0xc00000, 0x400000 )
 ROM_END
 
@@ -2288,22 +2321,22 @@ ROM_START( freezeat )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "fish_gr0.63-56", 0x000000, 0x100000, CRC(b61061c5) SHA1(aeb409aa5073232d80ed81b27946e753290234f4), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.55-48", 0x000001, 0x100000, CRC(c85acf42) SHA1(c3365caeb126a83a7e7afcda25f05849ceb5c98b), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.47-40", 0x000002, 0x100000, CRC(67f78f59) SHA1(40b256a8939fad365c7e896cff4a959fcc70a477), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.39-32", 0x000003, 0x100000, CRC(6be0508a) SHA1(20f617278ce1666348822d80686cecd8d9b1bc78), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.31-24", 0x000004, 0x100000, CRC(905606e0) SHA1(866cd98ea2399fed96f76b16dce751e2c7cfdc98), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.23-16", 0x000005, 0x100000, CRC(cdeef6fa) SHA1(1b4d58951b662040540e7d51f88c1b6f282562ee), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.15-08", 0x000006, 0x100000, CRC(ad81f204) SHA1(58584a6c8c6cfb6366eaa10aba8a226e419f5ce9), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.07-00", 0x000007, 0x100000, CRC(10ce7254) SHA1(2a88d45dbe78ea8358ecd8522b38d775a2fdb34a), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.63-56", 0x800000, 0x100000, CRC(4a03f971) SHA1(1ae5ad9a6cd2d612c6519193134dcd5a3f6a5049), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.55-48", 0x800001, 0x100000, CRC(6bc00de0) SHA1(b1b180c33906826703452875ce250b28352e2797), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.47-40", 0x800002, 0x100000, CRC(41ccc677) SHA1(76ee042632cfdcc99a9bfb75f2a4ef04e08f101b), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.39-32", 0x800003, 0x100000, CRC(59a8fa03) SHA1(19e91a4791e0d2dbd8578cee0fa07c491204b0dc), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.31-24", 0x800004, 0x100000, CRC(c3bb50a1) SHA1(b868ac0812d1c13feae82d293bb323a93a72e1d3), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.23-16", 0x800005, 0x100000, CRC(237cfc93) SHA1(15f61dc621c5328cc7752c76b2b1dae265a5e886), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.15-08", 0x800006, 0x100000, CRC(65bec279) SHA1(5e99972279ee9ad32e67866fc63799579a10f2dd), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_eng.07-00", 0x800007, 0x100000, CRC(13fa20ad) SHA1(0a04fdea025109c0e604ef2a6d58cfb3adce9bd1), ROM_SKIP(7) )
+	ROM_LOAD64_BYTE( "fish_gr0.63-56", 0x000000, 0x100000, CRC(b61061c5) SHA1(aeb409aa5073232d80ed81b27946e753290234f4) )
+	ROM_LOAD64_BYTE( "fish_gr0.55-48", 0x000001, 0x100000, CRC(c85acf42) SHA1(c3365caeb126a83a7e7afcda25f05849ceb5c98b) )
+	ROM_LOAD64_BYTE( "fish_gr0.47-40", 0x000002, 0x100000, CRC(67f78f59) SHA1(40b256a8939fad365c7e896cff4a959fcc70a477) )
+	ROM_LOAD64_BYTE( "fish_gr0.39-32", 0x000003, 0x100000, CRC(6be0508a) SHA1(20f617278ce1666348822d80686cecd8d9b1bc78) )
+	ROM_LOAD64_BYTE( "fish_gr0.31-24", 0x000004, 0x100000, CRC(905606e0) SHA1(866cd98ea2399fed96f76b16dce751e2c7cfdc98) )
+	ROM_LOAD64_BYTE( "fish_gr0.23-16", 0x000005, 0x100000, CRC(cdeef6fa) SHA1(1b4d58951b662040540e7d51f88c1b6f282562ee) )
+	ROM_LOAD64_BYTE( "fish_gr0.15-08", 0x000006, 0x100000, CRC(ad81f204) SHA1(58584a6c8c6cfb6366eaa10aba8a226e419f5ce9) )
+	ROM_LOAD64_BYTE( "fish_gr0.07-00", 0x000007, 0x100000, CRC(10ce7254) SHA1(2a88d45dbe78ea8358ecd8522b38d775a2fdb34a) )
+	ROM_LOAD64_BYTE( "fish_eng.63-56", 0x800000, 0x100000, CRC(4a03f971) SHA1(1ae5ad9a6cd2d612c6519193134dcd5a3f6a5049) )
+	ROM_LOAD64_BYTE( "fish_eng.55-48", 0x800001, 0x100000, CRC(6bc00de0) SHA1(b1b180c33906826703452875ce250b28352e2797) )
+	ROM_LOAD64_BYTE( "fish_eng.47-40", 0x800002, 0x100000, CRC(41ccc677) SHA1(76ee042632cfdcc99a9bfb75f2a4ef04e08f101b) )
+	ROM_LOAD64_BYTE( "fish_eng.39-32", 0x800003, 0x100000, CRC(59a8fa03) SHA1(19e91a4791e0d2dbd8578cee0fa07c491204b0dc) )
+	ROM_LOAD64_BYTE( "fish_eng.31-24", 0x800004, 0x100000, CRC(c3bb50a1) SHA1(b868ac0812d1c13feae82d293bb323a93a72e1d3) )
+	ROM_LOAD64_BYTE( "fish_eng.23-16", 0x800005, 0x100000, CRC(237cfc93) SHA1(15f61dc621c5328cc7752c76b2b1dae265a5e886) )
+	ROM_LOAD64_BYTE( "fish_eng.15-08", 0x800006, 0x100000, CRC(65bec279) SHA1(5e99972279ee9ad32e67866fc63799579a10f2dd) )
+	ROM_LOAD64_BYTE( "fish_eng.07-00", 0x800007, 0x100000, CRC(13fa20ad) SHA1(0a04fdea025109c0e604ef2a6d58cfb3adce9bd1) )
 ROM_END
 
 ROM_START( freezeatjp )
@@ -2317,22 +2350,22 @@ ROM_START( freezeatjp )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "fish_gr0.63-56", 0x000000, 0x100000, CRC(b61061c5) SHA1(aeb409aa5073232d80ed81b27946e753290234f4), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.55-48", 0x000001, 0x100000, CRC(c85acf42) SHA1(c3365caeb126a83a7e7afcda25f05849ceb5c98b), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.47-40", 0x000002, 0x100000, CRC(67f78f59) SHA1(40b256a8939fad365c7e896cff4a959fcc70a477), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.39-32", 0x000003, 0x100000, CRC(6be0508a) SHA1(20f617278ce1666348822d80686cecd8d9b1bc78), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.31-24", 0x000004, 0x100000, CRC(905606e0) SHA1(866cd98ea2399fed96f76b16dce751e2c7cfdc98), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.23-16", 0x000005, 0x100000, CRC(cdeef6fa) SHA1(1b4d58951b662040540e7d51f88c1b6f282562ee), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.15-08", 0x000006, 0x100000, CRC(ad81f204) SHA1(58584a6c8c6cfb6366eaa10aba8a226e419f5ce9), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_gr0.07-00", 0x000007, 0x100000, CRC(10ce7254) SHA1(2a88d45dbe78ea8358ecd8522b38d775a2fdb34a), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.63-56", 0x800000, 0x100000, CRC(78c65a1f) SHA1(1a97737c222809930bde9df7a55e1ff1581a3202), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.55-48", 0x800001, 0x100000, CRC(9ffac0f1) SHA1(3ba5f8de32a5febb5d3d22f59ccb477834d33934), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.47-40", 0x800002, 0x100000, CRC(18543fb7) SHA1(4ab9969de9a66d6b7b70cfa5290c1cf7bce54838), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.39-32", 0x800003, 0x100000, CRC(22578f15) SHA1(4e314b22456ed4e4282406e990207e3b9bdf6203), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.31-24", 0x800004, 0x100000, CRC(5c41b91b) SHA1(ce354c8a4a3872b009e8af9f75e8f4f0892c7a7e), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.23-16", 0x800005, 0x100000, CRC(c2462646) SHA1(207d51a2aae076bc78548cf96325e670ea41609c), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.15-08", 0x800006, 0x100000, CRC(f8d998ec) SHA1(ffce4a16fbb2fff3dc0a29c0cede4dfe6316e97b), ROM_SKIP(7) )
-	ROMX_LOAD( "fish_jpn.07-00", 0x800007, 0x100000, CRC(e7e0daa5) SHA1(108da84cc6b4df7ae88cfdacd27c1728e59cdb81), ROM_SKIP(7) )
+	ROM_LOAD64_BYTE( "fish_gr0.63-56", 0x000000, 0x100000, CRC(b61061c5) SHA1(aeb409aa5073232d80ed81b27946e753290234f4) )
+	ROM_LOAD64_BYTE( "fish_gr0.55-48", 0x000001, 0x100000, CRC(c85acf42) SHA1(c3365caeb126a83a7e7afcda25f05849ceb5c98b) )
+	ROM_LOAD64_BYTE( "fish_gr0.47-40", 0x000002, 0x100000, CRC(67f78f59) SHA1(40b256a8939fad365c7e896cff4a959fcc70a477) )
+	ROM_LOAD64_BYTE( "fish_gr0.39-32", 0x000003, 0x100000, CRC(6be0508a) SHA1(20f617278ce1666348822d80686cecd8d9b1bc78) )
+	ROM_LOAD64_BYTE( "fish_gr0.31-24", 0x000004, 0x100000, CRC(905606e0) SHA1(866cd98ea2399fed96f76b16dce751e2c7cfdc98) )
+	ROM_LOAD64_BYTE( "fish_gr0.23-16", 0x000005, 0x100000, CRC(cdeef6fa) SHA1(1b4d58951b662040540e7d51f88c1b6f282562ee) )
+	ROM_LOAD64_BYTE( "fish_gr0.15-08", 0x000006, 0x100000, CRC(ad81f204) SHA1(58584a6c8c6cfb6366eaa10aba8a226e419f5ce9) )
+	ROM_LOAD64_BYTE( "fish_gr0.07-00", 0x000007, 0x100000, CRC(10ce7254) SHA1(2a88d45dbe78ea8358ecd8522b38d775a2fdb34a) )
+	ROM_LOAD64_BYTE( "fish_jpn.63-56", 0x800000, 0x100000, CRC(78c65a1f) SHA1(1a97737c222809930bde9df7a55e1ff1581a3202) )
+	ROM_LOAD64_BYTE( "fish_jpn.55-48", 0x800001, 0x100000, CRC(9ffac0f1) SHA1(3ba5f8de32a5febb5d3d22f59ccb477834d33934) )
+	ROM_LOAD64_BYTE( "fish_jpn.47-40", 0x800002, 0x100000, CRC(18543fb7) SHA1(4ab9969de9a66d6b7b70cfa5290c1cf7bce54838) )
+	ROM_LOAD64_BYTE( "fish_jpn.39-32", 0x800003, 0x100000, CRC(22578f15) SHA1(4e314b22456ed4e4282406e990207e3b9bdf6203) )
+	ROM_LOAD64_BYTE( "fish_jpn.31-24", 0x800004, 0x100000, CRC(5c41b91b) SHA1(ce354c8a4a3872b009e8af9f75e8f4f0892c7a7e) )
+	ROM_LOAD64_BYTE( "fish_jpn.23-16", 0x800005, 0x100000, CRC(c2462646) SHA1(207d51a2aae076bc78548cf96325e670ea41609c) )
+	ROM_LOAD64_BYTE( "fish_jpn.15-08", 0x800006, 0x100000, CRC(f8d998ec) SHA1(ffce4a16fbb2fff3dc0a29c0cede4dfe6316e97b) )
+	ROM_LOAD64_BYTE( "fish_jpn.07-00", 0x800007, 0x100000, CRC(e7e0daa5) SHA1(108da84cc6b4df7ae88cfdacd27c1728e59cdb81) )
 ROM_END
 
 ROM_START( freezeat2 )
@@ -2346,22 +2379,22 @@ ROM_START( freezeat2 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "fish_gr0.63-56", 0x000000, 0x100000, CRC(99d0dc75) SHA1(b32126eea70c7584d1c34a6ca33282fbaf4b03aa), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.55-48", 0x000001, 0x100000, CRC(2dfdfe62) SHA1(e0554d36ef5cf4b6ce171857ea4f2737f11286a5), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.47-40", 0x000002, 0x100000, CRC(722aee2a) SHA1(bc79433131bed5b08453d1b80324a28a552783de), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.39-32", 0x000003, 0x100000, CRC(919e31b4) SHA1(3807d4629d8277c780dba888c23d17ba47803f27), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.31-24", 0x000004, 0x100000, CRC(a957ac95) SHA1(ddfaca994c06976bee8b123857904e64f40b7f31), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.23-16", 0x000005, 0x100000, CRC(a147ec66) SHA1(6291008158d581b81e025ed34ff0950983c12c67), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.15-08", 0x000006, 0x100000, CRC(206d2f38) SHA1(6aca89df26d3602ff1da3c23f19e0782439623ff), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.07-00", 0x000007, 0x100000, CRC(06559831) SHA1(b2c022457425d7900337cfa2fd1622336c0c0bc5), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.63-56", 0x800000, 0x100000, CRC(30c624d2) SHA1(4ced77d1663169d0cb37d6728ec52e67f05064c5), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.55-48", 0x800001, 0x100000, CRC(049cd60f) SHA1(8a7615a76b57a4e6ef5d95a5ee6c56086671dbb6), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.47-40", 0x800002, 0x100000, CRC(d6aaf3bf) SHA1(1c597bdc0e61fd0941cff5a8a93f24f108bd0daa), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.39-32", 0x800003, 0x100000, CRC(7d6ebc69) SHA1(668769297f75f9c367bc5cde26419ed092fc9dd8), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.31-24", 0x800004, 0x100000, CRC(6e5fee1f) SHA1(1eca79c8d395f881d0a05f10073998fcae70c3b1), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.23-16", 0x800005, 0x100000, CRC(a8b1e9b4) SHA1(066285928e574e656510b90bc212a8d86660bd07), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.15-08", 0x800006, 0x100000, CRC(c90080e6) SHA1(a764bdd6b4e9e727f7468a53424a9211ec5fd5a8), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.07-00", 0x800007, 0x100000, CRC(1f20c020) SHA1(71b32386dc0444264f2f1e2a81899e0e9260994c), ROM_SKIP(7) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.63-56", 0x000000, 0x100000, CRC(99d0dc75) SHA1(b32126eea70c7584d1c34a6ca33282fbaf4b03aa) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.55-48", 0x000001, 0x100000, CRC(2dfdfe62) SHA1(e0554d36ef5cf4b6ce171857ea4f2737f11286a5) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.47-40", 0x000002, 0x100000, CRC(722aee2a) SHA1(bc79433131bed5b08453d1b80324a28a552783de) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.39-32", 0x000003, 0x100000, CRC(919e31b4) SHA1(3807d4629d8277c780dba888c23d17ba47803f27) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.31-24", 0x000004, 0x100000, CRC(a957ac95) SHA1(ddfaca994c06976bee8b123857904e64f40b7f31) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.23-16", 0x000005, 0x100000, CRC(a147ec66) SHA1(6291008158d581b81e025ed34ff0950983c12c67) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.15-08", 0x000006, 0x100000, CRC(206d2f38) SHA1(6aca89df26d3602ff1da3c23f19e0782439623ff) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.07-00", 0x000007, 0x100000, CRC(06559831) SHA1(b2c022457425d7900337cfa2fd1622336c0c0bc5) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.63-56", 0x800000, 0x100000, CRC(30c624d2) SHA1(4ced77d1663169d0cb37d6728ec52e67f05064c5) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.55-48", 0x800001, 0x100000, CRC(049cd60f) SHA1(8a7615a76b57a4e6ef5d95a5ee6c56086671dbb6) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.47-40", 0x800002, 0x100000, CRC(d6aaf3bf) SHA1(1c597bdc0e61fd0941cff5a8a93f24f108bd0daa) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.39-32", 0x800003, 0x100000, CRC(7d6ebc69) SHA1(668769297f75f9c367bc5cde26419ed092fc9dd8) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.31-24", 0x800004, 0x100000, CRC(6e5fee1f) SHA1(1eca79c8d395f881d0a05f10073998fcae70c3b1) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.23-16", 0x800005, 0x100000, CRC(a8b1e9b4) SHA1(066285928e574e656510b90bc212a8d86660bd07) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.15-08", 0x800006, 0x100000, CRC(c90080e6) SHA1(a764bdd6b4e9e727f7468a53424a9211ec5fd5a8) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.07-00", 0x800007, 0x100000, CRC(1f20c020) SHA1(71b32386dc0444264f2f1e2a81899e0e9260994c) ) // sldh
 ROM_END
 
 ROM_START( freezeat3 )
@@ -2375,22 +2408,22 @@ ROM_START( freezeat3 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "fish_gr0.63-56", 0x000000, 0x100000, CRC(36799449) SHA1(bb706fe7fdc68f840702a127eed7d4519dd45869), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.55-48", 0x000001, 0x100000, CRC(23959947) SHA1(a35a6e62c7b2be57d41b1b64be93713cbf897f0a), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.47-40", 0x000002, 0x100000, CRC(4657e4e0) SHA1(b6c07182babcb0a106bf4a8f2e3f524371dd882d), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.39-32", 0x000003, 0x100000, CRC(b6ea4b64) SHA1(176f94f14307c40b9c611d6f6bc9118e498cdfad), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.31-24", 0x000004, 0x100000, CRC(7d4ce71f) SHA1(a1cf5aa9df8dd29c777c10cfdce0925981584261), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.23-16", 0x000005, 0x100000, CRC(02db4fd1) SHA1(fce6f31802bf36d6b006f0b212f553bdf21f9374), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.15-08", 0x000006, 0x100000, CRC(7d496d6c) SHA1(f82db0621729a00acf4077482e9dfab040ac829b), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.07-00", 0x000007, 0x100000, CRC(3aa389d8) SHA1(52502f2f3c91d7c29261f60fe8f489a352399c96), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.63-56", 0x800000, 0x100000, CRC(ead678c9) SHA1(f83d467f6685965b6176b10adbd4e35ef808baf3), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.55-48", 0x800001, 0x100000, CRC(3591e752) SHA1(df242d2f724edfd78f7191f0ba7a8cde2c09b25f), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.47-40", 0x800002, 0x100000, CRC(e29a7a6c) SHA1(0bfb26076b390492eed81d4c4f0852c64fdccfce), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.39-32", 0x800003, 0x100000, CRC(e980f957) SHA1(78e8ef07f443ce7991a46005627d5802d36d731c), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.31-24", 0x800004, 0x100000, CRC(d90c5221) SHA1(7a330f39f3751d58157f872d92c3c2b91fe60d14), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.23-16", 0x800005, 0x100000, CRC(9be0d4de) SHA1(9bb67a1f1db77483e896fed7096c1e23c153ede4), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.15-08", 0x800006, 0x100000, CRC(122248af) SHA1(80dd5486106d475bd9f6d78919ebeb176e7becff), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.07-00", 0x800007, 0x100000, CRC(5ae08327) SHA1(822d8292793509ebfbfce27e92a74c78c4328bda), ROM_SKIP(7) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.63-56", 0x000000, 0x100000, CRC(36799449) SHA1(bb706fe7fdc68f840702a127eed7d4519dd45869) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.55-48", 0x000001, 0x100000, CRC(23959947) SHA1(a35a6e62c7b2be57d41b1b64be93713cbf897f0a) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.47-40", 0x000002, 0x100000, CRC(4657e4e0) SHA1(b6c07182babcb0a106bf4a8f2e3f524371dd882d) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.39-32", 0x000003, 0x100000, CRC(b6ea4b64) SHA1(176f94f14307c40b9c611d6f6bc9118e498cdfad) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.31-24", 0x000004, 0x100000, CRC(7d4ce71f) SHA1(a1cf5aa9df8dd29c777c10cfdce0925981584261) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.23-16", 0x000005, 0x100000, CRC(02db4fd1) SHA1(fce6f31802bf36d6b006f0b212f553bdf21f9374) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.15-08", 0x000006, 0x100000, CRC(7d496d6c) SHA1(f82db0621729a00acf4077482e9dfab040ac829b) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.07-00", 0x000007, 0x100000, CRC(3aa389d8) SHA1(52502f2f3c91d7c29261f60fe8f489a352399c96) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.63-56", 0x800000, 0x100000, CRC(ead678c9) SHA1(f83d467f6685965b6176b10adbd4e35ef808baf3) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.55-48", 0x800001, 0x100000, CRC(3591e752) SHA1(df242d2f724edfd78f7191f0ba7a8cde2c09b25f) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.47-40", 0x800002, 0x100000, CRC(e29a7a6c) SHA1(0bfb26076b390492eed81d4c4f0852c64fdccfce) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.39-32", 0x800003, 0x100000, CRC(e980f957) SHA1(78e8ef07f443ce7991a46005627d5802d36d731c) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.31-24", 0x800004, 0x100000, CRC(d90c5221) SHA1(7a330f39f3751d58157f872d92c3c2b91fe60d14) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.23-16", 0x800005, 0x100000, CRC(9be0d4de) SHA1(9bb67a1f1db77483e896fed7096c1e23c153ede4) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.15-08", 0x800006, 0x100000, CRC(122248af) SHA1(80dd5486106d475bd9f6d78919ebeb176e7becff) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.07-00", 0x800007, 0x100000, CRC(5ae08327) SHA1(822d8292793509ebfbfce27e92a74c78c4328bda) ) // sldh
 ROM_END
 
 ROM_START( freezeat4 )
@@ -2404,22 +2437,22 @@ ROM_START( freezeat4 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "fish_gr0.63-56", 0x000000, 0x100000, CRC(36799449) SHA1(bb706fe7fdc68f840702a127eed7d4519dd45869), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.55-48", 0x000001, 0x100000, CRC(23959947) SHA1(a35a6e62c7b2be57d41b1b64be93713cbf897f0a), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.47-40", 0x000002, 0x100000, CRC(4657e4e0) SHA1(b6c07182babcb0a106bf4a8f2e3f524371dd882d), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.39-32", 0x000003, 0x100000, CRC(b6ea4b64) SHA1(176f94f14307c40b9c611d6f6bc9118e498cdfad), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.31-24", 0x000004, 0x100000, CRC(7d4ce71f) SHA1(a1cf5aa9df8dd29c777c10cfdce0925981584261), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.23-16", 0x000005, 0x100000, CRC(02db4fd1) SHA1(fce6f31802bf36d6b006f0b212f553bdf21f9374), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.15-08", 0x000006, 0x100000, CRC(7d496d6c) SHA1(f82db0621729a00acf4077482e9dfab040ac829b), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.07-00", 0x000007, 0x100000, CRC(3aa389d8) SHA1(52502f2f3c91d7c29261f60fe8f489a352399c96), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.63-56", 0x800000, 0x100000, CRC(c91b6ee4) SHA1(58d2d6b1b9847150b8b3e358842c4a097ef91475), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.55-48", 0x800001, 0x100000, CRC(65528e55) SHA1(18020cababed379f77149b7e89e80b294766df31), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.47-40", 0x800002, 0x100000, CRC(8fe4187f) SHA1(c9ceec40688617e1251142465d0e608f80a83e40), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.39-32", 0x800003, 0x100000, CRC(fdf05a42) SHA1(849e224b68be2fb396ee4cb4729517470af7c282), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.31-24", 0x800004, 0x100000, CRC(bb2cd741) SHA1(ac55a54c702d222cb1b9bb480b0f7a71bc315878), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.23-16", 0x800005, 0x100000, CRC(ea8c5984) SHA1(eca1619c17dfac154a2024ec49b4b4f9f06a50c9), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.15-08", 0x800006, 0x100000, CRC(0b00c816) SHA1(879b0e9d92fe737d740c348dc1cc376c8abfbdb8), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.07-00", 0x800007, 0x100000, CRC(a84335c3) SHA1(340f5ddb9bff1ecd469eab8be36cc0ede84f1f5e), ROM_SKIP(7) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.63-56", 0x000000, 0x100000, CRC(36799449) SHA1(bb706fe7fdc68f840702a127eed7d4519dd45869) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.55-48", 0x000001, 0x100000, CRC(23959947) SHA1(a35a6e62c7b2be57d41b1b64be93713cbf897f0a) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.47-40", 0x000002, 0x100000, CRC(4657e4e0) SHA1(b6c07182babcb0a106bf4a8f2e3f524371dd882d) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.39-32", 0x000003, 0x100000, CRC(b6ea4b64) SHA1(176f94f14307c40b9c611d6f6bc9118e498cdfad) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.31-24", 0x000004, 0x100000, CRC(7d4ce71f) SHA1(a1cf5aa9df8dd29c777c10cfdce0925981584261) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.23-16", 0x000005, 0x100000, CRC(02db4fd1) SHA1(fce6f31802bf36d6b006f0b212f553bdf21f9374) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.15-08", 0x000006, 0x100000, CRC(7d496d6c) SHA1(f82db0621729a00acf4077482e9dfab040ac829b) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.07-00", 0x000007, 0x100000, CRC(3aa389d8) SHA1(52502f2f3c91d7c29261f60fe8f489a352399c96) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.63-56", 0x800000, 0x100000, CRC(c91b6ee4) SHA1(58d2d6b1b9847150b8b3e358842c4a097ef91475) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.55-48", 0x800001, 0x100000, CRC(65528e55) SHA1(18020cababed379f77149b7e89e80b294766df31) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.47-40", 0x800002, 0x100000, CRC(8fe4187f) SHA1(c9ceec40688617e1251142465d0e608f80a83e40) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.39-32", 0x800003, 0x100000, CRC(fdf05a42) SHA1(849e224b68be2fb396ee4cb4729517470af7c282) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.31-24", 0x800004, 0x100000, CRC(bb2cd741) SHA1(ac55a54c702d222cb1b9bb480b0f7a71bc315878) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.23-16", 0x800005, 0x100000, CRC(ea8c5984) SHA1(eca1619c17dfac154a2024ec49b4b4f9f06a50c9) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.15-08", 0x800006, 0x100000, CRC(0b00c816) SHA1(879b0e9d92fe737d740c348dc1cc376c8abfbdb8) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.07-00", 0x800007, 0x100000, CRC(a84335c3) SHA1(340f5ddb9bff1ecd469eab8be36cc0ede84f1f5e) ) // sldh
 ROM_END
 
 ROM_START( freezeat5 )
@@ -2433,22 +2466,22 @@ ROM_START( freezeat5 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "fish_gr0.63-56", 0x000000, 0x100000, CRC(404a10c3) SHA1(8e353ac7608bd54f0fea610c85166ad14f2faadb), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.55-48", 0x000001, 0x100000, CRC(0b262f2f) SHA1(2a963cb5c3344091406d090edfdda498709c6aa6), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.47-40", 0x000002, 0x100000, CRC(43f86d26) SHA1(b31d36b11052514b5bcd5bf8e400457ca572c306), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.39-32", 0x000003, 0x100000, CRC(5cf0228f) SHA1(7a8c59cf9a7744e9f332db5f661f507323375968), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.31-24", 0x000004, 0x100000, CRC(7a24ff98) SHA1(db9e0e8bb417f187267a6e4fc1e66ff060ee4096), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.23-16", 0x000005, 0x100000, CRC(ea163c93) SHA1(d07ed26191d36497c56b15774625a49ecb958386), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.15-08", 0x000006, 0x100000, CRC(d364534f) SHA1(153908bb8929a898945f768f8bc3d853c6aeaceb), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.07-00", 0x000007, 0x100000, CRC(7ba4cb0d) SHA1(16bd487123f499b7080596dc76253081179a0f66), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.63-56", 0x800000, 0x100000, CRC(0e1fc4a9) SHA1(a200bb0af5f1e2c3f8d221ae4e9ba55b9dfb8550), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.55-48", 0x800001, 0x100000, CRC(b696b875) SHA1(16dc4d5cee3f08360cf19926584419c21d781f45), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.47-40", 0x800002, 0x100000, CRC(e78d9302) SHA1(f8b5ed992c433d63677edbeafd3e465b1d42b455), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.39-32", 0x800003, 0x100000, CRC(9b50374c) SHA1(d8af3c9d8e0459e24b974cdf2e75c7c39582912f), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.31-24", 0x800004, 0x100000, CRC(b6a19b7e) SHA1(5668b27db4dade8efb1524b8ecd1fe78498e8460), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.23-16", 0x800005, 0x100000, CRC(ff835b67) SHA1(19da2de1d067069871c33c8b25fd2eac2d03f627), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.15-08", 0x800006, 0x100000, CRC(8daf6995) SHA1(2f44031378b5fb1ba1f80a966dbe902316dc6fe8), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.07-00", 0x800007, 0x100000, CRC(3676ac70) SHA1(640c4d4f53ca2bcae2009e402fd6ad70e40defa4), ROM_SKIP(7) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.63-56", 0x000000, 0x100000, CRC(404a10c3) SHA1(8e353ac7608bd54f0fea610c85166ad14f2faadb) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.55-48", 0x000001, 0x100000, CRC(0b262f2f) SHA1(2a963cb5c3344091406d090edfdda498709c6aa6) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.47-40", 0x000002, 0x100000, CRC(43f86d26) SHA1(b31d36b11052514b5bcd5bf8e400457ca572c306) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.39-32", 0x000003, 0x100000, CRC(5cf0228f) SHA1(7a8c59cf9a7744e9f332db5f661f507323375968) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.31-24", 0x000004, 0x100000, CRC(7a24ff98) SHA1(db9e0e8bb417f187267a6e4fc1e66ff060ee4096) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.23-16", 0x000005, 0x100000, CRC(ea163c93) SHA1(d07ed26191d36497c56b15774625a49ecb958386) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.15-08", 0x000006, 0x100000, CRC(d364534f) SHA1(153908bb8929a898945f768f8bc3d853c6aeaceb) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.07-00", 0x000007, 0x100000, CRC(7ba4cb0d) SHA1(16bd487123f499b7080596dc76253081179a0f66) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.63-56", 0x800000, 0x100000, CRC(0e1fc4a9) SHA1(a200bb0af5f1e2c3f8d221ae4e9ba55b9dfb8550) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.55-48", 0x800001, 0x100000, CRC(b696b875) SHA1(16dc4d5cee3f08360cf19926584419c21d781f45) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.47-40", 0x800002, 0x100000, CRC(e78d9302) SHA1(f8b5ed992c433d63677edbeafd3e465b1d42b455) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.39-32", 0x800003, 0x100000, CRC(9b50374c) SHA1(d8af3c9d8e0459e24b974cdf2e75c7c39582912f) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.31-24", 0x800004, 0x100000, CRC(b6a19b7e) SHA1(5668b27db4dade8efb1524b8ecd1fe78498e8460) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.23-16", 0x800005, 0x100000, CRC(ff835b67) SHA1(19da2de1d067069871c33c8b25fd2eac2d03f627) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.15-08", 0x800006, 0x100000, CRC(8daf6995) SHA1(2f44031378b5fb1ba1f80a966dbe902316dc6fe8) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.07-00", 0x800007, 0x100000, CRC(3676ac70) SHA1(640c4d4f53ca2bcae2009e402fd6ad70e40defa4) ) // sldh
 ROM_END
 
 ROM_START( freezeat6 )
@@ -2462,22 +2495,22 @@ ROM_START( freezeat6 )
 	ROM_LOAD16_WORD("jagwave.rom", 0x0000, 0x1000, CRC(7a25ee5b) SHA1(58117e11fd6478c521fbd3fdbe157f39567552f0) )
 
 	ROM_REGION32_BE( 0x1000000, "romboard", 0 ) /* 16MB for 64-bit ROM data */
-	ROMX_LOAD( "fish_gr0.63-56", 0x000000, 0x100000, CRC(293a3308) SHA1(e4c88759c3b8f8a359db83817dbd0428350b4f7e), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.55-48", 0x000001, 0x100000, CRC(18bb4bdf) SHA1(1f6c49b3b5946390fa7582b531f8d9af3baa2567), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.47-40", 0x000002, 0x100000, CRC(1faedcc6) SHA1(1e4ecbe4553fb3ebfbd03bd7e16066ccb531d00b), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.39-32", 0x000003, 0x100000, CRC(536bc349) SHA1(06d7ac38b2c8cdc85e2cb531bba9c836e50c8247), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.31-24", 0x000004, 0x100000, CRC(813d4a31) SHA1(e024f9da2f15a482d8142870baf487297b995ed9), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.23-16", 0x000005, 0x100000, CRC(f881514b) SHA1(a694f90621e2c1569a6a5ed8920838ba5506f72e), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.15-08", 0x000006, 0x100000, CRC(d7634655) SHA1(d7ac83c0fa5d0ec57d096d4d704fe99ee8160e09), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr0.07-00", 0x000007, 0x100000, CRC(3fca32a3) SHA1(22753a9678e04d9355238e013e58d9f45315579d), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.63-56", 0x800000, 0x100000, CRC(a2b89d3a) SHA1(9cfcd0b88dea192ba39efcdccc78d1a0fd8f3388), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.55-48", 0x800001, 0x100000, CRC(766822a8) SHA1(2c9b14542a5467c1a3451559ea296da09c2cfdb9), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.47-40", 0x800002, 0x100000, CRC(112b519c) SHA1(f0e1ed1b8ad271fa9708f513b11d5cca6e550668), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.39-32", 0x800003, 0x100000, CRC(435b5d37) SHA1(ecb6e7271d993f8e315b85e69166838e66dd41a8), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.31-24", 0x800004, 0x100000, CRC(2637ae7f) SHA1(5e0bd0e08d8c1eaae725b4d55030c2698abd46e7), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.23-16", 0x800005, 0x100000, CRC(e732f1bf) SHA1(a228aee0cc36a0089716f20bfa75d87750692adb), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.15-08", 0x800006, 0x100000, CRC(7d4e2d9e) SHA1(4cb9b754b7585df4cae6bdd7085a57729d53e643), ROM_SKIP(7) ) // sldh
-	ROMX_LOAD( "fish_gr1.07-00", 0x800007, 0x100000, CRC(8ea036af) SHA1(1f9baec6712e0ba0e8a744529e41799217760194), ROM_SKIP(7) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.63-56", 0x000000, 0x100000, CRC(293a3308) SHA1(e4c88759c3b8f8a359db83817dbd0428350b4f7e) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.55-48", 0x000001, 0x100000, CRC(18bb4bdf) SHA1(1f6c49b3b5946390fa7582b531f8d9af3baa2567) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.47-40", 0x000002, 0x100000, CRC(1faedcc6) SHA1(1e4ecbe4553fb3ebfbd03bd7e16066ccb531d00b) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.39-32", 0x000003, 0x100000, CRC(536bc349) SHA1(06d7ac38b2c8cdc85e2cb531bba9c836e50c8247) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.31-24", 0x000004, 0x100000, CRC(813d4a31) SHA1(e024f9da2f15a482d8142870baf487297b995ed9) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.23-16", 0x000005, 0x100000, CRC(f881514b) SHA1(a694f90621e2c1569a6a5ed8920838ba5506f72e) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.15-08", 0x000006, 0x100000, CRC(d7634655) SHA1(d7ac83c0fa5d0ec57d096d4d704fe99ee8160e09) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr0.07-00", 0x000007, 0x100000, CRC(3fca32a3) SHA1(22753a9678e04d9355238e013e58d9f45315579d) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.63-56", 0x800000, 0x100000, CRC(a2b89d3a) SHA1(9cfcd0b88dea192ba39efcdccc78d1a0fd8f3388) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.55-48", 0x800001, 0x100000, CRC(766822a8) SHA1(2c9b14542a5467c1a3451559ea296da09c2cfdb9) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.47-40", 0x800002, 0x100000, CRC(112b519c) SHA1(f0e1ed1b8ad271fa9708f513b11d5cca6e550668) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.39-32", 0x800003, 0x100000, CRC(435b5d37) SHA1(ecb6e7271d993f8e315b85e69166838e66dd41a8) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.31-24", 0x800004, 0x100000, CRC(2637ae7f) SHA1(5e0bd0e08d8c1eaae725b4d55030c2698abd46e7) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.23-16", 0x800005, 0x100000, CRC(e732f1bf) SHA1(a228aee0cc36a0089716f20bfa75d87750692adb) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.15-08", 0x800006, 0x100000, CRC(7d4e2d9e) SHA1(4cb9b754b7585df4cae6bdd7085a57729d53e643) ) // sldh
+	ROM_LOAD64_BYTE( "fish_gr1.07-00", 0x800007, 0x100000, CRC(8ea036af) SHA1(1f9baec6712e0ba0e8a744529e41799217760194) ) // sldh
 ROM_END
 
 
@@ -2522,6 +2555,7 @@ void jaguar_state::init_area51()
 {
 	m_hacks_enabled = true;
 	cojag_common_init(0x0c0, 0x09e);
+
 #if ENABLE_SPEEDUP_HACKS
 	/* install speedup for main CPU */
 	m_main_speedup_max_cycles = 120;
@@ -2639,16 +2673,16 @@ void jaguar_state::init_vcircle()
  *
  *************************************/
 
-/*    YEAR   NAME       PARENT    COMPAT  MACHINE   INPUT     CLASS           INIT           COMPANY    FULLNAME */
-CONS( 1993,  jaguar,    0,        0,      jaguar,   jaguar,   jaguar_state,   init_jaguar,   "Atari",   "Jaguar (NTSC)",    MACHINE_UNEMULATED_PROTECTION | MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_SOUND | MACHINE_NOT_WORKING )
-CONS( 1995,  jaguarcd,  jaguar,   0,      jaguarcd, jaguar,   jaguarcd_state, init_jaguarcd, "Atari",   "Jaguar CD (NTSC)", MACHINE_UNEMULATED_PROTECTION | MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_SOUND | MACHINE_NOT_WORKING )
+/*    YEAR  NAME        PARENT    COMPAT  MACHINE   INPUT     CLASS           INIT           COMPANY    FULLNAME */
+CONS( 1993, jaguar,     0,        0,      jaguar,   jaguar,   jaguar_state,   init_jaguar,   "Atari",   "Jaguar (NTSC)",    MACHINE_UNEMULATED_PROTECTION | MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_SOUND | MACHINE_NOT_WORKING )
+CONS( 1995, jaguarcd,   jaguar,   0,      jaguarcd, jaguar,   jaguarcd_state, init_jaguarcd, "Atari",   "Jaguar CD (NTSC)", MACHINE_UNEMULATED_PROTECTION | MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_SOUND | MACHINE_NOT_WORKING )
 
-/*    YEAR   NAME       PARENT    MACHINE       INPUT     CLASS         INIT            ROT   COMPANY        FULLNAME */
+/*    YEAR  NAME        PARENT    MACHINE       INPUT     CLASS         INIT            ROT   COMPANY        FULLNAME */
 GAME( 1996, area51,     0,        cojagr3k,     area51,   jaguar_state, init_area51,    ROT0, "Atari Games", "Area 51 (R3000)", 0 )
 GAME( 1995, area51t,    area51,   cojag68k,     area51,   jaguar_state, init_area51a,   ROT0, "Atari Games (Time Warner license)", "Area 51 (Time Warner license, Oct 17, 1996)", 0 )
 GAME( 1995, area51ta,   area51,   cojag68k,     area51,   jaguar_state, init_area51a,   ROT0, "Atari Games (Time Warner license)", "Area 51 (Time Warner license, Nov 27, 1995)", 0 )
 GAME( 1995, area51a,    area51,   cojag68k,     area51,   jaguar_state, init_area51a,   ROT0, "Atari Games", "Area 51 (Atari Games license, Oct 25, 1995)", 0 )
-GAME( 1995, fishfren,   0,        cojagr3k_rom, fishfren, jaguar_state, init_fishfren,  ROT0, "Time Warner Interactive", "Fishin' Frenzy (prototype)", 0 )
+GAME( 1995, fishfren,   0,        cojagr3k_rom, fishfren, jaguar_state, init_fishfren,  ROT0, "Time Warner Interactive", "Fishin' Frenzy (prototype)", 0 ) // OS: 2.02CJ July 28 1995, MAIN: Aug 1 1995
 GAME( 1996, freezeat,   0,        cojagr3k_rom, freezeat, jaguar_state, init_freezeat,  ROT0, "Atari Games", "Freeze (Atari) (prototype, English voice, 96/10/25)", 0 )
 GAME( 1996, freezeatjp, freezeat, cojagr3k_rom, freezeat, jaguar_state, init_freezeat,  ROT0, "Atari Games", "Freeze (Atari) (prototype, Japanese voice, 96/10/25)", 0 )
 GAME( 1996, freezeat2,  freezeat, cojagr3k_rom, freezeat, jaguar_state, init_freezeat2, ROT0, "Atari Games", "Freeze (Atari) (prototype, 96/10/18)", 0 )

@@ -63,7 +63,7 @@ const char *const h8500_disassembler::s_branches[0x10] =
 	"BGT", "BLE"
 };
 
-offs_t h8500_disassembler::opcode_alignment() const
+u32 h8500_disassembler::opcode_alignment() const
 {
 	return 1;
 }
@@ -426,7 +426,7 @@ offs_t h8500_disassembler::dasm_immop(std::ostream &stream, offs_t pc, bool w, c
 		return (w ? 4 : 3) | SUPPORTED;
 	}
 	else
-		return dasm_illegal(stream, w ? 0x04 : 0x0c);
+		return dasm_illegal(stream, w ? 0x0c : 0x04);
 }
 
 offs_t h8500_disassembler::disassemble(std::ostream &stream, offs_t pc, const h8500_disassembler::data_buffer &opcodes, const h8500_disassembler::data_buffer &params)

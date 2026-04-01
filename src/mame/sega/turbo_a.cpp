@@ -41,22 +41,21 @@ void turbo_state::update_samples()
 
 TIMER_CALLBACK_MEMBER(turbo_state::update_sound_a)
 {
-	discrete_device *discrete = machine.device<discrete_device>("discrete");
 	int data = param;
 
 	// missing short crash sample, but I've never seen it triggered
-	discrete->write(0, !(data & 0x01));
-	discrete->write(1, (data >> 1) & 1);
-	discrete->write(2, (data >> 2) & 1);
-	discrete->write(3, (data >> 3) & 1);
-	discrete->write(4, (data >> 4) & 1);
-	discrete->write(5, !(data & 0x20));
-	discrete->write(6, !(data & 0x40));
+	m_discrete->write(0, BIT(~data, 0));
+	m_discrete->write(1, BIT( data, 1));
+	m_discrete->write(2, BIT( data, 2));
+	m_discrete->write(3, BIT( data, 3));
+	m_discrete->write(4, BIT( data, 4));
+	m_discrete->write(5, BIT(~data, 5));
+	m_discrete->write(6, BIT(~data, 6));
 
-if (!((data >> 1) & 1)) osd_printf_debug("/TRIG1\n");
-if (!((data >> 2) & 1)) osd_printf_debug("/TRIG2\n");
-if (!((data >> 3) & 1)) osd_printf_debug("/TRIG3\n");
-if (!((data >> 4) & 1)) osd_printf_debug("/TRIG4\n");
+	if (!BIT(data, 1)) osd_printf_debug("/TRIG1\n");
+	if (!BIT(data, 2)) osd_printf_debug("/TRIG2\n");
+	if (!BIT(data, 3)) osd_printf_debug("/TRIG3\n");
+	if (!BIT(data, 4)) osd_printf_debug("/TRIG4\n");
 
 //  osel = (osel & 6) | ((data >> 5) & 1);
 //  update_samples(samples);
@@ -194,49 +193,46 @@ static const char *const turbo_sample_names[] =
 void turbo_state::turbo_samples(machine_config &config)
 {
 	// this is the cockpit speaker configuration
-	SPEAKER(config, "fspeaker", 0.0, 0.0, 1.0);     // front
-	SPEAKER(config, "bspeaker",  0.0, 0.0, -0.5);   // back
-	SPEAKER(config, "lspeaker", -0.2, 0.0, 1.0);    // left
-	SPEAKER(config, "rspeaker", 0.2, 0.0, 1.0);     // right
+	SPEAKER(config, "speaker", 4).front().front_center(2).rear_center(3);
 
 	SAMPLES(config, m_samples);
 	m_samples->set_channels(10);
 	m_samples->set_samples_names(turbo_sample_names);
 
 	// channel 0 = CRASH.S -> CRASH.S/SM
-	m_samples->add_route(0, "fspeaker", 0.25);
+	m_samples->add_route(0, "speaker", 0.25, 2);
 
 	// channel 1 = TRIG1-4 -> ALARM.M/F/R/L
-	m_samples->add_route(1, "fspeaker", 0.25);
-	m_samples->add_route(1, "rspeaker", 0.25);
-	m_samples->add_route(1, "lspeaker",  0.25);
+	m_samples->add_route(1, "speaker", 0.25, 2);
+	m_samples->add_route(1, "speaker", 0.25, 1);
+	m_samples->add_route(1, "speaker", 0.25, 0);
 
 	// channel 2 = SLIP/SPIN -> SKID.F/R/L/M
-	m_samples->add_route(2, "fspeaker", 0.25);
-	m_samples->add_route(2, "rspeaker", 0.25);
-	m_samples->add_route(2, "lspeaker",  0.25);
+	m_samples->add_route(2, "speaker", 0.25, 2);
+	m_samples->add_route(2, "speaker", 0.25, 1);
+	m_samples->add_route(2, "speaker", 0.25, 0);
 
 	// channel 3 = CRASH.L -> CRASH.L/LM
-	m_samples->add_route(3, "bspeaker",  0.25);
+	m_samples->add_route(3, "speaker", 0.25, 3);
 
 	// channel 4 = AMBU -> AMBULANCE/AMBULANCE.M
-	m_samples->add_route(4, "fspeaker", 0.25);
+	m_samples->add_route(4, "speaker", 0.25, 2);
 
 	// channel 5 = ACCEL+BSEL -> MYCAR.F/W/M + MYCAR0.F/M + MYCAR1.F/M
-	m_samples->add_route(5, "fspeaker", 0.25);
-	m_samples->add_route(5, "bspeaker",  0.25);
+	m_samples->add_route(5, "speaker", 0.25, 2);
+	m_samples->add_route(5, "speaker", 0.25, 3);
 
 	// channel 6 = OSEL -> OCAR.F/FM
-	m_samples->add_route(6, "fspeaker", 0.25);
+	m_samples->add_route(6, "speaker", 0.25, 2);
 
 	// channel 7 = OSEL -> OCAR.L/LM
-	m_samples->add_route(7, "lspeaker",  0.25);
+	m_samples->add_route(7, "speaker", 0.25, 0);
 
 	// channel 8 = OSEL -> OCAR.R/RM
-	m_samples->add_route(8, "rspeaker", 0.25);
+	m_samples->add_route(8, "speaker", 0.25, 1);
 
 	// channel 9 = OSEL -> OCAR.W/WM
-	m_samples->add_route(9, "bspeaker",  0.25);
+	m_samples->add_route(9, "speaker", 0.25, 3);
 }
 
 /*
@@ -439,44 +435,43 @@ static const char *const subroc3d_sample_names[] =
 
 void subroc3d_state::subroc3d_samples(machine_config &config)
 {
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	SAMPLES(config, m_samples);
 	m_samples->set_channels(12);
 	m_samples->set_samples_names(subroc3d_sample_names);
 
 	// MISSILE in channels 0 and 1
-	m_samples->add_route(0, "lspeaker", 0.25);
-	m_samples->add_route(1, "rspeaker", 0.25);
+	m_samples->add_route(0, "speaker", 0.25, 0);
+	m_samples->add_route(1, "speaker", 0.25, 1);
 
 	// TORPEDO in channels 2 and 3
-	m_samples->add_route(2, "lspeaker", 0.25);
-	m_samples->add_route(3, "rspeaker", 0.25);
+	m_samples->add_route(2, "speaker", 0.25, 0);
+	m_samples->add_route(3, "speaker", 0.25, 1);
 
 	// FIGHTER in channels 4 and 5
-	m_samples->add_route(4, "lspeaker", 0.25);
-	m_samples->add_route(5, "rspeaker", 0.25);
+	m_samples->add_route(4, "speaker", 0.25, 0);
+	m_samples->add_route(5, "speaker", 0.25, 1);
 
 	// HIT in channels 6 and 7
-	m_samples->add_route(6, "lspeaker", 0.25);
-	m_samples->add_route(7, "rspeaker", 0.25);
+	m_samples->add_route(6, "speaker", 0.25, 0);
+	m_samples->add_route(7, "speaker", 0.25, 1);
 
 	// FIRE sound in channel 8
-	m_samples->add_route(8, "lspeaker", 0.25);
-	m_samples->add_route(8, "rspeaker", 0.25);
+	m_samples->add_route(8, "speaker", 0.25, 0);
+	m_samples->add_route(8, "speaker", 0.25, 1);
 
 	// SHIP EXP sound in channel 9
-	m_samples->add_route(9, "lspeaker", 0.25);
-	m_samples->add_route(9, "rspeaker", 0.25);
+	m_samples->add_route(9, "speaker", 0.25, 0);
+	m_samples->add_route(9, "speaker", 0.25, 1);
 
 	// ALARM TRIG sound in channel 10
-	m_samples->add_route(10, "lspeaker", 0.25);
-	m_samples->add_route(10, "rspeaker", 0.25);
+	m_samples->add_route(10, "speaker", 0.25, 0);
+	m_samples->add_route(10, "speaker", 0.25, 1);
 
 	// PROLOGUE sound in channel 11
-	m_samples->add_route(11, "lspeaker", 0.25);
-	m_samples->add_route(11, "rspeaker", 0.25);
+	m_samples->add_route(11, "speaker", 0.25, 0);
+	m_samples->add_route(11, "speaker", 0.25, 1);
 }
 
 

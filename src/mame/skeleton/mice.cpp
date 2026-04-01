@@ -1,8 +1,8 @@
 // license:BSD-3-Clause
-// copyright-holders:Miodrag Milanovic
+// copyright-holders: Miodrag Milanovic
 /***************************************************************************
 
-Microtek International Inc MICE (Micro-In-Circuit Emulator)
+Microtek International Inc. MICE (Micro-In-Circuit Emulator)
 
 2013-08-27 Skeleton driver.
 
@@ -37,6 +37,9 @@ yet been initialised, it hangs.
 #include "machine/i8255.h"
 #include "bus/rs232/rs232.h"
 
+
+namespace {
+
 class mice_state : public driver_device
 {
 public:
@@ -49,10 +52,10 @@ public:
 	void mice(machine_config &config);
 
 private:
-	void mice2_io(address_map &map);
-	void mice2_mem(address_map &map);
-	void mice_io(address_map &map);
-	void mice_mem(address_map &map);
+	void mice2_io(address_map &map) ATTR_COLD;
+	void mice2_mem(address_map &map) ATTR_COLD;
+	void mice_io(address_map &map) ATTR_COLD;
+	void mice_mem(address_map &map) ATTR_COLD;
 	required_device<cpu_device> m_maincpu;
 };
 
@@ -98,7 +101,7 @@ void mice_state::mice2_io(address_map &map)
 	map(0xe8, 0xed).rw("rtt8155", FUNC(i8155_device::io_r), FUNC(i8155_device::io_w));
 }
 
-/* Input ports */
+// Input ports
 static INPUT_PORTS_START( mice )
 	PORT_START("BAUD")
 	PORT_DIPNAME(0x07, 0x02, "Baud Rate") PORT_DIPLOCATION("DSW7:1,2,3")
@@ -160,7 +163,7 @@ DEVICE_INPUT_DEFAULTS_END
 
 void mice_state::mice(machine_config &config)
 {
-	/* basic machine hardware */
+	// basic machine hardware
 	I8085A(config, m_maincpu, 6.144_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &mice_state::mice_mem);
 	m_maincpu->set_addrmap(AS_IO, &mice_state::mice_io);
@@ -202,7 +205,7 @@ void mice_state::mice2(machine_config &config)
 	I8155(config, "rtt8155", 0);
 }
 
-/* ROM definitions */
+// ROM definitions
 ROM_START( mice_6502 )
 	ROM_REGION( 0x4000, "mcp", 0 )
 	ROM_LOAD( "6502_u10_v.2.0", 0x2000, 0x1000, CRC(496c53a7) SHA1(f28cddef18ab3e0eca1fea125dd678a54817c9df) )
@@ -237,11 +240,14 @@ ROM_START( mice2_6809 )
 	ROM_LOAD( "6809_u1_v.3.4",  0x0000, 0x8000, CRC(b94d043d) SHA1(822697485f064286155f2a66cdbdcb0bd66ddb8c) )
 ROM_END
 
-/* Driver */
+} // anonymous namespace
 
-//    YEAR  NAME        PARENT     COMPAT  MACHINE  INPUT   CLASS       INIT        COMPANY                   FULLNAME                   FLAGS
-COMP( 1981, mice_6502,  0,         0,      mice,    mice,   mice_state, empty_init, "Microtek International", "MICE 6502 (Rev-A)",       MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
-COMP( 1984, mice2_z80,  0,         0,      mice2,   micev3, mice_state, empty_init, "Microtek International", "MICE-II Z80 (Rev-F)",     MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
-COMP( 1987, mice2_6502, mice2_z80, 0,      mice2,   micev3, mice_state, empty_init, "Microtek International", "MICE-II 6502 (Rev-F)",    MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
-COMP( 1987, mice2_8085, mice2_z80, 0,      mice2,   micev3, mice_state, empty_init, "Microtek International", "MICE-II 8085 (Rev-M)",    MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
-COMP( 1987, mice2_6809, mice2_z80, 0,      mice2,   micev3, mice_state, empty_init, "Microtek International", "MICE-II 6809(E) (Rev-L)", MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
+
+// Driver
+
+//    YEAR  NAME        PARENT     COMPAT  MACHINE  INPUT   CLASS       INIT        COMPANY     FULLNAME                   FLAGS
+COMP( 1981, mice_6502,  0,         0,      mice,    mice,   mice_state, empty_init, "Microtek", "MICE 6502 (Rev-A)",       MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
+COMP( 1984, mice2_z80,  0,         0,      mice2,   micev3, mice_state, empty_init, "Microtek", "MICE-II Z80 (Rev-F)",     MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
+COMP( 1987, mice2_6502, mice2_z80, 0,      mice2,   micev3, mice_state, empty_init, "Microtek", "MICE-II 6502 (Rev-F)",    MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
+COMP( 1987, mice2_8085, mice2_z80, 0,      mice2,   micev3, mice_state, empty_init, "Microtek", "MICE-II 8085 (Rev-M)",    MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
+COMP( 1987, mice2_6809, mice2_z80, 0,      mice2,   micev3, mice_state, empty_init, "Microtek", "MICE-II 6809(E) (Rev-L)", MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )

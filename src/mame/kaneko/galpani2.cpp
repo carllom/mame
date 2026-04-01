@@ -138,7 +138,7 @@ void galpani2_state::machine_start()
 
 void galpani2_state::machine_reset()
 {
-	machine().scheduler().boost_interleave(attotime::zero, attotime::from_usec(50)); //initial mcu xchk
+	machine().scheduler().perfect_quantum(attotime::from_usec(50)); //initial mcu xchk
 }
 
 static void galpani2_write_kaneko(cpu_device *cpu)
@@ -669,12 +669,11 @@ void galpani2_state::galpani2(machine_config &config)
 	m_kaneko_spr->set_color_base(0);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
-	OKIM6295(config, "oki1", XTAL(20'000'000)/10, okim6295_device::PIN7_HIGH).add_route(ALL_OUTPUTS, "lspeaker", 1.0);    /* Confirmed on galpani2i PCB */
+	OKIM6295(config, "oki1", XTAL(20'000'000)/10, okim6295_device::PIN7_HIGH).add_route(ALL_OUTPUTS, "speaker", 1.0, 0);    /* Confirmed on galpani2i PCB */
 
-	OKIM6295(config, m_oki2, XTAL(20'000'000)/10, okim6295_device::PIN7_HIGH).add_route(ALL_OUTPUTS, "rspeaker", 1.0);    /* Confirmed on galpani2i PCB */
+	OKIM6295(config, m_oki2, XTAL(20'000'000)/10, okim6295_device::PIN7_HIGH).add_route(ALL_OUTPUTS, "speaker", 1.0, 1);    /* Confirmed on galpani2i PCB */
 }
 
 

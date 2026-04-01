@@ -189,8 +189,8 @@ protected:
 		CHARGEN_E = 0x10
 	};
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 	IRQ_CALLBACK_MEMBER(irq_callback);
 
@@ -214,17 +214,17 @@ protected:
 
 	uint8_t async_status_r();
 	void async_control_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(async_dav_w);
-	DECLARE_WRITE_LINE_MEMBER(async_txd_w);
+	void async_dav_w(int state);
+	void async_txd_w(int state);
 
 	TIMER_DEVICE_CALLBACK_MEMBER(timer_beep_exp);
 
-	DECLARE_WRITE_LINE_MEMBER(tape_irq_w);
+	void tape_irq_w(int state);
 
 	uint8_t poll_r();
 
-	void cpu_mem_map(address_map &map);
-	void cpu_io_map(address_map &map);
+	void cpu_mem_map(address_map &map) ATTR_COLD;
+	void cpu_io_map(address_map &map) ATTR_COLD;
 
 	required_device<i8080a_cpu_device> m_cpu;
 	required_device<timer_device> m_timer_10ms;
@@ -566,12 +566,12 @@ void hp2640_base_state::async_control_w(uint8_t data)
 	update_async_control(data);
 }
 
-WRITE_LINE_MEMBER(hp2640_base_state::async_dav_w)
+void hp2640_base_state::async_dav_w(int state)
 {
 	update_async_irq();
 }
 
-WRITE_LINE_MEMBER(hp2640_base_state::async_txd_w)
+void hp2640_base_state::async_txd_w(int state)
 {
 	m_rs232->write_txd(!BIT(m_async_control , 6) && m_uart->so_r());
 }
@@ -581,7 +581,7 @@ TIMER_DEVICE_CALLBACK_MEMBER(hp2640_base_state::timer_beep_exp)
 	m_beep->set_state(0);
 }
 
-WRITE_LINE_MEMBER(hp2640_base_state::tape_irq_w)
+void hp2640_base_state::tape_irq_w(int state)
 {
 	m_tape_irq = state;
 	update_irq();
@@ -1063,34 +1063,34 @@ void hp2640_base_state::cpu_mem_map(address_map &map)
 	// View 0 is for normal I/O
 	// View 1 is for poll read
 	// Writing is independent of poll state
-	m_io_view[ 0 ](0x0100, 0x0100).r(m_uart, FUNC(ay51013_device::receive));
-	m_io_view[ 0 ](0x0120, 0x0120).r(FUNC(hp2640_base_state::async_status_r));
+	m_io_view[0](0x8100, 0x8100).r(m_uart, FUNC(ay51013_device::receive));
+	m_io_view[0](0x8120, 0x8120).r(FUNC(hp2640_base_state::async_status_r));
 
 	map(0x8140, 0x8140).w(FUNC(hp2640_base_state::async_control_w));
 	map(0x8160, 0x8160).w(m_uart, FUNC(ay51013_device::transmit));
 	map(0x8300, 0x8300).w(FUNC(hp2640_base_state::kb_led_w));
 
-	m_io_view[ 0 ](0x0300, 0x030d).r(FUNC(hp2640_base_state::kb_r));
-	m_io_view[ 0 ](0x030e, 0x030e).r(FUNC(hp2640_base_state::switches_ah_r));
-	m_io_view[ 0 ](0x030f, 0x030f).r(FUNC(hp2640_base_state::datacomm_sw_r));
+	m_io_view[0](0x8300, 0x830d).r(FUNC(hp2640_base_state::kb_r));
+	m_io_view[0](0x830e, 0x830e).r(FUNC(hp2640_base_state::switches_ah_r));
+	m_io_view[0](0x830f, 0x830f).r(FUNC(hp2640_base_state::datacomm_sw_r));
 
 	map(0x8320, 0x8320).w(FUNC(hp2640_base_state::kb_prev_w));
 	map(0x8380, 0x8380).w(FUNC(hp2640_base_state::kb_reset_w));
 
-	m_io_view[ 0 ](0x0380, 0x0380).r(FUNC(hp2640_base_state::switches_jr_r));
-	m_io_view[ 0 ](0x03a0, 0x03a0).r(FUNC(hp2640_base_state::switches_sz_r));
+	m_io_view[0](0x8380, 0x8380).r(FUNC(hp2640_base_state::switches_jr_r));
+	m_io_view[0](0x83a0, 0x83a0).r(FUNC(hp2640_base_state::switches_sz_r));
 
 	map(0x8700, 0x8700).w(FUNC(hp2640_base_state::cx_w));
 	map(0x8720, 0x8720).w(FUNC(hp2640_base_state::cy_w));
 	map(0x8b00, 0x8b00).w(m_tapes, FUNC(hp2640_tape_device::command_w));
 
-	m_io_view[ 0 ](0x0b00, 0x0b00).r(m_tapes, FUNC(hp2640_tape_device::status_r));
+	m_io_view[0](0x8b00, 0x8b00).r(m_tapes, FUNC(hp2640_tape_device::status_r));
 
 	map(0x8b20, 0x8b20).w(m_tapes, FUNC(hp2640_tape_device::data_w));
 
-	m_io_view[ 0 ](0x0b20, 0x0b20).r(m_tapes, FUNC(hp2640_tape_device::data_r));
+	m_io_view[0](0x8b20, 0x8b20).r(m_tapes, FUNC(hp2640_tape_device::data_r));
 
-	m_io_view[ 1 ](0x0000, 0x0fff).r(FUNC(hp2640_base_state::poll_r));
+	m_io_view[1](0x8000, 0x8fff).r(FUNC(hp2640_base_state::poll_r));
 
 	map(0x9100, 0x91ff).ram();
 	map(0xc000, 0xffff).ram();
@@ -1159,7 +1159,7 @@ public:
 	void hp2641(machine_config &config);
 
 protected:
-	void cpu_mem_map(address_map &map);
+	void cpu_mem_map(address_map &map) ATTR_COLD;
 };
 
 hp2641_state::hp2641_state(const machine_config &mconfig, device_type type, const char *tag)

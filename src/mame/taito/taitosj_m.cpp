@@ -72,6 +72,7 @@ void taitosj_state::bankswitch_w(uint8_t data)
  direct access to the Z80 memory space. It can also trigger IRQs on the Z80.
 
 ***************************************************************************/
+
 uint8_t taitosj_state::fake_data_r()
 {
 	LOG(("%04x: protection read\n", m_maincpu->pc()));
@@ -100,18 +101,11 @@ void taitosj_state::mcu_mem_w(offs_t offset, uint8_t data)
 	m_maincpu->space(AS_PROGRAM).write_byte(offset, data);
 }
 
-WRITE_LINE_MEMBER(taitosj_state::mcu_intrq_w)
+void taitosj_state::mcu_intrq_w(int state)
 {
 	// FIXME: there's a logic network here that makes this edge sensitive or something and mixes it with other interrupt sources
 	if (CLEAR_LINE != state)
 		LOG(("68705  68INTRQ **NOT SUPPORTED**!\n"));
-}
-
-WRITE_LINE_MEMBER(taitosj_state::mcu_busrq_w)
-{
-	// this actually goes to the Z80 BUSRQ (aka WAIT) pin, and the MCU waits for the bus to become available
-	// we're pretending this happens immediately to make life easier
-	m_mcu->busak_w(state);
 }
 
 

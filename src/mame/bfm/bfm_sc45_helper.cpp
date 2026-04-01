@@ -6,7 +6,10 @@
  */
 
 #include "emu.h"
+
 #include "corestr.h"
+#include "endianness.h"
+
 
 //#define sc45helperlog printf
 #define sc45helperlog machine.logerror
@@ -137,8 +140,8 @@ sc4inputinfo sc4inputs[32][16];
 
 bool compare_input_code(running_machine &machine, int addr)
 {
-	uint16_t *src = (uint16_t*)machine.root_device().memregion( "maincpu" )->base();
-	uint16_t* rom = &src[addr];
+	uint16_t *src = &machine.root_device().memregion( "maincpu" )->as_u16();
+	uint16_t *rom = &src[addr];
 
 
 	if ((rom[0] != 0x48e7) || (rom[1] != 0x3020) || (rom[2] != 0x322f) || (rom[3] != 0x0010) || (rom[4] != 0x227c))
@@ -166,8 +169,8 @@ int find_input_strings(running_machine &machine)
 	uint32_t startblock = 0;
 	uint32_t endblock = 0;
 
-	uint16_t *rom = (uint16_t*)machine.root_device().memregion( "maincpu" )->base();
-	uint8_t *rom8 = machine.root_device().memregion( "maincpu" )->base();
+	uint16_t *rom = &machine.root_device().memregion( "maincpu" )->as_u16();
+	auto rom8 = util::big_endian_cast<u8>(rom);
 
 	for (int i=0;i<(0x100000-0x40)/2;i++)
 	{
@@ -197,7 +200,7 @@ int find_input_strings(running_machine &machine)
 
 					for (int k = stringaddr; k < stringaddr + 6; k++)
 					{
-						uint8_t chr = rom8[k^1];
+						uint8_t chr = rom8[k];
 
 						if ((chr == 0xff) || (chr == 0x00))
 						{
@@ -294,8 +297,6 @@ int find_input_strings(running_machine &machine)
 		{ -1, -1, -1, -1, -1, -1, -1, -1,    -1, -1, -1, -1, -1, -1, -1, -1, }
 	};
 
-	int buttons_used = 1;
-
 	printf("INPUT_PORTS_START( %s ) // this structure is generated\n", machine.system().name);
 	printf("    PORT_INCLUDE( sc4_base )\n");
 
@@ -316,7 +317,6 @@ int find_input_strings(running_machine &machine)
 				if (ignoreports[i][j] > 0)
 				{
 					printf("    PORT_BIT( 0x%04x, IP_ACTIVE_HIGH, SC45_BUTTON_MATRIX_%d_%d ) PORT_NAME(\"%s\")\n", 1 << j, i,j/*ignoreports[i][j]*/, sc4inputs[i][j].name.c_str());
-					buttons_used++;
 				}
 				else if (ignoreports[i][j] == -3)
 				{
@@ -358,7 +358,6 @@ int find_input_strings(running_machine &machine)
 				{
 					printf("    // 0x%04x - \"%s\" // known extended(?) input, sometimes 'hop top'\n", 1 << j, sc4inputs[i][j].name.c_str());
 				}
-				buttons_used++;
 			}
 		}
 	}
@@ -433,11 +432,7 @@ int find_lamp_strings(running_machine &machine)
 	{
 		for (int x = 0; x < 16; x++)
 		{
-			char tmp[32];
-
-			sprintf(tmp, "(%02d:%02d)", y, x);
-
-			lamps[y][x].lampname = std::string(tmp);
+			lamps[y][x].lampname = util::string_format("(%02d:%02d)", y, x);
 			lamps[y][x].used = false;
 			lamps[y][x].y = (y * 28);
 			lamps[y][x].x = 380 + (x * 24);
@@ -447,19 +442,13 @@ int find_lamp_strings(running_machine &machine)
 			lamps[y][x].lamptypename = "unusedlamp";
 			lamps[y][x].clickport = -1;
 			lamps[y][x].clickmask = 0;
-
 		}
 	}
 
 
 
-
-
-
-
-
-	uint16_t *rom = (uint16_t*)machine.root_device().memregion( "maincpu" )->base();
-	uint8_t *rom8 = machine.root_device().memregion( "maincpu" )->base();
+	uint16_t *rom = &machine.root_device().memregion( "maincpu" )->as_u16();
+	auto rom8 = util::big_endian_cast<u8>(rom);
 
 //  sc45helperlog("------------ LAMPS -----------------\n");
 
@@ -479,7 +468,7 @@ int find_lamp_strings(running_machine &machine)
 
 			for (int k = stringaddr; k < stringaddr + 10; k++)
 			{
-				uint8_t chr = rom8[k^1];
+				uint8_t chr = rom8[k];
 
 				if ((chr == 0xff) || (chr == 0x00))
 				{
@@ -607,8 +596,7 @@ int find_lamp_strings(running_machine &machine)
 	for (int reel = 0; reel < 8; reel++)
 	{
 		char tempname[32];
-		sprintf(tempname, "reel%d ", reel+1);
-
+		snprintf(tempname, std::size(tempname), "reel%d ", reel+1);
 
 		for (int pos = 0; pos < 3; pos++)
 		{
@@ -617,7 +605,6 @@ int find_lamp_strings(running_machine &machine)
 			if (pos == 0) snprintf(tempname2, std::size(tempname2), "%stop", tempname);
 			if (pos == 1) snprintf(tempname2, std::size(tempname2), "%smid", tempname);
 			if (pos == 2) snprintf(tempname2, std::size(tempname2), "%sbot", tempname);
-
 
 			for (auto & lamp : lamps)
 			{
@@ -633,14 +620,11 @@ int find_lamp_strings(running_machine &machine)
 						lamp[x].width = 50;
 						lamp[x].height = 17;
 						lamp[x].lamptypename = "reellamp";
-
-
 					}
 					else
 					{
 						//printf("%s:%s:\n", tempname2, lamps[y][x].lampname_alt.c_str());
 					}
-
 				}
 			}
 		}
@@ -665,8 +649,6 @@ int find_lamp_strings(running_machine &machine)
 		set_clickable_temp(machine, "cash bust", 8, 0x04);
 
 		// no 'refill' lamp?
-
-
 	}
 
 
@@ -833,19 +815,11 @@ int find_reel_strings(running_machine &machine)
 
 	endblock =   startblock + 4 * (total_reel_symbols);
 
-
-
 	if (startblock == -1)
 		return 0;
 
-
-
-
-
-	uint16_t *rom = (uint16_t*)machine.root_device().memregion( "maincpu" )->base();
-	uint8_t *rom8 = machine.root_device().memregion( "maincpu" )->base();
-
-
+	uint16_t *rom = &machine.root_device().memregion( "maincpu" )->as_u16();
+	auto rom8 = util::big_endian_cast<u8>(rom);
 
 	sc45helperlog("------------ LAYOUT -----------------\n");
 
@@ -881,7 +855,7 @@ int find_reel_strings(running_machine &machine)
 
 			for (int k = stringaddr; k < stringaddr + 10; k++)
 			{
-				uint8_t chr = rom8[k^1];
+				uint8_t chr = rom8[k];
 
 				if ((chr == 0xff) || (chr == 0x00))
 				{

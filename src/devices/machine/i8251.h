@@ -15,8 +15,7 @@
 
 #include "diserial.h"
 
-class i8251_device :  public device_t,
-	public device_serial_interface
+class i8251_device : public device_t, public device_serial_interface
 {
 public:
 	// construction/destruction
@@ -39,14 +38,15 @@ public:
 	virtual uint8_t read(offs_t offset);
 	virtual void write(offs_t offset, uint8_t data);
 
-	DECLARE_WRITE_LINE_MEMBER( write_rxd );
-	DECLARE_WRITE_LINE_MEMBER( write_cts );
-	DECLARE_WRITE_LINE_MEMBER( write_dsr );
-	DECLARE_WRITE_LINE_MEMBER( write_txc );
-	DECLARE_WRITE_LINE_MEMBER( write_rxc );
-	DECLARE_WRITE_LINE_MEMBER( write_syn );
+	void write_rxd(int state);
+	void write_cts(int state);
+	void write_dsr(int state);
+	void write_txc(int state);
+	void write_rxc(int state);
+	void write_syn(int state);
 
-	DECLARE_READ_LINE_MEMBER(txrdy_r);
+	int txrdy_r();
+	int rxrdy_r();
 
 protected:
 	enum
@@ -66,25 +66,23 @@ protected:
 			device_t *owner,
 			uint32_t clock);
 
-	// device-level overrides
-	virtual void device_resolve_objects() override;
-	virtual void device_start() override;
-	virtual void device_reset() override;
+	// device_t implementation
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 
 	void command_w(uint8_t data);
 	void mode_w(uint8_t data);
 
 	void receive_character(uint8_t ch);
 
-	void update_rx_ready();
-	void update_tx_ready();
+	virtual void update_rx_ready();
+	virtual void update_tx_ready();
 	void update_tx_empty();
 	void transmit_clock();
 	void receive_clock();
 	bool is_tx_enabled() const;
 	void check_for_tx_start();
 	void start_tx();
-
 
 	enum
 	{
@@ -106,7 +104,6 @@ private:
 	void sync1_rxc();
 	void sync2_rxc();
 	void update_syndet(bool voltage);
-	bool calc_parity(u8 ch);
 
 	/* flags controlling how i8251_control_w operates */
 	uint8_t m_flags;
@@ -122,18 +119,18 @@ private:
 	uint8_t m_mode_byte;
 	bool m_delayed_tx_en;
 
-	bool m_cts;
-	bool m_dsr;
-	bool m_rxd;
-	bool m_rxc;
-	bool m_txc;
+	int32_t m_cts;
+	int32_t m_dsr;
+	int32_t m_rxd;
+	int32_t m_rxc;
+	int32_t m_txc;
 	int m_rxc_count;
 	int m_txc_count;
 	int m_br_factor;
 
 	/* data being received */
 	uint8_t m_rx_data;
-		/* tx buffer */
+	/* tx buffer */
 	uint8_t m_tx_data;
 	void sync1_w(uint8_t data);
 	void sync2_w(uint8_t data);
@@ -149,24 +146,45 @@ private:
 	u8 m_data_bits_count;
 };
 
-class v5x_scu_device :  public i8251_device
+class v5x_scu_device : public i8251_device
 {
 public:
 	// construction/destruction
 	v5x_scu_device(const machine_config &mconfig,  const char *tag, device_t *owner, uint32_t clock);
 
+	auto sint_handler() { return m_sint_handler.bind(); }
+
 	virtual uint8_t read(offs_t offset) override;
 	virtual void write(offs_t offset, uint8_t data) override;
 
 protected:
-	virtual void device_start() override;
-	virtual void device_reset() override;
+	// device_t implementation
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 
-	// TODO: currently unimplemented interrupt masking
+	virtual void update_rx_ready() override;
+	virtual void update_tx_ready() override;
+
+	template<int Bit>
+	void sint_bit_w(int state)
+	{
+		if (state)
+			m_sint |= (1 << Bit);
+		else
+			m_sint &= ~(1 << Bit);
+
+		update_sint();
+	}
+
 	u8 simk_r() { return m_simk; }
-	void simk_w(u8 data) { m_simk = data; }
+	void simk_w(u8 data) { m_simk = data; update_sint(); }
 
 private:
+	void update_sint();
+
+	devcb_write_line m_sint_handler;
+
+	u8 m_sint;
 	u8 m_simk;
 };
 

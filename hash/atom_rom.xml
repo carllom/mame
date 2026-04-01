@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
 <!--
-license:CC0
+license:CC0-1.0
 
   Missing:
 
@@ -272,7 +272,7 @@ license:CC0
 	</software>
 
 	<software name="pcharmea" cloneof="pcharme">
-		<description>P-Charme (Alt)</description>
+		<description>P-Charme (alt)</description>
 		<year>1984</year>
 		<publisher>&lt;homebrew&gt;</publisher>
 		<info name="author" value="Frans van Hoesel" />

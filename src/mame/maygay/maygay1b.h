@@ -5,23 +5,23 @@
 
 #pragma once
 
-#include "awpvid.h"       //Fruit Machines Only
+#include "awpvid.h" // Fruit Machines Only
 
 #include "cpu/m6809/m6809.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i80c51.h"
 #include "machine/6821pia.h"
 #include "machine/i8279.h"
 #include "machine/mc68681.h"
 #include "machine/meters.h"
 #include "machine/nvram.h"
-#include "machine/roc10937.h"   // vfd
-#include "machine/steppers.h"   // stepper motor
+#include "machine/steppers.h" // stepper motor
 #include "machine/timer.h"
 #include "sound/ay8910.h"
 #include "sound/okim6295.h"
 #include "sound/okim6376.h"
 #include "sound/upd7759.h"
 #include "sound/ymopl.h"
+#include "video/roc10937.h" // vfd
 
 
 class maygay1b_state : public driver_device
@@ -92,7 +92,7 @@ private:
 	TIMER_DEVICE_CALLBACK_MEMBER( maygay1b_nmitimer_callback );
 	uint8_t m_Lamps[256]{};
 	int m_optic_pattern = 0;
-	template <unsigned N> DECLARE_WRITE_LINE_MEMBER(reel_optic_cb) { if (state) m_optic_pattern |= (1 << N); else m_optic_pattern &= ~(1 << N); }
+	template <unsigned N> void reel_optic_cb(int state) { if (state) m_optic_pattern |= (1 << N); else m_optic_pattern &= ~(1 << N); }
 	void scanlines_w(uint8_t data);
 	void scanlines_2_w(uint8_t data);
 	void lamp_data_w(uint8_t data);
@@ -101,13 +101,13 @@ private:
 	void reel12_w(uint8_t data);
 	void reel34_w(uint8_t data);
 	void reel56_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(ramen_w);
-	DECLARE_WRITE_LINE_MEMBER(alarmen_w);
-	DECLARE_WRITE_LINE_MEMBER(nmien_w);
-	DECLARE_WRITE_LINE_MEMBER(rts_w);
-	DECLARE_WRITE_LINE_MEMBER(psurelay_w);
-	DECLARE_WRITE_LINE_MEMBER(wdog_w);
-	DECLARE_WRITE_LINE_MEMBER(srsel_w);
+	void ramen_w(int state);
+	void alarmen_w(int state);
+	void nmien_w(int state);
+	void rts_w(int state);
+	void psurelay_w(int state);
+	void wdog_w(int state);
+	void srsel_w(int state);
 	void latch_ch2_w(uint8_t data);
 	uint8_t latch_st_hi();
 	uint8_t latch_st_lo();
@@ -123,7 +123,7 @@ private:
 	uint8_t nec_reset_r();
 	void nec_bank0_w(uint8_t data);
 	void nec_bank1_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(duart_irq_handler);
+	void duart_irq_handler(int state);
 	uint8_t m1_duart_r();
 	void mcu_port0_w(uint8_t data);
 	void mcu_port1_w(uint8_t data);
@@ -137,12 +137,12 @@ private:
 
 	uint8_t m_main_to_mcu;
 
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 	void cpu0_firq(int data);
 	void cpu0_nmi();
-	void m1_memmap(address_map &map);
-	void m1_nec_memmap(address_map &map);
+	void m1_memmap(address_map &map) ATTR_COLD;
+	void m1_nec_memmap(address_map &map) ATTR_COLD;
 };
 
 INPUT_PORTS_EXTERN( maygay_m1 );

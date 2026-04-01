@@ -14,35 +14,40 @@
  *********************************************************************/
 
 #include "emu.h"
-#include "eolith.h"
+#include "eolith_speedup.h"
 
 #include "cpu/e132xs/e132xs.h"
 #include "machine/at28c16.h"
 #include "machine/gen_latch.h"
 #include "sound/qs1000.h"
+
 #include "speaker.h"
 
 
-class vegaeo_state : public eolith_state
+namespace {
+
+class vegaeo_state : public eolith_e1_speedup_state_base
 {
 public:
 	vegaeo_state(const machine_config &mconfig, device_type type, const char *tag)
-		: eolith_state(mconfig, type, tag)
+		: eolith_e1_speedup_state_base(mconfig, type, tag)
 		, m_soundlatch(*this, "soundlatch")
+		, m_qs1000(*this, "qs1000")
 		, m_system_io(*this, "SYSTEM")
 		, m_qs1000_bank(*this, "qs1000_bank")
 	{
 	}
 
-	void vega(machine_config &config);
+	void vega(machine_config &config) ATTR_COLD;
 
-	void init_vegaeo();
+	void init_vegaeo() ATTR_COLD;
 
 protected:
-	virtual void video_start() override;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	required_device<generic_latch_8_device> m_soundlatch;
+	required_device<qs1000_device> m_qs1000;
 	required_ioport m_system_io;
 	memory_bank_creator m_qs1000_bank;
 
@@ -58,7 +63,7 @@ private:
 	void qs1000_p3_w(uint8_t data);
 
 	uint32_t screen_update_vega(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
-	void vega_map(address_map &map);
+	void vega_map(address_map &map) ATTR_COLD;
 };
 
 void vegaeo_state::qs1000_p1_w(uint8_t data)
@@ -131,7 +136,7 @@ static INPUT_PORTS_START( crazywar )
 	PORT_BIT( 0x00000008, IP_ACTIVE_LOW, IPT_START2 )
 	PORT_BIT( 0x00000010, IP_ACTIVE_LOW, IPT_SERVICE1 )
 	PORT_SERVICE_NO_TOGGLE( 0x00000020, IP_ACTIVE_LOW )
-	PORT_BIT( 0x00000040, IP_ACTIVE_LOW, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(vegaeo_state, speedup_vblank_r)
+	PORT_BIT( 0x00000040, IP_ACTIVE_LOW, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(FUNC(vegaeo_state::speedup_vblank_r))
 	PORT_BIT( 0x00000080, IP_ACTIVE_LOW, IPT_UNUSED )
 	PORT_BIT( 0xffffff00, IP_ACTIVE_LOW, IPT_UNUSED )
 
@@ -158,6 +163,8 @@ INPUT_PORTS_END
 
 void vegaeo_state::video_start()
 {
+	eolith_e1_speedup_state_base::video_start();
+
 	m_vram = std::make_unique<uint8_t[]>(0x14000*2);
 	save_pointer(NAME(m_vram), 0x14000*2);
 	save_item(NAME(m_vbuffer));
@@ -165,13 +172,13 @@ void vegaeo_state::video_start()
 
 uint32_t vegaeo_state::screen_update_vega(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
 {
-	for (int y = 0; y < 240; y++)
+	for (int y = cliprect.top(); y <= std::min(cliprect.bottom(), 239); y++)
 	{
+		auto *pix = &bitmap.pix(y);
 		for (int x = 0; x < 320; x++)
-		{
-			bitmap.pix(y, x) = m_vram[0x14000 * (m_vbuffer ^ 1) + (y * 320) + x] & 0xff;
-		}
+			*pix++ = m_vram[0x14000 * (m_vbuffer ^ 1) + (y * 320) + x] & 0xff;
 	}
+
 	return 0;
 }
 
@@ -196,8 +203,7 @@ void vegaeo_state::vega(machine_config &config)
 	m_palette->set_membits(16);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	GENERIC_LATCH_8(config, m_soundlatch);
 	m_soundlatch->data_pending_callback().set("qs1000", FUNC(qs1000_device::set_irq));
@@ -209,8 +215,8 @@ void vegaeo_state::vega(machine_config &config)
 	m_qs1000->p1_out().set(FUNC(vegaeo_state::qs1000_p1_w));
 	m_qs1000->p2_out().set(FUNC(vegaeo_state::qs1000_p2_w));
 	m_qs1000->p3_out().set(FUNC(vegaeo_state::qs1000_p3_w));
-	m_qs1000->add_route(0, "lspeaker", 1.0);
-	m_qs1000->add_route(1, "rspeaker", 1.0);
+	m_qs1000->add_route(0, "speaker", 1.0, 0);
+	m_qs1000->add_route(1, "speaker", 1.0, 1);
 }
 
 /*
@@ -292,10 +298,13 @@ ROM_END
 void vegaeo_state::init_vegaeo()
 {
 	// Set up the QS1000 program ROM banking, taking care not to overlap the internal RAM
-	m_qs1000->cpu().space(AS_IO).install_read_bank(0x0100, 0xffff, m_qs1000_bank);
+	m_qs1000->cpu().space(AS_DATA).install_read_bank(0x0100, 0xffff, m_qs1000_bank);
 	m_qs1000_bank->configure_entries(0, 8, memregion("qs1000:cpu")->base()+0x100, 0x10000);
 
 	init_speedup();
 }
+
+} // anonymous namespace
+
 
 GAME( 2002, crazywar, 0, vega, crazywar, vegaeo_state, init_vegaeo, ROT0, "Eolith", "Crazy War", MACHINE_SUPPORTS_SAVE )

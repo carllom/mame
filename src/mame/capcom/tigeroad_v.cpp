@@ -13,7 +13,6 @@ void tigeroad_state::videoram_w(offs_t offset, u16 data, u16 mem_mask)
 void tigeroad_state::videoctrl_w(u8 data)
 {
 	// bit 1 flips screen
-
 	if (flip_screen() != (data & 0x02))
 	{
 		flip_screen_set(data & 0x02);
@@ -21,7 +20,6 @@ void tigeroad_state::videoctrl_w(u8 data)
 	}
 
 	// bit 2 selects bg char bank
-
 	u8 bank = (data & 0x04) >> 2;
 
 	if (m_bgcharbank != bank)
@@ -38,7 +36,6 @@ void tigeroad_state::videoctrl_w(u8 data)
 	}
 
 	// bits 6-7 are coin counters
-
 	machine().bookkeeping().coin_counter_w(0, data & 0x40);
 	machine().bookkeeping().coin_counter_w(1, data & 0x80);
 }
@@ -64,11 +61,9 @@ void tigeroad_state::scroll_w(offs_t offset, u16 data, u16 mem_mask)
 
 TILE_GET_INFO_MEMBER(tigeroad_state::get_bg_tile_info)
 {
-	u8 *tilerom = memregion("bgmap")->base();
-
-	int data = tilerom[tile_index];
-	int attr = tilerom[tile_index + 1];
-	int code = data + ((attr & 0xc0) << 2) + (m_bgcharbank << 10);
+	int data = m_bgmap[tile_index];
+	int attr = data >> 8;
+	int code = (data & 0xff) + ((attr & 0xc0) << 2) + (m_bgcharbank << 10);
 	int color = attr & 0x0f;
 	int flags = (attr & 0x20) ? TILE_FLIPX : 0;
 
@@ -90,7 +85,7 @@ TILE_GET_INFO_MEMBER(tigeroad_state::get_fg_tile_info)
 TILEMAP_MAPPER_MEMBER(tigeroad_state::tigeroad_tilemap_scan)
 {
 	// logical (col,row) -> memory offset
-	return 2 * (col % 8) + 16 * ((127 - row) % 8) + 128 * (col / 8) + 2048 * ((127 - row) / 8);
+	return (col % 8) + 8 * ((127 - row) % 8) + 0x40 * (col / 8) + 0x400 * ((127 - row) / 8);
 }
 
 void tigeroad_state::video_start()
@@ -107,11 +102,6 @@ void tigeroad_state::video_start()
 	m_bg_tilemap->set_transmask(1, 0x1ff, 0xfe00);
 
 	m_fg_tilemap->set_transparent_pen(3);
-
-	m_bg_tilemap->set_scrolldx(128, 128);
-	m_bg_tilemap->set_scrolldy(  6,   6);
-	m_fg_tilemap->set_scrolldx(128, 128);
-	m_fg_tilemap->set_scrolldy(  6,   6);
 
 	save_item(NAME(m_bgcharbank));
 }

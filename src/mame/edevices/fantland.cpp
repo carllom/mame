@@ -28,7 +28,7 @@ Year + Game             Main CPU  Sound CPU  Sound                         Video
 [fantland, borntofi]
 
 - The year of creation isn't displayed, but it's no sooner than 1987 since
-  embedded in the roms is: "MS Run-Time Library - Copyright (c) 1987, Microsoft Corp"
+  embedded in the roms is: "MS Run-Time Library - Copyright (c) 1987, Microsoft Corp".
 
 [fantland]
 
@@ -42,17 +42,266 @@ Year + Game             Main CPU  Sound CPU  Sound                         Video
 ***************************************************************************************/
 
 #include "emu.h"
-#include "fantland.h"
 
 #include "cpu/i86/i86.h"
 #include "cpu/nec/nec.h"
 #include "cpu/z80/z80.h"
+#include "machine/gen_latch.h"
 #include "sound/dac.h"
+#include "sound/msm5205.h"
 #include "sound/sn76496.h"
-#include "sound/ymopm.h"
 #include "sound/ymopl.h"
+#include "sound/ymopm.h"
+
+#include "emupal.h"
+#include "screen.h"
 #include "speaker.h"
 
+namespace {
+
+class fantland_state : public driver_device
+{
+public:
+	fantland_state(const machine_config &mconfig, device_type type, const char *tag) :
+		driver_device(mconfig, type, tag),
+		m_maincpu(*this, "maincpu"),
+		m_audiocpu(*this, "audiocpu"),
+		m_gfxdecode(*this, "gfxdecode"),
+		m_screen(*this, "screen"),
+		m_palette(*this, "palette"),
+		m_soundlatch(*this, "soundlatch"),
+		m_spriteram(*this, "spriteram", 0x2800, ENDIANNESS_LITTLE),
+		m_spriteram2(*this, "spriteram2", 0x10000, ENDIANNESS_LITTLE),
+		m_wheel(*this, "WHEEL%u", 0U)
+	{ }
+
+	void fantland(machine_config &config) ATTR_COLD;
+	void wheelrun(machine_config &config) ATTR_COLD;
+	void galaxygn(machine_config &config) ATTR_COLD;
+
+	template <int Player> ioport_value wheelrun_wheel_r();
+
+protected:
+	/* devices */
+	required_device<cpu_device> m_maincpu;
+	required_device<cpu_device> m_audiocpu;
+	required_device<gfxdecode_device> m_gfxdecode;
+	required_device<screen_device> m_screen;
+	required_device<palette_device> m_palette;
+	required_device<generic_latch_8_device> m_soundlatch;
+
+	/* memory pointers */
+	memory_share_creator<uint8_t> m_spriteram;
+	memory_share_creator<uint8_t> m_spriteram2;
+
+	optional_ioport_array<2> m_wheel;
+
+	/* misc */
+	uint8_t m_nmi_enable = 0;
+
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+
+	void nmi_enable_w(uint8_t data);
+	void soundlatch_w(uint8_t data);
+	uint32_t screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
+	void vblank_irq(int state);
+	void draw_sprites(bitmap_ind16 &bitmap,const rectangle &cliprect);
+
+private:
+	uint8_t spriteram_r(offs_t offset);
+	uint8_t spriteram2_r(offs_t offset);
+	void spriteram_w(offs_t offset, uint8_t data, uint8_t mem_mask = ~0);
+	void spriteram2_w(offs_t offset, uint8_t data, uint8_t mem_mask = ~0);
+	void galaxygn_sound_irq(int state);
+	INTERRUPT_GEN_MEMBER(fantland_sound_irq);
+	void fantland_map(address_map &map) ATTR_COLD;
+	void fantland_sound_iomap(address_map &map) ATTR_COLD;
+	void fantland_sound_map(address_map &map) ATTR_COLD;
+	void galaxygn_map(address_map &map) ATTR_COLD;
+	void galaxygn_sound_iomap(address_map &map) ATTR_COLD;
+	void wheelrun_map(address_map &map) ATTR_COLD;
+	void wheelrun_sound_map(address_map &map) ATTR_COLD;
+};
+
+class borntofi_state : public fantland_state
+{
+public:
+	borntofi_state(const machine_config &mconfig, device_type type, const char *tag) :
+		fantland_state(mconfig, type, tag),
+		m_msm(*this, "msm%u", 1U),
+		m_adpcm_rom(*this, "adpcm")
+	{
+	}
+
+	void borntofi(machine_config &config);
+
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+
+private:
+	/* devices */
+	required_device_array<msm5205_device, 4> m_msm;
+	required_region_ptr<uint8_t> m_adpcm_rom;
+
+	/* misc */
+	int        m_old_x[2]{};
+	int        m_old_y[2]{};
+	int        m_old_f[2]{};
+	uint8_t    m_input_ret[2]{};
+	int        m_adpcm_playing[4]{};
+	int        m_adpcm_addr[2][4]{};
+	int        m_adpcm_nibble[4]{};
+
+	uint8_t inputs_r(offs_t offset);
+	void msm5205_w(offs_t offset, uint8_t data);
+	template<int Voice> void adpcm_int(int state);
+	void adpcm_start(int voice);
+	void adpcm_stop(int voice);
+	void main_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
+};
+
+/***************************************************************************************
+
+    These games has sprites only:
+
+    tiles are 16 x 16 x 6. There are 0x400 sprites, each one is allotted
+    8 bytes of memory (but only 5 are used) in spriteram (0x54000):
+
+    Offset:     Bits:           Value:
+
+        0                       X (low bits)
+
+        1       7--- ----       X (high bit)
+                -6-- ----       Y (high bit)
+                --5- ----       Flip X
+                ---4 ----       Flip Y
+                ---- 32--
+                ---- --10       Color
+
+        2                       Code (high bits)
+
+        3                       Code (low bits)
+
+        4                       Y (low bits)
+
+    Then 2 tables follow, 0x400 bytes each:
+
+    - the first table  (0x56000) contains 1 byte per sprite: an index in the second table
+    - the second table (0x56400) is either an x,y offset or an index in spriteram_2 (0x60000):
+
+        0                       X offset (low bits)
+
+        1                       Y offset (low bits)
+
+        2       7--- ----       If 1, the following bits are an index in spriteram_2 for the real X&Y & Code offsets
+                -654 321-
+                ---- ---0       X offset (high bit)
+
+        3       7654 321-
+                ---- ---0       Y offset (high bit)
+
+
+    Spriteram_2 contains 0x4000 X&Y & Code offsets:
+
+        0                       Y offset (low bits)
+
+        1       7--- ----       Flip X (xor with that in spriteram)
+                -6-- ----       Flip Y ""
+                --54 321-       Code offset
+                ---- ---0       Y offset (high bit)
+
+        2                       X offset (low bits)
+
+        3                       X offset (high bit)
+
+***************************************************************************************/
+
+void fantland_state::draw_sprites(bitmap_ind16 &bitmap,const rectangle &cliprect)
+{
+	uint8_t *indx_ram   =   m_spriteram + 0x2000,    // this ram contains indexes into offs_ram
+			*offs_ram   =   m_spriteram + 0x2400,    // this ram contains x,y offsets or indexes into m_spriteram2
+			*ram        =   m_spriteram,         // current sprite pointer in spriteram
+			*ram2       =   indx_ram;           // current sprite pointer in indx_ram
+
+	// wheelrun is the only game with a smaller visible area
+	const rectangle &visarea = m_screen->visible_area();
+	int special = visarea.height() < 0x100;
+
+	for ( ; ram < indx_ram; ram += 8,ram2++)
+	{
+		int attr,code,color, x,y,xoffs,yoffs,flipx,flipy, idx;
+
+		attr    =   ram[1];
+
+		x       =   ram[0];
+		code    =   ram[3] + (ram[2] << 8);
+		y       =   ram[4];
+
+		color   =   (attr & 0x03);
+		flipy   =   (attr & 0x10) ? 1 : 0;
+		flipx   =   (attr & 0x20) ? 1 : 0;
+
+		y       +=  (attr & 0x40) << 2;
+		x       +=  (attr & 0x80) << 1;
+
+		// Index in the table of offsets
+
+		idx     =   ram2[0] * 4;
+
+		// Fetch the offsets
+
+		if (offs_ram[idx + 2] & 0x80)
+		{
+			// x,y & code offset is in m_spriteram2, this is its index
+
+			idx     =   (((offs_ram[idx + 2] << 8) + offs_ram[idx + 3]) & 0x3fff) * 4;
+
+			yoffs   =   m_spriteram2[idx + 0] + (m_spriteram2[idx + 1] << 8);
+			xoffs   =   m_spriteram2[idx + 2] + (m_spriteram2[idx + 3] << 8);
+
+			code    +=  (yoffs & 0x3e00) >> 9;
+			flipy   ^=  (yoffs & 0x4000) ? 1 : 0;
+			flipx   ^=  (yoffs & 0x8000) ? 1 : 0;
+		}
+		else
+		{
+			// this is an x,y offset
+
+			yoffs   =   ((offs_ram[idx + 3] & 0x01) << 8) + offs_ram[idx + 1];
+			xoffs   =   ((offs_ram[idx + 2] & 0x01) << 8) + offs_ram[idx + 0];
+		}
+
+		yoffs   =   (yoffs & 0xff) - (yoffs & 0x100);
+		xoffs   =   (xoffs & 0x1ff);
+
+		if (xoffs >= 0x180)     xoffs -= 0x200;
+
+		y       +=  yoffs;
+		x       +=  xoffs;
+
+		// wheelrun needs y=0xf0 & yoffs=0x50 to be rendered at screen y 0x40
+		if (special && y > 0)
+			y &= 0xff;
+
+		y       =   (y & 0xff) - (y & 0x100);
+		x       =   (x & 0x1ff);
+
+		if (x >= 0x180)     x -= 0x200;
+
+		m_gfxdecode->gfx(0)->transpen(bitmap,cliprect, code,color, flipx,flipy, x,y,0);
+	}
+}
+
+uint32_t fantland_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect)
+{
+	bitmap.fill(0, cliprect);
+	draw_sprites(bitmap,cliprect);
+
+	return 0;
+}
 
 /***************************************************************************
 
@@ -334,7 +583,7 @@ void borntofi_state::msm5205_w(offs_t offset, uint8_t data)
 }
 
 template<int Voice>
-WRITE_LINE_MEMBER(borntofi_state::adpcm_int)
+void borntofi_state::adpcm_int(int state)
 {
 	if (!m_adpcm_playing[Voice])
 		return;
@@ -686,7 +935,7 @@ INPUT_PORTS_END
 ***************************************************************************/
 
 template <int Player>
-CUSTOM_INPUT_MEMBER(fantland_state::wheelrun_wheel_r)
+ioport_value fantland_state::wheelrun_wheel_r()
 {
 	int delta = m_wheel[Player]->read();
 	delta = (delta & 0x7f) - (delta & 0x80) + 4;
@@ -704,7 +953,7 @@ static INPUT_PORTS_START( wheelrun )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW,  IPT_BUTTON1 ) PORT_PLAYER(1)
 	PORT_BIT( 0x04, IP_ACTIVE_LOW,  IPT_UNKNOWN )
 	PORT_BIT( 0x08, IP_ACTIVE_LOW,  IPT_UNKNOWN )
-	PORT_BIT( 0x70, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(fantland_state, wheelrun_wheel_r<0>)
+	PORT_BIT( 0x70, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(fantland_state::wheelrun_wheel_r<0>))
 	PORT_BIT( 0x80, IP_ACTIVE_LOW,  IPT_UNKNOWN )
 
 	PORT_START("53001")     // 53001
@@ -712,7 +961,7 @@ static INPUT_PORTS_START( wheelrun )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW,  IPT_BUTTON1 ) PORT_PLAYER(2)
 	PORT_BIT( 0x04, IP_ACTIVE_LOW,  IPT_UNKNOWN )
 	PORT_BIT( 0x08, IP_ACTIVE_LOW,  IPT_UNKNOWN )
-	PORT_BIT( 0x70, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(fantland_state, wheelrun_wheel_r<1>)
+	PORT_BIT( 0x70, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_CUSTOM_MEMBER(FUNC(fantland_state::wheelrun_wheel_r<1>))
 	PORT_BIT( 0x80, IP_ACTIVE_LOW,  IPT_UNKNOWN )
 
 	PORT_START("53002")     // 53002
@@ -793,7 +1042,7 @@ void fantland_state::machine_reset()
 	m_nmi_enable = 0;
 }
 
-WRITE_LINE_MEMBER(fantland_state::vblank_irq)
+void fantland_state::vblank_irq(int state)
 {
 	if (state && BIT(m_nmi_enable, 3))
 		m_maincpu->pulse_input_line(INPUT_LINE_NMI, attotime::zero);
@@ -842,7 +1091,7 @@ void fantland_state::fantland(machine_config &config)
 }
 
 
-WRITE_LINE_MEMBER(fantland_state::galaxygn_sound_irq)
+void fantland_state::galaxygn_sound_irq(int state)
 {
 	m_audiocpu->set_input_line_and_vector(0, state ? ASSERT_LINE : CLEAR_LINE, 0x80/4); // I8088
 }
@@ -1340,6 +1589,63 @@ ROM_START( borntofi )
 	ROMX_LOAD( "63.bin",  0x1b0000, 0x10000, CRC(5f530559) SHA1(d1d3edc2082985ccec9fe8ca0b27810623cb5b89), ROM_SKIP(2) )
 ROM_END
 
+// Found on a PCB with Vifico stickers, but does not show Vifico on screen
+ROM_START( borntofia )
+	ROM_REGION( 0x80000, "maincpu", 0 ) // V20
+	ROM_LOAD( "3.3",   0x10000, 0x10000, CRC(b81cea79) SHA1(1c274c67e2390c854c13b15e8c6f436b9d3dcec5) )
+	ROM_LOAD( "2.2",   0x20000, 0x10000, CRC(5d2b3395) SHA1(ac87f352f380b67802c26232824663063549ac7b) )
+	ROM_LOAD( "1.bin", 0x70000, 0x10000, CRC(0a65ab53) SHA1(10da49a32d8898b6e11aed7a483a83fe8153dc80) )
+
+	ROM_REGION( 0x10000, "audiocpu", 0 ) // 8088
+	ROM_LOAD( "suoni.5", 0x08000, 0x08000, CRC(b5d587ce) SHA1(07687abd264ec80a6eb473cb3f3ab97ec6b365a2) )
+
+	ROM_REGION( 0xc0000, "adpcm", 0 ) // m5205 samples
+	ROM_LOAD( "0.6",   0x00000, 0x10000, CRC(731c523b) SHA1(b649a838ce70d5af607f8b9faf8b012e2ff1104b) )
+	ROM_LOAD( "1.7",   0x10000, 0x10000, CRC(a0cbdf10) SHA1(d33c157aceb52683db36d2f666f1e2d952654633) )
+	ROM_LOAD( "2.8",   0x20000, 0x10000, CRC(82fa8592) SHA1(81510160d645a3496131255c11c94fe47bb75988) )
+	ROM_LOAD( "3.9",   0x30000, 0x10000, CRC(dca5d205) SHA1(01c212fc0dbf9cd1ad0c633288925add853640a1) )
+	ROM_LOAD( "4.10",  0x40000, 0x10000, CRC(0ecd5714) SHA1(4dbc840f9b2707e28cb0e03220a51ad8d9268fe7) )
+	ROM_LOAD( "5.11",  0x50000, 0x10000, CRC(4fd86d07) SHA1(025ecaf7c51882286e2d25ab1636ad79dfe3250d) )
+	ROM_LOAD( "6.12",  0x60000, 0x10000, CRC(cb81236e) SHA1(96423a41e851900ad764e7ec9fbe9a9e34d188ef) )
+	ROM_LOAD( "7.13",  0x70000, 0x10000, CRC(cfcc4bdb) SHA1(b7e1bf189ac964958254e6e8cb7c466b6e7b473f) )
+	ROM_LOAD( "8.14",  0x80000, 0x10000, CRC(c6fa0707) SHA1(831b27f24fee641c30ffd39723a24e7a9a966dc6) )
+	ROM_LOAD( "9.15",  0x90000, 0x10000, CRC(101cbd6b) SHA1(22668f362499f7ae017d9334f426ac644498e0b7) )
+	ROM_LOAD( "10.16", 0xa0000, 0x10000, CRC(edab01a9) SHA1(ce9c6b48807c9b312067b27928d27b4532319c60) )
+	ROM_LOAD( "11.17", 0xb0000, 0x10000, CRC(ea361ea5) SHA1(a2b38a250ab477226da5d56bd07ea3b2f3aa9625) )
+
+	ROM_REGION( 0x1e0000, "gfx1",0 ) // gfx
+	ROMX_LOAD( "22.bin", 0x000002, 0x10000, CRC(a3afc57f) SHA1(2713fa4b6ad571748f47d25c72a0d40d80f8fcf6), ROM_SKIP(2) )
+	ROMX_LOAD( "38.bin", 0x000001, 0x10000, CRC(1c64d329) SHA1(6bb82143de07548b90bc7ba70d12fd0959e56545), ROM_SKIP(2) )
+	ROMX_LOAD( "54.bin", 0x000000, 0x10000, CRC(56209405) SHA1(e1f5fd709cde965c400f94837a34d5b414e0118e), ROM_SKIP(2) )
+	ROMX_LOAD( "23.bin", 0x030002, 0x10000, CRC(df385140) SHA1(202ef05ffad58ae9be2b264208188722154ec022), ROM_SKIP(2) )
+	ROMX_LOAD( "39.bin", 0x030001, 0x10000, CRC(7f789bdb) SHA1(c4220a60d8c11d77037c1f4bfc12254ee024e375), ROM_SKIP(2) )
+	ROMX_LOAD( "55.bin", 0x030000, 0x10000, CRC(93f82275) SHA1(132372c2301b57ed2ad47d7e7684f3caa455dc3f), ROM_SKIP(2) )
+	ROMX_LOAD( "24.bin", 0x060002, 0x10000, CRC(82d5db61) SHA1(01e30fe48ec486b8cf4db1d137daa5104099bc21), ROM_SKIP(2) )
+	ROMX_LOAD( "40.bin", 0x060001, 0x10000, CRC(707a6ddd) SHA1(30ae010bb2bd41b847790d1612a0702bc0c8b646), ROM_SKIP(2) )
+	ROMX_LOAD( "56.bin", 0x060000, 0x10000, CRC(8e84cedf) SHA1(8e6578803fe34083d74922112fd8b76cce9d393f), ROM_SKIP(2) )
+	ROMX_LOAD( "25.bin", 0x090002, 0x10000, CRC(500d4d3b) SHA1(54a448e5e784633513b94fdd4ad79e66b5210108), ROM_SKIP(2) )
+	ROMX_LOAD( "41.bin", 0x090001, 0x10000, CRC(e3bf2b57) SHA1(04619e9de339f4fb5269336ebd2a6749e402243e), ROM_SKIP(2) )
+	ROMX_LOAD( "57.bin", 0x090000, 0x10000, CRC(b8d57360) SHA1(5133a5db3d8ee05662662d19b31f0045e833ed42), ROM_SKIP(2) )
+	ROMX_LOAD( "26.bin", 0x0c0002, 0x10000, CRC(13801b0e) SHA1(7f830af2d9bf5201c321637ea2400c6b42948ebd), ROM_SKIP(2) )
+	ROMX_LOAD( "42.bin", 0x0c0001, 0x10000, CRC(4725835e) SHA1(d60108aa5e7cd7434dd07a5d0553be56c591f4b1), ROM_SKIP(2) )
+	ROMX_LOAD( "58.bin", 0x0c0000, 0x10000, CRC(391f220a) SHA1(66de5034b31f99e99005e224ee2e60cf870f1bcb), ROM_SKIP(2) )
+	ROMX_LOAD( "27.bin", 0x0f0002, 0x10000, CRC(d8a47ed9) SHA1(4f5f68c35d198f1fdbbcf288bf25c548876ba823), ROM_SKIP(2) )
+	ROMX_LOAD( "43.bin", 0x0f0001, 0x10000, CRC(815be7ea) SHA1(478cabf2a683be14e75cbe1b1d63aae521469315), ROM_SKIP(2) )
+	ROMX_LOAD( "59.bin", 0x0f0000, 0x10000, CRC(7966e68f) SHA1(13608b781ae10e96eb2802479e082b87f55c3ec1), ROM_SKIP(2) )
+	ROMX_LOAD( "28.bin", 0x120002, 0x10000, CRC(f6fed3d5) SHA1(0ba29a0d04029e2f1dfe77fb3e1e2f82fb05d5a8), ROM_SKIP(2) )
+	ROMX_LOAD( "44.bin", 0x120001, 0x10000, CRC(c5d29821) SHA1(ce45e2e039f3ee7965cc9354a98c77f3db83b950), ROM_SKIP(2) )
+	ROMX_LOAD( "60.bin", 0x120000, 0x10000, CRC(47d2a385) SHA1(0b275abe7811972ac475c2dff2e99f2a1f951ee5), ROM_SKIP(2) )
+	ROMX_LOAD( "29.bin", 0x150002, 0x10000, CRC(169cba64) SHA1(d881c1cd802da5929688fdaae8c63e581e396dd7), ROM_SKIP(2) )
+	ROMX_LOAD( "45.bin", 0x150001, 0x10000, CRC(1a58b8d0) SHA1(c1002e16581face369a11e4308596ba419d82c4d), ROM_SKIP(2) )
+	ROMX_LOAD( "61.bin", 0x150000, 0x10000, CRC(f20b88b3) SHA1(f6b4f0a6cf0cdc6bab9f0a580a866477a0925a28), ROM_SKIP(2) )
+	ROMX_LOAD( "30.bin", 0x180002, 0x10000, CRC(15529cdd) SHA1(7b80d820476fefb51434870bd9fc4955de1a7323), ROM_SKIP(2) )
+	ROMX_LOAD( "46.bin", 0x180001, 0x10000, CRC(52f85ff9) SHA1(03136c663abf2f68ecb793d727b93ada92557af5), ROM_SKIP(2) )
+	ROMX_LOAD( "62.bin", 0x180000, 0x10000, CRC(5bbc0154) SHA1(0c7b144cd2be1f8bcd5316093d6f9f0071746593), ROM_SKIP(2) )
+	ROMX_LOAD( "31.bin", 0x1b0002, 0x10000, CRC(1446ddc5) SHA1(7bd2ae336514d939c71bdf52a72e710e28d14bd9), ROM_SKIP(2) )
+	ROMX_LOAD( "47.bin", 0x1b0001, 0x10000, CRC(b3147a84) SHA1(dfb9c8293a477697017f5632e203c9fb88cadc81), ROM_SKIP(2) )
+	ROMX_LOAD( "63.bin", 0x1b0000, 0x10000, CRC(5f530559) SHA1(d1d3edc2082985ccec9fe8ca0b27810623cb5b89), ROM_SKIP(2) )
+ROM_END
+
 // Date "15/3/89" handwritten on sound program label, date "3/4/89" handwritten on main program label
 ROM_START( borntofiv )
 	ROM_REGION( 0x80000, "maincpu", 0 ) // V20
@@ -1374,7 +1680,7 @@ ROM_START( borntofiv )
 	ROMX_LOAD( "24.bin", 0x060002, 0x10000, CRC(82d5db61) SHA1(01e30fe48ec486b8cf4db1d137daa5104099bc21), ROM_SKIP(2) )
 	ROMX_LOAD( "40.bin", 0x060001, 0x10000, CRC(707a6ddd) SHA1(30ae010bb2bd41b847790d1612a0702bc0c8b646), ROM_SKIP(2) )
 	ROMX_LOAD( "56.bin", 0x060000, 0x10000, CRC(8e84cedf) SHA1(8e6578803fe34083d74922112fd8b76cce9d393f), ROM_SKIP(2) )
-	ROMX_LOAD( "25.bin", 0x090002, 0x10000, BAD_DUMP CRC(500d4d3b) SHA1(54a448e5e784633513b94fdd4ad79e66b5210108), ROM_SKIP(2) ) // Not from this set
+	ROMX_LOAD( "25.bin", 0x090002, 0x10000, CRC(500d4d3b) SHA1(54a448e5e784633513b94fdd4ad79e66b5210108), ROM_SKIP(2) )
 	ROMX_LOAD( "41.bin", 0x090001, 0x10000, CRC(e3bf2b57) SHA1(04619e9de339f4fb5269336ebd2a6749e402243e), ROM_SKIP(2) )
 	ROMX_LOAD( "57.bin", 0x090000, 0x10000, CRC(b8d57360) SHA1(5133a5db3d8ee05662662d19b31f0045e833ed42), ROM_SKIP(2) )
 	ROMX_LOAD( "26.bin", 0x0c0002, 0x10000, CRC(13801b0e) SHA1(7f830af2d9bf5201c321637ea2400c6b42948ebd), ROM_SKIP(2) )
@@ -1488,8 +1794,10 @@ ROM_START( wheelrun )
 	ROM_LOAD( "pal20l8acns.pal12",     0x000, 0x144, NO_DUMP )
 ROM_END
 
+} // anonymous namespace
 
-GAME( 19??, borntofi,  0,        borntofi, borntofi, borntofi_state, empty_init, ROT0,  "International Games",                  "Born To Fight",                   MACHINE_SUPPORTS_SAVE )
+GAME( 19??, borntofi,  0,        borntofi, borntofi, borntofi_state, empty_init, ROT0,  "International Games",                  "Born To Fight (set 1)",           MACHINE_SUPPORTS_SAVE )
+GAME( 19??, borntofia, borntofi, borntofi, borntofi, borntofi_state, empty_init, ROT0,  "International Games",                  "Born To Fight (set 2)",           MACHINE_SUPPORTS_SAVE )
 GAME( 1989, borntofiv, borntofi, borntofi, borntofi, borntofi_state, empty_init, ROT0,  "International Games (Vifico license)", "Born To Fight (Vifico license)",  MACHINE_SUPPORTS_SAVE )
 GAME( 19??, fantland,  0,        fantland, fantland, fantland_state, empty_init, ROT0,  "Electronic Devices Italy",             "Fantasy Land (set 1)",            MACHINE_SUPPORTS_SAVE )
 GAME( 19??, fantlanda, fantland, fantland, fantland, fantland_state, empty_init, ROT0,  "Electronic Devices Italy",             "Fantasy Land (set 2)",            MACHINE_SUPPORTS_SAVE )

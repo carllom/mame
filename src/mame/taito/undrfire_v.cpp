@@ -4,8 +4,6 @@
 #include "undrfire.h"
 #include "screen.h"
 
-
-
 /******************************************************************/
 
 void undrfire_state::video_start()
@@ -181,7 +179,7 @@ void undrfire_state::draw_sprites(screen_device &screen, bitmap_ind16 &bitmap,co
 		}
 
 		if (bad_chunks)
-logerror("Sprite number %04x had %02x invalid chunks\n",tilenum,bad_chunks);
+			logerror("Sprite number %04x had %02x invalid chunks\n",tilenum,bad_chunks);
 	}
 
 	/* this happens only if primsks != nullptr */
@@ -392,7 +390,7 @@ u32 undrfire_state::screen_update_undrfire(screen_device &screen, bitmap_ind16 &
    bottom layer usually full of bright garish colors that
    vaguely mimic the structure of the layers on top. Seems
    pointless - it's always hidden by other layers. Does it
-   serve some blending pupose ? */
+   serve some blending purpose? */
 
 	m_tc0620scc->tilemap_draw(screen, bitmap, cliprect, scclayer[0], TILEMAP_DRAW_OPAQUE, 0);
 	m_tc0620scc->tilemap_draw(screen, bitmap, cliprect, scclayer[1], 0, 0);
@@ -441,23 +439,12 @@ u32 undrfire_state::screen_update_undrfire(screen_device &screen, bitmap_ind16 &
 
 	m_tc0480scp->tilemap_draw(screen, bitmap, cliprect, layer[4], 0, 0);    /* TC0480SCP text layer */
 
-	/* See if we should draw artificial gun targets */
-	/* (not yet implemented...) */
-
-	if (m_io_fake->read() & 0x1)   /* Fake DSW */
-	{
-		popmessage("Gunsights on");
-	}
-
 /* Enable this to see rotation (?) control words */
 #if 0
 	{
-		char buf[80];
-		int i;
-
-		for (i = 0; i < 8; i += 1)
+		for (auto i = 0; i < 8; i += 1)
 		{
-			sprintf (buf, "%02x: %04x", i, m_rotate_ctrl[i]);
+			auto buf = util::string_format("%02x: %04x", i, m_rotate_ctrl[i]);
 			ui_draw_text (buf, 0, i*8);
 		}
 	}
@@ -607,12 +594,9 @@ u32 undrfire_state::screen_update_cbombers(screen_device &screen, bitmap_ind16 &
 /* Enable this to see rotation (?) control words */
 #if 0
 	{
-		char buf[80];
-		int i;
-
-		for (i = 0; i < 8; i += 1)
+		for (auto i = 0; i < 8; i += 1)
 		{
-			sprintf (buf, "%02x: %04x", i, m_rotate_ctrl[i]);
+			auto buf = util::string_format("%02x: %04x", i, m_rotate_ctrl[i]);
 			ui_draw_text (buf, 0, i*8);
 		}
 	}

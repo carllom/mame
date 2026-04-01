@@ -1,13 +1,16 @@
 // license:BSD-3-Clause
 // copyright-holders:Aaron Giles
-/******************************************************************************
+/*******************************************************************************
 
     tiny.lst
 
-    List of all enabled drivers in the system. This file is parsed by
-    makelist.exe, sorted, and output as C code describing the drivers.
+    List of all enabled drivers for compile target. This is not an automatically
+    generated file, and it should be manually updated when a new driver is added.
 
-******************************************************************************/
+*******************************************************************************/
 
+@source:emusys/emu3.cpp
 emu3        // Emulator III (match against my emuiii)
+
+@source:emusys/e6400.cpp
 e6400       // E-mu e6400 Sampler

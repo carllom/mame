@@ -39,6 +39,9 @@
 #include "screen.h"
 #include "speaker.h"
 
+
+namespace {
+
 class atom2_state : public driver_device
 {
 public:
@@ -52,16 +55,16 @@ public:
 
 protected:
 	// driver_device overrides
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
-	virtual void video_start() override;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	// screen updates
 	uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
-	void atom2_map(address_map &map);
+	void atom2_map(address_map &map) ATTR_COLD;
 
 	// devices
 	required_device<cpu_device> m_maincpu;
@@ -109,12 +112,11 @@ void atom2_state::atom2(machine_config &config)
 	PALETTE(config, "palette").set_entries(65536);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	ymz770_device &ymz770(YMZ770(config, "ymz770", 16.384_MHz_XTAL));
-	ymz770.add_route(0, "lspeaker", 1.0);
-	ymz770.add_route(1, "rspeaker", 1.0);
+	ymz770.add_route(0, "speaker", 1.0, 0);
+	ymz770.add_route(1, "speaker", 1.0, 1);
 }
 
 
@@ -136,5 +138,8 @@ ROM_START( spongbob )
 	ROM_REGION(0x1000000, "ymz770", ROMREGION_ERASEFF)
 	ROM_LOAD("ic5", 0x0000000, 0x1000000, CRC(d8e9bc95) SHA1(91798ea0f47f3340bc32b754d0be8fec5d093122) )
 ROM_END
+
+} // anonymous namespace
+
 
 GAME( 200?, spongbob,  0, atom2, atom2, atom2_state, empty_init, ROT0, "Sega",      "SpongeBob SquarePants Ticket Boom", MACHINE_NOT_WORKING|MACHINE_IMPERFECT_GRAPHICS )

@@ -33,8 +33,7 @@
 #include "screen.h"
 #include "softlist.h"
 
-#include "formats/mfi_dsk.h"
-#include "formats/pc_dsk.h"
+#include "formats/flopimg.h"
 
 
 uint32_t next_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
@@ -277,13 +276,12 @@ bool const next_state::dma_has_saved[0x20] = {
 	false, false, false, false, false, false, false, false,
 };
 
-const char *next_state::dma_name(int slot)
+std::string next_state::dma_name(int slot)
 {
-	static char buf[32];
 	if(dma_targets[slot])
 		return dma_targets[slot];
-	sprintf(buf, "<%02x>", slot);
-	return buf;
+
+	return util::string_format("<%02x>", slot);
 }
 
 void next_state::dma_drq_w(int slot, bool state)
@@ -458,8 +456,7 @@ uint32_t next_state::dma_regs_r(offs_t offset)
 		break;
 	}
 
-	const char *name = dma_name(slot);
-	logerror("dma_regs_r %s:%d %08x (%08x)\n", name, reg, res, maincpu->pc());
+	logerror("dma_regs_r %s:%d %08x (%08x)\n", dma_name(slot), reg, res, maincpu->pc());
 
 	return res;
 }
@@ -469,9 +466,7 @@ void next_state::dma_regs_w(offs_t offset, uint32_t data)
 	int slot = offset >> 2;
 	int reg = offset & 3;
 
-	const char *name = dma_name(slot);
-
-	logerror("dma_regs_w %s:%d %08x (%08x)\n", name, reg, data, maincpu->pc());
+	logerror("dma_regs_w %s:%d %08x (%08x)\n", dma_name(slot), reg, data, maincpu->pc());
 	switch(reg) {
 	case 0:
 		dma_slots[slot].start = data;
@@ -494,10 +489,8 @@ uint32_t next_state::dma_ctrl_r(offs_t offset)
 	int slot = offset >> 2;
 	int reg = offset & 3;
 
-	const char *name = dma_name(slot);
-
 	if(maincpu->pc() != 0x409bb4e)
-		logerror("dma_ctrl_r %s:%d %02x (%08x)\n", name, reg, dma_slots[slot].state, maincpu->pc());
+		logerror("dma_ctrl_r %s:%d %02x (%08x)\n", dma_name(slot), reg, dma_slots[slot].state, maincpu->pc());
 
 	return reg ? 0 : dma_slots[slot].state << 24;
 }
@@ -506,8 +499,7 @@ void next_state::dma_ctrl_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 {
 	int slot = offset >> 2;
 	int reg = offset & 3;
-	const char *name = dma_name(slot);
-	logerror("dma_ctrl_w %s:%d %08x @ %08x (%08x)\n", name, reg, data, mem_mask, maincpu->pc());
+	logerror("dma_ctrl_w %s:%d %08x @ %08x (%08x)\n", dma_name(slot), reg, data, mem_mask, maincpu->pc());
 	if(!reg) {
 		if(ACCESSING_BITS_16_23)
 			dma_do_ctrl_w(slot, data >> 16);
@@ -518,7 +510,7 @@ void next_state::dma_ctrl_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 
 void next_state::dma_do_ctrl_w(int slot, uint8_t data)
 {
-	const char *name = dma_name(slot);
+	const auto name = dma_name(slot);
 #if 0
 	logerror("dma_ctrl_w %s %02x (%08x)\n", name, data, maincpu->pc());
 
@@ -583,7 +575,7 @@ void next_state::scsictrl_w(offs_t offset, uint32_t data, uint32_t mem_mask)
 				scsictrl & 0x08 ? "read" : "write",
 				scsictrl & 0x04 ? " flush" : "",
 				scsictrl & 0x02 ? " reset" : "",
-				scsictrl & 0x01 ? "wd3392" : "ncr5390",
+				scsictrl & 0x01 ? "wd3392" : "ncr53c90",
 				maincpu->pc());
 	}
 	if(ACCESSING_BITS_16_23) {
@@ -725,72 +717,72 @@ void next_state::timer_start()
 	timer_tm->adjust(attotime::from_usec(timer_vbase));
 }
 
-WRITE_LINE_MEMBER(next_state::scc_irq)
+void next_state::scc_irq(int state)
 {
 	irq_set(17, state);
 }
 
-WRITE_LINE_MEMBER(next_state::keyboard_irq)
+void next_state::keyboard_irq(int state)
 {
 	irq_set(3, state);
 }
 
-WRITE_LINE_MEMBER(next_state::power_irq)
+void next_state::power_irq(int state)
 {
 	irq_set(2, state);
 }
 
-WRITE_LINE_MEMBER(next_state::nmi_irq)
+void next_state::nmi_irq(int state)
 {
 	irq_set(31, state);
 }
 
-WRITE_LINE_MEMBER(next_state::fdc_irq)
+void next_state::fdc_irq(int state)
 {
 	irq_set(7, state);
 }
 
-WRITE_LINE_MEMBER(next_state::fdc_drq)
+void next_state::fdc_drq(int state)
 {
 	dma_drq_w(1, state);
 }
 
-WRITE_LINE_MEMBER(next_state::net_tx_irq)
+void next_state::net_tx_irq(int state)
 {
 	irq_set(10, state);
 }
 
-WRITE_LINE_MEMBER(next_state::net_rx_irq)
+void next_state::net_rx_irq(int state)
 {
 	irq_set(9, state);
 }
 
-WRITE_LINE_MEMBER(next_state::net_tx_drq)
+void next_state::net_tx_drq(int state)
 {
 	dma_drq_w(17, state);
 }
 
-WRITE_LINE_MEMBER(next_state::net_rx_drq)
+void next_state::net_rx_drq(int state)
 {
 	dma_drq_w(21, state);
 }
 
-WRITE_LINE_MEMBER(next_state::mo_irq)
+void next_state::mo_irq(int state)
 {
 	irq_set(13, state);
 }
 
-WRITE_LINE_MEMBER(next_state::mo_drq)
+void next_state::mo_drq(int state)
 {
 	dma_drq_w(5, state);
 }
 
-WRITE_LINE_MEMBER(next_state::scsi_irq)
+void next_state::scsi_irq(int state)
 {
 	irq_set(12, state);
 }
 
-WRITE_LINE_MEMBER(next_state::scsi_drq)
+void next_state::scsi_drq(int state)
 {
 	dma_drq_w(1, state);
 }
@@ -884,7 +876,7 @@ void next_state::machine_reset()
 	dma_drq_w(4, true); // soundout
 }
 
-WRITE_LINE_MEMBER(next_state::vblank_w)
+void next_state::vblank_w(int state)
 {
 	if(vbl_enabled) {
 		if(screen_color)
@@ -912,11 +904,11 @@ void next_state::next_mem(address_map &map)
 	map(0x0200e000, 0x0200e00b).mirror(0x300000).m(keyboard, FUNC(nextkbd_device::amap));
 //  map(0x0200f000, 0x0200f003).mirror(0x300000); printer
 //  map(0x02010000, 0x02010003).mirror(0x300000); brightness
-	map(0x02014000, 0x0201400f).mirror(0x300000).m(scsi, FUNC(ncr5390_device::map));
+	map(0x02014000, 0x0201400f).mirror(0x300000).m(scsi, FUNC(ncr53c90_device::map));
 	map(0x02014020, 0x02014023).mirror(0x300000).rw(FUNC(next_state::scsictrl_r), FUNC(next_state::scsictrl_w));
 	map(0x02016000, 0x02016003).mirror(0x300000).rw(FUNC(next_state::timer_data_r), FUNC(next_state::timer_data_w));
 	map(0x02016004, 0x02016007).mirror(0x300000).rw(FUNC(next_state::timer_ctrl_r), FUNC(next_state::timer_ctrl_w));
-	map(0x02018000, 0x02018003).mirror(0x300000).rw(scc, FUNC(scc8530_legacy_device::reg_r), FUNC(scc8530_legacy_device::reg_w));
+	map(0x02018000, 0x02018003).mirror(0x300000).rw(scc, FUNC(scc8530_device::dc_ab_r), FUNC(scc8530_device::dc_ab_w));
 //  map(0x02018004, 0x02018007).mirror(0x300000); SCC CLK
 //  map(0x02018190, 0x02018197).mirror(0x300000); warp 9c DRAM timing
 //  map(0x02018198, 0x0201819f).mirror(0x300000); warp 9c VRAM timing
@@ -1015,16 +1007,6 @@ static void next_scsi_devices(device_slot_interface &device)
 {
 	device.option_add("cdrom", NSCSI_CDROM);
 	device.option_add("harddisk", NSCSI_HARDDISK);
-	device.option_add_internal("ncr5390", NCR5390);
-}
-
-void next_state::ncr5390(device_t *device)
-{
-	ncr5390_device &adapter = downcast<ncr5390_device &>(*device);
-
-	adapter.set_clock(10000000);
-	adapter.irq_handler_cb().set(*this, FUNC(next_state::scsi_irq));
-	adapter.drq_handler_cb().set(*this, FUNC(next_state::scsi_drq));
 }
 
 void next_state::next_base(machine_config &config)
@@ -1039,12 +1021,12 @@ void next_state::next_base(machine_config &config)
 	screen.screen_vblank().set(FUNC(next_state::vblank_w));
 
 	// devices
-	NSCSI_BUS(config, "scsibus");
+	NSCSI_BUS(config, scsibus);
 
 	MCCS1850(config, rtc, XTAL(32'768));
 
 	SCC8530(config, scc, XTAL(25'000'000));
-	scc->intrq_callback().set(FUNC(next_state::scc_irq));
+	scc->out_int_callback().set(FUNC(next_state::scc_irq));
 
 	NEXTKBD(config, keyboard, 0);
 	keyboard->int_change_wr_callback().set(FUNC(next_state::keyboard_irq));
@@ -1058,7 +1040,11 @@ void next_state::next_base(machine_config &config)
 	NSCSI_CONNECTOR(config, "scsibus:4", next_scsi_devices, nullptr);
 	NSCSI_CONNECTOR(config, "scsibus:5", next_scsi_devices, nullptr);
 	NSCSI_CONNECTOR(config, "scsibus:6", next_scsi_devices, nullptr);
-	NSCSI_CONNECTOR(config, "scsibus:7", next_scsi_devices, "ncr5390", true).set_option_machine_config("ncr5390", [this] (device_t *device) { ncr5390(device); });
+
+	NCR53C90(config, scsi, 10000000);
+	scsibus->set_external_device(7, scsi);
+	scsi->irq_handler_cb().set(DEVICE_SELF, FUNC(next_state::scsi_irq));
+	scsi->drq_handler_cb().set(DEVICE_SELF, FUNC(next_state::scsi_drq));
 
 	MB8795(config, net, 0);
 	net->tx_irq().set(FUNC(next_state::net_tx_irq));

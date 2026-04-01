@@ -96,7 +96,7 @@ VBlank = 58Hz
 
 
 // configurable logging
-#define LOG_SCROLL     (1U <<  1)
+#define LOG_SCROLL     (1U << 1)
 
 //#define VERBOSE (LOG_GENERAL | LOG_SCROLL)
 
@@ -127,8 +127,8 @@ public:
 	void vball(machine_config &config);
 
 protected:
-	virtual void machine_start() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 private:
 	required_device<cpu_device> m_maincpu;
@@ -170,12 +170,10 @@ private:
 	void draw_sprites(bitmap_ind16 &bitmap, const rectangle &cliprect);
 	inline int scanline_to_vcount(int scanline);
 
-	void main_map(address_map &map);
-	void sound_map(address_map &map);
+	void main_map(address_map &map) ATTR_COLD;
+	void sound_map(address_map &map) ATTR_COLD;
 };
 
-
-// video
 
 /***************************************************************************
 
@@ -321,8 +319,6 @@ uint32_t vball_state::screen_update(screen_device &screen, bitmap_ind16 &bitmap,
 }
 
 
-// machine
-
 // Based on ddragon driver
 inline int vball_state::scanline_to_vcount(int scanline)
 {
@@ -440,8 +436,9 @@ void vball_state::main_map(address_map &map)
 	map(0x100c, 0x100c).w(FUNC(vball_state::scrollx_lo_w));
 	map(0x100d, 0x100d).w("soundlatch", FUNC(generic_latch_8_device::write));
 	map(0x100e, 0x100e).writeonly().share(m_scrolly_lo);
-	map(0x2000, 0x2fff).w(FUNC(vball_state::videoram_w)).share(m_videoram);
-	map(0x3000, 0x3fff).w(FUNC(vball_state::attrib_w)).share(m_attribram);
+	// spams logerror without reading, assume readable
+	map(0x2000, 0x2fff).ram().w(FUNC(vball_state::videoram_w)).share(m_videoram);
+	map(0x3000, 0x3fff).ram().w(FUNC(vball_state::attrib_w)).share(m_attribram);
 	map(0x4000, 0x7fff).bankr(m_mainbank);
 	map(0x8000, 0xffff).rom();
 }
@@ -481,7 +478,7 @@ static INPUT_PORTS_START( vball )
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_COIN1 )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_COIN2 )
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_SERVICE1 )
-	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_VBLANK("screen")
+	PORT_BIT( 0x08, IP_ACTIVE_HIGH, IPT_CUSTOM ) PORT_READ_LINE_DEVICE_MEMBER("screen", FUNC(screen_device::vblank))
 	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_UNUSED )
 	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_UNUSED )
 	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_UNUSED )
@@ -643,20 +640,19 @@ void vball_state::vball(machine_config &config)
 	PALETTE(config, m_palette).set_entries(256);
 
 	// sound hardware
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 
 	// The sound system comes all but verbatim from Double Dragon
 	GENERIC_LATCH_8(config, "soundlatch").data_pending_callback().set_inputline(m_audiocpu, INPUT_LINE_NMI);
 
 	ym2151_device &ymsnd(YM2151(config, "ymsnd", 3.579545_MHz_XTAL));
 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
-	ymsnd.add_route(0, "lspeaker", 0.60);
-	ymsnd.add_route(1, "rspeaker", 0.60);
+	ymsnd.add_route(0, "speaker", 0.60, 0);
+	ymsnd.add_route(1, "speaker", 0.60, 1);
 
 	okim6295_device &oki(OKIM6295(config, "oki", 1.056_MHz_XTAL, okim6295_device::PIN7_HIGH));
-	oki.add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	oki.add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+	oki.add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	oki.add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
 }
 
 
@@ -668,7 +664,7 @@ void vball_state::vball(machine_config &config)
 
 ROM_START( vball ) // US version
 	ROM_REGION( 0x10000, "maincpu", 0 )
-	ROM_LOAD( "25a2-4.124",   0x00000, 0x10000, CRC(06d0c013) SHA1(e818ae0ffb32bcf97da2651a9b8efbd4859b2f4c) ) // First 0x8000 banked, second 0x8000 fixed
+	ROM_LOAD( "25a2-4.124",   0x00000, 0x10000, CRC(be04c2b5) SHA1(40fed4ae272719e940f1796ef35420ab451ab7b6) ) // First 0x8000 banked, second 0x8000 fixed
 
 	ROM_REGION( 0x8000, "audiocpu", 0 )
 	ROM_LOAD( "25j1-0.47",    0x00000, 0x8000,  CRC(10ca79ad) SHA1(aad4a09d6745ca0b5665cb00ff7a4e08ea434068) )
@@ -750,7 +746,7 @@ ROM_START( vballb ) // bootleg
 	ROM_LOAD(          "25j7-0.160",   0x0800,  0x00800, CRC(2ffb68b3) SHA1(d560fdcd5e5c79d37e5b5bde22fbaf662fe89252) )
 ROM_END
 
-ROM_START( vball2pjb ) // bootleg of the Japan set with unmoddified program ROM
+ROM_START( vball2pjb ) // bootleg of the Japan set with unmodified program ROM
 	ROM_REGION( 0x10000, "maincpu", 0 )
 	ROM_LOAD( "1.124", 0x00000, 0x10000, CRC(432509c4) SHA1(6de50e21d279f4ac9674bc91990ba9535e80908c) )// First 0x8000 banked, second 0x8000 fixed  == 25j2-2-5.124 from vball2pj
 
@@ -790,4 +786,4 @@ ROM_END
 GAME( 1988, vball,    0,     vball,    vball,    vball_state, empty_init, ROT0, "Technos Japan", "U.S. Championship V'ball (US)",                   MACHINE_SUPPORTS_SAVE )
 GAME( 1988, vball2pj, vball, vball,    vball2pj, vball_state, empty_init, ROT0, "Technos Japan", "U.S. Championship V'ball (Japan)",                MACHINE_SUPPORTS_SAVE )
 GAME( 1988, vballb,   vball, vball,    vball,    vball_state, empty_init, ROT0, "bootleg",       "U.S. Championship V'ball (bootleg of US set)",    MACHINE_SUPPORTS_SAVE )
-GAME( 1988, vball2pjb,vball, vball,    vball,    vball_state, empty_init, ROT0, "bootleg",       "U.S. Championship V'ball (bootleg of Japan set)", MACHINE_SUPPORTS_SAVE )
+GAME( 1988, vball2pjb,vball, vball,    vball,    vball_state, empty_init, ROT0, "bootleg",       "U.S. Championship V'ball (bootleg of Japan set)", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND ) // garbage to no samples, $9800 - $9803 in sound_map doesn't look OKI-like and not a mirror, adapted to MSM5205?

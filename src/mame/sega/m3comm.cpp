@@ -188,12 +188,6 @@ void m3comm_device::device_reset_after_children()
 
 /////////////
 
-uint16_t swapb16(uint16_t data)
-{
-	return (data << 8) | (data >> 8);
-}
-
-
 TIMER_CALLBACK_MEMBER(m3comm_device::trigger_irq5)
 {
 	m_commcpu->set_input_line(M68K_IRQ_5, ASSERT_LINE);
@@ -314,6 +308,10 @@ void m3comm_device::ioregs_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 		break;
 	case 0x88 / 2:
 		COMBINE_DATA(&m_status0);
+		// HACK: workaround for srally2
+		// writes here as handshake without touching the reset register,
+		// expecting the comm CPU to actually be live for clearance.
+		m_commcpu->set_input_line(INPUT_LINE_RESET, CLEAR_LINE);
 		break;
 	case 0x8A / 2:
 		COMBINE_DATA(&m_status1);
@@ -332,11 +330,11 @@ void m3comm_device::ioregs_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 uint16_t m3comm_device::m3_m68k_ram_r(offs_t offset)
 {
 	uint16_t value = m_68k_ram[offset];        // FIXME endian
-	return swapb16(value);
+	return swapendian_int16(value);
 }
 void m3comm_device::m3_m68k_ram_w(offs_t offset, uint16_t data)
 {
-	m_68k_ram[offset] = swapb16(data);       // FIXME endian
+	m_68k_ram[offset] = swapendian_int16(data);       // FIXME endian
 }
 uint8_t m3comm_device::m3_comm_ram_r(offs_t offset)
 {
@@ -350,13 +348,13 @@ void m3comm_device::m3_comm_ram_w(offs_t offset, uint8_t data)
 }
 uint16_t m3comm_device::m3_ioregs_r(offs_t offset, uint16_t mem_mask)
 {
-	uint16_t value = ioregs_r(offset, swapb16(mem_mask));
-	return swapb16(value);
+	uint16_t value = ioregs_r(offset, swapendian_int16(mem_mask));
+	return swapendian_int16(value);
 }
 void m3comm_device::m3_ioregs_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
-	uint16_t value = swapb16(data);
-	ioregs_w(offset, value, swapb16(mem_mask));
+	uint16_t value = swapendian_int16(data);
+	ioregs_w(offset, value, swapendian_int16(mem_mask));
 
 	// guess, can be asserted at any reg write
 	if (offset == (0x88 / 2))

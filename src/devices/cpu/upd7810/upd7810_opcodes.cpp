@@ -309,7 +309,10 @@ void upd7810_device::DIV_A()
 		A = remainder;
 	}
 	else
-		EA = 0xffff;    /* guess */
+	{
+		A = EAL;
+		EA = 0xffff;
+	}
 }
 
 /* 48 3e: 0100 1000 0011 1110 */
@@ -1010,7 +1013,7 @@ void upd7810_device::MOV_ANM_A()
 /* 4d c9: 0100 1101 1100 1001 */
 void upd7810_device::MOV_SMH_A()
 {
-	SMH = A;
+	write_smh(A);
 }
 
 /* 4d ca: 0100 1101 1100 1010 */
@@ -1042,12 +1045,20 @@ void upd7810_device::MOV_TMM_A()
 void upd7810_device::MOV_MM_A()
 {
 	MM = A;
+
+	if (BIT(A, 3))
+		m_ram_view.select(0);
+	else
+		m_ram_view.disable();
 }
 
 /* 4d d1: 0100 1101 1101 0001 */
 void upd7810_device::MOV_MCC_A()
 {
+	if (MCC == A)
+		return;
 	MCC = A;
+	WP(UPD7810_PORTC, m_pc_out);
 }
 
 /* 4d d2: 0100 1101 1101 0010 */
@@ -4082,7 +4093,10 @@ void upd7810_device::MVI_ANM_xx()
 /* 64 81: 0110 0100 1000 0001 xxxx xxxx */
 void upd7810_device::MVI_SMH_xx()
 {
-	RDOPARG( SMH );
+	uint8_t imm;
+
+	RDOPARG( imm );
+	write_smh(imm);
 }
 
 /* 64 83: 0110 0100 1000 0011 xxxx xxxx */
@@ -4114,7 +4128,7 @@ void upd7810_device::ANI_SMH_xx()
 	uint8_t imm;
 
 	RDOPARG( imm );
-	SMH &= imm;
+	write_smh(SMH & imm);
 	SET_Z(SMH);
 }
 
@@ -4158,7 +4172,7 @@ void upd7810_device::XRI_SMH_xx()
 	uint8_t imm;
 
 	RDOPARG( imm );
-	SMH ^= imm;
+	write_smh(SMH ^ imm);
 	SET_Z(SMH);
 }
 
@@ -4202,7 +4216,7 @@ void upd7810_device::ORI_SMH_xx()
 	uint8_t imm;
 
 	RDOPARG( imm );
-	SMH |= imm;
+	write_smh(SMH | imm);
 	SET_Z(SMH);
 }
 
@@ -4252,7 +4266,7 @@ void upd7810_device::ADINC_SMH_xx()
 	tmp = SMH + imm;
 
 	ZHC_ADD( tmp, SMH, 0 );
-	SMH = tmp;
+	write_smh(tmp);
 	SKIP_NC;
 }
 
@@ -4360,7 +4374,7 @@ void upd7810_device::SUINB_SMH_xx()
 	RDOPARG( imm );
 	tmp = SMH - imm;
 	ZHC_SUB( tmp, SMH, 0 );
-	SMH = tmp;
+	write_smh(tmp);
 	SKIP_NC;
 }
 
@@ -4458,7 +4472,7 @@ void upd7810_device::ADI_SMH_xx()
 	tmp = SMH + imm;
 
 	ZHC_ADD( tmp, SMH, 0 );
-	SMH = tmp;
+	write_smh(tmp);
 }
 
 /* 64 c3: 0110 0100 1100 0011 xxxx xxxx */
@@ -4551,7 +4565,7 @@ void upd7810_device::ACI_SMH_xx()
 	tmp = SMH + imm + (PSW & CY);
 
 	ZHC_ADD( tmp, SMH, (PSW & CY) );
-	SMH = tmp;
+	write_smh(tmp);
 }
 
 /* 64 d3: 0110 0100 1101 0011 xxxx xxxx */
@@ -4642,7 +4656,7 @@ void upd7810_device::SUI_SMH_xx()
 	RDOPARG( imm );
 	tmp = SMH - imm;
 	ZHC_SUB( tmp, SMH, 0 );
-	SMH = tmp;
+	write_smh(tmp);
 }
 
 /* 64 e3: 0110 0100 1110 0011 xxxx xxxx */
@@ -4735,7 +4749,7 @@ void upd7810_device::SBI_SMH_xx()
 	RDOPARG( imm );
 	tmp = SMH - imm - (PSW & CY);
 	ZHC_SUB( tmp, SMH, (PSW & CY) );
-	SMH = tmp;
+	write_smh(tmp);
 }
 
 /* 64 f3: 0110 0100 1111 0011 xxxx xxxx */
@@ -8127,6 +8141,7 @@ void upd7810_device::INRW_wa()
 {
 	PAIR ea = m_va;
 	uint8_t tmp, m;
+	uint8_t old_cy = PSW & CY;
 
 	RDOPARG( ea.b.l );
 	m = RM( ea.d );
@@ -8134,6 +8149,7 @@ void upd7810_device::INRW_wa()
 	ZHC_ADD( tmp, m, 0 );
 	WM( ea.d, tmp );
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 21: 0010 0001 */
@@ -8233,6 +8249,7 @@ void upd7810_device::DCRW_wa()
 {
 	PAIR ea = m_va;
 	uint8_t tmp, m;
+	uint8_t old_cy = PSW & CY;
 
 	RDOPARG( ea.b.l );
 	m = RM( ea.d );
@@ -8240,6 +8257,7 @@ void upd7810_device::DCRW_wa()
 	ZHC_SUB( tmp, m, 0 );
 	WM( ea.d, tmp );
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 31: 0011 0001 */
@@ -8368,28 +8386,34 @@ void upd7810_device::CALL_w()
 /* 41: 0100 0001 */
 void upd7810_device::INR_A()
 {
+	uint8_t old_cy = PSW & CY;
 	uint8_t tmp = A + 1;
 	ZHC_ADD( tmp, A, 0 );
 	A = tmp;
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 42: 0100 0010 */
 void upd7810_device::INR_B()
 {
+	uint8_t old_cy = PSW & CY;
 	uint8_t tmp = B + 1;
 	ZHC_ADD( tmp, B, 0 );
 	B = tmp;
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 43: 0100 0011 */
 void upd7810_device::INR_C()
 {
+	uint8_t old_cy = PSW & CY;
 	uint8_t tmp = C + 1;
 	ZHC_ADD( tmp, C, 0 );
 	C = tmp;
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 44: 0100 0100 llll llll hhhh hhhh */
@@ -8490,28 +8514,34 @@ void upd7810_device::EXH()
 /* 51: 0101 0001 */
 void upd7810_device::DCR_A()
 {
+	uint8_t old_cy = PSW & CY;
 	uint8_t tmp = A - 1;
 	ZHC_SUB( tmp, A, 0 );
 	A = tmp;
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 52: 0101 0010 */
 void upd7810_device::DCR_B()
 {
+	uint8_t old_cy = PSW & CY;
 	uint8_t tmp = B - 1;
 	ZHC_SUB( tmp, B, 0 );
 	B = tmp;
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 53: 0101 0011 */
 void upd7810_device::DCR_C()
 {
+	uint8_t old_cy = PSW & CY;
 	uint8_t tmp = C - 1;
 	ZHC_SUB( tmp, C, 0 );
 	C = tmp;
 	SKIP_CY;
+	PSW = ( PSW & ~CY ) | old_cy;
 }
 
 /* 54: 0101 0100 llll llll hhhh hhhh */
@@ -8719,7 +8749,7 @@ void upd7810_device::SETB()
 			MKL |= (1 << bit);
 			break;
 		case 0x19:  /* SMH */
-			SMH |= (1 << bit);
+			write_smh(SMH | (1 << bit));
 			break;
 		case 0x1b:  /* EOM */
 			EOM |= (1 << bit);
@@ -8769,7 +8799,7 @@ void upd7810_device::CLR()
 			MKL &= ~(1 << bit);
 			break;
 		case 0x19:  /* SMH */
-			SMH &= ~(1 << bit);
+			write_smh(SMH & ~(1 << bit));
 			break;
 		case 0x1b:  /* EOM */
 			EOM &= ~(1 << bit);
@@ -8851,7 +8881,10 @@ void upd7810_device::PRE_60()
 /* 61: 0110 0001 */
 void upd7810_device::DAA()
 {
-	uint8_t l = A & 0x0f, h = A >> 4, tmp, adj = 0x00, old_cy = PSW & CY;
+	uint8_t l = A & 0x0f;
+	uint8_t h = A >> 4;
+	uint8_t adj = 0x00;
+	uint8_t old_cy = PSW & CY;
 
 	if (0 == (PSW & HC))
 	{
@@ -8868,15 +8901,15 @@ void upd7810_device::DAA()
 				adj = 0x66;
 		}
 	}
-	else
-	if (l < 3)
+	else if (l < 3)
 	{
 		if (h < 10 && 0 == (PSW & CY))
 			adj = 0x06;
 		else
 			adj = 0x66;
 	}
-	tmp = A + adj;
+
+	uint8_t tmp = A + adj;
 	ZHC_ADD( tmp, A, PSW & CY );
 	PSW |= old_cy;
 	A = tmp;
@@ -9369,63 +9402,6 @@ void upd7810_device::CALT_7801()
 	PCH=RM(w.w.l+1);
 }
 
-/* DCR(W) and INR(W) instructions do not modify the CY register on at least 78c05 and 78c06 */
-void upd7810_device::DCR_A_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	DCR_A();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
-void upd7810_device::DCR_B_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	DCR_B();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
-void upd7810_device::DCR_C_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	DCR_C();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
-void upd7810_device::DCRW_wa_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	DCRW_wa();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
-void upd7810_device::INR_A_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	INR_A();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
-void upd7810_device::INR_B_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	INR_B();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
-void upd7810_device::INR_C_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	INR_C();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
-void upd7810_device::INRW_wa_7801()
-{
-	uint32_t old_CY = PSW & CY;
-	INRW_wa();
-	PSW = ( PSW & ~CY ) | old_CY;
-}
-
 void upd7810_device::IN()
 {
 	logerror("unimplemented instruction: IN\n");
@@ -9485,12 +9461,11 @@ void upd7810_device::STM()
 
 void upd7810_device::STM_7801()
 {
-	/* Set the timer flip/fliop */
-	TO = 1;
-	m_to_func(TO);
+	/* Set the timer flip/flop */
+	upd7810_to_output_change(1);
 
 	/* Reload the timer */
-	m_ovc0 = 16 * ( TM0 + ( ( TM1 & 0x0f ) << 8 ) );
+	m_ovc0 = 8 * ( TM0 + ( ( TM1 & 0x0f ) << 8 ) );
 }
 
 void upd7810_device::MOV_MC_A_7801()
@@ -9505,5 +9480,8 @@ void upd7810_device::MOV_MC_A_7801()
 	/* PC5  Output  IO/-M Output */
 	/* PC6  Output  HLDA Output  */
 	/* PC7  Input   HOLD Input   */
-	MC = 0x84 | ( ( A & 0x02 ) ? 0x02 : 0x00 ) | ( ( A & 0x01 ) ? 0x01 : 0x00 );
+	if (MC == A)
+		return;
+	MC = A;
+	WP(UPD7810_PORTC, m_pc_out);
 }

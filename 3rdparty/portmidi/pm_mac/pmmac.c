@@ -18,7 +18,7 @@ non-CoreMIDI devices.
 PmDeviceID pm_default_input_device_id = -1;
 PmDeviceID pm_default_output_device_id = -1;
 
-void pm_init()
+void pm_init(void)
 {
     PmError err = pm_macosxcm_init();
     // this is set when we return to Pm_Initialize, but we need it
@@ -26,10 +26,10 @@ void pm_init()
     pm_initialized = TRUE;
     if (!err) {
         pm_default_input_device_id = find_default_device(
-                (char *)"/PortMidi/PM_RECOMMENDED_INPUT_DEVICE", TRUE, 
+                "/PortMidi/PM_RECOMMENDED_INPUT_DEVICE", TRUE, 
                 pm_default_input_device_id);
         pm_default_output_device_id = find_default_device(
-                (char *)"/PortMidi/PM_RECOMMENDED_OUTPUT_DEVICE", FALSE, 
+                "/PortMidi/PM_RECOMMENDED_OUTPUT_DEVICE", FALSE, 
                 pm_default_output_device_id);
     }
 }
@@ -41,13 +41,14 @@ void pm_term(void)
 }
 
 
-PmDeviceID Pm_GetDefaultInputDeviceID()
+PmDeviceID Pm_GetDefaultInputDeviceID(void)
 {
     Pm_Initialize();
     return pm_default_input_device_id;
 }
 
-PmDeviceID Pm_GetDefaultOutputDeviceID() {
+PmDeviceID Pm_GetDefaultOutputDeviceID(void)
+{
     Pm_Initialize();
     return pm_default_output_device_id;
 }

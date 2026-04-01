@@ -197,7 +197,7 @@ public:
 
 protected:
 	// driver_device overrides
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 private:
 	// screen updates
@@ -210,7 +210,7 @@ private:
 	uint8_t m_addr_high, m_addr_low;
 	uint16_t m_addr_mask, m_addr_latch;
 
-	void hc_map(address_map &map);
+	void hc_map(address_map &map) ATTR_COLD;
 	void bankswitch_w(uint8_t data);
 
 	//inports
@@ -320,7 +320,7 @@ static INPUT_PORTS_START( hotchili )
 	PORT_BIT( 0x08, IP_ACTIVE_LOW,  IPT_SERVICE ) PORT_CODE(KEYCODE_R) PORT_NAME("CoinTest")      // coin test
 	PORT_BIT( 0x10, IP_ACTIVE_LOW,  IPT_SERVICE ) PORT_CODE(KEYCODE_T) PORT_NAME("Test Select")   // test select
 	PORT_BIT( 0x20, IP_ACTIVE_LOW,  IPT_SERVICE ) PORT_CODE(KEYCODE_Y) PORT_NAME("Test End")
-	PORT_BIT( 0xc0, IP_ACTIVE_HIGH, IPT_GAMBLE_DOOR ) PORT_TOGGLE
+	PORT_BIT( 0xc0, IP_ACTIVE_HIGH, IPT_DOOR ) PORT_TOGGLE
 
 	PORT_START("IN2")
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_POKER_HOLD1 ) PORT_NAME("Play 1 Credits / Change (Setup)") // 1st. Start

@@ -32,7 +32,7 @@
 ****************************************************************************/
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 //#include "machine/eepromser.h"
 #include "machine/mc68681.h"
 #include "machine/ram.h"
@@ -41,6 +41,8 @@
 #include "emupal.h"
 #include "screen.h"
 
+
+namespace {
 
 class vt220_state : public driver_device
 {
@@ -55,15 +57,15 @@ public:
 	void vt220a(machine_config &config);
 
 private:
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 	uint32_t screen_update_vt220(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 	required_device<i8051_device> m_maincpu;
 	required_device<ram_device> m_ram;
-	void vt220_io(address_map &map);
-	void vt220_mem(address_map &map);
-	void vt220a_io(address_map &map);
-	void vt220a_mem(address_map &map);
+	void vt220_data(address_map &map) ATTR_COLD;
+	void vt220_mem(address_map &map) ATTR_COLD;
+	void vt220a_data(address_map &map) ATTR_COLD;
+	void vt220a_mem(address_map &map) ATTR_COLD;
 };
 
 
@@ -77,14 +79,14 @@ void vt220_state::vt220a_mem(address_map &map)
 	map(0x0000, 0xffff).rom().region("maincpu", 0);
 }
 
-void vt220_state::vt220_io(address_map &map)
+void vt220_state::vt220_data(address_map &map)
 {
 	map.unmap_value_high();
 	map(0x2000, 0x2fff).mirror(0xc000).ram();
 	map(0x3800, 0x380f).mirror(0xc7f0).rw("duart", FUNC(scn2681_device::read), FUNC(scn2681_device::write));
 }
 
-void vt220_state::vt220a_io(address_map &map)
+void vt220_state::vt220a_data(address_map &map)
 {
 	map.unmap_value_high();
 }
@@ -113,7 +115,7 @@ void vt220_state::vt220(machine_config &config)
 	/* basic machine hardware */
 	I8051(config, m_maincpu, XTAL(11'059'200)); // from schematic for earlier version
 	m_maincpu->set_addrmap(AS_PROGRAM, &vt220_state::vt220_mem);
-	m_maincpu->set_addrmap(AS_IO, &vt220_state::vt220_io);
+	m_maincpu->set_addrmap(AS_DATA, &vt220_state::vt220_data);
 	m_maincpu->port_in_cb<1>().set_constant(0); // ???
 
 	scn2681_device &duart(SCN2681(config, "duart", XTAL(3'686'400)));
@@ -138,7 +140,7 @@ void vt220_state::vt220a(machine_config &config)
 {
 	vt220(config);
 	m_maincpu->set_addrmap(AS_PROGRAM, &vt220_state::vt220a_mem);
-	m_maincpu->set_addrmap(AS_IO, &vt220_state::vt220a_io);
+	m_maincpu->set_addrmap(AS_DATA, &vt220_state::vt220a_data);
 }
 
 /* ROM definitions */
@@ -175,8 +177,11 @@ ROM_START(vt220a)
 	ROM_LOAD("23-348e4.e13", 0x0000, 0x2000, CRC(994f3e37) SHA1(fe72a9fe9adb3a24743a6288d88ae07570cfea9a)) // this can maybe be read as well as a read/writable ram for custom characters which lives ?above? it in chargen address space by setting a bit in a config register. I haven't figured out where in 8051 address space it appears when readable nor where the ram appears.
 ROM_END
 
+} // anonymous namespace
+
+
 /* Driver */
 
 /*    YEAR  NAME    PARENT  COMPAT  MACHINE  INPUT  STATE        INIT        COMPANY                          FULLNAME               FLAGS */
-COMP( 1983, vt220,  0,      0,      vt220,   vt220, vt220_state, empty_init, "Digital Equipment Corporation", "VT220 (Version 2.3)", MACHINE_IS_SKELETON )
-COMP( 1983, vt220a, vt220,  0,      vt220a,  vt220, vt220_state, empty_init, "Digital Equipment Corporation", "VT220 (Version 2.1)", MACHINE_IS_SKELETON )
+COMP( 1983, vt220,  0,      0,      vt220,   vt220, vt220_state, empty_init, "Digital Equipment Corporation", "VT220 (Version 2.3)", MACHINE_NO_SOUND | MACHINE_NOT_WORKING )
+COMP( 1983, vt220a, vt220,  0,      vt220a,  vt220, vt220_state, empty_init, "Digital Equipment Corporation", "VT220 (Version 2.1)", MACHINE_NO_SOUND | MACHINE_NOT_WORKING )

@@ -1,5 +1,5 @@
-// license:GPL-2.0+
-// copyright-holders:Dirk Best
+// license: GPL-2.0+
+// copyright-holders: Dirk Best
 /***************************************************************************
 
     ACT Apricot PC/Xi
@@ -8,6 +8,8 @@
     - External RS232 data transfers to the Apricot are usually garbage (but
       sending to an external target works fine)
     - Dump of the keyboard MCU ROM needed (can be dumped using test mode)
+    - The Apricot User Group custom bios displays the error code 32 (CTC
+      accuracy check failed) - likely requires a V30 CPU.
 
 ***************************************************************************/
 
@@ -18,6 +20,7 @@
 #include "bus/rs232/rs232.h"
 #include "cpu/i86/i86.h"
 #include "cpu/i8089/i8089.h"
+#include "formats/apricotpc_dsk.h"
 #include "formats/apridisk.h"
 #include "imagedev/floppy.h"
 #include "machine/clock.h"
@@ -34,6 +37,9 @@
 #include "screen.h"
 #include "softlist_dev.h"
 #include "speaker.h"
+
+
+namespace {
 
 
 //**************************************************************************
@@ -56,8 +62,7 @@ public:
 		m_rs232(*this, "rs232"),
 		m_centronics(*this, "centronics"),
 		m_fdc(*this, "ic68"),
-		m_floppy0(*this, "ic68:0"),
-		m_floppy1(*this, "ic68:1"),
+		m_floppy(*this, "ic68:%u", 0U),
 		m_palette(*this, "palette"),
 		m_exp(*this, "exp"),
 		m_screen_buffer(*this, "screen_buffer"),
@@ -70,35 +75,34 @@ public:
 	{ }
 
 	void apricot(machine_config &config);
-	void apricotxi(machine_config &config);
 
 private:
 	static void floppy_formats(format_registration &fr);
 
-	DECLARE_WRITE_LINE_MEMBER(i8086_lock_w);
+	void i8086_lock_w(int state);
 	void i8089_ca1_w(uint8_t data);
 	void i8089_ca2_w(uint8_t data);
 	void i8255_portb_w(uint8_t data);
 	uint8_t i8255_portc_r();
 	void i8255_portc_w(uint8_t data);
-	DECLARE_WRITE_LINE_MEMBER(fdc_intrq_w);
+	void fdc_intrq_w(int state);
 	uint8_t sio_da_r();
 	uint8_t sio_ca_r();
 	uint8_t sio_db_r();
 	uint8_t sio_cb_r();
 
-	DECLARE_WRITE_LINE_MEMBER(write_centronics_fault);
-	DECLARE_WRITE_LINE_MEMBER(write_centronics_perror);
+	void write_centronics_fault(int state);
+	void write_centronics_perror(int state);
 
-	DECLARE_WRITE_LINE_MEMBER(apricot_hd6845_de) { m_display_enabled = state; };
+	void apricot_hd6845_de(int state) { m_display_enabled = state; };
 
 	MC6845_UPDATE_ROW(crtc_update_row);
 	uint32_t screen_update_apricot(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
-	void apricot_io(address_map &map);
-	void apricot_mem(address_map &map);
+	void apricot_io(address_map &map) ATTR_COLD;
+	void apricot_mem(address_map &map) ATTR_COLD;
 
-	virtual void machine_start() override;
+	virtual void machine_start() override ATTR_COLD;
 
 	required_device<i8086_cpu_device> m_cpu;
 	required_device<i8089_device> m_iop;
@@ -111,8 +115,7 @@ private:
 	required_device<rs232_port_device> m_rs232;
 	required_device<centronics_device> m_centronics;
 	required_device<wd2797_device> m_fdc;
-	required_device<floppy_connector> m_floppy0;
-	required_device<floppy_connector> m_floppy1;
+	required_device_array<floppy_connector, 2> m_floppy;
 	required_device<palette_device> m_palette;
 	required_device<apricot_expansion_bus_device> m_exp;
 	required_shared_ptr<uint16_t> m_screen_buffer;
@@ -147,14 +150,14 @@ void apricot_state::i8089_ca2_w(uint8_t data)
 	m_iop->ca_w(0);
 }
 
-WRITE_LINE_MEMBER( apricot_state::write_centronics_fault )
+void apricot_state::write_centronics_fault(int state)
 {
 	m_centronics_fault = state;
 	m_sio->syncb_w(state);
 	m_ppi->pc2_w(state);
 }
 
-WRITE_LINE_MEMBER( apricot_state::write_centronics_perror )
+void apricot_state::write_centronics_perror(int state)
 {
 	m_centronics_perror = state;
 }
@@ -173,22 +176,26 @@ uint8_t apricot_state::i8255_portc_r()
 
 void apricot_state::i8255_portb_w(uint8_t data)
 {
-	// bit 0, crt reset
-	// bit 1, not connected
+	// 7-------  centronics transceiver direction (0 = output)
+	// -6------  disk select
+	// --5-----  enable disk select
+	// ---4----  video mode
+	// ----3---  display enabled
+	// -----2--  head load
+	// ------1-  not used
+	// -------0  crtc reset
 
 	m_display_on = BIT(data, 3);
 	m_video_mode = BIT(data, 4);
 
 	floppy_image_device *floppy = nullptr;
 
-	// bit 5, enable disk select
-	// bit 6, disk select
 	if (!BIT(data, 5))
-		floppy = BIT(data, 6) ? m_floppy1->get_device() : m_floppy0->get_device();
+		floppy = m_floppy[BIT(data, 6)]->get_device();
 
 	m_fdc->set_floppy(floppy);
 
-	// bit 2, head load (motor on is wired to be active once a disk has been inserted)
+	// motor on is wired to be active once a disk has been inserted
 	// we just let the motor run all the time for now
 	if (floppy)
 		floppy->mon_w(0);
@@ -196,8 +203,6 @@ void apricot_state::i8255_portb_w(uint8_t data)
 	// switch video modes
 	m_crtc->set_unscaled_clock(15_MHz_XTAL / (m_video_mode ? 10 : 16));
 	m_crtc->set_hpixels_per_column(m_video_mode ? 10 : 16);
-
-	// PB7 Centronics transceiver direction. 0 = output, 1 = input
 }
 
 void apricot_state::i8255_portc_w(uint8_t data)
@@ -244,7 +249,7 @@ uint8_t apricot_state::sio_db_r()
 //  FLOPPY
 //**************************************************************************
 
-WRITE_LINE_MEMBER( apricot_state::fdc_intrq_w )
+void apricot_state::fdc_intrq_w(int state)
 {
 	m_pic->ir4_w(state);
 	m_iop->ext1_w(state);
@@ -253,7 +258,7 @@ WRITE_LINE_MEMBER( apricot_state::fdc_intrq_w )
 void apricot_state::floppy_formats(format_registration &fr)
 {
 	fr.add_mfm_containers();
-
+	fr.add(FLOPPY_APRICOTPC_FORMAT);
 	fr.add(FLOPPY_APRIDISK_FORMAT);
 }
 
@@ -322,7 +327,7 @@ void apricot_state::machine_start()
 	membank("ram")->set_base(m_ram->pointer());
 }
 
-WRITE_LINE_MEMBER( apricot_state::i8086_lock_w )
+void apricot_state::i8086_lock_w(int state)
 {
 	m_bus_locked = state;
 }
@@ -336,7 +341,7 @@ void apricot_state::apricot_mem(address_map &map)
 {
 	map(0x00000, 0x3ffff).bankrw("ram");
 	map(0xf0000, 0xf0fff).mirror(0x7000).ram().share("screen_buffer");
-	map(0xf8000, 0xfbfff).mirror(0x4000).rom().region("bootstrap", 0);
+	map(0xf8000, 0xfffff).rom().region("bootstrap", 0);
 }
 
 void apricot_state::apricot_io(address_map &map)
@@ -385,9 +390,7 @@ void apricot_state::apricot(machine_config &config)
 	// video hardware
 	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
 	screen.set_color(rgb_t::green());
-	screen.set_size(800, 400);
-	screen.set_visarea(0, 800-1, 0, 400-1);
-	screen.set_refresh_hz(72);
+	screen.set_raw(15_MHz_XTAL, 950, 0, 800, 426, 0, 400); // should be interlace
 	screen.set_screen_update(FUNC(apricot_state::screen_update_apricot));
 
 	PALETTE(config, m_palette, palette_device::MONOCHROME_HIGHLIGHT);
@@ -470,8 +473,8 @@ void apricot_state::apricot(machine_config &config)
 	WD2797(config, m_fdc, 4_MHz_XTAL / 2);
 	m_fdc->intrq_wr_callback().set(FUNC(apricot_state::fdc_intrq_w));
 	m_fdc->drq_wr_callback().set(m_iop, FUNC(i8089_device::drq1_w));
-	FLOPPY_CONNECTOR(config, "ic68:0", apricot_floppies, "d32w", apricot_state::floppy_formats);
-	FLOPPY_CONNECTOR(config, "ic68:1", apricot_floppies, "d32w", apricot_state::floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppy[0], apricot_floppies, "d32w", apricot_state::floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppy[1], apricot_floppies, "d32w", apricot_state::floppy_formats);
 
 	SOFTWARE_LIST(config, "flop_list").set_original("apricot_flop");
 
@@ -487,33 +490,34 @@ void apricot_state::apricot(machine_config &config)
 	APRICOT_EXPANSION_SLOT(config, "exp:2", apricot_expansion_cards, nullptr);
 }
 
-void apricot_state::apricotxi(machine_config &config)
-{
-	apricot(config);
-}
-
 
 //**************************************************************************
 //  ROM DEFINITIONS
 //**************************************************************************
 
 ROM_START( apricot )
-	ROM_REGION16_LE(0x4000, "bootstrap", 0)
-	ROM_LOAD16_BYTE("pc_bios_lo_001.bin", 0x0000, 0x2000, CRC(0c217cc2) SHA1(0d7a2b61e17966462b555115f962a175fadcf72a))
-	ROM_LOAD16_BYTE("pc_bios_hi_001.bin", 0x0001, 0x2000, CRC(7c27f36c) SHA1(c801bbf904815f76ec6463e948f57e0118a26292))
+	ROM_REGION16_LE(0x8000, "bootstrap", 0)
+	ROM_DEFAULT_BIOS("ve009")
+	ROM_SYSTEM_BIOS(0, "ve007", "Ve007 03.04.84")
+	ROMX_LOAD("lo_ve007.u11", 0x0000, 0x2000, CRC(e74e14d1) SHA1(569133b0266ce3563b21ae36fa5727308797deee), ROM_SKIP(1) | ROM_BIOS(0)) // LO Ve007 03.04.84
+	ROMX_LOAD("hi_ve007.u9",  0x0001, 0x2000, CRC(b04fb83e) SHA1(cc2b2392f1b4c04bb6ec8ee26f8122242c02e572), ROM_SKIP(1) | ROM_BIOS(0)) // HI Ve007 03.04.84
+	ROM_COPY("bootstrap", 0x0000, 0x4000, 0x4000)
+	ROM_SYSTEM_BIOS(1, "ve009", "Ve009 18.10.84")
+	ROMX_LOAD("lo_ve009.u11", 0x0000, 0x2000, CRC(0c217cc2) SHA1(0d7a2b61e17966462b555115f962a175fadcf72a), ROM_SKIP(1) | ROM_BIOS(1)) // LO Ve009 18.10.84
+	ROMX_LOAD("hi_ve009.u9",  0x0001, 0x2000, CRC(7c27f36c) SHA1(c801bbf904815f76ec6463e948f57e0118a26292), ROM_SKIP(1) | ROM_BIOS(1)) // HI Ve009 18.10.84
+	ROM_COPY("bootstrap", 0x0000, 0x4000, 0x4000)
+	ROM_SYSTEM_BIOS(2, "aug", "Apricot User Group V30") // "apricot user group deutschland  Berlin, 06.12.85 Klaus Neumeister"
+	ROMX_LOAD("lo_aug.u11",   0x0000, 0x4000, CRC(65ad8f9d) SHA1(6e94feb115db4e57290462da952649cd1e7a2c49), ROM_SKIP(1) | ROM_BIOS(2))
+	ROMX_LOAD("hi_aug.u9",    0x0001, 0x4000, CRC(0b1513c3) SHA1(1708a0ca40e7c602863d5d3a8e97608883771f80), ROM_SKIP(1) | ROM_BIOS(2))
 ROM_END
 
-ROM_START( apricotxi )
-	ROM_REGION16_LE(0x4000, "bootstrap", 0)
-	ROM_LOAD16_BYTE("lo_ve007.u11", 0x0000, 0x2000, CRC(e74e14d1) SHA1(569133b0266ce3563b21ae36fa5727308797deee)) // LO Ve007 03.04.84
-	ROM_LOAD16_BYTE("hi_ve007.u9",  0x0001, 0x2000, CRC(b04fb83e) SHA1(cc2b2392f1b4c04bb6ec8ee26f8122242c02e572)) // HI Ve007 03.04.84
-ROM_END
+
+} // anonymous namespace
 
 
 //**************************************************************************
-//  GAME DRIVERS
+//  SYSTEM DRIVERS
 //**************************************************************************
 
-//    YEAR  NAME       PARENT   COMPAT  MACHINE    INPUT  CLASS          INIT        COMPANY  FULLNAME      FLAGS
-COMP( 1983, apricot,   0,       0,      apricot,   0,     apricot_state, empty_init, "ACT",   "Apricot PC", 0 )
-COMP( 1984, apricotxi, apricot, 0,      apricotxi, 0,     apricot_state, empty_init, "ACT",   "Apricot Xi", 0 )
+//    YEAR  NAME       PARENT   COMPAT  MACHINE    INPUT  CLASS          INIT        COMPANY  FULLNAME         FLAGS
+COMP( 1983, apricot,   0,       0,      apricot,   0,     apricot_state, empty_init, "ACT",   "Apricot PC/Xi", 0 )

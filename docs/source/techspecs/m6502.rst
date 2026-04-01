@@ -18,7 +18,7 @@ Point 1 has been ensured through bisimulation with the gate-level simulation per
 The 6502 family
 ---------------
 
-The MOS 6502 family has been large and productive. A large number of variants exist, varying on bus sizes, I/O, and even opcodes. Some offshots (g65c816, hu6280) even exist that live elsewhere in the mame tree. The final class hierarchy is this:
+The MOS 6502 family has been large and productive. A large number of variants exist, varying on bus sizes, I/O, and even opcodes. Some offshoots (g65c816, hu6280) even exist that live elsewhere in the mame tree. The final class hierarchy is this:
 
 ::
 
@@ -26,7 +26,7 @@ The MOS 6502 family has been large and productive. A large number of variants ex
                             |
          +------+--------+--+--+-------+-------+
          |      |        |     |       |       |
-       6510   deco16   6504   6509   n2a03   65c02
+       6510   deco16   6504   6509   rp2a03  65c02
          |                                     |
    +-----+-----+                            r65c02
    |     |     |                               |
@@ -38,7 +38,7 @@ The MOS 6502 family has been large and productive. A large number of variants ex
 
 
 
-The 6510 adds an up to 8 bits I/O port, with the 6510t, 7501 and 8502 being software-identical variants with different pin count (hence I/O count), die process (NMOS, HNMOS, etc) and clock support.
+The 6510 adds an up to 8 bits I/O port, with the 6510t, 7501 and 8502 being software-identical variants with different pin count (hence I/O count), die process (NMOS, HNMOS, etc.) and clock support.
 
 The deco16 is a Deco variant with a small number of not really understood additional instructions and some I/O.
 
@@ -46,7 +46,7 @@ The 6504 is a pin and address-bus reduced version.
 
 The 6509 adds internal support for paging.
 
-The n2a03 is the NES variant with the D flag disabled and sound functionality integrated.
+The rp2a03 is the NES variant with the D flag disabled and sound functionality integrated.
 
 The 65c02 is the very first cmos variant with some additional instructions, some fixes, and most of the undocumented instructions turned into nops. The R (Rockwell, but eventually produced by WDC too among others) variant adds a number of bitwise instructions and also stp and wai. The SC variant, used by the Lynx portable console, looks identical to the R variant. The 'S' probably indicates a static-ram-cell process allowing full DC-to-max clock control.
 
@@ -92,7 +92,7 @@ At a minimum, the class must include a constructor and an enum picking up the co
 
 If the CPU has its own dispatch table, the class must also include the declaration (but not definition) of **disasm_entries**, **do_exec_full** and **do_exec_partial**, the declaration and definition of **disasm_disassemble** (identical for all classes but refers to the class-specific **disasm_entries** array) and include the .inc file (which provides the missing definitions). Support for the generation must also be added to CPU.mak.
 
-If the CPU has in addition its own opcodes, their declaration must be done through a macro, see f.i. m65c02. The .inc file will provide the definitions.
+If the CPU has in addition its own opcodes, their declaration must be done through a macro, see e.g. m65c02. The .inc file will provide the definitions.
 
 
 Dispatch tables
@@ -365,7 +365,7 @@ A negative icount means that the CPU won't be able to do anything for some time 
 Multi-dispatch variants
 -----------------------
 
-Some variants currently in the process of being supported change instruction set depending on an internal flag, either switching to a 16-bits mode or changing some register accesses to memory accesses. This is handled by having multiple dispatch tables for the CPU, the d<CPU>.lst not being 257 entries anymore but 256*n+1. The variable **inst_state_base** must select which instruction table to use at a given time. It must be a multiple of 256, and is in fact simply OR-ed to the first instruction byte to get the dispatch table index (aka inst_state).
+Some variants currently in the process of being supported change instruction set depending on an internal flag, either switching to a 16-bit mode or changing some register accesses to memory accesses. This is handled by having multiple dispatch tables for the CPU, the d<CPU>.lst not being 257 entries anymore but 256*n+1. The variable **inst_state_base** must select which instruction table to use at a given time. It must be a multiple of 256, and is in fact simply OR-ed to the first instruction byte to get the dispatch table index (aka inst_state).
 
 Current TO-DO:
 --------------
@@ -374,6 +374,6 @@ Current TO-DO:
 
 - Integrate the I/O subsystems in the 4510
 
-- Possibly integrate the sound subsytem in the n2a03
+- Possibly integrate the sound subsystem in the rp2a03
 
 - Add decent hookups for the Apple 3 madness

@@ -30,7 +30,6 @@
 #include "bus/rs232/terminal.h"
 
 #include "imagedev/floppy.h"
-#include "formats/pc_dsk.h"
 
 // video
 #include "video/hd44780.h"
@@ -39,6 +38,9 @@
 
 #define VERBOSE 0
 #include "logmacro.h"
+
+
+namespace {
 
 class emu3_state : public driver_device
 {
@@ -49,7 +51,7 @@ public:
 		, m_lcdc(*this, "lcdc")
 		, m_fdc(*this, "fdc")
 		, m_fdd(*this, "fdc:0:35dd")
-		, m_hdc(*this, "scsi:0:ncr5380")
+		, m_hdc(*this, "ncr5380")
 		, m_pit(*this, "pit")
 		, m_scc(*this, "scc")
 		, m_ddt(*this, "ddt")
@@ -63,11 +65,11 @@ public:
 	DECLARE_INPUT_CHANGED_MEMBER(nmi_button);
 
 protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 private:
-	void emu3_map(address_map &map);
+	void emu3_map(address_map &map) ATTR_COLD;
 
 	void palette_init(palette_device &palette);
 
@@ -227,16 +229,12 @@ void emu3_state::emu3(machine_config &config)
 	//pit.out_handler<2>().set(); // -SMPTIME
 
 	// scsi bus and devices
-	NSCSI_BUS(config, "scsi");
+	auto &scsi(NSCSI_BUS(config, "scsi"));
 
 	// scsi host adapter
-	NSCSI_CONNECTOR(config, "scsi:0").option_set("ncr5380", NCR5380).machine_config(
-		[this](device_t *device)
-		{
-			ncr5380_device &adapter = downcast<ncr5380_device &>(*device);
-
-			adapter.irq_handler().set(*this, FUNC(emu3_state::irq_w<HDINT>));
-		});
+	NCR5380(config, m_hdc);
+	scsi.set_external_device(0, m_hdc);
+	m_hdc->irq_handler().set(DEVICE_SELF, FUNC(emu3_state::irq_w<HDINT>));
 
 	NSCSI_CONNECTOR(config, "scsi:1", emu_scsi_devices, "harddisk");
 	NSCSI_CONNECTOR(config, "scsi:2", emu_scsi_devices, nullptr);
@@ -249,7 +247,7 @@ void emu3_state::emu3(machine_config &config)
 	SCC85230(config, m_scc, 16_MHz_XTAL / 4);
 	m_scc->out_int_callback().set(*this, FUNC(emu3_state::irq_w<SCCINT>)).invert();
 
-	HD44780(config, m_lcdc, 0);
+	HD44780(config, m_lcdc, 270'000); // TODO: clock not measured, datasheet typical clock used
 	m_lcdc->set_lcd_size(4, 20);
 
 	PALETTE(config, "palette", FUNC(emu3_state::palette_init), 2);
@@ -281,7 +279,7 @@ INPUT_CHANGED_MEMBER(emu3_state::nmi_button)
 
 static INPUT_PORTS_START(emu3)
 	PORT_START("ddt")
-	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_D) PORT_CHAR('d') PORT_CHAR('D') PORT_CHANGED_MEMBER(DEVICE_SELF, emu3_state, nmi_button, 0)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_CODE(KEYCODE_D) PORT_CHAR('d') PORT_CHAR('D') PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(emu3_state::nmi_button), 0)
 INPUT_PORTS_END
 
 ROM_START(emu3)
@@ -293,4 +291,7 @@ ROM_START(emu3)
 	ROM_LOAD("im368.ic31", 0x000, 0xc00, NO_DUMP)
 ROM_END
 
-SYST(1987, emu3, 0, 0, emu3, emu3, emu3_state, empty_init, "E-mu Systems", "Emulator Three Digital Sound Production System", MACHINE_IS_SKELETON)
+} // anonymous namespace
+
+
+SYST(1987, emu3, 0, 0, emu3, emu3, emu3_state, empty_init, "E-mu Systems", "Emulator Three Digital Sound Production System", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)

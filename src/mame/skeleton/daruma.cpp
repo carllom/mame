@@ -16,10 +16,13 @@
 ***************************************************************************/
 
 #include "emu.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i80c52.h"
 #include "sound/spkrdev.h"
 #include "speaker.h"
 //TODO: #include "ds348.lh"
+
+
+namespace {
 
 class daruma_state : public driver_device
 {
@@ -34,12 +37,12 @@ public:
 private:
 	uint8_t dev0_r();
 	void dev1_w(uint8_t data);
-	void dev2_w(uint8_t data);
+	[[maybe_unused]] void dev2_w(uint8_t data);
 	uint8_t dev4_r();
 	required_device<cpu_device> m_maincpu;
 	required_device<speaker_sound_device> m_speaker;
-	void mem_io(address_map &map);
-	void mem_prg(address_map &map);
+	void mem_data(address_map &map) ATTR_COLD;
+	void mem_prg(address_map &map) ATTR_COLD;
 };
 
 uint8_t daruma_state::dev0_r()
@@ -90,7 +93,7 @@ void daruma_state::mem_prg(address_map &map)
 	map(0x0000, 0xffff).rom();
 }
 
-void daruma_state::mem_io(address_map &map)
+void daruma_state::mem_data(address_map &map)
 {
 	map(0x0000, 0x0000).r(FUNC(daruma_state::dev0_r));
 	map(0x1000, 0x1000).w(FUNC(daruma_state::dev1_w));
@@ -123,7 +126,7 @@ void daruma_state::daruma(machine_config &config)
 	/* basic machine hardware */
 	I80C32(config, m_maincpu, 11059200); //verified on pcb
 	m_maincpu->set_addrmap(AS_PROGRAM, &daruma_state::mem_prg);
-	m_maincpu->set_addrmap(AS_IO, &daruma_state::mem_io);
+	m_maincpu->set_addrmap(AS_DATA, &daruma_state::mem_data);
 	// TODO: ports
 
 	/* sound hardware */
@@ -144,6 +147,9 @@ ROM_START( ds348 )
 	ROM_REGION( 0x10000, "maincpu", 0 )
 	ROM_LOAD( "daruma_ds348_v1_1.rom",   0x0000, 0x10000, CRC(10bf9036) SHA1(d654a13bc582f5384e759ec6fe5309a642bd8e18) )
 ROM_END
+
+} // anonymous namespace
+
 
 //    YEAR  NAME   PARENT  COMPAT  MACHINE  INPUT   CLASS         INIT        COMPANY           FULLNAME                                 FLAGS
 COMP( 1998, ds348, 0,      0,      daruma,  daruma, daruma_state, empty_init, "Sigtron Daruma", "Print Plus DS348 - Dot matrix printer", MACHINE_NOT_WORKING | MACHINE_NO_SOUND)

@@ -20,15 +20,19 @@
 #include "screen.h"
 #include "speaker.h"
 #include "machine/bankdev.h"
+#include "machine/nvram.h"
 #include "machine/timer.h"
 
-#define LOG_DMA       (1U << 2)
-#define LOG_PPU       (1U << 1)
+#define LOG_DMA       (1U << 1)
+#define LOG_PPU       (1U << 2)
 
 //#define VERBOSE             (LOG_PPU)
 #define VERBOSE             (0)
 
 #include "logmacro.h"
+
+
+namespace {
 
 class nes_sh6578_state : public driver_device
 {
@@ -42,7 +46,8 @@ public:
 		m_screen(*this, "screen"),
 		m_apu(*this, "nesapu"),
 		m_timer(*this, "timer"),
-		m_in(*this, "IN%u", 0U)
+		m_in(*this, "IN%u", 0U),
+		m_ext(*this, "EXT")
 	{ }
 
 	void nes_sh6578(machine_config& config);
@@ -50,14 +55,21 @@ public:
 
 	void init_nes_sh6578();
 
-protected:
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	int unknown_random_r()
+	{
+		if (!machine().side_effects_disabled())
+			return machine().rand();
+		else
+			return 0;
+	}
 
-	void sprite_dma_w(address_space &space, uint8_t data);
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 
 	virtual void io_w(uint8_t data);
+	virtual uint8_t extio_r();
 	virtual void extio_w(uint8_t data);
 	bool m_isbanked;
 	required_memory_bank m_bank;
@@ -106,13 +118,9 @@ private:
 	uint8_t io0_r();
 	uint8_t io1_r();
 
-	uint8_t psg1_4014_r();
-	uint8_t psg1_4015_r();
-	void psg1_4015_w(uint8_t data);
-	void psg1_4017_w(uint8_t data);
 	uint8_t apu_read_mem(offs_t offset);
 
-	DECLARE_WRITE_LINE_MEMBER(apu_irq);
+	void apu_irq(int state);
 
 	int m_initial_startup_state;
 
@@ -128,8 +136,9 @@ private:
 
 	void do_dma();
 
-	void rom_map(address_map& map);
-	void nes_sh6578_map(address_map& map);
+	void rom_map(address_map &map) ATTR_COLD;
+	void nes_sh6578_map(address_map &map) ATTR_COLD;
+	void ppu_map(address_map &map);
 
 	//uint16_t get_tileaddress(uint8_t x, uint8_t y, bool ishigh);
 
@@ -142,6 +151,7 @@ private:
 	uint8_t m_previo;
 	uint8_t m_iolatch[2];
 	required_ioport_array<2> m_in;
+	required_ioport m_ext;
 };
 
 class nes_sh6578_abl_wikid_state : public nes_sh6578_state
@@ -164,7 +174,7 @@ public:
 
 protected:
 	virtual void extio_w(uint8_t data) override;
-	virtual void machine_reset() override;
+	virtual void machine_reset() override ATTR_COLD;
 };
 
 uint8_t nes_sh6578_state::bank_r(int bank, uint16_t offset)
@@ -181,11 +191,6 @@ void nes_sh6578_state::bank_w(int bank, uint16_t offset, uint8_t data)
 	address = offset & 0x00fff;                   // 0x00fff part of address
 	address |= (m_bankswitch[bank] & 0xff) << 12; // 0xff000 part of address
 	m_fullrom->write8(address, data);
-}
-
-void nes_sh6578_state::sprite_dma_w(address_space &space, uint8_t data)
-{
-	m_ppu->spriteram_dma(space, data);
 }
 
 uint8_t nes_sh6578_state::bankswitch_r(offs_t offset)
@@ -436,6 +441,12 @@ void nes_sh6578_abl_wikid_state::io_w(uint8_t data)
 	}
 }
 
+uint8_t nes_sh6578_state::extio_r()
+{
+	logerror("%s: extio_r\n", machine().describe_context());
+	return m_ext->read();
+}
+
 void nes_sh6578_state::extio_w(uint8_t data)
 {
 	logerror("%s: extio_w : %02x\n", machine().describe_context(), data);
@@ -452,27 +463,7 @@ void nes_sh6578_max10in1_state::extio_w(uint8_t data)
 
 
 
-uint8_t nes_sh6578_state::psg1_4014_r()
-{
-	return m_apu->read(0x14);
-}
-
-uint8_t nes_sh6578_state::psg1_4015_r()
-{
-	return m_apu->read(0x15);
-}
-
-void nes_sh6578_state::psg1_4015_w(uint8_t data)
-{
-	m_apu->write(0x15, data);
-}
-
-void nes_sh6578_state::psg1_4017_w(uint8_t data)
-{
-	m_apu->write(0x17, data);
-}
-
-WRITE_LINE_MEMBER(nes_sh6578_state::apu_irq)
+void nes_sh6578_state::apu_irq(int state)
 {
 	// unimplemented
 }
@@ -492,11 +483,11 @@ void nes_sh6578_state::nes_sh6578_map(address_map& map)
 
 	map(0x2040, 0x207f).rw(m_ppu, FUNC(ppu_sh6578_device::palette_read), FUNC(ppu_sh6578_device::palette_write));
 
-	map(0x4000, 0x4013).rw(m_apu, FUNC(nesapu_device::read), FUNC(nesapu_device::write));
-	map(0x4014, 0x4014).rw(FUNC(nes_sh6578_state::psg1_4014_r), FUNC(nes_sh6578_state::sprite_dma_w));
-	map(0x4015, 0x4015).rw(FUNC(nes_sh6578_state::psg1_4015_r), FUNC(nes_sh6578_state::psg1_4015_w));
+	map(0x4000, 0x4017).w(m_apu, FUNC(nesapu_device::write));
+	map(0x4014, 0x4014).w(m_ppu, FUNC(ppu_sh6578_device::spriteram_dma));
+	map(0x4015, 0x4015).r(m_apu, FUNC(nesapu_device::status_r));
 	map(0x4016, 0x4016).rw(FUNC(nes_sh6578_state::io0_r), FUNC(nes_sh6578_state::io_w));
-	map(0x4017, 0x4017).rw(FUNC(nes_sh6578_state::io1_r), FUNC(nes_sh6578_state::psg1_4017_w));
+	map(0x4017, 0x4017).r(FUNC(nes_sh6578_state::io1_r));
 
 	map(0x4020, 0x4020).w(FUNC(nes_sh6578_state::timing_setting_control_w));
 	//4021 write keyboard output port
@@ -504,8 +495,8 @@ void nes_sh6578_state::nes_sh6578_map(address_map& map)
 	//4023 read/write joystick,mouse control
 	//4024 read - mouse port / write - mouse baud
 	//4025 write - Printer Port
-	map(0x4026, 0x4026).w(FUNC(nes_sh6578_state::extio_w));
-	//4027 read/write - DAC data register
+	map(0x4026, 0x4026).rw(FUNC(nes_sh6578_state::extio_r), FUNC(nes_sh6578_state::extio_w));
+	map(0x4027, 0x4027).ram(); //4027 read/write - DAC data register
 
 	map(0x4031, 0x4031).w(FUNC(nes_sh6578_state::initial_startup_w));
 	map(0x4032, 0x4032).w(FUNC(nes_sh6578_state::irq_mask_w));
@@ -544,7 +535,36 @@ static INPUT_PORTS_START(nes_sh6578)
 
 	PORT_START("IN1")
 	PORT_BIT( 0xff, IP_ACTIVE_HIGH, IPT_UNUSED )
+
+	PORT_START("EXT")
+	PORT_BIT( 0xff, IP_ACTIVE_HIGH, IPT_UNUSED )
 INPUT_PORTS_END
+
+static INPUT_PORTS_START(bancook)
+	PORT_START("IN0")
+	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_UNUSED )
+
+	PORT_START("IN1")
+	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_UNUSED )
+
+	PORT_START("EXT")
+	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_CUSTOM ) PORT_READ_LINE_MEMBER(FUNC(nes_sh6578_state::unknown_random_r))
+INPUT_PORTS_END
+
+static INPUT_PORTS_START(soulbird)
+	PORT_START("IN0")
+	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_UNUSED )
+
+	PORT_START("IN1")
+	PORT_BIT( 0xff, IP_ACTIVE_LOW, IPT_UNUSED )
+
+	PORT_START("EXT")
+	PORT_BIT( 0x1f, IP_ACTIVE_LOW, IPT_UNUSED )
+	PORT_BIT( 0x20, IP_ACTIVE_LOW, IPT_BUTTON1 )
+	PORT_BIT( 0x40, IP_ACTIVE_LOW, IPT_BUTTON2 )
+	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_BUTTON3 )
+INPUT_PORTS_END
+
 
 void nes_sh6578_state::video_start()
 {
@@ -602,29 +622,36 @@ TIMER_DEVICE_CALLBACK_MEMBER(nes_sh6578_state::timer_expired)
 }
 
 
-// from n2a03.h verify that it actually uses these
-#define N2A03_NTSC_XTAL           XTAL(21'477'272)
-#define N2A03_PAL_XTAL            XTAL(26'601'712)
-#define NTSC_APU_CLOCK      (N2A03_NTSC_XTAL/12) /* 1.7897726666... MHz */
-#define PAL_APU_CLOCK       (N2A03_PAL_XTAL/16) /* 1.662607 MHz */
-#define PALC_APU_CLOCK      (N2A03_PAL_XTAL/15) /* 1.77344746666... MHz */
+// from rp2a03.h verify that it actually uses these
+#define RP2A03_NTSC_XTAL           XTAL(21'477'272)
+#define RP2A03_PAL_XTAL            XTAL(26'601'712)
+#define NTSC_APU_CLOCK      (RP2A03_NTSC_XTAL/12) /* 1.7897726666... MHz */
+#define PAL_APU_CLOCK       (RP2A03_PAL_XTAL/16) /* 1.662607 MHz */
+#define PALC_APU_CLOCK      (RP2A03_PAL_XTAL/15) /* 1.77344746666... MHz */
 
 uint32_t nes_sh6578_state::screen_update(screen_device& screen, bitmap_rgb32& bitmap, const rectangle& cliprect)
 {
 	return m_ppu->screen_update(screen, bitmap, cliprect);
 }
 
+void nes_sh6578_state::ppu_map(address_map &map)
+{
+	map(0x8000, 0xffff).ram().share("nvram"); // machine specific? soulbird seems to expect fc00-fc7f to save at least
+}
+
+
 void nes_sh6578_state::nes_sh6578(machine_config& config)
 {
 	/* basic machine hardware */
-	M6502(config, m_maincpu, NTSC_APU_CLOCK); // regular M6502 core, not N2A03?
+	M6502(config, m_maincpu, NTSC_APU_CLOCK); // regular M6502 core, not RP2A03?
 	m_maincpu->set_addrmap(AS_PROGRAM, &nes_sh6578_state::nes_sh6578_map);
 
 	ADDRESS_MAP_BANK(config, m_fullrom).set_map(&nes_sh6578_state::rom_map).set_options(ENDIANNESS_NATIVE, 8, 20, 0x100000);
 
-	PPU_SH6578(config, m_ppu, N2A03_NTSC_XTAL);
+	PPU_SH6578(config, m_ppu, RP2A03_NTSC_XTAL);
 	m_ppu->set_cpu_tag(m_maincpu);
 	m_ppu->int_callback().set_inputline(m_maincpu, INPUT_LINE_NMI);
+	m_ppu->set_addrmap(AS_PROGRAM, &nes_sh6578_state::ppu_map);
 
 	/* video hardware */
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
@@ -636,6 +663,8 @@ void nes_sh6578_state::nes_sh6578(machine_config& config)
 	m_screen->set_screen_update(FUNC(nes_sh6578_state::screen_update));
 
 	TIMER(config, m_timer).configure_generic(FUNC(nes_sh6578_state::timer_expired));
+
+	NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_1);
 
 	/* sound hardware */
 	SPEAKER(config, "mono").front_center();
@@ -654,9 +683,10 @@ void nes_sh6578_state::nes_sh6578_pal(machine_config& config)
 	m_maincpu->set_clock(PALC_APU_CLOCK);
 	m_apu->set_clock(PALC_APU_CLOCK);
 
-	PPU_SH6578PAL(config.replace(), m_ppu, N2A03_PAL_XTAL);
+	PPU_SH6578PAL(config.replace(), m_ppu, RP2A03_PAL_XTAL);
 	m_ppu->set_cpu_tag(m_maincpu);
 	m_ppu->int_callback().set_inputline(m_maincpu, INPUT_LINE_NMI);
+	m_ppu->set_addrmap(AS_PROGRAM, &nes_sh6578_state::ppu_map);
 
 	m_screen->set_refresh_hz(50.0070);
 	m_screen->set_vblank_time(ATTOSECONDS_IN_USEC((113.66 / (PALC_APU_CLOCK.dvalue() / 1000000)) *
@@ -682,7 +712,15 @@ ROM_START( bandggcn )
 	ROM_LOAD( "gogoconniechan.bin", 0x00000, 0x100000, CRC(715d66ae) SHA1(9326c227bad86eea85194a90f746c60dc032a323) )
 ROM_END
 
+ROM_START( bancook )
+	ROM_REGION( 0x100000, "maincpu", ROMREGION_ERASE00 )
+	ROM_LOAD( "mx27c8000.ic2", 0x00000, 0x100000, CRC(865bef26) SHA1(82820eac162a2b4b4b5da894df4bfc5521d4f89b) )
+ROM_END
 
+ROM_START( soulbird )
+	ROM_REGION( 0x100000, "maincpu", ROMREGION_ERASE00 )
+	ROM_LOAD( "soulbird.ic1", 0x00000, 0x100000, CRC(307c7f95) SHA1(488ed8de5c22122581e89219889fe4f7e5d5bc96) )
+ROM_END
 
 ROM_START( ts_handy11 )
 	ROM_REGION( 0x100000, "maincpu", 0 )
@@ -692,6 +730,26 @@ ROM_END
 ROM_START( cpatrolm )
 	ROM_REGION( 0x100000, "maincpu", 0 )
 	ROM_LOAD( "citypatrolman.bin", 0x00000, 0x100000, CRC(4b139c67) SHA1(a5b03f472a94ee879f58bbff201b671fbf4f1ea1) )
+ROM_END
+
+ROM_START( bb6578 )
+	ROM_REGION( 0x80000, "maincpu", 0 )
+	ROM_LOAD( "tv game baseball.bin", 0x00000, 0x80000, CRC(dec862b2) SHA1(fb3d97ccde17ab6ead8eafb4e0aafb72fbb6674c) )
+ROM_END
+
+ROM_START( pp6578 )
+	ROM_REGION( 0x80000, "maincpu", 0 )
+	ROM_LOAD( "pingpongtvgame.bin", 0x00000, 0x80000, CRC(b5438d19) SHA1(3bccbf006c9c3cd5b71672a083e5d084eef5c2b9) )
+ROM_END
+
+ROM_START( 6578cjz1 )
+	ROM_REGION( 0x100000, "maincpu", 0 )
+	ROM_LOAD( "tv game1.bin", 0x00000, 0x100000, CRC(161c4119) SHA1(b2ce91b070bcaba73c8a23e7067fe8ba41151a40) )
+ROM_END
+
+ROM_START( 6578cjz2 )
+	ROM_REGION( 0x100000, "maincpu", 0 )
+	ROM_LOAD( "tv game2.bin", 0x00000, 0x100000, CRC(cda1395c) SHA1(b0fdf1d3ebd9b7138ec907a0acdf0ea2d275c990) )
 ROM_END
 
 ROM_START( ablwikid )
@@ -729,12 +787,18 @@ ROM_START( dgun806 )
 	ROM_LOAD( "dgpnpdgu806as29lv160be_000422c4.bin", 0x00000, 0x200000, CRC(576d6caf) SHA1(fdfa4712e6ed66d2af41ccfbfbf870cd01f7b0f7) )
 ROM_END
 
-
-
 ROM_START( dancmix3 )
 	ROM_REGION( 0x200000, "maincpu", ROMREGION_ERASE00 )
 	ROM_LOAD( "e28f008sa.u5", 0x00000, 0x100000, CRC(faf6480c) SHA1(68bf79910e091443aecc7bf256cd5378a04c550e) )
 ROM_END
+
+ROM_START( mousekid )
+	ROM_REGION( 0x100000, "maincpu", 0 )
+	ROM_LOAD( "mousekid.ic2", 0x00000, 0x100000, CRC(465d5b5a) SHA1(a27f01ccc7b741b51ea4a9e4455dc4cee4420a89) )
+ROM_END
+
+} // anonymous namespace
+
 
 CONS( 200?, maxx5in1,  0, 0,  nes_sh6578, nes_sh6578, nes_sh6578_state,  init_nes_sh6578, "Senario / JungleTac", "Vs Maxx 5-in-1 Casino / Senario Card & Casino Games", 0 ) // advertised on box as 'With Solitaire" (was there an even older version without it?)
 
@@ -767,7 +831,27 @@ CONS( 1997, bandgpad,    0,  0,  nes_sh6578,     nes_sh6578, nes_sh6578_state, i
 
 CONS( 1997, bandggcn,    0,  0,  nes_sh6578,     nes_sh6578, nes_sh6578_state, init_nes_sh6578, "Bandai", "Go! Go! Connie-chan! Asobou Mouse", MACHINE_NOT_WORKING )
 
+// uses a mouse and buttons (no keyboard)
+// テレビであそぼう! ミッキー&ミニー マウスキッズ
+CONS( 1997, mousekid,    0,  0,  nes_sh6578,     bancook, nes_sh6578_state, init_nes_sh6578, "Tomy", "TV de Asobou! Mickey & Minnie Mouse Kids (Japan)", MACHINE_NOT_WORKING )
+
+// おジャ魔女どれみのTVでマジカルクッキング
+CONS( 2001, bancook,     0,  0,  nes_sh6578,     bancook,    nes_sh6578_state, init_nes_sh6578, "Bandai", "Ojamajo Doremi no TV de Magical Cooking (Japan)", MACHINE_NOT_WORKING )
+
+// there's no SEEPROM, it uses a CR2032 to keep some RAM data alive
+// 百獣戦隊ガオレンジャー ソウルバード アニマル救出大作戦 (aka DX Soul Bird)
+CONS( 2001, soulbird,     0,  0,  nes_sh6578,     soulbird,    nes_sh6578_state, init_nes_sh6578, "Bandai", "Hyakujuu Sentai Gaoranger Soul Bird: Animal Kyuushutsu Daisakusen (Japan)", 0 )
+
 CONS( 200?, cpatrolm,    0,  0,  nes_sh6578_pal, nes_sh6578, nes_sh6578_state, init_nes_sh6578, "TimeTop", "City Patrolman", MACHINE_NOT_WORKING )
+
+CONS( 200?, bb6578,      0,  0,  nes_sh6578,     nes_sh6578, nes_sh6578_state, init_nes_sh6578, "DaiDaiXing Electronics", "TV Games Baseball (SH6578 hardware)", MACHINE_NOT_WORKING )
+
+CONS( 200?, pp6578,      0,  0,  nes_sh6578,     nes_sh6578, nes_sh6578_state, init_nes_sh6578, "DaiDaiXing Electronics", "TV Games Ping Pong (SH6578 hardware)", MACHINE_NOT_WORKING )
+
+// these don't boot much further than the timetop logo and a splash screen
+// 超级知识大富翁 (Chāojí Zhīshì Dà Fùwēng)
+CONS( 200?, 6578cjz1,     0,         0,  nes_sh6578,     bancook, nes_sh6578_state, init_nes_sh6578, "TimeTop", "Chaoji Zhishi Da Fuweng 1", MACHINE_NOT_WORKING )
+CONS( 200?, 6578cjz2,     0,         0,  nes_sh6578,     bancook, nes_sh6578_state, init_nes_sh6578, "TimeTop", "Chaoji Zhishi Da Fuweng 2", MACHINE_NOT_WORKING )
 
 // Super Moto 3 https://youtu.be/DR5Y_r6C_qk - has JungleTac copyrights intact, and appears to have the SH6578 versions of the games
 

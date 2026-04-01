@@ -12,6 +12,8 @@
     PCI shadow RAM handling (which causes BIOS to boot in legacy mode);
   - Handle STPCD0166BTC3 SoC properly, including PCI devices connected and SVGA
     mods (wrongly draws only top screen with 640x200 with at486 -isa1 svga_s3);
+  - Pinpoint what VGA core this really uses (some STPC boards uses Chips & Technologies
+    2nd gen family, may be same here)
 
   Hardware:
   - ST STPCD0166BTC3 486/66 + PC + VGA all on one chip
@@ -53,8 +55,8 @@ private:
 	uint8_t fruit_inp_r(offs_t offset);
 	void dma8237_1_dack_w(uint8_t data);
 	static void fruitpc_sb_conf(device_t *device);
-	void fruitpc_io(address_map &map);
-	void fruitpc_map(address_map &map);
+	void fruitpc_io(address_map &map) ATTR_COLD;
+	void fruitpc_map(address_map &map) ATTR_COLD;
 };
 
 uint8_t fruitpc_state::fruit_inp_r(offs_t offset)
@@ -78,9 +80,7 @@ void fruitpc_state::fruitpc_io(address_map &map)
 	pcat32_io_common(map);
 	map(0x01f0, 0x01f7).rw("ide", FUNC(ide_controller_device::cs0_r), FUNC(ide_controller_device::cs0_w));
 	map(0x0310, 0x0313).r(FUNC(fruitpc_state::fruit_inp_r));
-	map(0x03b0, 0x03bf).rw("vga", FUNC(vga_device::port_03b0_r), FUNC(vga_device::port_03b0_w));
-	map(0x03c0, 0x03cf).rw("vga", FUNC(vga_device::port_03c0_r), FUNC(vga_device::port_03c0_w));
-	map(0x03d0, 0x03df).rw("vga", FUNC(vga_device::port_03d0_r), FUNC(vga_device::port_03d0_w));
+	map(0x03b0, 0x03df).m("vga", FUNC(vga_device::io_map));
 	map(0x03f0, 0x03f7).rw("ide", FUNC(ide_controller_device::cs1_r), FUNC(ide_controller_device::cs1_w));
 //  map(0x0cf8, 0x0cff).rw(m_pcibus, FUNC(pci_bus_device::read), FUNC(pci_bus_device::write));
 }
@@ -140,13 +140,21 @@ void fruitpc_state::fruitpc(machine_config &config)
 	ide.irq_handler().set("pic8259_2", FUNC(pic8259_device::ir6_w));
 
 	/* video hardware */
-	pcvideo_vga(config);
+	// TODO: custom 1998 Elpin Systems/STMicroeletronics BIOS internal to the SoC, likely PCI
+	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_RASTER));
+	screen.set_raw(25.1748_MHz_XTAL, 900, 0, 640, 526, 0, 480);
+	screen.set_screen_update("vga", FUNC(vga_device::screen_update));
+
+	vga_device &vga(VGA(config, "vga", 0));
+	vga.set_screen("screen");
+	vga.set_vram_size(0x100000);
 
 	m_dma8237_1->out_iow_callback<1>().set(FUNC(fruitpc_state::dma8237_1_dack_w));
 
 	PCI_ROOT(config, m_pciroot, 0);
 	// TODO: STPCD0166BTC3 host PCI
 
+	// TODO: should really be ISA16
 	ISA8(config, m_isabus, 0);
 	m_isabus->set_memspace("maincpu", AS_PROGRAM);
 	m_isabus->set_iospace("maincpu", AS_IO);
@@ -170,11 +178,11 @@ ROM_START( fruitpc )
 	ROM_REGION32_LE( 0x20000, "bios", 0 )
 	ROM_LOAD( "at-gs001.bin", 0x000000, 0x020000, CRC(7dec34d0) SHA1(81d194d67fef9f6531bd3cd1ee0baacb5c2558bf) )
 
-	DISK_REGION( "ide:0:hdd:image" )    // 8 MB Compact Flash card
+	DISK_REGION( "ide:0:hdd" )    // 8 MB Compact Flash card
 	DISK_IMAGE( "fruit", 0,SHA1(df250ff06a97fa141a4144034f7035ac2947c53c) )
 ROM_END
 
 } // anonymous namespace
 
 
-GAME( 2006, fruitpc, 0, fruitpc, fruitpc, fruitpc_state, empty_init, ROT0, "<unknown>", "Fruit Land", MACHINE_IMPERFECT_GRAPHICS )
+GAME( 2006, fruitpc, 0, fruitpc, fruitpc, fruitpc_state, empty_init, ROT0, "<unknown>", "Fruit Land", MACHINE_IMPERFECT_GRAPHICS | MACHINE_NOT_WORKING )

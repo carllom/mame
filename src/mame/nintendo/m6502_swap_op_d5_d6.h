@@ -4,17 +4,17 @@
 
     m6502_swap_op_d5_d6.h
 
-    6502 / N2A03 with instruction scrambling
+    6502 / RP2A03 with instruction scrambling
 
 ***************************************************************************/
 
-#ifndef MAME_M6502_SWAP_OP_D5_D6_H
-#define MAME_M6502_SWAP_OP_D5_D6_H
+#ifndef MAME_NINTENDO_M6502_SWAP_OP_D5_D6_H
+#define MAME_NINTENDO_M6502_SWAP_OP_D5_D6_H
 
 #pragma once
 
-#include "cpu/m6502/n2a03.h"
-#include "cpu/m6502/n2a03d.h"
+#include "cpu/m6502/rp2a03.h"
+#include "cpu/m6502/rp2a03d.h"
 
 class m6502_swap_op_d5_d6 : public m6502_device {
 public:
@@ -35,7 +35,7 @@ protected:
 
 	class disassembler : public m6502_disassembler {
 	public:
-		mi_decrypt *mintf;
+		mi_decrypt *m_mintf;
 
 		disassembler(mi_decrypt *m);
 		virtual ~disassembler() = default;
@@ -43,21 +43,26 @@ protected:
 		virtual u8 decrypt8(u8 value, offs_t pc, bool opcode) const override;
 	};
 
-	virtual void device_reset() override;
-	virtual void device_start() override;
+	virtual void device_reset() override ATTR_COLD;
+	virtual void device_start() override ATTR_COLD;
 	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
 };
 
-class n2a03_core_swap_op_d5_d6 : public n2a03_core_device {
+class rp2a03_core_swap_op_d5_d6 : public rp2a03_core_device {
 public:
-	n2a03_core_swap_op_d5_d6(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	rp2a03_core_swap_op_d5_d6(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+
+	void disable_encryption_on_reset() { m_encryption_enabled_on_reset = false; }
 
 	void set_encryption_state(bool state);
+	void set_which_crypt(int crypt) { m_cryptconfig = crypt; }
+
 protected:
 	class mi_decrypt : public mi_default {
 	public:
 
 		bool m_encryption_enabled;
+		int m_whichcrypt;
 
 		virtual ~mi_decrypt() {}
 		virtual uint8_t read_sync(uint16_t adr) override;
@@ -65,9 +70,9 @@ protected:
 		uint8_t descramble(uint8_t op);
 	};
 
-	class disassembler : public n2a03_disassembler {
+	class disassembler : public rp2a03_disassembler {
 	public:
-		mi_decrypt *mintf;
+		mi_decrypt *m_mintf;
 
 		disassembler(mi_decrypt *m);
 		virtual ~disassembler() = default;
@@ -75,13 +80,17 @@ protected:
 		virtual u8 decrypt8(u8 value, offs_t pc, bool opcode) const override;
 	};
 
-	virtual void device_reset() override;
-	virtual void device_start() override;
+	virtual void device_reset() override ATTR_COLD;
+	virtual void device_start() override ATTR_COLD;
 	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
+
+private:
+	bool m_encryption_enabled_on_reset;
+	int m_cryptconfig;
 };
 
 
 DECLARE_DEVICE_TYPE(M6502_SWAP_OP_D5_D6, m6502_swap_op_d5_d6)
-DECLARE_DEVICE_TYPE(N2A03_CORE_SWAP_OP_D5_D6, n2a03_core_swap_op_d5_d6)
+DECLARE_DEVICE_TYPE(RP2A03_CORE_SWAP_OP_D5_D6, rp2a03_core_swap_op_d5_d6)
 
-#endif // MAME_M6502_SWAP_OP_D5_D6_H
+#endif // MAME_NINTENDO_M6502_SWAP_OP_D5_D6_H

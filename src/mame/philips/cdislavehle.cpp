@@ -20,11 +20,11 @@ TODO:
 
 #include <algorithm>
 
-#define LOG_IRQS        (1 << 0)
-#define LOG_COMMANDS    (1 << 1)
-#define LOG_READS       (1 << 2)
-#define LOG_WRITES      (1 << 3)
-#define LOG_UNKNOWNS    (1 << 4)
+#define LOG_IRQS        (1U << 1)
+#define LOG_COMMANDS    (1U << 2)
+#define LOG_READS       (1U << 3)
+#define LOG_WRITES      (1U << 4)
+#define LOG_UNKNOWNS    (1U << 5)
 #define LOG_ALL         (LOG_IRQS | LOG_COMMANDS | LOG_READS | LOG_WRITES | LOG_UNKNOWNS)
 
 #define VERBOSE         (0)
@@ -45,32 +45,22 @@ TIMER_CALLBACK_MEMBER( cdislave_hle_device::trigger_readback_int )
 	m_interrupt_timer->adjust(attotime::never);
 }
 
-void cdislave_hle_device::prepare_readback(const attotime &delay, uint8_t channel, uint8_t count, uint8_t data0, uint8_t data1, uint8_t data2, uint8_t data3, uint8_t cmd)
+TIMER_CALLBACK_MEMBER( cdislave_hle_device::poll_inputs )
 {
-	m_channel[channel].m_out_index = 0;
-	m_channel[channel].m_out_count = count;
-	m_channel[channel].m_out_buf[0] = data0;
-	m_channel[channel].m_out_buf[1] = data1;
-	m_channel[channel].m_out_buf[2] = data2;
-	m_channel[channel].m_out_buf[3] = data3;
-	m_channel[channel].m_out_cmd = cmd;
+	const uint16_t x = m_read_mousex();
+	const uint16_t y = m_read_mousey();
+	const uint8_t btn = m_read_mousebtn();
+	if (x == m_input_mouse_x && y == m_input_mouse_y && btn == m_input_mouse_btn)
+		return;
 
-	m_interrupt_timer->adjust(delay);
-}
-
-INPUT_CHANGED_MEMBER( cdislave_hle_device::mouse_update )
-{
-	const uint8_t button_state = m_mousebtn->read();
+	m_input_mouse_btn = btn;
 	uint8_t button_bits = 0x01;
-	if (BIT(button_state, 0))
+	if (BIT(m_input_mouse_btn, 0))
 		button_bits |= 0x02;
-	if (BIT(button_state, 1))
+	if (BIT(m_input_mouse_btn, 1))
 		button_bits |= 0x04;
-	if (BIT(button_state, 2))
+	if (BIT(m_input_mouse_btn, 2))
 		button_bits |= 0x06;
-
-	const uint16_t x = m_mousex->read();
-	const uint16_t y = m_mousey->read();
 
 	int16_t deltax = 0;
 	int16_t deltay = 0;
@@ -97,23 +87,17 @@ INPUT_CHANGED_MEMBER( cdislave_hle_device::mouse_update )
 	}
 }
 
-static INPUT_PORTS_START(cdislave_mouse)
-	PORT_START("MOUSEX")
-	PORT_BIT(0xffff, 0x000, IPT_MOUSE_X) PORT_SENSITIVITY(100) PORT_KEYDELTA(2) PORT_CHANGED_MEMBER(DEVICE_SELF, cdislave_hle_device, mouse_update, 0)
-
-	PORT_START("MOUSEY")
-	PORT_BIT(0xffff, 0x000, IPT_MOUSE_Y) PORT_SENSITIVITY(100) PORT_KEYDELTA(2) PORT_CHANGED_MEMBER(DEVICE_SELF, cdislave_hle_device, mouse_update, 0)
-
-	PORT_START("MOUSEBTN")
-	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_BUTTON1) PORT_CODE(MOUSECODE_BUTTON1) PORT_NAME("Button 1") PORT_CHANGED_MEMBER(DEVICE_SELF, cdislave_hle_device, mouse_update, 0)
-	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_BUTTON2) PORT_CODE(MOUSECODE_BUTTON2) PORT_NAME("Button 2") PORT_CHANGED_MEMBER(DEVICE_SELF, cdislave_hle_device, mouse_update, 0)
-	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_BUTTON3) PORT_CODE(MOUSECODE_BUTTON3) PORT_NAME("Button 3") PORT_CHANGED_MEMBER(DEVICE_SELF, cdislave_hle_device, mouse_update, 0)
-	PORT_BIT(0xf8, IP_ACTIVE_HIGH, IPT_UNUSED)
-INPUT_PORTS_END
-
-ioport_constructor cdislave_hle_device::device_input_ports() const
+void cdislave_hle_device::prepare_readback(const attotime &delay, uint8_t channel, uint8_t count, uint8_t data0, uint8_t data1, uint8_t data2, uint8_t data3, uint8_t cmd)
 {
-	return INPUT_PORTS_NAME(cdislave_mouse);
+	m_channel[channel].m_out_index = 0;
+	m_channel[channel].m_out_count = count;
+	m_channel[channel].m_out_buf[0] = data0;
+	m_channel[channel].m_out_buf[1] = data1;
+	m_channel[channel].m_out_buf[2] = data2;
+	m_channel[channel].m_out_buf[3] = data3;
+	m_channel[channel].m_out_cmd = cmd;
+
+	m_interrupt_timer->adjust(delay);
 }
 
 uint16_t cdislave_hle_device::slave_r(offs_t offset)
@@ -157,59 +141,47 @@ void cdislave_hle_device::set_mouse_position()
 	m_device_mouse_y = ((m_in_buf[1] & 0x0f) << 6) | (m_in_buf[0] & 0x3f);
 }
 
+void cdislave_hle_device::slave_w_mouse(offs_t offset, uint16_t data)
+{
+	m_in_buf[m_in_index] = data & 0x00ff;
+	bool set_mouse = m_in_buf[0] >= 0xc0;
+	if (set_mouse)
+	{
+		if (m_in_index == 0)
+		{
+			LOGMASKED(LOG_COMMANDS, "slave_w: Channel %d: Update Mouse Position (0x%02x)\n", offset, data & 0x00ff);
+			m_in_count = 3;
+		}
+		else
+		{
+			if (m_in_index == m_in_count - 1)
+			{
+				// Update Mouse Position
+				set_mouse_position();
+				memset(m_in_buf, 0, 17);
+				m_in_index = 0;
+				m_in_count = 0;
+				return;
+			}
+		}
+	}
+	else
+	{
+		LOGMASKED(LOG_COMMANDS | LOG_UNKNOWNS, "slave_w: Channel %d: Unknown register: %02x\n", offset, data & 0x00ff);
+		if (m_in_index == 0){
+			return;
+		}
+	}
+	m_in_index++;
+}
+
 void cdislave_hle_device::slave_w(offs_t offset, uint16_t data)
 {
 	LOGMASKED(LOG_WRITES, "slave_w: Channel %d: %d = %02x\n", offset, m_in_index, data & 0x00ff);
 	switch (offset)
 	{
 		case 0:
-			if (m_in_index)
-			{
-				m_in_buf[m_in_index] = data & 0x00ff;
-				m_in_index++;
-				if (m_in_index == m_in_count)
-				{
-					switch (m_in_buf[0])
-					{
-						case 0xc0: case 0xc1: case 0xc2: case 0xc3: case 0xc4: case 0xc5: case 0xc6: case 0xc7:
-						case 0xc8: case 0xc9: case 0xca: case 0xcb: case 0xcc: case 0xcd: case 0xce: case 0xcf:
-						case 0xd0: case 0xd1: case 0xd2: case 0xd3: case 0xd4: case 0xd5: case 0xd6: case 0xd7:
-						case 0xd8: case 0xd9: case 0xda: case 0xdb: case 0xdc: case 0xdd: case 0xde: case 0xdf:
-						case 0xe0: case 0xe1: case 0xe2: case 0xe3: case 0xe4: case 0xe5: case 0xe6: case 0xe7:
-						case 0xe8: case 0xe9: case 0xea: case 0xeb: case 0xec: case 0xed: case 0xee: case 0xef:
-						case 0xf0: case 0xf1: case 0xf2: case 0xf3: case 0xf4: case 0xf5: case 0xf6: case 0xf7:
-						case 0xf8: case 0xf9: case 0xfa: case 0xfb: case 0xfc: case 0xfd: case 0xfe: case 0xff: // Update Mouse Position
-							set_mouse_position();
-							memset(m_in_buf, 0, 17);
-							m_in_index = 0;
-							m_in_count = 0;
-							break;
-					}
-				}
-			}
-			else
-			{
-				m_in_buf[m_in_index] = data & 0x00ff;
-				m_in_index++;
-				switch (data & 0x00ff)
-				{
-					case 0xc0: case 0xc1: case 0xc2: case 0xc3: case 0xc4: case 0xc5: case 0xc6: case 0xc7:
-					case 0xc8: case 0xc9: case 0xca: case 0xcb: case 0xcc: case 0xcd: case 0xce: case 0xcf:
-					case 0xd0: case 0xd1: case 0xd2: case 0xd3: case 0xd4: case 0xd5: case 0xd6: case 0xd7:
-					case 0xd8: case 0xd9: case 0xda: case 0xdb: case 0xdc: case 0xdd: case 0xde: case 0xdf:
-					case 0xe0: case 0xe1: case 0xe2: case 0xe3: case 0xe4: case 0xe5: case 0xe6: case 0xe7:
-					case 0xe8: case 0xe9: case 0xea: case 0xeb: case 0xec: case 0xed: case 0xee: case 0xef:
-					case 0xf0: case 0xf1: case 0xf2: case 0xf3: case 0xf4: case 0xf5: case 0xf6: case 0xf7:
-					case 0xf8: case 0xf9: case 0xfa: case 0xfb: case 0xfc: case 0xfd: case 0xfe: case 0xff:
-						LOGMASKED(LOG_COMMANDS, "slave_w: Channel %d: Update Mouse Position (0x%02x)\n", offset, data & 0x00ff);
-						m_in_count = 3;
-						break;
-					default:
-						LOGMASKED(LOG_COMMANDS | LOG_UNKNOWNS, "slave_w: Channel %d: Unknown register: %02x\n", offset, data & 0x00ff);
-						m_in_index = 0;
-						break;
-				}
-			}
+			slave_w_mouse(offset, data);
 			break;
 		case 1:
 			if (m_in_index)
@@ -402,22 +374,11 @@ void cdislave_hle_device::slave_w(offs_t offset, uint16_t data)
 cdislave_hle_device::cdislave_hle_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, CDI_SLAVE_HLE, tag, owner, clock)
 	, m_int_callback(*this)
+	, m_read_mousex(*this, 0x0000)
+	, m_read_mousey(*this, 0x0000)
+	, m_read_mousebtn(*this, 0x00)
 	, m_dmadac(*this, ":dac%u", 1U)
-	, m_mousex(*this, "MOUSEX")
-	, m_mousey(*this, "MOUSEY")
-	, m_mousebtn(*this, "MOUSEBTN")
 {
-}
-
-//-------------------------------------------------
-//  device_resolve_objects - resolve objects that
-//  may be needed for other devices to set
-//  initial conditions at start time
-//-------------------------------------------------
-
-void cdislave_hle_device::device_resolve_objects()
-{
-	m_int_callback.resolve_safe();
 }
 
 //-------------------------------------------------
@@ -473,6 +434,9 @@ void cdislave_hle_device::device_start()
 
 	m_interrupt_timer = timer_alloc(FUNC(cdislave_hle_device::trigger_readback_int), this);
 	m_interrupt_timer->adjust(attotime::never);
+
+	m_input_poll_timer = timer_alloc(FUNC(cdislave_hle_device::poll_inputs), this);
+	m_input_poll_timer->adjust(attotime::never);
 }
 
 //-------------------------------------------------
@@ -509,4 +473,6 @@ void cdislave_hle_device::device_reset()
 	m_device_mouse_y = 0;
 
 	m_int_callback(CLEAR_LINE);
+
+	m_input_poll_timer->adjust(attotime::from_hz(60), 0, attotime::from_hz(60));
 }

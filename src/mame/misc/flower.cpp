@@ -5,9 +5,11 @@
     Flower (c) 1986 Clarue (licensed to Komax/Sega)
 
     driver by Angelo Salese,
-    original "wiped off due of not anymore licenseable" driver by insideoutboy.
+    original "wiped off due of not anymore licensable" driver by insideoutboy.
 
     TODO:
+    - CPU speed is probably wrong. The pacing is fine at 3.072MHz, but then
+      the game locks up sometimes. Or is the cause elsewhere?
     - priority might be wrong in some places (title screen stars around the
       galaxy, planet ship 3rd boss, 2nd boss);
     - sound chips (similar to Namco custom chips?)
@@ -30,7 +32,7 @@ There is a PCB picture that shows two stickers, the first says
         FLOWER   CHIP PLACEMENT
 
 XTAL: 18.4320 MHz
-USES THREE Z80A CPU'S
+USES THREE Z80A (or D780C-1) CPU'S
 
 CHIP #  POSITION   TYPE
 ------------------------
@@ -84,15 +86,19 @@ CHIP #  POSITION   TYPE
 
 
 #include "emu.h"
+
 #include "cpu/z80/z80.h"
+#include "machine/74259.h"
 #include "machine/gen_latch.h"
+
 #include "flower_a.h"
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
 #include "tilemap.h"
 
-#define MASTER_CLOCK XTAL(18'432'000)
+
+namespace {
 
 class flower_state : public driver_device
 {
@@ -118,30 +124,30 @@ public:
 
 	DECLARE_INPUT_CHANGED_MEMBER(coin_inserted);
 
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
+
+	virtual void machine_reset() override ATTR_COLD;
+
 private:
-	void flipscreen_w(u8 data);
-	void coin_counter_w(u8 data);
+	void flipscreen_w(int state);
+	void coin_counter_w(int state);
 	void sound_command_w(u8 data);
 	void audio_nmi_mask_w(u8 data);
 	void bgvram_w(offs_t offset, u8 data);
 	void fgvram_w(offs_t offset, u8 data);
 	void txvram_w(offs_t offset, u8 data);
-	INTERRUPT_GEN_MEMBER(master_vblank_irq);
-	INTERRUPT_GEN_MEMBER(slave_vblank_irq);
+	void master_irq_ack_w(int state);
+	void slave_irq_ack_w(int state);
 	TILE_GET_INFO_MEMBER(get_tx_tile_info);
 	TILE_GET_INFO_MEMBER(get_bg_tile_info);
 	TILE_GET_INFO_MEMBER(get_fg_tile_info);
 	TILEMAP_MAPPER_MEMBER(tilemap_scan);
 	u32 screen_update(screen_device &screen, bitmap_ind16 &bitmap, const rectangle &cliprect);
 
-	void audio_map(address_map &map);
-	void shared_map(address_map &map);
-
-	// driver_device overrides
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-
-	virtual void video_start() override;
+	void audio_map(address_map &map) ATTR_COLD;
+	void shared_map(address_map &map) ATTR_COLD;
 
 	required_device<cpu_device> m_mastercpu;
 	required_device<cpu_device> m_slavecpu;
@@ -305,15 +311,15 @@ u32 flower_state::screen_update( screen_device &screen, bitmap_ind16 &bitmap, co
 	return 0;
 }
 
-void flower_state::flipscreen_w(u8 data)
+void flower_state::flipscreen_w(int state)
 {
-	m_flip_screen = BIT(data, 0);
+	m_flip_screen = state;
 	//flip_screen_set(m_flip_screen);
 }
 
-void flower_state::coin_counter_w(u8 data)
+void flower_state::coin_counter_w(int state)
 {
-	machine().bookkeeping().coin_counter_w(0, BIT(data, 0));
+	machine().bookkeeping().coin_counter_w(0, state);
 }
 
 void flower_state::sound_command_w(u8 data)
@@ -350,12 +356,7 @@ void flower_state::shared_map(address_map &map)
 {
 	map(0x0000, 0x7fff).rom();
 	map(0xc000, 0xdfff).ram().share("workram");
-	map(0xa000, 0xa000).nopw();
-	map(0xa001, 0xa001).w(FUNC(flower_state::flipscreen_w));
-	map(0xa002, 0xa002).nopw(); // master irq related (0 at start, 1 at end)
-	map(0xa003, 0xa003).nopw(); // slave irq related (0 at start, 1 at end)
-	map(0xa004, 0xa004).w(FUNC(flower_state::coin_counter_w));
-	map(0xa005, 0xa005).nopw();
+	map(0xa000, 0xa007).w("outlatch", FUNC(ls259_device::write_d0));
 	map(0xa100, 0xa100).portr("P1");
 	map(0xa101, 0xa101).portr("P2");
 	map(0xa102, 0xa102).portr("DSW1");
@@ -406,7 +407,7 @@ static INPUT_PORTS_START( flower )
 	PORT_BIT( 0x80, IP_ACTIVE_LOW, IPT_UNKNOWN )
 
 	PORT_START("DSW1")
-	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_COIN1 ) PORT_CHANGED_MEMBER(DEVICE_SELF, flower_state, coin_inserted, 0)
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_COIN1 ) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(flower_state::coin_inserted), 0)
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_START1  )
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_START2 )
 	PORT_DIPNAME( 0x08, 0x08, "Energy Decrease" )       PORT_DIPLOCATION("SW2:4")
@@ -489,39 +490,49 @@ void flower_state::machine_reset()
 	m_audio_nmi_enable = false;
 }
 
-INTERRUPT_GEN_MEMBER(flower_state::master_vblank_irq)
+void flower_state::master_irq_ack_w(int state)
 {
-	//if (m_master_irq_enable)
-		device.execute().set_input_line(0, HOLD_LINE);
+	if (!state)
+		m_mastercpu->set_input_line(0, CLEAR_LINE);
 }
 
-INTERRUPT_GEN_MEMBER(flower_state::slave_vblank_irq)
+void flower_state::slave_irq_ack_w(int state)
 {
-	//if (m_slave_irq_enable)
-		device.execute().set_input_line(0, HOLD_LINE);
+	if (!state)
+		m_slavecpu->set_input_line(0, CLEAR_LINE);
 }
 
 
 void flower_state::flower(machine_config &config)
 {
+	constexpr XTAL MASTER_CLOCK = 18.432_MHz_XTAL;
+
 	Z80(config, m_mastercpu, MASTER_CLOCK / 4); // divider unknown
 	m_mastercpu->set_addrmap(AS_PROGRAM, &flower_state::shared_map);
-	m_mastercpu->set_vblank_int("screen", FUNC(flower_state::master_vblank_irq));
 
 	Z80(config, m_slavecpu, MASTER_CLOCK / 4); // divider unknown
 	m_slavecpu->set_addrmap(AS_PROGRAM, &flower_state::shared_map);
-	m_slavecpu->set_vblank_int("screen", FUNC(flower_state::slave_vblank_irq));
 
 	Z80(config, m_audiocpu, MASTER_CLOCK / 4); // divider unknown
 	m_audiocpu->set_addrmap(AS_PROGRAM, &flower_state::audio_map);
 	m_audiocpu->set_periodic_int(FUNC(flower_state::irq0_line_hold), attotime::from_hz(90));
 
-	config.set_perfect_quantum(m_mastercpu);
+	config.set_maximum_quantum(attotime::from_hz(m_mastercpu->clock() / 4));
+
+	ls259_device &outlatch(LS259(config, "outlatch")); // M74LS259P @ 11K
+	outlatch.q_out_cb<0>().set_nop();
+	outlatch.q_out_cb<1>().set(FUNC(flower_state::flipscreen_w));
+	outlatch.q_out_cb<2>().set(FUNC(flower_state::master_irq_ack_w));
+	outlatch.q_out_cb<3>().set(FUNC(flower_state::slave_irq_ack_w));
+	outlatch.q_out_cb<4>().set(FUNC(flower_state::coin_counter_w));
+	outlatch.q_out_cb<5>().set_nop();
 
 	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
 	m_screen->set_screen_update(FUNC(flower_state::screen_update));
 	m_screen->set_raw(MASTER_CLOCK / 3, 384, 0, 288, 264, 16, 240); // derived from Galaxian HW, 60.606060
 	m_screen->set_palette(m_palette);
+	m_screen->screen_vblank().set_inputline(m_mastercpu, 0, ASSERT_LINE);
+	m_screen->screen_vblank().append_inputline(m_slavecpu, 0, ASSERT_LINE);
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_flower);
 	PALETTE(config, m_palette, palette_device::RGB_444_PROMS, "proms", 256);
@@ -542,7 +553,7 @@ ROM_START( flower ) /* Komax version */
 	ROM_LOAD( "2.5f",   0x0000, 0x8000, CRC(7c7ee2d8) SHA1(1e67bfe0f3585be5a6e6719ccf9db764bafbcb01) )
 
 	ROM_REGION( 0x10000, "audiocpu", 0 ) /* sound cpu */
-	ROM_LOAD( "3.d9",   0x0000, 0x4000, CRC(8866c2b0) SHA1(d00f31994673e8087a1406f98e8832d07cedeb66) ) // 1xxxxxxxxxxxxx = 0xFF
+	ROM_LOAD( "3.10d",  0x0000, 0x4000, CRC(8866c2b0) SHA1(d00f31994673e8087a1406f98e8832d07cedeb66) ) // 1xxxxxxxxxxxxx = 0xFF
 
 	ROM_REGION( 0x2000, "text", ROMREGION_INVERT ) /* tx layer */
 	ROM_LOAD( "10.13e", 0x0000, 0x2000, CRC(62f9b28c) SHA1(d57d06b99e72a4f68f197a5b6c042c926cc70ca0) ) // FIRST AND SECOND HALF IDENTICAL
@@ -579,13 +590,56 @@ ROM_END
 
 ROM_START( flowerj ) /* Sega/Alpha version.  Sega game number 834-5998 */
 	ROM_REGION( 0x10000, "mastercpu", 0 ) /* main cpu */
+	ROM_LOAD( "1.5j",   0x0000, 0x8000, CRC(a4c3af78) SHA1(d149b0e0d82318273dd9cc5a143b175cdc818d0d) )
+
+	ROM_REGION( 0x10000, "slavecpu", 0 ) /* sub cpu */
+	ROM_LOAD( "2.5f",   0x0000, 0x8000, CRC(7c7ee2d8) SHA1(1e67bfe0f3585be5a6e6719ccf9db764bafbcb01) )
+
+	ROM_REGION( 0x10000, "audiocpu", 0 ) /* sound cpu */
+	ROM_LOAD( "3.10d",  0x0000, 0x4000, CRC(8866c2b0) SHA1(d00f31994673e8087a1406f98e8832d07cedeb66) ) // 1xxxxxxxxxxxxx = 0xFF
+
+	ROM_REGION( 0x2000, "text", ROMREGION_INVERT ) /* tx layer */
+	ROM_LOAD( "10.13e", 0x0000, 0x2000, CRC(62f9b28c) SHA1(d57d06b99e72a4f68f197a5b6c042c926cc70ca0) ) // FIRST AND SECOND HALF IDENTICAL
+
+	ROM_REGION( 0x8000, "tiles", ROMREGION_INVERT ) /* bg layers */
+	ROM_LOAD( "8.10e",  0x0000, 0x2000, CRC(f85eb20f) SHA1(699edc970c359143dee6de2a97cc2a552454785b) )
+	ROM_LOAD( "6.7e",   0x2000, 0x2000, CRC(3e97843f) SHA1(4e4e5625dbf78eca97536b1428b2e49ad58c618f) )
+	ROM_LOAD( "9.12e",  0x4000, 0x2000, CRC(f1d9915e) SHA1(158e1cc8c402f9ae3906363d99f2b25c94c64212) )
+	ROM_LOAD( "15_alpha.9e",  0x6000, 0x2000, CRC(e350f36c) SHA1(f97204dc95b4000c268afc053a2333c1629e07d8) )
+
+	ROM_REGION( 0x8000, "sprites", ROMREGION_INVERT ) /* sprites */
+	ROM_LOAD( "14.19e", 0x0000, 0x2000, CRC(11b491c5) SHA1(be1c4a0fbe8fd4e124c21e0f700efa0428376691) )
+	ROM_LOAD( "13.17e", 0x2000, 0x2000, CRC(ea743986) SHA1(bbef4fd0f7d21cc89a52061fa50d7c2ea37287bd) )
+	ROM_LOAD( "12.16e", 0x4000, 0x2000, CRC(e3779f7f) SHA1(8e12d06b3cdc2fcb7b77cc35f8eca45544cc4873) )
+	ROM_LOAD( "11.14e", 0x6000, 0x2000, CRC(8801b34f) SHA1(256059fcd16b21e076db1c18fd9669128df1d658) )
+
+	ROM_REGION( 0x8000, "flower:samples", 0 )
+	ROM_LOAD( "4.12a",  0x0000, 0x8000, CRC(851ed9fd) SHA1(5dc048b612e45da529502bf33d968737a7b0a646) )  /* 8-bit samples */
+
+	ROM_REGION( 0x4000, "flower:soundvol", 0 )
+	ROM_LOAD( "5.16a",  0x0000, 0x4000, CRC(42fa2853) SHA1(cc1e8b8231d6f27f48b05d59390e93ea1c1c0e4c) )  /* volume tables? */
+
+	ROM_REGION( 0x300, "proms", 0 ) /* RGB proms */
+	ROM_LOAD( "82s129.k3",  0x0000, 0x0100, CRC(5aab7b41) SHA1(8d44639c7c9f1ba34fe9c4e74c8a38b6453f7ac0) ) // b
+	ROM_LOAD( "82s129.k2",  0x0100, 0x0100, CRC(ababb072) SHA1(a9d46d12534c8662c6b54df94e96907f3a156968) ) // g
+	ROM_LOAD( "82s129.k1",  0x0200, 0x0100, CRC(d311ed0d) SHA1(1d530c874aecf93133d610ab3ce668548712913a) ) // r
+
+	ROM_REGION( 0x0520, "user1", 0 ) /* Other proms, (zoom table?) */
+	ROM_LOAD( "82s147.d7",  0x0000, 0x0200, CRC(f0dbb2a7) SHA1(03cd8fd41d6406894c6931e883a9ac6a4a4effc9) )
+	ROM_LOAD( "82s147.j18", 0x0200, 0x0200, CRC(d7de0860) SHA1(5d3d8c5476b1edffdacde09d592c64e78d2b90c0) )
+	ROM_LOAD( "82s123.k7",  0x0400, 0x0020, CRC(ea9c65e4) SHA1(1bdd77a7f3ef5f8ec4dbb9524498c0c4a356f089) )
+	ROM_LOAD( "82s129.a1",  0x0420, 0x0100, CRC(c8dad3fc) SHA1(8e852efac70223d02e45b20ed8a12e38c5010a78) )
+ROM_END
+
+ROM_START( flowerjb ) /* Sega/Alpha version.  Sega game number 834-5998 */
+	ROM_REGION( 0x10000, "mastercpu", 0 ) /* main cpu */
 	ROM_LOAD( "1",   0x0000, 0x8000, CRC(63a2ef04) SHA1(0770f5a18d58b780abcda7e000c2a5e46f96d319) ) // hacked? "AKINA.N" changed to "JUKYUNG"
 
 	ROM_REGION( 0x10000, "slavecpu", 0 ) /* sub cpu */
 	ROM_LOAD( "2.5f",   0x0000, 0x8000, CRC(7c7ee2d8) SHA1(1e67bfe0f3585be5a6e6719ccf9db764bafbcb01) )
 
 	ROM_REGION( 0x10000, "audiocpu", 0 ) /* sound cpu */
-	ROM_LOAD( "3.d9",   0x0000, 0x4000, CRC(8866c2b0) SHA1(d00f31994673e8087a1406f98e8832d07cedeb66) ) // 1xxxxxxxxxxxxx = 0xFF
+	ROM_LOAD( "3.10d",  0x0000, 0x4000, CRC(8866c2b0) SHA1(d00f31994673e8087a1406f98e8832d07cedeb66) ) // 1xxxxxxxxxxxxx = 0xFF
 
 	ROM_REGION( 0x2000, "text", ROMREGION_INVERT ) /* tx layer */
 	ROM_LOAD( "10.13e", 0x0000, 0x2000, CRC(62f9b28c) SHA1(d57d06b99e72a4f68f197a5b6c042c926cc70ca0) ) // FIRST AND SECOND HALF IDENTICAL
@@ -620,6 +674,9 @@ ROM_START( flowerj ) /* Sega/Alpha version.  Sega game number 834-5998 */
 	ROM_LOAD( "82s129.a1",  0x0420, 0x0100, CRC(c8dad3fc) SHA1(8e852efac70223d02e45b20ed8a12e38c5010a78) )
 ROM_END
 
+} // anonymous namespace
 
-GAME( 1986, flower,  0,      flower, flower, flower_state, empty_init, ROT0, "Clarue (Komax license)",                   "Flower (US)",    MACHINE_IMPERFECT_SOUND|MACHINE_IMPERFECT_GRAPHICS|MACHINE_NO_COCKTAIL )
-GAME( 1986, flowerj, flower, flower, flower, flower_state, empty_init, ROT0, "Clarue (Sega / Alpha Denshi Co. license)", "Flower (Japan)", MACHINE_IMPERFECT_SOUND|MACHINE_IMPERFECT_GRAPHICS|MACHINE_NO_COCKTAIL )
+
+GAME( 1986, flower,   0,      flower, flower, flower_state, empty_init, ROT0, "Clarue (Komax license)",                   "Flower (US)",              MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS | MACHINE_NO_COCKTAIL )
+GAME( 1986, flowerj,  flower, flower, flower, flower_state, empty_init, ROT0, "Clarue (Sega / Alpha Denshi Co. license)", "Flower (Japan)",           MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS | MACHINE_NO_COCKTAIL )
+GAME( 1986, flowerjb, flower, flower, flower, flower_state, empty_init, ROT0, "Clarue (Sega / Alpha Denshi Co. license)", "Flower (Japan, bootleg?)", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS | MACHINE_NO_COCKTAIL )

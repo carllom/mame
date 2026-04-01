@@ -214,7 +214,7 @@ m2_bda_device::m2_bda_device(const machine_config &mconfig, const char *tag, dev
 	m_cpu1(*this, finder_base::DUMMY_TAG),
 	m_cpu2(*this, finder_base::DUMMY_TAG),
 	m_cde(*this, finder_base::DUMMY_TAG),
-	m_videores_in(*this),
+	m_videores_in(*this, 0),
 	m_memctl(*this, "memctl"),
 	m_powerbus(*this, "powerbus"),
 	m_vdu(*this, "vdu"),
@@ -234,11 +234,6 @@ m2_bda_device::m2_bda_device(const machine_config &mconfig, const char *tag, dev
 
 void m2_bda_device::device_start()
 {
-	// Resolve callbacks
-	m_videores_in.resolve_safe(0);
-	m_dac_l.resolve_safe();
-	m_dac_r.resolve_safe();
-
 	// Allocate RAM
 	uint32_t ram_size = (m_rambank_size[0] + m_rambank_size[1]) * 1024 * 1024;
 	m_ram = std::make_unique<uint32_t[]>(ram_size / sizeof(uint32_t));
@@ -296,7 +291,7 @@ void m2_bda_device::device_add_mconfig(machine_config &config)
 	M2_MPEG(config, m_mpeg, DERIVED_CLOCK(1, 1));
 //  m_mpeg->int_handler().set(m_powerbus, FUNC(m2_powerbus_device::int_line<BDAINT_MPEG_LINE>));
 
-	DSPP(config, m_dspp, DERIVED_CLOCK(1, 1));
+	DSPP_BULLDOG(config, m_dspp, DERIVED_CLOCK(1, 1));
 	m_dspp->int_handler().set(m_powerbus, FUNC(m2_powerbus_device::int_line<BDAINT_DSP_LINE>));
 	m_dspp->dma_read_handler().set(FUNC(m2_bda_device::read_bus8));
 	m_dspp->dma_write_handler().set(FUNC(m2_bda_device::write_bus8));
@@ -466,7 +461,7 @@ void m2_bda_device::configure_ppc_address_map(address_space &space)
 	space.install_readwrite_handler(MEMCTL_BASE,    MEMCTL_BASE + DEVICE_MASK,  read32s_delegate(*m_memctl,    FUNC(m2_memctl_device::read)),      write32s_delegate(*m_memctl,    FUNC(m2_memctl_device::write)),      0xffffffffffffffffULL);
 	space.install_readwrite_handler(VDU_BASE,       VDU_BASE + DEVICE_MASK,     read32s_delegate(*m_vdu,       FUNC(m2_vdu_device::read)),         write32s_delegate(*m_vdu,       FUNC(m2_vdu_device::write)),         0xffffffffffffffffULL);
 	space.install_readwrite_handler(TE_BASE,        TE_BASE + DEVICE_MASK,      read32sm_delegate(*m_te,       FUNC(m2_te_device::read)),          write32sm_delegate(*m_te,       FUNC(m2_te_device::write)),          0xffffffffffffffffULL);
-	space.install_readwrite_handler(DSP_BASE,       DSP_BASE + DEVICE_MASK,     read32sm_delegate(*m_dspp,     FUNC(dspp_device::read)),           write32sm_delegate(*m_dspp,     FUNC(dspp_device::write)),           0xffffffffffffffffULL);
+	space.install_readwrite_handler(DSP_BASE,       DSP_BASE + DEVICE_MASK,     read32sm_delegate(*m_dspp,     FUNC(dspp_bulldog_device::host_read)), write32sm_delegate(*m_dspp,     FUNC(dspp_bulldog_device::host_write)), 0xffffffffffffffffULL);
 	space.install_readwrite_handler(CTRLPORT_BASE,  CTRLPORT_BASE + DEVICE_MASK,read32sm_delegate(*m_ctrlport, FUNC(m2_ctrlport_device::read)),    write32sm_delegate(*m_ctrlport, FUNC(m2_ctrlport_device::write)),    0xffffffffffffffffULL);
 	space.install_readwrite_handler(MPEG_BASE,      MPEG_BASE + DEVICE_MASK,    read32sm_delegate(*m_mpeg,     FUNC(m2_mpeg_device::read)),        write32sm_delegate(*m_mpeg,     FUNC(m2_mpeg_device::write)),        0xffffffffffffffffULL);
 
@@ -500,9 +495,6 @@ m2_powerbus_device::m2_powerbus_device(const machine_config &mconfig, const char
 
 void m2_powerbus_device::device_start()
 {
-	// Resolve callbacks
-	m_int_handler.resolve();
-
 	// Register state for saving
 	save_item(NAME(m_ctrl));
 	save_item(NAME(m_int_enable));
@@ -592,7 +584,7 @@ void m2_powerbus_device::write(offs_t offset, uint32_t data)
 			break;
 		}
 		default:
-			logerror("%s: POWERBUS W: [%x] %x (PC:%x)\n", machine().describe_context(), byte_offs, data);
+			logerror("%s: POWERBUS W: [%x] %x\n", machine().describe_context(), byte_offs, data);
 	}
 }
 
@@ -621,10 +613,10 @@ void m2_powerbus_device::update_interrupts()
 //  m2_memctl_device - constructor
 //-------------------------------------------------
 
-m2_memctl_device::m2_memctl_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, M2_MEMCTL, tag, owner, clock),
-		m_gpio_in(*this),
-		m_gpio_out(*this)
+m2_memctl_device::m2_memctl_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	device_t(mconfig, M2_MEMCTL, tag, owner, clock),
+	m_gpio_in(*this, 0),
+	m_gpio_out(*this)
 {
 }
 
@@ -635,10 +627,6 @@ m2_memctl_device::m2_memctl_device(const machine_config &mconfig, const char *ta
 
 void m2_memctl_device::device_start()
 {
-	// Resolve our callbacks
-	m_gpio_in.resolve_all_safe(0);
-	m_gpio_out.resolve_all_safe();
-
 	// TODO: DELETE ME
 	m2_bda_device *m_bda = (m2_bda_device*)owner(); // TEMP
 
@@ -801,10 +789,6 @@ m2_vdu_device::m2_vdu_device(const machine_config &mconfig, const char *tag, dev
 
 void m2_vdu_device::device_start()
 {
-	// Resolve callbacks
-	m_vint0_int_handler.resolve_safe();
-	m_vint1_int_handler.resolve_safe();
-
 	// Initialize line interrupt timers
 	m_vint0_timer = timer_alloc(FUNC(m2_vdu_device::vint0_set), this);
 	m_vint1_timer = timer_alloc(FUNC(m2_vdu_device::vint1_set), this);
@@ -1491,10 +1475,6 @@ m2_cde_device::m2_cde_device(const machine_config &mconfig, const char *tag, dev
 
 void m2_cde_device::device_start()
 {
-	// Resolve callbacks
-	m_int_handler.resolve_safe();
-	m_sdbg_out_handler.resolve_safe();
-
 	// Init DMA
 	m_dma[0].m_timer = timer_alloc(FUNC(m2_cde_device::next_dma), this);
 	m_dma[1].m_timer = timer_alloc(FUNC(m2_cde_device::next_dma), this);
@@ -1939,11 +1919,6 @@ TIMER_CALLBACK_MEMBER(m2_cde_device::next_dma)
 {
 	const uint32_t ch = (uint32_t)param;
 	dma_channel &dma_ch = m_dma[ch];
-
-	// TODO: HACK!
-#if 1
-	m_cpu1->set_cache_dirty();
-#endif
 
 	if (dma_ch.m_ccnt != 0)
 		throw emu_fatalerror("m2_cde_device::next_dma: DMA count non-zero during next DMA");

@@ -730,26 +730,21 @@ uint8_t galaga_state::bosco_dsw_r(offs_t offset)
 	return bit0 | (bit1 << 1);
 }
 
-WRITE_LINE_MEMBER(galaga_state::flip_screen_w)
-{
-	flip_screen_set(state);
-}
-
-WRITE_LINE_MEMBER(galaga_state::irq1_clear_w)
+void galaga_state::irq1_clear_w(int state)
 {
 	m_main_irq_mask = state;
 	if (!m_main_irq_mask)
 		m_maincpu->set_input_line(0, CLEAR_LINE);
 }
 
-WRITE_LINE_MEMBER(galaga_state::irq2_clear_w)
+void galaga_state::irq2_clear_w(int state)
 {
 	m_sub_irq_mask = state;
 	if (!m_sub_irq_mask)
 		m_subcpu->set_input_line(0, CLEAR_LINE);
 }
 
-WRITE_LINE_MEMBER(galaga_state::nmion_w)
+void galaga_state::nmion_w(int state)
 {
 	m_sub2_nmi_mask = !state;
 }
@@ -762,7 +757,7 @@ void galaga_state::out(uint8_t data)
 	machine().bookkeeping().coin_counter_w(0,~data & 8);
 }
 
-WRITE_LINE_MEMBER(galaga_state::lockout)
+void galaga_state::lockout(int state)
 {
 	machine().bookkeeping().coin_lockout_global_w(state);
 }
@@ -1544,7 +1539,7 @@ static const char *const battles_sample_names[] =
 	nullptr   /* end of array */
 };
 
-WRITE_LINE_MEMBER(galaga_state::vblank_irq)
+void galaga_state::vblank_irq(int state)
 {
 	if (state && m_main_irq_mask)
 		m_maincpu->set_input_line(0, ASSERT_LINE);
@@ -1621,7 +1616,7 @@ void bosco_state::bosco(machine_config &config)
 	n06xx_1.chip_select_callback<1>().set("52xx", FUNC(namco_52xx_device::chip_select));
 
 	LS259(config, m_videolatch); // 1B on video board
-	m_videolatch->q_out_cb<0>().set(FUNC(galaga_state::flip_screen_w)).invert();
+	m_videolatch->q_out_cb<0>().set(FUNC(bosco_state::flip_screen_set)).invert();
 	// Q4-Q5 to 05XX for starfield blink
 	m_videolatch->q_out_cb<7>().set("50xx_2", FUNC(namco_50xx_device::reset));
 	m_videolatch->q_out_cb<7>().append("52xx", FUNC(namco_52xx_device::reset));
@@ -1701,7 +1696,7 @@ void galaga_state::galaga(machine_config &config)
 
 	LS259(config, m_videolatch); // 5K on video board
 	// Q0-Q5 to 05XX for starfield control
-	m_videolatch->q_out_cb<7>().set(FUNC(galaga_state::flip_screen_w));
+	m_videolatch->q_out_cb<7>().set(FUNC(galaga_state::flip_screen_set));
 
 	WATCHDOG_TIMER(config, "watchdog").set_vblank_count(m_screen, 8);
 
@@ -1739,7 +1734,6 @@ void galaga_state::galagab(machine_config &config)
 	galaga(config);
 
 	/* basic machine hardware */
-
 	config.device_remove("06xx");
 	config.device_remove("54xx");
 	ls259_device* misclatch = reinterpret_cast<ls259_device*>(config.device("misclatch"));
@@ -1935,7 +1929,7 @@ void digdug_state::digdug(machine_config &config)
 	m_videolatch->parallel_out_cb().set(FUNC(digdug_state::bg_select_w)).mask(0x33);
 	m_videolatch->q_out_cb<2>().set(FUNC(digdug_state::tx_color_mode_w));
 	m_videolatch->q_out_cb<3>().set(FUNC(digdug_state::bg_disable_w));
-	m_videolatch->q_out_cb<7>().set(FUNC(digdug_state::flip_screen_w));
+	m_videolatch->q_out_cb<7>().set(FUNC(digdug_state::flip_screen_set));
 
 	ER2055(config, m_earom);
 
@@ -1967,7 +1961,6 @@ void digdug_state::dzigzag(machine_config &config)
 	digdug(config);
 
 	/* basic machine hardware */
-
 	z80_device &sub3(Z80(config, "sub3", MASTER_CLOCK/6));   /* 3.072 MHz */
 	sub3.set_addrmap(AS_PROGRAM, &digdug_state::dzigzag_mem4);
 }
@@ -1990,7 +1983,46 @@ Namco/Midway, 1981
 
 */
 
-ROM_START( bosco )
+ROM_START( bosco ) // 23209611 (23209631) main PCB + 23169612 (23169632) sub PCB
+	ROM_REGION( 0x10000, "maincpu", 0 ) /* 64k for code for the first CPU  */
+	ROM_LOAD( "bos5_1.3p",    0x0000, 0x1000, CRC(b1482ad1) SHA1(32d0402fc4882cae2c3655f24087f9f1911f99c1) )
+	ROM_LOAD( "bos5_2.3m",    0x1000, 0x1000, CRC(e0828ef8) SHA1(2633c7518bf0918f33dac8fbed7aa7053a4793f0) )
+	ROM_LOAD( "bos5_3.2m",    0x2000, 0x1000, CRC(229edd51) SHA1(6e34837b1d18637b94b3e772ff1b61ffe70e8fcc) )
+	ROM_LOAD( "bos5_4.2l",   0x3000, 0x1000, CRC(928a39a0) SHA1(dfc5a7ff62a0eabc900b43ef6b8e86e4d46125fe) )
+
+	ROM_REGION( 0x10000, "sub", 0 ) /* 64k for the second CPU */
+	ROM_LOAD( "bos5_5.3f",   0x0000, 0x1000, CRC(84f7c1ea) SHA1(53a1242490575938fca9e738546c93edf82ad7d3) )
+	ROM_LOAD( "bos5_6.3j",   0x1000, 0x1000, CRC(7fa34d5e) SHA1(c99feb051ab62ef3f7278a411938cd09e731fc19) )
+
+	ROM_REGION( 0x10000, "sub2", 0 )    /* 64k for the third CPU  */
+	ROM_LOAD( "bos1_7.2c",    0x0000, 0x1000, CRC(d45a4911) SHA1(547236adca9174f5cc0ec05b9649618bb92ba630) )
+
+	ROM_REGION( 0x1000, "gfx1", 0 )
+	ROM_LOAD( "bos1_14.5d",   0x0000, 0x1000, CRC(a956d3c5) SHA1(c5a9d7b1f9b4acda8fb9762414e085cb5fb80c9e) )
+
+	ROM_REGION( 0x1000, "gfx2", 0 )
+	ROM_LOAD( "bos1_13.5e",   0x0000, 0x1000, CRC(e869219c) SHA1(425614cd0642743a82ef9c1aada29774a92203ea) )
+
+	ROM_REGION( 0x0100, "gfx3", 0 )
+	ROM_LOAD( "bos1-4.2r",    0x0000, 0x0100, CRC(9b69b543) SHA1(47af3f67e50794e839b74fe61197af2228084efd) )    /* dots */
+
+	ROM_REGION( 0x0260, "proms", 0 )
+	ROM_LOAD( "bos1-6.6b",    0x0000, 0x0020, CRC(d2b96fb0) SHA1(54c100ec9d173d7dd48a453ebed5f625053cb6e0) )    /* palette */
+	ROM_LOAD( "bos1-5.4m",    0x0020, 0x0100, CRC(4e15d59c) SHA1(3542ead6421d169c3569e121ec2be304e108787c) )    /* lookup table */
+	ROM_LOAD( "bos1-3.2d",    0x0120, 0x0020, CRC(b88d5ba9) SHA1(7b97a38a540b7ca4b7d9ae338ec38b9b1a337846) )    /* video layout (not used) */
+	ROM_LOAD( "bos1-7.7h",    0x0140, 0x0020, CRC(87d61353) SHA1(c7493e52662c921625676a4a4e8cf4371bd938b7) )    /* video timing (not used) */
+
+	ROM_REGION( 0x0200, "namco", 0 )
+	ROM_LOAD( "bos1-1.1d",    0x0000, 0x0100, CRC(de2316c6) SHA1(0e55c56046331888d1d3f0d9823d2ceb203e7d3f) )
+	ROM_LOAD( "bos1-2.5c",    0x0100, 0x0100, CRC(77245b66) SHA1(0c4d0bee858b97632411c440bea6948a74759746) )    /* timing - not used */
+
+	ROM_REGION( 0x3000, "52xx", 0 ) /* ROMs for digitised speech */
+	ROM_LOAD( "bos1_9.5n",    0x0000, 0x1000, CRC(09acc978) SHA1(2b264aaeb6eba70ad91593413dca733990e5467b) )
+	ROM_LOAD( "bos1_10.5m",   0x1000, 0x1000, CRC(e571e959) SHA1(9c81d7bec73bc605f7dd9a089171b0f34c4bb09a) )
+	ROM_LOAD( "bos1_11.5k",   0x2000, 0x1000, CRC(17ac9511) SHA1(266f3fae90d2fe38d109096d352863a52b379899) )
+ROM_END
+
+ROM_START( bosco3 )
 	ROM_REGION( 0x10000, "maincpu", 0 ) /* 64k for code for the first CPU  */
 	ROM_LOAD( "bos3_1.3n",    0x0000, 0x1000, CRC(96021267) SHA1(bd49b0caabcccf9df45a272d767456a4fc8a7c07) )
 	ROM_LOAD( "bos1_2.3m",    0x1000, 0x1000, CRC(2d8f3ebe) SHA1(75de1cba7531ae4bf7fbbef7b8e37b9fec4ed0d0) )
@@ -2029,7 +2061,7 @@ ROM_START( bosco )
 	ROM_LOAD( "bos1_11.5k",   0x2000, 0x1000, CRC(17ac9511) SHA1(266f3fae90d2fe38d109096d352863a52b379899) )
 ROM_END
 
-ROM_START( boscoo )
+ROM_START( bosco1 )
 	ROM_REGION( 0x10000, "maincpu", 0 ) /* 64k for code for the first CPU  */
 	ROM_LOAD( "bos1_1.3n",    0x0000, 0x1000, CRC(0d9920e7) SHA1(e7633233f603ccb5b7a970ed5b58ef361ef2c94e) )
 	ROM_LOAD( "bos1_2.3m",    0x1000, 0x1000, CRC(2d8f3ebe) SHA1(75de1cba7531ae4bf7fbbef7b8e37b9fec4ed0d0) )
@@ -2068,7 +2100,7 @@ ROM_START( boscoo )
 	ROM_LOAD( "bos1_11.5k",   0x2000, 0x1000, CRC(17ac9511) SHA1(266f3fae90d2fe38d109096d352863a52b379899) )
 ROM_END
 
-ROM_START( boscoo2 )
+ROM_START( bosco1o )
 	ROM_REGION( 0x10000, "maincpu", 0 ) /* 64k for code for the first CPU  */
 	ROM_LOAD( "bos1_1.3n",    0x0000, 0x1000, CRC(0d9920e7) SHA1(e7633233f603ccb5b7a970ed5b58ef361ef2c94e) )
 	ROM_LOAD( "bos1_2.3m",    0x1000, 0x1000, CRC(2d8f3ebe) SHA1(75de1cba7531ae4bf7fbbef7b8e37b9fec4ed0d0) )
@@ -2363,6 +2395,17 @@ Notes:
                     0400 (DIP28): Motion Object and Scratch RAM to CPU Bus Interface IC
                     0702 (DIP28): Sync Generator/Clock Divider IC
 
+There's also a Sidam version of Galaga (Sidam PCB 11200, official license for the Italian market),
+but, unlike Sidam's Dig Dug, this one does not use any unique ROM, but a mix between the two Namco sets:
+     bottom-10_2532.4d  = gg1_11.4d  galaga   Galaga (Namco rev. B)
+     bottom-8_2532.4h   = gg1_9.4l   galaga   Galaga (Namco rev. B)
+     bottom-9_2532.4f   = gg1_10.4f  galaga   Galaga (Namco rev. B)
+     top-0_2532.3n      = gg1-1.3p   galagao  Galaga (Namco)
+     top-1_2532.3m      = gg1-2.3m   galagao  Galaga (Namco)
+     top-2_2532.3l      = gg1_3.2m   galaga   Galaga (Namco rev. B)
+     top-3_2532.3k      = gg1-4.2l   galagao  Galaga (Namco)
+     top-4_2532.3j      = gg1_5b.3f  galaga   Galaga (Namco rev. B)
+     top-6_2532.3e      = gg1_7b.2c  galaga   Galaga (Namco rev. B)
 */
 
 ROM_START( galaga )
@@ -2827,6 +2870,55 @@ ROM_START( xeviousc )
 	ROM_REGION( 0x0200, "namco", 0 )    /* sound PROMs */
 	ROM_LOAD( "xvi-2.7n",     0x0000, 0x0100, CRC(550f06bc) SHA1(816a0fafa0b084ac11ae1af70a5186539376fc2a) )
 	ROM_LOAD( "xvi-1.5n",     0x0100, 0x0100, CRC(77245b66) SHA1(0c4d0bee858b97632411c440bea6948a74759746) )    /* timing - not used */
+ROM_END
+
+ROM_START( xeviousd ) // original Atari PCBs A039785 + A039787 (both PCBs had a 21 handwritten with a black marker)
+	ROM_REGION( 0x10000, "maincpu", 0 ) /* 64k for the first CPU */
+	ROM_LOAD( "1983_atari_8309_136018_218.1m", 0x0000, 0x2000, CRC(cf690308) SHA1(f036c2c9ce161becf24e3fa336c1ee3926bdc6ca) )
+	ROM_LOAD( "1983_atari_8307_136018_219.1l", 0x2000, 0x2000, CRC(408c4b64) SHA1(91cbb46334d2c8e7d0e1281197092ccd2e45035b) )
+
+	ROM_REGION( 0x10000, "sub", 0 ) /* 64k for the second CPU */
+	ROM_LOAD( "1983_atari_8306_136018_120.4c", 0x0000, 0x2000, CRC(14d8fa03) SHA1(e8114141394adda86184b146f2497cfeef7fc2eb) )
+
+	ROM_REGION( 0x10000, "sub2", 0 )
+	ROM_LOAD( "1983_atari_8306_136018_127.2c", 0x0000, 0x1000, CRC(dd35cf1c) SHA1(f8d1f8e019d8198308443c2e7e815d0d04b23d14) )
+
+	ROM_REGION( 0x1000, "gfx1", 0 )
+	ROM_LOAD( "1983_atari_8307_136018_104.3b", 0x0000, 0x1000, CRC(088c8b26) SHA1(9c3b61dfca2f84673a78f7f66e363777a8f47a59) )    /* foreground characters */
+
+	ROM_REGION( 0x2000, "gfx2", 0 )
+	ROM_LOAD( "1983_atari_8307_136018_105.3c", 0x0000, 0x1000, CRC(de60ba25) SHA1(32bc09be5ff8b52ee3a26e0ac3ebc2d4107badb7) )    /* bg pattern B0 */
+	ROM_LOAD( "1983_atari_8307_136018_106.3d", 0x1000, 0x1000, CRC(535cdbbc) SHA1(fb9ffe5fc43e0213231267e98d605d43c15f61e8) )    /* bg pattern B1 */
+
+	ROM_REGION( 0xa000, "gfx3", 0 )
+	ROM_LOAD( "1983_atari_8307_136018_107.4m", 0x0000, 0x2000, CRC(dc2c0ecb) SHA1(19ddbd9805f77f38c9a9a1bb30dba6c720b8609f) )    /* sprite set #1, planes 0/1 */
+	ROM_LOAD( "1983_atari_8307_136018_109.4p", 0x2000, 0x2000, CRC(dfb587ce) SHA1(acff2bf5cde85a16cdc98a52cdea11f77fadf25a) )    /* sprite set #2, planes 0/1 */
+	ROM_LOAD( "1983_atari_8307_136018_108.4n", 0x4000, 0x1000, CRC(605ca889) SHA1(3bf380ef76c03822a042ecc73b5edd4543c268ce) )    /* sprite set #3, planes 0/1 */
+	ROM_LOAD( "1983_atari_8307_136018_110.4r", 0x5000, 0x2000, CRC(02417d19) SHA1(b5f830dd2cf25cf154308d2e640f0ecdcda5d8cd) )    /* sprite set #1, plane 2, set #2, plane 2 */
+	/* 0x7000-0x8fff  will be unpacked from 0x5000-0x6fff */
+	ROM_FILL(                                  0x9000, 0x1000, 0x00 )    // empty space to decode sprite set #3 as 3 bits per pixel
+
+	ROM_REGION( 0x4000, "gfx4", 0 ) /* background tilemaps */
+	ROM_LOAD( "1983_atari_8307_136018_101.2a", 0x0000, 0x1000, CRC(57ed9879) SHA1(3106d1aacff06cf78371bd19967141072b32b7d7) )
+	ROM_LOAD( "1983_atari_8307_136018_102.2b", 0x1000, 0x2000, CRC(ae3ba9e5) SHA1(49064b25667ffcd81137cd5e800df4b78b182a46) )
+	ROM_LOAD( "1983_atari_8307_136018_103.2c", 0x3000, 0x1000, CRC(31e244dd) SHA1(3f7eac12863697a98e1122111801606759e44b2a) )
+
+	// from here on nothing was dumped for this set. They all probably match, given similarity.
+	ROM_REGION( 0x0b00, "proms", 0 )
+	ROM_LOAD( "1983_atari_136018_115.6a", 0x0000, 0x0100, CRC(5cc2727f) SHA1(0dc1e63a47a4cb0ba75f6f1e0c15e408bb0ee2a1) ) /* palette red component */
+	ROM_LOAD( "1983_atari_136018_116.6d", 0x0100, 0x0100, CRC(5c8796cc) SHA1(63015e3c0874afc6b1ca032f1ffb8f90562c77c8) ) /* palette green component */
+	ROM_LOAD( "1983_atari_136018_117.6e", 0x0200, 0x0100, CRC(3cb60975) SHA1(c94d5a5dd4d8a08d6d39c051a4a722581b903f45) ) /* palette blue component */
+	ROM_LOAD( "1983_atari_136018_114.4h", 0x0300, 0x0200, CRC(22d98032) SHA1(ec6626828c79350417d08b98e9631ad35edd4a41) ) /* bg tiles lookup table low bits */
+	ROM_LOAD( "1983_atari_136018_113.4f", 0x0500, 0x0200, CRC(3a7599f0) SHA1(a4bdf58c190ca16fc7b976c97f41087a61fdb8b8) ) /* bg tiles lookup table high bits */
+	ROM_LOAD( "1983_atari_136018_111.3l", 0x0700, 0x0200, CRC(fd8b9d91) SHA1(87ddf0b9d723aabb422d6d416aa9ec6bc246bf34) ) /* sprite lookup table low bits */
+	ROM_LOAD( "1983_atari_136018_112.3m", 0x0900, 0x0200, CRC(bf906d82) SHA1(776168a73d3b9f0ce05610acc8a623deae0a572b) ) /* sprite lookup table high bits */
+
+	ROM_REGION( 0x0200, "pals_vidbd", 0) /* PAL's located on the video board */
+	ROM_LOAD( "n82s153n.1f", 0x0000, 0x0117, CRC(9192d57a) SHA1(5f36db93b6083767f93aa3a0e4bc2d4fc7e27f9c) )
+
+	ROM_REGION( 0x0200, "namco", 0 )    /* sound PROMs */
+	ROM_LOAD( "1983_atari_136018_129.8m", 0x0000, 0x0100, CRC(550f06bc) SHA1(816a0fafa0b084ac11ae1af70a5186539376fc2a) )
+	ROM_LOAD( "1983_atari_136018_128.6m", 0x0100, 0x0100, CRC(77245b66) SHA1(0c4d0bee858b97632411c440bea6948a74759746) )    /* timing - not used */
 ROM_END
 
 /*
@@ -3464,52 +3556,53 @@ void xevious_state::init_xevios()
 }
 
 
-void battles_state::driver_init()
+void battles_state::driver_start()
 {
 	/* replace the Namco I/O handlers with interface to the 4th CPU */
 	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x7000, 0x700f, read8sm_delegate(*this, FUNC(battles_state::customio_data0_r)), write8sm_delegate(*this, FUNC(battles_state::customio_data0_w)));
 	m_maincpu->space(AS_PROGRAM).install_readwrite_handler(0x7100, 0x7100, read8smo_delegate(*this, FUNC(battles_state::customio0_r)), write8smo_delegate(*this, FUNC(battles_state::customio0_w)));
-
-	init_xevious();
 }
 
 
 /* Original Namco hardware, with Namco Customs */
 
-//    YEAR, NAME,      PARENT,  MACHINE, INPUT,    STATE,         INIT,         MONITOR,COMPANY,FULLNAME,FLAGS
-GAME( 1981, bosco,     0,       bosco,   bosco,    bosco_state,   empty_init,   ROT0,   "Namco", "Bosconian - Star Destroyer (new version)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, boscoo,    bosco,   bosco,   bosco,    bosco_state,   empty_init,   ROT0,   "Namco", "Bosconian - Star Destroyer (old version)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, boscoo2,   bosco,   bosco,   bosco,    bosco_state,   empty_init,   ROT0,   "Namco", "Bosconian - Star Destroyer (older version)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, boscomd,   bosco,   bosco,   boscomd,  bosco_state,   empty_init,   ROT0,   "Namco (Midway license)", "Bosconian - Star Destroyer (Midway, new version)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, boscomdo,  bosco,   bosco,   boscomd,  bosco_state,   empty_init,   ROT0,   "Namco (Midway license)", "Bosconian - Star Destroyer (Midway, old version)", MACHINE_SUPPORTS_SAVE )
+//    YEAR, NAME,      PARENT,   MACHINE, INPUT,    STATE,         INIT,         MONITOR,COMPANY,FULLNAME,FLAGS
+GAME( 1981, bosco,     0,        bosco,   bosco,    bosco_state,   empty_init,   ROT0,   "Namco", "Bosconian - Star Destroyer (version 5)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, bosco3,    bosco,    bosco,   bosco,    bosco_state,   empty_init,   ROT0,   "Namco", "Bosconian - Star Destroyer (version 3)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, bosco1,    bosco,    bosco,   bosco,    bosco_state,   empty_init,   ROT0,   "Namco", "Bosconian - Star Destroyer (version 1, newer)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, bosco1o,   bosco,    bosco,   bosco,    bosco_state,   empty_init,   ROT0,   "Namco", "Bosconian - Star Destroyer (version 1, older)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, boscomd,   bosco,    bosco,   boscomd,  bosco_state,   empty_init,   ROT0,   "Namco (Midway license)", "Bosconian - Star Destroyer (Midway, new version)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, boscomdo,  bosco,    bosco,   boscomd,  bosco_state,   empty_init,   ROT0,   "Namco (Midway license)", "Bosconian - Star Destroyer (Midway, old version)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1981, galaga,    0,       galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco", "Galaga (Namco rev. B)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, galagao,   galaga,  galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco", "Galaga (Namco)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, galagamw,  galaga,  galaga,  galagamw, galaga_state,  init_galaga,  ROT90,  "Namco (Midway license)", "Galaga (Midway set 1)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, galagamk,  galaga,  galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco (Midway license)", "Galaga (Midway set 2)", MACHINE_SUPPORTS_SAVE )
-GAME( 1981, galagamf,  galaga,  galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco (Midway license)", "Galaga (Midway set 1 with fast shoot hack)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, galaga,    0,        galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco", "Galaga (Namco rev. B)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, galagao,   galaga,   galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco", "Galaga (Namco)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, galagamw,  galaga,   galaga,  galagamw, galaga_state,  init_galaga,  ROT90,  "Namco (Midway license)", "Galaga (Midway set 1)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, galagamk,  galaga,   galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco (Midway license)", "Galaga (Midway set 2)", MACHINE_SUPPORTS_SAVE )
+GAME( 1981, galagamf,  galaga,   galaga,  galaga,   galaga_state,  init_galaga,  ROT90,  "Namco (Midway license)", "Galaga (Midway set 1 with fast shoot hack)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1982, xevious,   0,       xevious, xevious,  xevious_state, init_xevious, ROT90,  "Namco", "Xevious (Namco)", MACHINE_SUPPORTS_SAVE )
-GAME( 1982, xeviousa,  xevious, xevious, xeviousa, xevious_state, init_xevious, ROT90,  "Namco (Atari license)", "Xevious (Atari, harder)", MACHINE_SUPPORTS_SAVE )
-GAME( 1982, xeviousb,  xevious, xevious, xeviousb, xevious_state, init_xevious, ROT90,  "Namco (Atari license)", "Xevious (Atari)", MACHINE_SUPPORTS_SAVE )
-GAME( 1982, xeviousc,  xevious, xevious, xeviousa, xevious_state, init_xevious, ROT90,  "Namco (Atari license)", "Xevious (Atari, Namco PCB)", MACHINE_SUPPORTS_SAVE )
-GAME( 1984, sxevious,  xevious, xevious, sxevious, xevious_state, init_xevious, ROT90,  "Namco", "Super Xevious", MACHINE_SUPPORTS_SAVE )
-GAME( 1984, sxeviousj, xevious, xevious, sxevious, xevious_state, init_xevious, ROT90,  "Namco", "Super Xevious (Japan)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, xevious,   0,        xevious, xevious,  xevious_state, init_xevious, ROT90,  "Namco", "Xevious (Namco)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, xeviousa,  xevious,  xevious, xeviousa, xevious_state, init_xevious, ROT90,  "Namco (Atari license)", "Xevious (Atari, harder)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, xeviousb,  xevious,  xevious, xeviousb, xevious_state, init_xevious, ROT90,  "Namco (Atari license)", "Xevious (Atari)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, xeviousc,  xevious,  xevious, xeviousa, xevious_state, init_xevious, ROT90,  "Namco (Atari license)", "Xevious (Atari, Namco PCB)", MACHINE_SUPPORTS_SAVE )
+GAME( 1983, xeviousd,  xevious,  xevious, xeviousa, xevious_state, init_xevious, ROT90,  "Namco (Atari license)", "Xevious (Atari, set 4)", MACHINE_SUPPORTS_SAVE )
 
-GAME( 1982, digdug,    0,       digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco", "Dig Dug (rev 2)", MACHINE_SUPPORTS_SAVE )
-GAME( 1982, digdug1,   digdug,  digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco", "Dig Dug (rev 1)", MACHINE_SUPPORTS_SAVE )
-GAME( 1982, digdugat,  digdug,  digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco (Atari license)", "Dig Dug (Atari, rev 2)", MACHINE_SUPPORTS_SAVE )
-GAME( 1982, digdugat1, digdug,  digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco (Atari license)", "Dig Dug (Atari, rev 1)", MACHINE_SUPPORTS_SAVE )
-GAME( 1982, digsid,    digdug,  digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco (Sidam license)", "Dig Dug (manufactured by Sidam)", MACHINE_SUPPORTS_SAVE )
+GAME( 1984, sxevious,  0,        xevious, sxevious, xevious_state, init_xevious, ROT90,  "Namco", "Super Xevious", MACHINE_SUPPORTS_SAVE )
+GAME( 1984, sxeviousj, sxevious, xevious, sxevious, xevious_state, init_xevious, ROT90,  "Namco", "Super Xevious (Japan)", MACHINE_SUPPORTS_SAVE )
+
+GAME( 1982, digdug,    0,        digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco", "Dig Dug (rev 2)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, digdug1,   digdug,   digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco", "Dig Dug (rev 1)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, digdugat,  digdug,   digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco (Atari license)", "Dig Dug (Atari, rev 2)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, digdugat1, digdug,   digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco (Atari license)", "Dig Dug (Atari, rev 1)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, digsid,    digdug,   digdug,  digdug,   digdug_state,  empty_init,   ROT90,  "Namco (Sidam license)", "Dig Dug (manufactured by Sidam)", MACHINE_SUPPORTS_SAVE )
 
 /* Bootlegs with replacement I/O chips */
 
-GAME( 1982, gallag,    galaga,  galagab, galaga,   galaga_state,  init_galaga,  ROT90,  "bootleg", "Gallag", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND )
-GAME( 1984, gatsbee,   galaga,  gatsbee, gatsbee,  galaga_state,  init_galaga,  ROT90,  "hack (Uchida)", "Gatsbee", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND )
-GAME( 1981, nebulbee,  galaga,  galagab, galaga,   galaga_state,  init_galaga,  ROT90,  "bootleg", "Nebulous Bee", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND )
+GAME( 1982, gallag,    galaga,   galagab, galaga,   galaga_state,  init_galaga,  ROT90,  "bootleg", "Gallag", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND )
+GAME( 1984, gatsbee,   galaga,   gatsbee, gatsbee,  galaga_state,  init_galaga,  ROT90,  "hack (Uchida)", "Gatsbee", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND )
+GAME( 1981, nebulbee,  galaga,   galagab, galaga,   galaga_state,  init_galaga,  ROT90,  "bootleg", "Nebulous Bee", MACHINE_SUPPORTS_SAVE | MACHINE_IMPERFECT_SOUND )
 
-GAME( 1982, xevios,    xevious, xevious, xevious,  xevious_state, init_xevios,  ROT90,  "bootleg", "Xevios", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
-GAME( 1982, battles,   xevious, battles, xevious,  battles_state, driver_init,  ROT90,  "bootleg", "Battles (set 1)", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
-GAME( 1982, battles2,  xevious, xevious, xevious,  xevious_state, init_xevios,  ROT90,  "bootleg", "Battles (set 2)", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1982, xevios,    xevious,  xevious, xevious,  xevious_state, init_xevios,  ROT90,  "bootleg", "Xevios", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1982, battles,   xevious,  battles, xevious,  battles_state, init_xevious, ROT90,  "bootleg", "Battles (set 1)", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1982, battles2,  xevious,  xevious, xevious,  xevious_state, init_xevios,  ROT90,  "bootleg", "Battles (set 2)", MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
 
-GAME( 1982, dzigzag,   digdug,  dzigzag, digdug,   digdug_state,  empty_init,   ROT90,  "bootleg", "Zig Zag (Dig Dug hardware)", MACHINE_SUPPORTS_SAVE )
+GAME( 1982, dzigzag,   digdug,   dzigzag, digdug,   digdug_state,  empty_init,   ROT90,  "bootleg", "Zig Zag (Dig Dug hardware)", MACHINE_SUPPORTS_SAVE )

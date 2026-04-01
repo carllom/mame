@@ -22,6 +22,8 @@ the Deal 'Em board design, rather than the one they ultimately used, suggesting 
 #include "tilemap.h"
 
 
+namespace {
+
 class mpu4dealem_state : public mpu4_state
 {
 public:
@@ -29,22 +31,28 @@ public:
 		: mpu4_state(mconfig, type, tag)
 		, m_dealem_videoram(*this, "dealem_videoram")
 		, m_gfxdecode(*this, "gfxdecode")
+		, m_palette(*this, "palette")
 	{
 	}
 
 	void dealem(machine_config &config);
 
 protected:
-	virtual void video_start() override;
+	virtual void video_start() override ATTR_COLD;
 
 private:
-	optional_shared_ptr<uint8_t> m_dealem_videoram;
 	DECLARE_MACHINE_RESET(dealem_vid);
 	void dealem_palette(palette_device &palette) const;
 	uint32_t screen_update_dealem(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
-	required_device<gfxdecode_device> m_gfxdecode;
-	void dealem_memmap(address_map &map);
+
+	void dealem_memmap(address_map &map) ATTR_COLD;
 	TILE_GET_INFO_MEMBER(tile_info);
+
+	optional_shared_ptr<uint8_t> m_dealem_videoram;
+
+	required_device<gfxdecode_device> m_gfxdecode;
+	required_device<palette_device> m_palette;
+
 	tilemap_t *m_tilemap = nullptr;
 };
 
@@ -225,7 +233,6 @@ void mpu4dealem_state::dealem(machine_config &config)
 
 	mpu4_common(config);
 
-	SPEAKER(config, "mono").front_center();
 	AY8913(config, m_ay8913, MPU4_MASTER_CLOCK/4);
 	m_ay8913->set_flags(AY8910_SINGLE_OUTPUT);
 	m_ay8913->set_resistors_load(820, 0, 0);
@@ -291,7 +298,7 @@ static INPUT_PORTS_START( dealem )
 	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_UNUSED)
 	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_SERVICE) PORT_NAME("Test Button") PORT_CODE(KEYCODE_W)
 	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_SERVICE) PORT_NAME("Refill Key") PORT_CODE(KEYCODE_R) PORT_TOGGLE
-	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_INTERLOCK) PORT_NAME("Rear Door")  PORT_CODE(KEYCODE_Q) PORT_TOGGLE
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_DOOR) PORT_NAME("Rear Door") PORT_CODE(KEYCODE_Q) PORT_TOGGLE
 
 	PORT_START("BLACK2")
 	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_START1) PORT_NAME("Hi-Lo") PORT_CONDITION("DIL1",0x0f,EQUALS,0x00)
@@ -393,6 +400,9 @@ ROM_START( v4dealem )
 	ROM_REGION( 0x200, "plds", 0 )
 	ROM_LOAD( "zenndlem.u10",   0x000, 0x104, CRC(e3103c05) SHA1(91b7be75c5fb37025039ab54b484e46a033969b5) )
 ROM_END
+
+} // anonymous namespace
+
 
 /*Deal 'Em was a conversion kit designed to make early MPU4 machines into video games by replacing the top glass
 and reel assembly with this kit and a supplied monitor. This explains why the cabinet switch alters lamp data and buttons.

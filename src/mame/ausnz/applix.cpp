@@ -29,7 +29,7 @@
     - Audio: it could be better
     - DAC output is used to compare against analog inputs; core doesn't permit
       audio outputs to be used for non-speaker purposes.
-    - Bios 5 crashes MAME after scrolling about half a screen
+    - BIOS 5 crashes MAME after scrolling about half a screen
 
 ****************************************************************************/
 
@@ -38,7 +38,7 @@
 #include "bus/centronics/ctronics.h"
 #include "bus/rs232/rs232.h"
 #include "cpu/m68000/m68000.h"
-#include "cpu/mcs51/mcs51.h"
+#include "cpu/mcs51/i8051.h"
 #include "cpu/z80/z80.h"
 #include "imagedev/cassette.h"
 #include "imagedev/floppy.h"
@@ -70,34 +70,15 @@ public:
 		, m_centronics(*this, "centronics")
 		, m_cent_data_out(*this, "cent_data_out")
 		, m_fdc(*this, "fdc")
-		, m_floppy0(*this, "fdc:0")
-		, m_floppy1(*this, "fdc:1")
+		, m_floppy(*this, "fdc:%u", 0U)
 		, m_ldac(*this, "ldac")
 		, m_rdac(*this, "rdac")
 		, m_cass(*this, "cassette")
 		, m_io_dsw(*this, "DSW")
 		, m_io_fdc(*this, "FDC")
 		, m_io_k0f(*this, "K0f")
-		, m_io_k300(*this, "K30_0")
-		, m_io_k301(*this, "K30_1")
-		, m_io_k310(*this, "K31_0")
-		, m_io_k311(*this, "K31_1")
-		, m_io_k320(*this, "K32_0")
-		, m_io_k321(*this, "K32_1")
-		, m_io_k330(*this, "K33_0")
-		, m_io_k331(*this, "K33_1")
-		, m_io_k340(*this, "K34_0")
-		, m_io_k341(*this, "K34_1")
-		, m_io_k350(*this, "K35_0")
-		, m_io_k351(*this, "K35_1")
-		, m_io_k360(*this, "K36_0")
-		, m_io_k361(*this, "K36_1")
-		, m_io_k370(*this, "K37_0")
-		, m_io_k371(*this, "K37_1")
-		, m_io_k380(*this, "K38_0")
-		, m_io_k390(*this, "K39_0")
-		, m_io_k3a0(*this, "K3a_0")
-		, m_io_k3b0(*this, "K3b_0")
+		, m_io_k3x0(*this, "K3%x_0", 0U)
+		, m_io_k3x1(*this, "K3%x_1", 0U)
 		, m_io_k0b(*this, "K0b")
 		, m_expansion(*this, "expansion")
 		, m_palette(*this, "palette")
@@ -108,8 +89,8 @@ public:
 	void init_applix();
 
 private:
-	virtual void machine_reset() override;
-	virtual void machine_start() override;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void machine_start() override ATTR_COLD;
 	u16 applix_inputs_r();
 	void palette_w(offs_t offset, u16 data, u16 mem_mask = ~0);
 	void analog_latch_w(u16 data);
@@ -118,7 +99,7 @@ private:
 	u8 applix_pb_r();
 	void applix_pa_w(u8 data);
 	void applix_pb_w(u8 data);
-	DECLARE_WRITE_LINE_MEMBER(vsync_w);
+	void vsync_w(int state);
 	u8 port00_r();
 	u8 port08_r();
 	u8 port10_r();
@@ -154,11 +135,11 @@ private:
 	u8 m_palette_latch[4]{};
 	required_shared_ptr<u16> m_base;
 
-	void main_mem(address_map &map);
-	void keytronic_pc3270_io(address_map &map);
-	void keytronic_pc3270_program(address_map &map);
-	void sub_io(address_map &map);
-	void sub_mem(address_map &map);
+	void main_mem(address_map &map) ATTR_COLD;
+	void keytronic_pc3270_data(address_map &map) ATTR_COLD;
+	void keytronic_pc3270_program(address_map &map) ATTR_COLD;
+	void sub_io(address_map &map) ATTR_COLD;
+	void sub_mem(address_map &map) ATTR_COLD;
 
 	u8 m_pb = 0U;
 	u8 m_analog_latch = 0U;
@@ -184,34 +165,15 @@ private:
 	required_device<centronics_device> m_centronics;
 	required_device<output_latch_device> m_cent_data_out;
 	required_device<wd1772_device> m_fdc;
-	required_device<floppy_connector> m_floppy0;
-	required_device<floppy_connector> m_floppy1;
+	required_device_array<floppy_connector, 2> m_floppy;
 	required_device<dac_byte_interface> m_ldac;
 	required_device<dac_byte_interface> m_rdac;
 	required_device<cassette_image_device> m_cass;
 	required_ioport m_io_dsw;
 	required_ioport m_io_fdc;
 	required_ioport m_io_k0f;
-	required_ioport m_io_k300;
-	required_ioport m_io_k301;
-	required_ioport m_io_k310;
-	required_ioport m_io_k311;
-	required_ioport m_io_k320;
-	required_ioport m_io_k321;
-	required_ioport m_io_k330;
-	required_ioport m_io_k331;
-	required_ioport m_io_k340;
-	required_ioport m_io_k341;
-	required_ioport m_io_k350;
-	required_ioport m_io_k351;
-	required_ioport m_io_k360;
-	required_ioport m_io_k361;
-	required_ioport m_io_k370;
-	required_ioport m_io_k371;
-	required_ioport m_io_k380;
-	required_ioport m_io_k390;
-	required_ioport m_io_k3a0;
-	required_ioport m_io_k3b0;
+	required_ioport_array<12> m_io_k3x0;
+	required_ioport_array<8> m_io_k3x1;
 	required_ioport m_io_k0b;
 	required_shared_ptr<u16> m_expansion;
 
@@ -370,8 +332,8 @@ void applix_state::port08_w(u8 data)
 	membank("bank1")->set_entry(BIT(data, 6));
 
 	floppy_image_device *floppy = nullptr;
-	if (BIT(data, 2)) floppy = m_floppy0->get_device();
-	if (BIT(data, 3)) floppy = m_floppy1->get_device();
+	if (BIT(data, 2)) floppy = m_floppy[0]->get_device();
+	if (BIT(data, 3)) floppy = m_floppy[1]->get_device();
 
 	m_fdc->set_floppy(floppy);
 
@@ -504,7 +466,7 @@ void applix_state::keytronic_pc3270_program(address_map &map)
 	map(0x0000, 0x0fff).rom().region("kbdcpu", 0);
 }
 
-void applix_state::keytronic_pc3270_io(address_map &map)
+void applix_state::keytronic_pc3270_data(address_map &map)
 {
 	map(0x0000, 0xffff).rw(FUNC(applix_state::internal_data_read), FUNC(applix_state::internal_data_write));
 }
@@ -856,7 +818,7 @@ MC6845_BEGIN_UPDATE( applix_state::crtc_update_border )
 	bitmap.fill(m_palette->pen(m_video_latch >> 4), cliprect);
 }
 
-WRITE_LINE_MEMBER( applix_state::vsync_w )
+void applix_state::vsync_w(int state)
 {
 	m_via->write_ca2(state);
 }
@@ -890,7 +852,7 @@ void applix_state::applix(machine_config &config)
 
 	i8051_device &kbdcpu(I8051(config, "kbdcpu", 11060250));
 	kbdcpu.set_addrmap(AS_PROGRAM, &applix_state::keytronic_pc3270_program);
-	kbdcpu.set_addrmap(AS_IO, &applix_state::keytronic_pc3270_io);
+	kbdcpu.set_addrmap(AS_DATA, &applix_state::keytronic_pc3270_data);
 	kbdcpu.port_in_cb<1>().set(FUNC(applix_state::p1_read));
 	kbdcpu.port_out_cb<1>().set(FUNC(applix_state::p1_write));
 	kbdcpu.port_in_cb<2>().set(FUNC(applix_state::p2_read));
@@ -908,10 +870,9 @@ void applix_state::applix(machine_config &config)
 	PALETTE(config, m_palette, FUNC(applix_state::applix_palette), 16);
 
 	/* sound hardware */
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
-	DAC0800(config, "ldac", 0).add_route(ALL_OUTPUTS, "lspeaker", 1.0); // 74ls374.u20 + dac0800.u21 + 4052.u23
-	DAC0800(config, "rdac", 0).add_route(ALL_OUTPUTS, "rspeaker", 1.0); // 74ls374.u20 + dac0800.u21 + 4052.u23
+	SPEAKER(config, "speaker", 2).front();
+	DAC0800(config, "ldac", 0).add_route(ALL_OUTPUTS, "speaker", 1.0, 0); // 74ls374.u20 + dac0800.u21 + 4052.u23
+	DAC0800(config, "rdac", 0).add_route(ALL_OUTPUTS, "speaker", 1.0, 1); // 74ls374.u20 + dac0800.u21 + 4052.u23
 
 	/* Devices */
 	MC6845(config, m_crtc, 30_MHz_XTAL / 16); // MC6545 @ 1.875 MHz
@@ -940,14 +901,14 @@ void applix_state::applix(machine_config &config)
 
 	CASSETTE(config, m_cass);
 	m_cass->set_default_state(CASSETTE_STOPPED | CASSETTE_MOTOR_ENABLED | CASSETTE_SPEAKER_ENABLED);
-	m_cass->add_route(ALL_OUTPUTS, "lspeaker", 0.10);
+	m_cass->add_route(ALL_OUTPUTS, "speaker", 0.10, 0);
 
 	WD1772(config, m_fdc, 16_MHz_XTAL / 2); //connected to Z80H clock pin
-	FLOPPY_CONNECTOR(config, "fdc:0", applix_floppies, "35dd", applix_state::floppy_formats).enable_sound(true);
-	FLOPPY_CONNECTOR(config, "fdc:1", applix_floppies, "35dd", applix_state::floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy[0], applix_floppies, "35dd", applix_state::floppy_formats).enable_sound(true);
+	FLOPPY_CONNECTOR(config, m_floppy[1], applix_floppies, "35dd", applix_state::floppy_formats).enable_sound(true);
 	TIMER(config, "applix_c").configure_periodic(FUNC(applix_state::cass_timer), attotime::from_hz(100000));
 
-	scc8530_device &scc(SCC8530N(config, "scc", 30_MHz_XTAL / 8));
+	scc8530_device &scc(SCC8530(config, "scc", 30_MHz_XTAL / 8));
 	scc.out_txda_callback().set("serial_a", FUNC(rs232_port_device::write_txd));
 	scc.out_rtsa_callback().set("serial_a", FUNC(rs232_port_device::write_rts));
 	scc.out_dtra_callback().set("serial_a", FUNC(rs232_port_device::write_dtr));
@@ -1048,41 +1009,13 @@ void applix_state::internal_data_write(offs_t offset, u8 data)
 		case 0x0f:
 			m_p1_data = m_io_k0f->read();
 			break;
-		case 0x30:
-			m_p1_data = m_io_k300->read();
-			break;
-		case 0x31:
-			m_p1_data = m_io_k310->read();
-			break;
-		case 0x32:
-			m_p1_data = m_io_k320->read();
-			break;
-		case 0x33:
-			m_p1_data = m_io_k330->read();
-			break;
-		case 0x34:
-			m_p1_data = m_io_k340->read();
-			break;
-		case 0x35:
-			m_p1_data = m_io_k350->read();
-			break;
-		case 0x36:
-			m_p1_data = m_io_k360->read();
+		case 0x30: case 0x31: case 0x32: case 0x33:
+		case 0x34: case 0x35: case 0x36:
+		case 0x38: case 0x39: case 0x3a: case 0x3b:
+			m_p1_data = m_io_k3x0[m_p1 - 0x30]->read();
 			break;
 		case 0x37:
-			m_p1_data = m_io_k370->read() | (m_io_k360->read() & 0x01);
-			break;
-		case 0x38:
-			m_p1_data = m_io_k380->read();
-			break;
-		case 0x39:
-			m_p1_data = m_io_k390->read();
-			break;
-		case 0x3a:
-			m_p1_data = m_io_k3a0->read();
-			break;
-		case 0x3b:
-			m_p1_data = m_io_k3b0->read();
+			m_p1_data = m_io_k3x0[7]->read() | (m_io_k3x0[6]->read() & 0x01);
 			break;
 		}
 	}
@@ -1095,29 +1028,9 @@ void applix_state::internal_data_write(offs_t offset, u8 data)
 		case 0x0b:
 			m_p1_data = m_io_k0b->read();
 			break;
-		case 0x30:
-			m_p1_data = m_io_k301->read();
-			break;
-		case 0x31:
-			m_p1_data = m_io_k311->read();
-			break;
-		case 0x32:
-			m_p1_data = m_io_k321->read();
-			break;
-		case 0x33:
-			m_p1_data = m_io_k331->read();
-			break;
-		case 0x34:
-			m_p1_data = m_io_k341->read();
-			break;
-		case 0x35:
-			m_p1_data = m_io_k351->read();
-			break;
-		case 0x36:
-			m_p1_data = m_io_k361->read();
-			break;
-		case 0x37:
-			m_p1_data = m_io_k371->read();
+		case 0x30: case 0x31: case 0x32: case 0x33:
+		case 0x34: case 0x35: case 0x36: case 0x37:
+			m_p1_data = m_io_k3x1[m_p1 - 0x30]->read();
 			break;
 		case 0x38:
 			m_p1_data = 0xff;

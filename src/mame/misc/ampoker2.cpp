@@ -49,7 +49,7 @@
 
   To 'init' (boot) the machine:
   1) Turn ON the Operator Key (9).
-  2) Keep pressed the DOOR key (W). You are entering the Operator Mode.
+  2) Keep pressed the DOOR key (O). You are entering the Operator Mode.
   3) Turn OFF the Operator Key (9).
   4) Reset the machine. (you must reset manually the machine due to watchdog issues).
 
@@ -653,7 +653,7 @@ void ampoker2_state::io_map(address_map &map)
 	map(0x36, 0x36).w(FUNC(ampoker2_state::port36_w));    /* see write handlers */
 	map(0x37, 0x37).w(FUNC(ampoker2_state::watchdog_reset_w));
 	map(0x38, 0x39).w("aysnd", FUNC(ay8910_device::address_data_w));
-	map(0x3A, 0x3A).r("aysnd", FUNC(ay8910_device::data_r));
+	map(0x3a, 0x3a).r("aysnd", FUNC(ay8910_device::data_r));
 }
 
 /*
@@ -717,7 +717,7 @@ static INPUT_PORTS_START( ampoker2 )
 	PORT_DIPSETTING(    0x01, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_OTHER ) PORT_NAME("RTS") PORT_CODE(KEYCODE_U)
-	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_GAMBLE_DOOR ) PORT_NAME("Door Switch")
+	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_DOOR ) PORT_NAME("Door Switch")
 	PORT_DIPNAME( 0x08, 0x08, DEF_STR( Unknown ) )
 	PORT_DIPSETTING(    0x08, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
@@ -765,7 +765,7 @@ static INPUT_PORTS_START( ampoker2 )
 	PORT_BIT( 0x10, IP_ACTIVE_LOW, IPT_COIN1 ) PORT_IMPULSE(2)
 
 	PORT_START("IN7")
-	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_OTHER ) PORT_VBLANK("screen")
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_OTHER ) PORT_READ_LINE_DEVICE_MEMBER("screen", FUNC(screen_device::vblank))
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_OTHER ) PORT_NAME("Remote Credit") PORT_IMPULSE(12) PORT_CODE(KEYCODE_3)
 	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_COIN4 ) PORT_IMPULSE(2)
 	PORT_DIPNAME( 0x08, 0x08, "Jackpot" )        PORT_DIPLOCATION("SW1:8") /* DSW8 */
@@ -802,7 +802,7 @@ static INPUT_PORTS_START( ampkr95 )
 	PORT_DIPSETTING(    0x01, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_OTHER ) PORT_NAME("RTS") PORT_CODE(KEYCODE_U)
-	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_GAMBLE_DOOR ) PORT_NAME("Door Switch")
+	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_DOOR ) PORT_NAME("Door Switch")
 	PORT_DIPNAME( 0x08, 0x08, DEF_STR( Unknown ) )
 	PORT_DIPSETTING(    0x08, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
@@ -887,7 +887,7 @@ static INPUT_PORTS_START( sigmapkr )
 	PORT_DIPSETTING(    0x01, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_OTHER ) PORT_NAME("RTS") PORT_CODE(KEYCODE_U)
-	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_GAMBLE_DOOR ) PORT_NAME("Door Switch")
+	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_DOOR ) PORT_NAME("Door Switch")
 	PORT_DIPNAME( 0x08, 0x08, DEF_STR( Unknown ) )
 	PORT_DIPSETTING(    0x08, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
@@ -1070,7 +1070,7 @@ static INPUT_PORTS_START( piccolop )
 	PORT_DIPSETTING(    0x01, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
 	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_OTHER ) PORT_NAME("IN2-2") PORT_CODE(KEYCODE_3_PAD)
-	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_GAMBLE_DOOR ) PORT_NAME("Door Switch")
+	PORT_BIT( 0x04, IP_ACTIVE_LOW, IPT_DOOR ) PORT_NAME("Door Switch")
 	PORT_DIPNAME( 0x08, 0x08, DEF_STR( Unknown ) )
 	PORT_DIPSETTING(    0x08, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )

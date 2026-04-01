@@ -9,8 +9,10 @@
 #include "bus/rs232/rs232.h"
 #include "machine/ncr5380.h"
 #include "imagedev/floppy.h"
-#include "formats/pc_dsk.h"
 #include "formats/naslite_dsk.h"
+
+
+namespace {
 
 class lb186_state : public driver_device
 {
@@ -19,7 +21,8 @@ public:
 		: driver_device(mconfig, type, tag)
 		, m_maincpu(*this, "maincpu")
 		, m_fdc(*this, "fdc")
-		, m_scsi(*this, "scsibus:7:ncr5380")
+		, m_floppies(*this, "fdc:%u", 0U)
+		, m_scsi(*this, "ncr5380")
 	{
 	}
 
@@ -29,12 +32,12 @@ private:
 	void sio_out_w(uint8_t data);
 	void drive_sel_w(uint8_t data);
 	static void floppy_formats(format_registration &fr);
-	static void ncr5380(device_t *device);
-	void lb186_io(address_map &map);
-	void lb186_map(address_map &map);
+	void lb186_io(address_map &map) ATTR_COLD;
+	void lb186_map(address_map &map) ATTR_COLD;
 
 	required_device<i80186_cpu_device> m_maincpu;
 	required_device<wd1772_device> m_fdc;
+	required_device_array<floppy_connector, 4> m_floppies;
 	required_device<ncr5380_device> m_scsi;
 };
 
@@ -48,8 +51,6 @@ void lb186_state::drive_sel_w(uint8_t data)
 {
 	m_fdc->dden_w(BIT(data, 5));
 
-	floppy_image_device *floppy;
-	char devname[8];
 	unsigned int drive = data & 0xf;
 	switch(drive)
 	{
@@ -72,8 +73,7 @@ void lb186_state::drive_sel_w(uint8_t data)
 			return;
 	}
 
-	sprintf(devname, "%d", drive);
-	floppy = m_fdc->subdevice<floppy_connector>(devname)->get_device();
+	floppy_image_device *const floppy = m_floppies[drive]->get_device();
 	m_fdc->set_floppy(floppy);
 	floppy->ss_w(BIT(data, 4));
 }
@@ -99,18 +99,9 @@ static void lb186_floppies(device_slot_interface &device)
 	device.option_add("525dd", FLOPPY_525_DD);
 }
 
-void lb186_state::ncr5380(device_t *device)
-{
-	devcb_base *devcb;
-	(void)devcb;
-	downcast<ncr5380_device &>(*device).irq_handler().set(":maincpu", FUNC(i80186_cpu_device::int1_w));
-	downcast<ncr5380_device &>(*device).drq_handler().set(":maincpu", FUNC(i80186_cpu_device::drq0_w));
-}
-
 static void scsi_devices(device_slot_interface &device)
 {
 	device.option_add("harddisk", NSCSI_HARDDISK);
-	device.option_add_internal("ncr5380", NCR5380);
 }
 
 void lb186_state::floppy_formats(format_registration &fr)
@@ -139,12 +130,12 @@ void lb186_state::lb186(machine_config &config)
 	WD1772(config, m_fdc, 16_MHz_XTAL / 2);
 	m_fdc->intrq_wr_callback().set(m_maincpu, FUNC(i80186_cpu_device::int2_w));
 	m_fdc->drq_wr_callback().set(m_maincpu, FUNC(i80186_cpu_device::drq0_w));
-	FLOPPY_CONNECTOR(config, "fdc:0", lb186_floppies, "525dd", lb186_state::floppy_formats);
-	FLOPPY_CONNECTOR(config, "fdc:1", lb186_floppies, nullptr, lb186_state::floppy_formats);
-	FLOPPY_CONNECTOR(config, "fdc:2", lb186_floppies, nullptr, lb186_state::floppy_formats);
-	FLOPPY_CONNECTOR(config, "fdc:3", lb186_floppies, nullptr, lb186_state::floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppies[0], lb186_floppies, "525dd", lb186_state::floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppies[1], lb186_floppies, nullptr, lb186_state::floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppies[2], lb186_floppies, nullptr, lb186_state::floppy_formats);
+	FLOPPY_CONNECTOR(config, m_floppies[3], lb186_floppies, nullptr, lb186_state::floppy_formats);
 
-	NSCSI_BUS(config, "scsibus");
+	auto &scsi(NSCSI_BUS(config, "scsibus"));
 	NSCSI_CONNECTOR(config, "scsibus:0", scsi_devices, "harddisk");
 	NSCSI_CONNECTOR(config, "scsibus:1", scsi_devices, nullptr);
 	NSCSI_CONNECTOR(config, "scsibus:2", scsi_devices, nullptr);
@@ -152,7 +143,11 @@ void lb186_state::lb186(machine_config &config)
 	NSCSI_CONNECTOR(config, "scsibus:4", scsi_devices, nullptr);
 	NSCSI_CONNECTOR(config, "scsibus:5", scsi_devices, nullptr);
 	NSCSI_CONNECTOR(config, "scsibus:6", scsi_devices, nullptr);
-	NSCSI_CONNECTOR(config, "scsibus:7", scsi_devices, "ncr5380", true).set_option_machine_config("ncr5380", lb186_state::ncr5380);
+
+	NCR5380(config, m_scsi);
+	scsi.set_external_device(7, m_scsi);
+	m_scsi->irq_handler().set(m_maincpu, FUNC(i80186_cpu_device::int1_w));
+	m_scsi->drq_handler().set(m_maincpu, FUNC(i80186_cpu_device::drq0_w));
 }
 
 ROM_START( lb186 )
@@ -164,5 +159,8 @@ ROM_START( lb186 )
 	ROMX_LOAD("a75523.rom", 0x0000, 0x2000, CRC(2d22e826) SHA1(e366e489f580b440131ad5212722391b60af90cd), ROM_SKIP(1) | ROM_BIOS(1))
 	ROMX_LOAD("a75524.rom", 0x0001, 0x2000, CRC(9c9b249c) SHA1(e988e92d9fa6fe66f89ef748021e9a0501d2807e), ROM_SKIP(1) | ROM_BIOS(1))
 ROM_END
+
+} // anonymous namespace
+
 
 COMP( 1985, lb186, 0, 0, lb186, 0, lb186_state, empty_init, "Ampro Computers", "Little Board/186", MACHINE_NO_SOUND_HW )

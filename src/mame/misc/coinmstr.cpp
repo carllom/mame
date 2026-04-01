@@ -89,7 +89,7 @@
 
   - For Joker Poker (set 2), to start, pulse the KEY OUT (W) to wipe
     the credits set at boot stage and reset the game. Otherwise you'll
-    get 116 credits due to input inconsistences.
+    get 116 credits due to input inconsistencies.
 
   DIP switch #1 changes the minimal hand between "Jacks or Better" and
   "Pair of Aces".
@@ -128,110 +128,103 @@
 ==================================================================================*/
 
 #include "emu.h"
+
 #include "cpu/z80/z80.h"
 #include "machine/6821pia.h"
 #include "video/mc6845.h"
 #include "sound/ay8910.h"
 #include "machine/nvram.h"
+
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
 #include "tilemap.h"
 
 
-#define MASTER_CLOCK    XTAL(14'000'000)
-#define CPU_CLOCK      (MASTER_CLOCK/4)
-#define SND_CLOCK      (MASTER_CLOCK/8)
-
+namespace {
 
 class coinmstr_state : public driver_device
 {
 public:
-	coinmstr_state(const machine_config &mconfig, device_type type, const char *tag)
-		: driver_device(mconfig, type, tag),
+	coinmstr_state(const machine_config &mconfig, device_type type, const char *tag) :
+		driver_device(mconfig, type, tag),
 		m_videoram(*this, "videoram"),
 		m_attr_ram1(*this, "attr_ram1"),
 		m_attr_ram2(*this, "attr_ram2"),
 		m_attr_ram3(*this, "attr_ram3"),
 		m_maincpu(*this, "maincpu"),
 		m_gfxdecode(*this, "gfxdecode"),
-		m_palette(*this, "palette")  { }
+		m_palette(*this, "palette")
+	{ }
 
-	required_shared_ptr<uint8_t> m_videoram;
-	required_shared_ptr<uint8_t> m_attr_ram1;
-	required_shared_ptr<uint8_t> m_attr_ram2;
-	required_shared_ptr<uint8_t> m_attr_ram3;
-	tilemap_t *m_bg_tilemap = nullptr;
-	uint8_t m_question_adr[4]{};
-	void quizmstr_bg_w(offs_t offset, uint8_t data);
-	void quizmstr_attr1_w(offs_t offset, uint8_t data);
-	void quizmstr_attr2_w(offs_t offset, uint8_t data);
-	void quizmstr_attr3_w(offs_t offset, uint8_t data);
-	uint8_t question_r();
-	void question_w(offs_t offset, uint8_t data);
-	uint8_t ff_r();
-	void init_coinmstr();
-	TILE_GET_INFO_MEMBER(get_bg_tile_info);
-	virtual void video_start() override;
-	uint32_t screen_update_coinmstr(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
-	required_device<cpu_device> m_maincpu;
-	required_device<gfxdecode_device> m_gfxdecode;
-	required_device<palette_device> m_palette;
 	void coinmstr(machine_config &config);
 	void pokeroul(machine_config &config);
 	void supnudg2(machine_config &config);
 	void jpcoin(machine_config &config);
+	void jpjcoin(machine_config &config);
 	void quizmstr(machine_config &config);
 	void trailblz(machine_config &config);
-	void coinmstr_map(address_map &map);
-	void jpcoin_io_map(address_map &map);
-	void jpcoin_map(address_map &map);
-	void pokeroul_io_map(address_map &map);
-	void quizmstr_io_map(address_map &map);
-	void supnudg2_io_map(address_map &map);
-	void trailblz_io_map(address_map &map);
+
+	void init_coinmstr();
+
+protected:
+	virtual void video_start() override ATTR_COLD;
+
+private:
+	required_shared_ptr<uint8_t> m_videoram;
+	required_shared_ptr<uint8_t> m_attr_ram1;
+	required_shared_ptr<uint8_t> m_attr_ram2;
+	required_shared_ptr<uint8_t> m_attr_ram3;
+
+	required_device<cpu_device> m_maincpu;
+	required_device<gfxdecode_device> m_gfxdecode;
+	required_device<palette_device> m_palette;
+
+	tilemap_t *m_bg_tilemap = nullptr;
+	uint8_t m_question_adr[4]{};
+
+	void coinmstr_set_pal(uint32_t paldat, int col);
+	void quizmstr_attr1_w(offs_t offset, uint8_t data);
+	void quizmstr_attr2_w(offs_t offset, uint8_t data);
+	void quizmstr_attr3_w(offs_t offset, uint8_t data);
+	void quizmstr_bg_w(offs_t offset, uint8_t data);
+	uint8_t question_r();
+	void question_w(offs_t offset, uint8_t data);
+	uint8_t ff_r();
+	TILE_GET_INFO_MEMBER(get_bg_tile_info);
+	uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
+
+	void coinmstr_map(address_map &map) ATTR_COLD;
+	void jpcoin_io_map(address_map &map) ATTR_COLD;
+	void jpcoin_map(address_map &map) ATTR_COLD;
+	void jpjcoin_io_map(address_map &map) ATTR_COLD;
+	void pokeroul_io_map(address_map &map) ATTR_COLD;
+	void quizmstr_io_map(address_map &map) ATTR_COLD;
+	void supnudg2_io_map(address_map &map) ATTR_COLD;
+	void trailblz_io_map(address_map &map) ATTR_COLD;
 };
 
 
-void coinmstr_state::quizmstr_bg_w(offs_t offset, uint8_t data)
+void coinmstr_state::coinmstr_set_pal(uint32_t paldat, int col)
 {
-	m_videoram[offset] = data;
+	int r0 = BIT(paldat, 12);
+	int g0 = BIT(paldat, 11);
+	int b0 = BIT(paldat, 10);
+	int r1 = BIT(paldat, 9);
+	int g1 = BIT(paldat, 8);
+	int b1 = BIT(paldat, 7);
 
-	if(offset >= 0x0240)
-		m_bg_tilemap->mark_tile_dirty(offset - 0x0240);
-}
+	int r2 = BIT(paldat, 5);
+	int g2 = BIT(paldat, 4);
+	int b2 = BIT(paldat, 3);
+	int r3 = BIT(paldat, 2);
+	int g3 = BIT(paldat, 1);
+	int b3 = BIT(paldat, 0);
 
-
-static void coinmstr_set_pal(palette_device &palette, uint32_t paldat, int col)
-{
-	col = col *4;
-
-	{
-		int r0, r1, r2, r3;
-		int g0, g1, g2, g3;
-		int b0, b1, b2, b3;
-
-		r0 = (paldat & 0x1000) >> 12 ;
-		g0 = (paldat & 0x0800) >> 11 ;
-		b0 = (paldat & 0x0400) >> 10 ;
-		r1 = (paldat & 0x0200) >> 9 ;
-		g1 = (paldat & 0x0100) >> 8 ;
-		b1 = (paldat & 0x0080) >> 7 ;
-
-		r2 = (paldat & 0x0020) >> 5 ;
-		g2 = (paldat & 0x0010) >> 4 ;
-		b2 = (paldat & 0x0008) >> 3 ;
-		r3 = (paldat & 0x0004) >> 2 ;
-		g3 = (paldat & 0x0002) >> 1 ;
-		b3 = (paldat & 0x0001) >> 0 ;
-
-
-		palette.set_pen_color(col+0, (b0 * 255) << 5, (g0 * 255) << 5, (r0 * 255) << 5);
-		palette.set_pen_color(col+2, (b1 * 255) << 5, (g1 * 255) << 5, (r1 * 255) << 5);
-		palette.set_pen_color(col+1, (b2 * 255) << 5, (g2 * 255) << 5, (r2 * 255) << 5);
-		palette.set_pen_color(col+3, (b3 * 255) << 5, (g3 * 255) << 5, (r3 * 255) << 5);
-
-	}
+	m_palette->set_pen_color(col * 4 + 0, (b0 * 255) << 5, (g0 * 255) << 5, (r0 * 255) << 5);
+	m_palette->set_pen_color(col * 4 + 2, (b1 * 255) << 5, (g1 * 255) << 5, (r1 * 255) << 5);
+	m_palette->set_pen_color(col * 4 + 1, (b2 * 255) << 5, (g2 * 255) << 5, (r2 * 255) << 5);
+	m_palette->set_pen_color(col * 4 + 3, (b3 * 255) << 5, (g3 * 255) << 5, (r3 * 255) << 5);
 }
 
 
@@ -242,11 +235,10 @@ void coinmstr_state::quizmstr_attr1_w(offs_t offset, uint8_t data)
 	if(offset >= 0x0240)
 	{
 		// the later games also use attr3 for something..
-		uint32_t  paldata = (m_attr_ram1[offset] & 0x7f) | ((m_attr_ram2[offset] & 0x7f) << 7);
+		uint32_t paldata = (m_attr_ram1[offset] & 0x7f) | ((m_attr_ram2[offset] & 0x7f) << 7);
 		m_bg_tilemap->mark_tile_dirty(offset - 0x0240);
 
-		coinmstr_set_pal(*m_palette, paldata, offset - 0x240);
-
+		coinmstr_set_pal(paldata, offset - 0x240);
 	}
 }
 
@@ -257,11 +249,10 @@ void coinmstr_state::quizmstr_attr2_w(offs_t offset, uint8_t data)
 	if(offset >= 0x0240)
 	{
 		// the later games also use attr3 for something..
-		uint32_t  paldata = (m_attr_ram1[offset] & 0x7f) | ((m_attr_ram2[offset] & 0x7f) << 7);
+		uint32_t paldata = (m_attr_ram1[offset] & 0x7f) | ((m_attr_ram2[offset] & 0x7f) << 7);
 		m_bg_tilemap->mark_tile_dirty(offset - 0x0240);
 
-		coinmstr_set_pal(*m_palette, paldata, offset - 0x240);
-
+		coinmstr_set_pal(paldata, offset - 0x240);
 	}
 }
 
@@ -271,7 +262,14 @@ void coinmstr_state::quizmstr_attr3_w(offs_t offset, uint8_t data)
 
 	if(offset >= 0x0240)
 		m_bg_tilemap->mark_tile_dirty(offset - 0x0240);
+}
 
+void coinmstr_state::quizmstr_bg_w(offs_t offset, uint8_t data)
+{
+	m_videoram[offset] = data;
+
+	if(offset >= 0x0240)
+		m_bg_tilemap->mark_tile_dirty(offset - 0x0240);
 }
 
 
@@ -314,7 +312,6 @@ uint8_t coinmstr_state::question_r()
         (m_question_adr[0] & 0x5f) == 0x0f ||
         (m_question_adr[0] & 0x5f) == 0x56 )
 */
-
 
 //  don't know...
 //  address |= ((m_question_adr[0] & 0x7f) << 8) | m_question_adr[1];
@@ -502,6 +499,18 @@ E0-E1 CRTC
 	map(0xd8, 0xdb).rw("pia2", FUNC(pia6821_device::read), FUNC(pia6821_device::write));    /* confirmed */
 //  map(0xc0, 0xc1).r(FUNC(coinmstr_state::ff_r));  /* needed to boot */
 	map(0xc4, 0xc4).r(FUNC(coinmstr_state::ff_r));  /* needed to boot */
+}
+
+void coinmstr_state::jpjcoin_io_map(address_map &map)
+{
+	map.global_mask(0xff);
+	map(0x00, 0x03).rw("pia0", FUNC(pia6821_device::read), FUNC(pia6821_device::write));
+	map(0x10, 0x13).rw("pia2", FUNC(pia6821_device::read), FUNC(pia6821_device::write));
+	map(0x20, 0x23).rw("pia1", FUNC(pia6821_device::read), FUNC(pia6821_device::write));
+	map(0x28, 0x28).w("crtc", FUNC(mc6845_device::address_w));
+	map(0x29, 0x29).w("crtc", FUNC(mc6845_device::register_w));
+	map(0x38, 0x39).w("aysnd", FUNC(ay8910_device::address_data_w));
+	map(0x39, 0x39).r("aysnd", FUNC(ay8910_device::data_r));
 }
 
 
@@ -824,7 +833,7 @@ static INPUT_PORTS_START( trailblz )
 INPUT_PORTS_END
 
 static INPUT_PORTS_START( supnudg2 )    /* need to find the button 'B' to be playable */
-		PORT_INCLUDE ( trailblz )
+	PORT_INCLUDE ( trailblz )
 
 	PORT_MODIFY("PIA0.A")
 	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_COIN1 )  PORT_NAME("1 Pound (5 credits)")    // coin x 5
@@ -1209,7 +1218,6 @@ static INPUT_PORTS_START( jpcoin )
 	PORT_DIPNAME( 0x80, 0x80, "Test Mode" )
 	PORT_DIPSETTING(    0x80, DEF_STR( Off ) )
 	PORT_DIPSETTING(    0x00, DEF_STR( On ) )
-
 INPUT_PORTS_END
 
 
@@ -1248,7 +1256,7 @@ void coinmstr_state::video_start()
 	m_bg_tilemap = &machine().tilemap().create(*m_gfxdecode, tilemap_get_info_delegate(*this, FUNC(coinmstr_state::get_bg_tile_info)), TILEMAP_SCAN_ROWS, 8, 8, 46, 32);
 }
 
-uint32_t coinmstr_state::screen_update_coinmstr(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
+uint32_t coinmstr_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
 	m_bg_tilemap->draw(screen, bitmap, cliprect, 0, 0);
 	return 0;
@@ -1256,20 +1264,20 @@ uint32_t coinmstr_state::screen_update_coinmstr(screen_device &screen, bitmap_rg
 
 void coinmstr_state::coinmstr(machine_config &config)
 {
-	Z80(config, m_maincpu, CPU_CLOCK); // 7 MHz.
+	Z80(config, m_maincpu, 14_MHz_XTAL / 4); // 3.5 MHz
 	m_maincpu->set_addrmap(AS_PROGRAM, &coinmstr_state::coinmstr_map);
 	m_maincpu->set_vblank_int("screen", FUNC(coinmstr_state::irq0_line_hold));
 
-	pia6821_device &pia0(PIA6821(config, "pia0", 0));
+	pia6821_device &pia0(PIA6821(config, "pia0"));
 	pia0.readpa_handler().set_ioport("PIA0.A");
 	pia0.readpb_handler().set_ioport("PIA0.B");
 
-	pia6821_device &pia1(PIA6821(config, "pia1", 0));
+	pia6821_device &pia1(PIA6821(config, "pia1"));
 	pia1.readpa_handler().set_ioport("PIA1.A");
 	pia1.set_port_a_input_overrides_output_mask(0xff);
 	pia1.readpb_handler().set_ioport("PIA1.B");
 
-	pia6821_device &pia2(PIA6821(config, "pia2", 0));
+	pia6821_device &pia2(PIA6821(config, "pia2"));
 	pia2.readpa_handler().set_ioport("PIA2.A");
 	pia2.readpb_handler().set_ioport("PIA2.B");
 
@@ -1279,12 +1287,12 @@ void coinmstr_state::coinmstr(machine_config &config)
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(0));
 	screen.set_size(64*8, 64*8);
 	screen.set_visarea(0*8, 46*8-1, 0*8, 32*8-1);
-	screen.set_screen_update(FUNC(coinmstr_state::screen_update_coinmstr));
+	screen.set_screen_update(FUNC(coinmstr_state::screen_update));
 
 	GFXDECODE(config, m_gfxdecode, m_palette, gfx_coinmstr);
 	PALETTE(config, m_palette).set_entries(46*32*4);
 
-	mc6845_device &crtc(MC6845(config, "crtc", 14000000 / 16));
+	mc6845_device &crtc(MC6845(config, "crtc", 14_MHz_XTAL / 16));
 	crtc.set_screen("screen");
 	crtc.set_show_border_area(false);
 	crtc.set_char_width(8);
@@ -1292,7 +1300,7 @@ void coinmstr_state::coinmstr(machine_config &config)
 	/* sound hardware */
 	SPEAKER(config, "mono").front_center();
 
-	ay8910_device &aysnd(AY8910(config, "aysnd", SND_CLOCK));
+	ay8910_device &aysnd(AY8910(config, "aysnd", 14_MHz_XTAL / 8));
 	aysnd.port_a_read_callback().set_ioport("DSW1");
 	aysnd.add_route(ALL_OUTPUTS, "mono", 0.25);
 }
@@ -1327,6 +1335,12 @@ void coinmstr_state::jpcoin(machine_config &config)
 	m_maincpu->set_addrmap(AS_PROGRAM, &coinmstr_state::jpcoin_map);
 	m_maincpu->set_addrmap(AS_IO, &coinmstr_state::jpcoin_io_map);
 //  NVRAM(config, "nvram", nvram_device::DEFAULT_ALL_0);
+}
+
+void coinmstr_state::jpjcoin(machine_config &config)
+{
+	jpcoin(config);
+	m_maincpu->set_addrmap(AS_IO, &coinmstr_state::jpjcoin_io_map);
 }
 
 /*
@@ -1552,6 +1566,24 @@ ROM_START( jpcoin2 )
 ROM_END
 
 
+// Silkscreened: COINMASTER (c) 1984
+// ROMs' labels had Nero Poker overwritten with 'Jackpot' with a pen, so the ROMs were probably recycled for a newer game
+ROM_START( jpjcoin )
+	ROM_REGION( 0x10000, "maincpu", 0 )
+	ROM_LOAD( "nero_poker_1.ic9", 0x0000, 0x4000, CRC(d80a3286) SHA1(dbcfac0e055e6b3965d43015399c9ee1f8442109) )
+	ROM_LOAD( "nero_poker_2.ic6", 0x4000, 0x4000, CRC(98a384ee) SHA1(64c32a2483561b91abab55687151be1a452a5953) )
+
+	ROM_REGION( 0x4000, "gfx1", 0 )
+	ROM_LOAD( "nero_poker_char_2.ic45", 0x0000, 0x2000, CRC(57df89b0) SHA1(4bb34806a438d0d82bb7ce0026de9e62a8169a2d) )
+	ROM_LOAD( "nero_poker_char_1.ic41", 0x2000, 0x2000, CRC(512c14b8) SHA1(462ad3163bc63d8fbd0d79776f49cd21656963d3) )
+
+	ROM_REGION( 0x100, "plds", 0 )
+	ROM_LOAD( "pal10l8cn.1.ic5",  0x00, 0x2c, CRC(cb037476) SHA1(64f55a998ac0dd64e02f3cf2d1457f3d9d804962) )
+	ROM_LOAD( "pal10h8cn.2.ic8",  0x30, 0x2c, CRC(ce530d03) SHA1(e2547ac21749cf2362d032b86fdd492a800a3019) )
+	ROM_LOAD( "pal10h8cn.3.ic12", 0x60, 0x2c, CRC(1eb10fe5) SHA1(5ee435c87f376940a15d6c80b25b4970d56d6013) )
+ROM_END
+
+
 /*************************
 *      Driver Init       *
 *************************/
@@ -1564,22 +1596,25 @@ void coinmstr_state::init_coinmstr()
 
 	memcpy(&buf[0],rom,length);
 
-	for (int i = 0; i < length; i++)
+	for(int i = 0; i < length; i++)
 	{
 		int adr = bitswap<24>(i, 23,22,21,20,19,18,17,16,15, 14,8,7,2,5,12,10,9,11,13,3,6,0,1,4);
 		rom[i] = bitswap<8>(buf[adr],3,2,4,1,5,0,6,7);
 	}
 }
 
+} // anonymous namespace
+
 
 /*************************
 *      Game Drivers      *
 *************************/
 
-//    YEAR  NAME      PARENT    MACHINE   INPUT     STATE           INIT      ROT   COMPANY                  FULLNAME                                    FLAGS
-GAME( 1985, quizmstr, 0,        quizmstr, quizmstr, coinmstr_state, init_coinmstr, ROT0, "Loewen Spielautomaten", "Quizmaster (German)",                      MACHINE_UNEMULATED_PROTECTION )
-GAME( 1987, trailblz, 0,        trailblz, trailblz, coinmstr_state, init_coinmstr, ROT0, "Coinmaster",            "Trail Blazer",                             MACHINE_UNEMULATED_PROTECTION | MACHINE_NOT_WORKING ) // or Trail Blazer 2 ?
-GAME( 1989, supnudg2, 0,        supnudg2, supnudg2, coinmstr_state, init_coinmstr, ROT0, "Coinmaster",            "Super Nudger II - P173 (Version 5.21)",    MACHINE_UNEMULATED_PROTECTION | MACHINE_NOT_WORKING )
-GAME( 1990, pokeroul, 0,        pokeroul, pokeroul, coinmstr_state, empty_init,    ROT0, "Coinmaster",            "Poker Roulette (Version 8.22)",            MACHINE_NOT_WORKING )
-GAME( 1985, jpcoin,   0,        jpcoin,   jpcoin,   coinmstr_state, empty_init,    ROT0, "Coinmaster",            "Joker Poker (Coinmaster set 1)",           0 )
-GAME( 1990, jpcoin2,  0,        jpcoin,   jpcoin,   coinmstr_state, empty_init,    ROT0, "Coinmaster",            "Joker Poker (Coinmaster, Amusement Only)", 0 )
+//    YEAR  NAME      PARENT  MACHINE   INPUT     STATE           INIT           ROT   COMPANY                   FULLNAME                                    FLAGS
+GAME( 1985, quizmstr, 0,      quizmstr, quizmstr, coinmstr_state, init_coinmstr, ROT0, u8"Löwen Spielautomaten", "Quizmaster (German)",                      MACHINE_UNEMULATED_PROTECTION )
+GAME( 1987, trailblz, 0,      trailblz, trailblz, coinmstr_state, init_coinmstr, ROT0, "Coinmaster",             "Trail Blazer",                             MACHINE_UNEMULATED_PROTECTION | MACHINE_NOT_WORKING ) // or Trail Blazer 2 ?
+GAME( 1989, supnudg2, 0,      supnudg2, supnudg2, coinmstr_state, init_coinmstr, ROT0, "Coinmaster",             "Super Nudger II - P173 (Version 5.21)",    MACHINE_UNEMULATED_PROTECTION | MACHINE_NOT_WORKING )
+GAME( 1990, pokeroul, 0,      pokeroul, pokeroul, coinmstr_state, empty_init,    ROT0, "Coinmaster",             "Poker Roulette (Version 8.22)",            MACHINE_NOT_WORKING )
+GAME( 1985, jpcoin,   0,      jpcoin,   jpcoin,   coinmstr_state, empty_init,    ROT0, "Coinmaster",             "Joker Poker (Coinmaster set 1)",           0 )
+GAME( 1990, jpcoin2,  0,      jpcoin,   jpcoin,   coinmstr_state, empty_init,    ROT0, "Coinmaster",             "Joker Poker (Coinmaster, Amusement Only)", 0 )
+GAME( 1988, jpjcoin,  0,      jpjcoin,  jpcoin,   coinmstr_state, empty_init,    ROT0, "<unknown>",              "Jackpot Joker Poker (Version 88V 01)",     0 )

@@ -115,7 +115,7 @@ void maygay1b_state::cpu0_firq(int data)
 
 
 // IRQ from Duart (hopper?)
-WRITE_LINE_MEMBER(maygay1b_state::duart_irq_handler)
+void maygay1b_state::duart_irq_handler(int state)
 {
 	m_maincpu->set_input_line(M6809_IRQ_LINE,  state?ASSERT_LINE:CLEAR_LINE);
 }
@@ -252,8 +252,8 @@ INPUT_PORTS_START( maygay_m1 )
 	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("28")
 	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("29")
 	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_OTHER) PORT_NAME("30")
-	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_INTERLOCK) PORT_NAME("Rear Door") PORT_TOGGLE
-	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_INTERLOCK) PORT_NAME("Cashbox Door")  PORT_CODE(KEYCODE_Q) PORT_TOGGLE
+	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_DOOR)  PORT_NAME("Rear Door") PORT_TOGGLE
+	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_DOOR)  PORT_NAME("Cashbox Door") PORT_CODE(KEYCODE_Q) PORT_TOGGLE
 
 	PORT_START("STROBE4")
 	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_BUTTON1) PORT_NAME("Hi2")
@@ -347,17 +347,17 @@ void maygay1b_state::m1_meter_w(uint8_t data)
 	}
 }
 
-WRITE_LINE_MEMBER(maygay1b_state::ramen_w)
+void maygay1b_state::ramen_w(int state)
 {
 	m_RAMEN = state;
 }
 
-WRITE_LINE_MEMBER(maygay1b_state::alarmen_w)
+void maygay1b_state::alarmen_w(int state)
 {
 	m_ALARMEN = state;
 }
 
-WRITE_LINE_MEMBER(maygay1b_state::nmien_w)
+void maygay1b_state::nmien_w(int state)
 {
 	if (m_NMIENABLE == 0 && state)
 	{
@@ -367,21 +367,21 @@ WRITE_LINE_MEMBER(maygay1b_state::nmien_w)
 	m_NMIENABLE = state;
 }
 
-WRITE_LINE_MEMBER(maygay1b_state::rts_w)
+void maygay1b_state::rts_w(int state)
 {
 }
 
-WRITE_LINE_MEMBER(maygay1b_state::psurelay_w)
+void maygay1b_state::psurelay_w(int state)
 {
 	m_PSUrelay = state;
 }
 
-WRITE_LINE_MEMBER(maygay1b_state::wdog_w)
+void maygay1b_state::wdog_w(int state)
 {
 	m_WDOG = state;
 }
 
-WRITE_LINE_MEMBER(maygay1b_state::srsel_w)
+void maygay1b_state::srsel_w(int state)
 {
 	// this is the ROM banking?
 	logerror("rom bank %02x\n", state);
@@ -729,7 +729,7 @@ void maygay1b_state::maygay_m1(machine_config &config)
 	m_duart68681->irq_cb().set(FUNC(maygay1b_state::duart_irq_handler));
 	m_duart68681->inport_cb().set(FUNC(maygay1b_state::m1_duart_r));
 
-	pia6821_device &pia(PIA6821(config, "pia", 0));
+	pia6821_device &pia(PIA6821(config, "pia"));
 	pia.writepa_handler().set(FUNC(maygay1b_state::m1_pia_porta_w));
 	pia.writepb_handler().set(FUNC(maygay1b_state::m1_pia_portb_w));
 
@@ -743,21 +743,20 @@ void maygay1b_state::maygay_m1(machine_config &config)
 	mainlatch.q_out_cb<6>().set(FUNC(maygay1b_state::srsel_w));     // Srsel
 
 	S16LF01(config, m_vfd);
-	SPEAKER(config, "lspeaker").front_left();
-	SPEAKER(config, "rspeaker").front_right();
+	SPEAKER(config, "speaker", 2).front();
 	YM2149(config, m_ay, M1_MASTER_CLOCK);
 	m_ay->port_a_write_callback().set(FUNC(maygay1b_state::m1_meter_w));
 	m_ay->port_b_write_callback().set(FUNC(maygay1b_state::m1_lockout_w));
-	m_ay->add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	m_ay->add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+	m_ay->add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	m_ay->add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
 
 	ym2413_device &ymsnd(YM2413(config, "ymsnd", M1_MASTER_CLOCK/4));
-	ymsnd.add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	ymsnd.add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+	ymsnd.add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	ymsnd.add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
 
 	OKIM6376(config, m_msm6376, 102400); //? Seems to work well with samples, but unconfirmed
-	m_msm6376->add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	m_msm6376->add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+	m_msm6376->add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	m_msm6376->add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
 
 	TIMER(config, "nmitimer").configure_periodic(FUNC(maygay1b_state::maygay1b_nmitimer_callback), attotime::from_hz(75)); // freq?
 
@@ -807,8 +806,8 @@ void maygay1b_state::maygay_m1_nec(machine_config &config)
 	config.device_remove("msm6376");
 
 	UPD7759(config, m_upd7759);
-	m_upd7759->add_route(ALL_OUTPUTS, "lspeaker", 1.0);
-	m_upd7759->add_route(ALL_OUTPUTS, "rspeaker", 1.0);
+	m_upd7759->add_route(ALL_OUTPUTS, "speaker", 1.0, 0);
+	m_upd7759->add_route(ALL_OUTPUTS, "speaker", 1.0, 1);
 }
 
 void maygay1b_state::m1ab_no_oki_w(uint8_t data)

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
 <!--
-license:CC0
+license:CC0-1.0
 -->
 <softwarelist name="orion_flop" description="Orion 128 disk images">
 
@@ -1161,7 +1161,7 @@ license:CC0
 	</software>
 
 	<software name="sexshopa">
-		<description>SEXSHOP (Alt)</description>
+		<description>SEXSHOP (alt)</description>
 		<year>19??</year>
 		<publisher>&lt;unknown&gt;</publisher>
 		<part name="disk" interface="floppy_5_25">

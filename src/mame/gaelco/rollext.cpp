@@ -118,11 +118,16 @@
 */
 
 #include "emu.h"
-#include "cpu/tms32082/tms32082.h"
-#include "video/poly.h"
-#include "video/rgbutil.h"
+
+#include "cpu/tms320c82/tms320c82.h"
 #include "machine/eepromser.h"
+#include "video/poly.h"
+
 #include "screen.h"
+#include "video/rgbutil.h"
+
+
+namespace {
 
 #define BILINEAR 1
 
@@ -422,7 +427,7 @@ public:
 	void init_rollext();
 
 private:
-	required_device<tms32082_mp_device> m_maincpu;
+	required_device<tms320c82_mp_device> m_maincpu;
 	required_shared_ptr<uint32_t> m_disp_ram;
 	required_device<screen_device> m_screen;
 
@@ -453,12 +458,12 @@ private:
 	required_ioport m_eeprom_out;
 
 	INTERRUPT_GEN_MEMBER(vblank_interrupt);
-	virtual void machine_start() override;
-	virtual void machine_reset() override;
-	virtual void video_start() override;
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	virtual void video_start() override ATTR_COLD;
 	void preprocess_texture_data();
 	uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
-	void memmap(address_map &map);
+	void memmap(address_map &map) ATTR_COLD;
 };
 
 void rollext_state::preprocess_texture_data()
@@ -683,12 +688,12 @@ static INPUT_PORTS_START(rollext)
 	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_COIN1)
 
 	PORT_START("EEPROMIN")
-	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_CUSTOM) PORT_READ_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_93cxx_device, do_read)
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_CUSTOM) PORT_READ_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_93cxx_device::do_read))
 
 	PORT_START("EEPROMOUT")
-	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OUTPUT) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_93cxx_device, clk_write)
-	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OUTPUT) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_93cxx_device, cs_write)
-	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OUTPUT) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", eeprom_serial_93cxx_device, di_write)
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_OUTPUT) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_93cxx_device::clk_write))
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_OUTPUT) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_93cxx_device::cs_write))
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_OUTPUT) PORT_WRITE_LINE_DEVICE_MEMBER("eeprom", FUNC(eeprom_serial_93cxx_device::di_write))
 
 	PORT_START("ANALOG1")
 	PORT_BIT(0xff, 0x80, IPT_AD_STICK_X) PORT_MINMAX(0x00, 0xff) PORT_SENSITIVITY(35) PORT_KEYDELTA(5) PORT_NAME("Seat Tilt")
@@ -748,12 +753,12 @@ void rollext_state::machine_start()
 
 void rollext_state::rollext(machine_config &config)
 {
-	TMS32082_MP(config, m_maincpu, 60000000);
+	TMS320C82_MP(config, m_maincpu, 60'000'000);
 	m_maincpu->set_addrmap(AS_PROGRAM, &rollext_state::memmap);
 	m_maincpu->set_vblank_int("screen", FUNC(rollext_state::vblank_interrupt));
 	//m_maincpu->set_periodic_int(FUNC(rollext_state::irq3_line_assert), attotime::from_hz(500));
 
-	tms32082_pp_device &pp0(TMS32082_PP(config, "pp0", 60000000));
+	tms320c82_pp_device &pp0(TMS320C82_PP(config, "pp0", 60'000'000));
 	pp0.set_addrmap(AS_PROGRAM, &rollext_state::memmap);
 
 	config.set_maximum_quantum(attotime::from_hz(100));
@@ -771,7 +776,7 @@ void rollext_state::rollext(machine_config &config)
 
 INTERRUPT_GEN_MEMBER(rollext_state::vblank_interrupt)
 {
-	m_maincpu->set_input_line(tms32082_mp_device::INPUT_X1, ASSERT_LINE);
+	m_maincpu->set_input_line(tms320c82_mp_device::INPUT_X1, ASSERT_LINE);
 }
 
 void rollext_state::init_rollext()
@@ -794,6 +799,8 @@ ROM_START(rollext)
 	ROM_LOAD32_BYTE("roe.ic58", 0x000002, 0x800000, CRC(67ad4561) SHA1(56f41b4ebd827fec49902f377c5ed054c02d9e6c))
 	ROM_LOAD32_BYTE("roe.ic60", 0x000003, 0x800000, CRC(a64524af) SHA1(31bef17656ab025f90cd222d3d6d0cb62dee29ee))
 ROM_END
+
+} // anonymous namespace
 
 
 GAME( 1999, rollext, 0, rollext, rollext, rollext_state, init_rollext, ROT0, "Gaelco (Namco America license)", "ROLLing eX.tre.me (US)", MACHINE_NOT_WORKING | MACHINE_NO_SOUND )

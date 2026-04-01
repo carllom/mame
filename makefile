@@ -20,6 +20,7 @@
 # TARGET = mame
 # SUBTARGET = tiny
 # TOOLS = 1
+# EMULATOR = 1
 # TESTS = 1
 # BENCHMARKS = 1
 # OSD = sdl
@@ -33,6 +34,7 @@
 # NO_USE_MIDI = 1
 # NO_USE_PORTAUDIO = 1
 # NO_USE_PULSEAUDIO = 1
+# NO_USE_PIPEWIRE = 1
 # USE_TAPTUN = 1
 # USE_PCAP = 1
 # USE_QTDEBUG = 1
@@ -52,6 +54,7 @@
 # OPTIMIZE = 3
 # SYMBOLS = 1
 # SYMLEVEL = 2
+# PDB_SYMBOLS = 1
 # MAP = 1
 # PROFILE = 1
 # ARCHOPTS =
@@ -65,13 +68,13 @@
 # USE_SYSTEM_LIB_ASIO = 1
 # USE_SYSTEM_LIB_EXPAT = 1
 # USE_SYSTEM_LIB_ZLIB = 1
+# USE_SYSTEM_LIB_ZSTD = 1
 # USE_SYSTEM_LIB_JPEG = 1
 # USE_SYSTEM_LIB_FLAC = 1
 # USE_SYSTEM_LIB_LUA = 1
 # USE_SYSTEM_LIB_SQLITE3 = 1
 # USE_SYSTEM_LIB_PORTMIDI = 1
 # USE_SYSTEM_LIB_PORTAUDIO = 1
-# USE_BUNDLED_LIB_SDL2 = 1
 # USE_SYSTEM_LIB_UTF8PROC = 1
 # USE_SYSTEM_LIB_GLM = 1
 # USE_SYSTEM_LIB_RAPIDJSON = 1
@@ -104,7 +107,7 @@
 
 # QT_HOME = /usr/lib64/qt48/
 
-# SOURCES = src/mame/atari/asteroid.cpp,src/mame/cinemat/cchasm.cpp
+# SOURCES = src/mame/atari/asteroid.cpp,src/mame/cinematronics/cchasm.cpp
 
 # SOURCEFILTER = mydrivers.flt
 
@@ -141,103 +144,126 @@ MAKEPARAMS := -R
 ifeq ($(OS),Windows_NT)
 OS := windows
 GENIEOS := windows
+
+ifeq ($(MSYSTEM),MINGW32)
 PLATFORM := x86
-else
+else ifeq ($(MSYSTEM),MINGW64)
+PLATFORM := x86
+else ifeq ($(MSYSTEM),CLANGARM64)
+PLATFORM := arm64
+else # MSYSTEM
+
+# Get system processor architecture. Note that PROCESSOR_ARCHITECTURE local
+# environment variable is for the currently running process, so we go through
+# the registry instead.
+OSARCH := $(shell reg query "HKLM\System\CurrentControlSet\Control\Session Manager\Environment" -v PROCESSOR_ARCHITECTURE)
+ifneq ($(findstring ARM64,$(OSARCH)),)
+PLATFORM := arm64
+else # OSARCH
+PLATFORM := x86
+endif # OSARCH
+endif # MSYSTEM
+
+else # Windows_NT
 UNAME := $(shell uname -mps)
 UNAME_M := $(shell uname -m)
 UNAME_P := $(shell uname -p)
 GENIEOS := linux
 PLATFORM := unknown
-ifneq ($(filter x86_64,$(UNAME_P)),)
+
+ifneq ($(filter %86,$(UNAME_M)),)
+PLATFORM := x86
+else ifneq ($(filter %86,$(UNAME_P)),)
 PLATFORM := x86
 endif
-ifneq ($(filter %86,$(UNAME_P)),)
+
+ifneq ($(filter x86_64,$(UNAME_M)),)
 PLATFORM := x86
-endif
-ifneq ($(filter alpha,$(UNAME_M)),)
+else ifneq ($(filter x86_64,$(UNAME_P)),)
+PLATFORM := x86
+else ifneq ($(filter alpha,$(UNAME_M)),)
 PLATFORM := alpha
-endif
-ifneq ($(filter alpha,$(UNAME_P)),)
+else ifneq ($(filter alpha,$(UNAME_P)),)
 PLATFORM := alpha
-endif
-ifneq ($(filter arm%,$(UNAME_M)),)
+else ifneq ($(filter aarch64%,$(UNAME_M)),)
+PLATFORM := arm64
+else ifneq ($(filter aarch64%,$(UNAME_P)),)
+PLATFORM := arm64
+else ifneq ($(filter arm64%,$(UNAME_M)),)
+PLATFORM := arm64
+else ifneq ($(filter arm%,$(UNAME_M)),)
 PLATFORM := arm
-endif
-ifneq ($(filter arm%,$(UNAME_P)),)
+else ifneq ($(filter arm%,$(UNAME_P)),)
 PLATFORM := arm
-endif
-ifneq ($(filter aarch64%,$(UNAME_M)),)
-PLATFORM := arm64
-endif
-ifneq ($(filter arm64%,$(UNAME_M)),)
-PLATFORM := arm64
-endif
-ifneq ($(filter aarch64%,$(UNAME_P)),)
-PLATFORM := arm64
-endif
-ifneq ($(filter powerpc,$(UNAME_P)),)
+else ifneq ($(filter powerpc,$(UNAME_P)),)
 PLATFORM := powerpc
-endif
-ifneq ($(filter riscv64%,$(UNAME_M)),)
+else ifneq ($(filter riscv64%,$(UNAME_M)),)
 PLATFORM := riscv64
-endif
-ifneq ($(filter riscv64%,$(UNAME_P)),)
+else ifneq ($(filter riscv64%,$(UNAME_P)),)
 PLATFORM := riscv64
-endif
-ifneq ($(filter mips64%,$(UNAME_M)),)
+else ifneq ($(filter mips64%,$(UNAME_M)),)
 ifeq ($(shell getconf LONG_BIT),64)
 PLATFORM := mips64
 endif
 endif
+
 ifeq ($(firstword $(filter Linux,$(UNAME))),Linux)
 OS := linux
-endif
-ifeq ($(firstword $(filter Solaris,$(UNAME))),Solaris)
+else ifeq ($(firstword $(filter Solaris,$(UNAME))),Solaris)
 OS := solaris
 GENIEOS := solaris
-endif
-ifeq ($(firstword $(filter SunOS,$(UNAME))),SunOS)
+else ifeq ($(firstword $(filter SunOS,$(UNAME))),SunOS)
 OS := solaris
 GENIEOS := solaris
-endif
-ifeq ($(firstword $(filter FreeBSD,$(UNAME))),FreeBSD)
+else ifeq ($(firstword $(filter FreeBSD,$(UNAME))),FreeBSD)
 OS := freebsd
 GENIEOS := bsd
-endif
-ifeq ($(firstword $(filter GNU/kFreeBSD,$(UNAME))),GNU/kFreeBSD)
+else ifeq ($(firstword $(filter GNU/kFreeBSD,$(UNAME))),GNU/kFreeBSD)
 OS := freebsd
 GENIEOS := freebsd
-endif
-ifeq ($(firstword $(filter NetBSD,$(UNAME))),NetBSD)
+else ifeq ($(firstword $(filter NetBSD,$(UNAME))),NetBSD)
 OS := netbsd
 GENIEOS := freebsd
-endif
-ifeq ($(firstword $(filter OpenBSD,$(UNAME))),OpenBSD)
+else ifeq ($(firstword $(filter OpenBSD,$(UNAME))),OpenBSD)
 OS := openbsd
 GENIEOS := freebsd
-endif
-ifeq ($(firstword $(filter Darwin,$(UNAME))),Darwin)
+else ifeq ($(firstword $(filter Darwin,$(UNAME))),Darwin)
 OS := macosx
 GENIEOS := darwin
-endif
-ifeq ($(firstword $(filter Haiku,$(UNAME))),Haiku)
+else ifeq ($(firstword $(filter Haiku,$(UNAME))),Haiku)
 OS := haiku
 endif
+
 ifndef OS
 $(error Unable to detect OS from uname -a: $(UNAME))
 endif
-endif
 
-MINGW:=
+endif # Windows_NT
+
+ifdef MSYSTEM
+MINGW := $(MINGW_PREFIX)
+ifeq ($(MSYSTEM),MINGW32)
+	MINGW32 := $(MINGW_PREFIX)
+else ifeq ($(MSYSTEM),MINGW64)
+	MINGW64 := $(MINGW_PREFIX)
+else ifeq ($(MSYSTEM),CLANGARM64)
+	MINGW64 := $(MINGW_PREFIX)
+endif # MSYSTEM
+ifndef TOOLCHAIN
+	TOOLCHAIN := $(MINGW_PREFIX)/bin/
+endif # TOOLCHAIN
+else # MSYSTEM
+MINGW :=
 ifdef MINGW64
 	MINGW := $(MINGW64)
-else
+else # MINGW64
 	MINGW := $(MINGW32)
-endif
+endif # MINGW64
+endif # MSYSTEM
 
 #-------------------------------------------------
 # specify core target: mame, ldplayer
-# specify subtarget: mame, arcade, mess, tiny, etc.
+# specify subtarget: mame, tiny, etc.
 # build scripts will be run from
 # scripts/target/$(TARGET)/$(SUBTARGET).lua
 #-------------------------------------------------
@@ -286,60 +312,48 @@ ifndef TARGETOS
 
 ifeq ($(OS),windows)
 TARGETOS := windows
-ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
+
+ifeq ($(MSYSTEM),MINGW32)
+ARCHITECTURE = _x86
+else ifeq ($(MSYSTEM),MINGW64)
 ARCHITECTURE := _x64
-endif
-ifeq ($(PROCESSOR_ARCHITECTURE),x86)
+else ifeq ($(MSYSTEM),CLANGARM64)
 ARCHITECTURE := _x64
+else ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
+ARCHITECTURE := _x64
+else ifeq ($(PROCESSOR_ARCHITECTURE),x86)
 ifeq ($(PROCESSOR_ARCHITEW6432),AMD64)
-else
+ARCHITECTURE := _x64
+else # PROCESSOR_ARCHITEW6432
 ARCHITECTURE := _x86
+endif # PROCESSOR_ARCHITEW6432
 endif
-endif
-else
+
+else # windows
 UNAME    := $(shell uname -mps)
 TARGETOS := $(OS)
 
-#-------------------------------------------------
-# determine the whether -m32, -m64 or nothing
-# should be passed to gcc when building genie
-#-------------------------------------------------
-
-ifeq ($(ARCHITECTURE),_x86)
-MPARAM := -m32
-else
-ifeq ($(ARCHITECTURE),_x64)
-MPARAM := -m64
-else
-MPARAM :=
-endif
-endif
-
-ARCHITECTURE := _x86
-
 ifeq ($(firstword $(filter x86_64,$(UNAME))),x86_64)
 ARCHITECTURE := _x64
-endif
-ifeq ($(firstword $(filter amd64,$(UNAME))),amd64)
+else ifeq ($(firstword $(filter amd64,$(UNAME))),amd64)
 ARCHITECTURE := _x64
-endif
-ifeq ($(firstword $(filter ppc64,$(UNAME))),ppc64)
+else ifeq ($(firstword $(filter ppc64le,$(UNAME))),ppc64le)
 ARCHITECTURE := _x64
-endif
-ifeq ($(firstword $(filter powerpc64,$(UNAME))),powerpc64)
+else ifeq ($(firstword $(filter ppc64,$(UNAME))),ppc64)
 ARCHITECTURE := _x64
-endif
-ifeq ($(firstword $(filter ppc64le,$(UNAME))),ppc64le)
+else ifeq ($(firstword $(filter powerpc64,$(UNAME))),powerpc64)
 ARCHITECTURE := _x64
-endif
-ifeq ($(firstword $(filter s390x,$(UNAME))),s390x)
+else ifeq ($(firstword $(filter s390x,$(UNAME))),s390x)
 ARCHITECTURE := _x64
-endif
+else
+ARCHITECTURE := _x86
 endif
 
-else
+endif # windows
+
+else # TARGETOS
 CROSS_BUILD := 1
-endif # TARGET_OS
+endif # TARGETOS
 
 ifdef PTR64
 ifeq ($(PTR64),1)
@@ -350,21 +364,25 @@ endif
 endif
 
 ifeq ($(OS),windows)
+
 ifndef MINGW64
 ARCHITECTURE := _x86
-endif
-ifeq ($(ARCHITECTURE),_x64)
-WINDRES  := $(MINGW64)/bin/windres
-else
+endif # MINGW64
+ifeq ($(ARCHITECTURE),_x86)
 WINDRES  := $(MINGW32)/bin/windres
-endif
-else
-ifeq ($(ARCHITECTURE),_x64)
-WINDRES  := $(word 1,$(TOOLCHAIN) x86_64-w64-mingw32-)windres
-else
+else # ARCHITECTURE
+WINDRES  := $(MINGW64)/bin/windres
+endif # ARCHITECTURE
+
+else # windows
+
+ifeq ($(ARCHITECTURE),_x86)
 WINDRES  := $(word 1,$(TOOLCHAIN) i686-w64-mingw32-)windres
-endif
-endif
+else # ARCHITECTURE
+WINDRES  := $(word 1,$(TOOLCHAIN) x86_64-w64-mingw32-)windres
+endif # ARCHITECTURE
+
+endif # windows
 
 # Emscripten
 ifeq ($(findstring emcc,$(CC)),emcc)
@@ -375,43 +393,12 @@ ifndef NOASM
 endif
 endif
 
-ifeq ($(findstring ppc,$(UNAME)),ppc)
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
-endif
-endif
-
-ifeq ($(findstring powerpc,$(UNAME)),powerpc)
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
-endif
-endif
-
-ifeq ($(findstring arm,$(UNAME)),arm)
-ARCHITECTURE :=
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
-endif
-endif
-
 ifeq ($(findstring aarch64,$(UNAME)),aarch64)
 ARCHITECTURE :=
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
-endif
-endif
-
-ifeq ($(findstring s390x,$(UNAME)),s390x)
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
-endif
 endif
 
 ifeq ($(findstring riscv64,$(UNAME)),riscv64)
 ARCHITECTURE :=
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
-endif
 endif
 
 # Autodetect BIGENDIAN
@@ -465,36 +452,23 @@ OSD := sdl
 
 ifeq ($(TARGETOS),windows)
 OSD := windows
-endif
-
-ifeq ($(TARGETOS),linux)
+else ifeq ($(TARGETOS),linux)
 OSD := sdl
-endif
-
-ifeq ($(TARGETOS),freebsd)
+else ifeq ($(TARGETOS),freebsd)
 OSD := sdl
-endif
-
-ifeq ($(TARGETOS),netbsd)
+else ifeq ($(TARGETOS),netbsd)
 OSD := sdl
-endif
-
-ifeq ($(TARGETOS),openbsd)
+else ifeq ($(TARGETOS),openbsd)
 OSD := sdl
-endif
-
-ifeq ($(TARGETOS),solaris)
+else ifeq ($(TARGETOS),solaris)
 OSD := sdl
-endif
-
-ifeq ($(TARGETOS),macosx)
+else ifeq ($(TARGETOS),macosx)
+OSD := sdl3
+else ifeq ($(TARGETOS),asmjs)
 OSD := sdl
-endif
+endif # TARGETOS
 
-ifeq ($(TARGETOS),asmjs)
-OSD := sdl
-endif
-endif
+endif # OSD
 
 #-------------------------------------------------
 # which 3rdparty library to build;
@@ -510,6 +484,10 @@ endif
 
 ifdef USE_SYSTEM_LIB_ZLIB
 PARAMS += --with-system-zlib='$(USE_SYSTEM_LIB_ZLIB)'
+endif
+
+ifdef USE_SYSTEM_LIB_ZSTD
+PARAMS += --with-system-zstd='$(USE_SYSTEM_LIB_ZSTD)'
 endif
 
 ifdef USE_SYSTEM_LIB_JPEG
@@ -552,29 +530,6 @@ ifdef USE_SYSTEM_LIB_PUGIXML
 PARAMS += --with-system-pugixml='$(USE_SYSTEM_LIB_PUGIXML)'
 endif
 
-# reverse logic for this one
-
-ifdef USE_BUNDLED_LIB_SDL2
-ifneq '$(USE_BUNDLED_LIB_SDL2)' '0'
-PARAMS += --with-bundled-sdl2
-endif
-endif
-
-#-------------------------------------------------
-# distribution may change things
-#-------------------------------------------------
-
-ifeq ($(DISTRO),)
-DISTRO := generic
-else
-ifeq ($(DISTRO),debian-stable)
-else
-$(error DISTRO $(DISTRO) unknown)
-endif
-endif
-
-PARAMS+= --distro=$(DISTRO)
-
 ifdef TOOLCHAIN
 PARAMS += --TOOLCHAIN='$(TOOLCHAIN)'
 endif
@@ -612,15 +567,6 @@ ifdef SANITIZE
 SYMBOLS = 1
 endif
 
-# profiler defaults to on for DEBUG builds
-ifdef DEBUG
-ifneq '$(DEBUG)' '0'
-ifndef PROFILER
-PROFILER = 1
-endif
-endif
-endif
-
 # allow gprof profiling as well, which overrides the internal PROFILER
 # also enable symbols as it is useless without them
 ifdef PROFILE
@@ -653,6 +599,14 @@ PARAMS += --with-tools
 endif
 endif
 
+ifndef EMULATOR
+PARAMS += --with-emulator
+else
+ifeq '$(EMULATOR)' '1'
+PARAMS += --with-emulator
+endif
+endif
+
 ifdef TESTS
 ifneq '$(TESTS)' '0'
 PARAMS += --with-tests
@@ -667,6 +621,10 @@ endif
 
 ifdef SYMLEVEL
 PARAMS += --SYMLEVEL='$(SYMLEVEL)'
+endif
+
+ifdef PDB_SYMBOLS
+PARAMS += --PDB_SYMBOLS='$(PDB_SYMBOLS)'
 endif
 
 ifdef PROFILER
@@ -775,6 +733,10 @@ endif
 
 ifdef NO_USE_PULSEAUDIO
 PARAMS += --NO_USE_PULSEAUDIO='$(NO_USE_PULSEAUDIO)'
+endif
+
+ifdef NO_USE_PIPEWIRE
+PARAMS += --NO_USE_PIPEWIRE='$(NO_USE_PIPEWIRE)'
 endif
 
 ifdef USE_QTDEBUG
@@ -992,8 +954,6 @@ SRC = src
 3RDPARTY = 3rdparty
 ifeq ($(SUBTARGET_FULL),mame)
 PROJECT_NAME := $(SUBTARGET_FULL)
-else ifeq ($(SUBTARGET_FULL),mess)
-PROJECT_NAME := $(SUBTARGET_FULL)
 else
 PROJECT_NAME := $(TARGET)$(SUBTARGET_FULL)
 endif
@@ -1044,20 +1004,22 @@ endif
 
 ifeq ($(CLANG_VERSION),)
 $(info GCC $(GCC_VERSION) detected)
-else
+else # CLANG_VERSION
 $(info Clang $(CLANG_VERSION) detected)
 ifneq ($(TARGETOS),asmjs)
 ifeq ($(ARCHITECTURE),_x64)
 ARCHITECTURE := _x64_clang
-else
-ifneq ($(filter arm64%,$(UNAME_M)),)
+else ifneq ($(filter aarch64%,$(UNAME_M)),)
+ARCHITECTURE := _arm64_clang
+else ifneq ($(filter aarch64%,$(UNAME_P)),)
+ARCHITECTURE := _arm64_clang
+else ifneq ($(filter arm64%,$(UNAME_M)),)
 ARCHITECTURE := _arm64_clang
 else
 ARCHITECTURE := _x86_clang
 endif
-endif
-endif
-endif
+endif # asmjs
+endif # CLANG_VERSION
 
 ifneq ($(PYTHON_AVAILABLE),python)
 $(error Python is not available in path)
@@ -1157,28 +1119,28 @@ windows_x86_clang: generate $(PROJECTDIR)/$(MAKETYPE)-mingw-clang/Makefile
 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR)/$(MAKETYPE)-mingw-clang config=$(CONFIG)32 WINDRES=$(WINDRES)
 
 #-------------------------------------------------
-# Visual Studio 2019
+# Visual Studio 2022
 #-------------------------------------------------
 
-.PHONY: vs2019
-vs2019: generate
-	$(SILENT) $(GENIE) $(PARAMS) $(TARGET_PARAMS) vs2019
+.PHONY: vs2022
+vs2022: generate
+	$(SILENT) $(GENIE) $(PARAMS) $(TARGET_PARAMS) vs2022
 ifdef MSBUILD
-	$(SILENT) msbuild.exe $(PROJECTDIR_WIN)/vs2019/$(PROJECT_NAME).sln $(MSBUILD_PARAMS)
+	$(SILENT) msbuild.exe $(PROJECTDIR_WIN)/vs2022/$(PROJECT_NAME).sln $(MSBUILD_PARAMS)
 endif
 
-.PHONY: vs2019_clang
-vs2019_clang: generate
-	$(SILENT) $(GENIE) $(PARAMS) $(TARGET_PARAMS) --vs=clangcl --NO_USE_PORTAUDIO=1 vs2019
+.PHONY: vs2022_clang
+vs2022_clang: generate
+	$(SILENT) $(GENIE) $(PARAMS) $(TARGET_PARAMS) --vs=clangcl vs2022
 ifdef MSBUILD
-	$(SILENT) msbuild.exe $(PROJECTDIR_WIN)/vs2019-clang/$(PROJECT_NAME).sln $(MSBUILD_PARAMS)
+	$(SILENT) msbuild.exe $(PROJECTDIR_WIN)/vs2022-clang/$(PROJECT_NAME).sln $(MSBUILD_PARAMS)
 endif
 
-.PHONY: vs2019_intel
-vs2019_intel: generate
-	$(SILENT) $(GENIE) $(PARAMS) $(TARGET_PARAMS) --vs=intel-15 vs2019
+.PHONY: vs2022_intel
+vs2022_intel: generate
+	$(SILENT) $(GENIE) $(PARAMS) $(TARGET_PARAMS) --vs=intel-15 vs2022
 ifdef MSBUILD
-	$(SILENT) msbuild.exe $(PROJECTDIR_WIN)/vs2019-intel/$(PROJECT_NAME).sln $(MSBUILD_PARAMS)
+	$(SILENT) msbuild.exe $(PROJECTDIR_WIN)/vs2022-intel/$(PROJECT_NAME).sln $(MSBUILD_PARAMS)
 endif
 
 #-------------------------------------------------
@@ -1187,23 +1149,28 @@ endif
 
 .PHONY: android-ndk
 android-ndk:
-ifndef ANDROID_NDK_LLVM
-	$(error ANDROID_NDK_LLVM is not set)
+ifndef ANDROID_NDK_HOME
+	$(error ANDROID_NDK_HOME is not set)
 endif
-ifndef ANDROID_NDK_ROOT
-	$(error ANDROID_NDK_ROOT is not set)
+ifndef SDL_INSTALL_ROOT
+	$(error SDL_INSTALL_ROOT is not set)
 endif
-	$(eval CLANG_VERSION := $(shell $(ANDROID_NDK_LLVM)/bin/clang -dumpversion 2> /dev/null))
+ifeq ($(OS),windows)
+	$(eval CLANG_VERSION := $(shell $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/windows-x86_64/bin/clang -dumpversion 2> /dev/null))
+else ifeq ($(OS),linux)
+	$(eval CLANG_VERSION := $(shell $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/clang -dumpversion 2> /dev/null))
+else ifeq ($(OS),macosx)
+	$(eval CLANG_VERSION := $(shell $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang -dumpversion 2> /dev/null))
+else
+	$(error Unsupported Android build platform)
+endif
 
 #-------------------------------------------------
 # android-arm
 #-------------------------------------------------
 
 $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm/Makefile: makefile $(SCRIPTS) $(GENIE)
-ifndef ANDROID_NDK_ARM
-	$(error ANDROID_NDK_ARM is not set)
-endif
-	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-arm --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=arm --NO_USE_MIDI=1 --NO_OPENGL=1 --USE_QTDEBUG=0 --NO_X11=1 --USE_TAPTUN=0 --USE_PCAP=0 --NOASM=1 $(MAKETYPE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-arm --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=arm --NOASM=1 $(MAKETYPE)
 
 .PHONY: android-arm
 android-arm: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm/Makefile
@@ -1215,10 +1182,7 @@ android-arm: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm/Make
 #-------------------------------------------------
 
 $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm64/Makefile: makefile $(SCRIPTS) $(GENIE)
-ifndef ANDROID_NDK_ARM64
-	$(error ANDROID_NDK_ARM64 is not set)
-endif
-	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-arm64 --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=arm64 --NO_USE_MIDI=1 --NO_OPENGL=1 --USE_QTDEBUG=0 --NO_X11=1 --USE_TAPTUN=0 --USE_PCAP=0 --NOASM=1 $(MAKETYPE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-arm64 --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=arm64 --NOASM=1 $(MAKETYPE)
 
 .PHONY: android-arm64
 android-arm64: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm64/Makefile
@@ -1230,10 +1194,7 @@ android-arm64: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm64/
 #-------------------------------------------------
 
 $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x86/Makefile: makefile $(SCRIPTS) $(GENIE)
-ifndef ANDROID_NDK_X86
-	$(error ANDROID_NDK_X86 is not set)
-endif
-	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-x86 --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=x86 --NO_USE_MIDI=1 --NO_OPENGL=1 --USE_QTDEBUG=0 --NO_X11=1 --USE_TAPTUN=0 --USE_PCAP=0 $(MAKETYPE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-x86 --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=x86 $(MAKETYPE)
 
 .PHONY: android-x86
 android-x86: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x86/Makefile
@@ -1245,10 +1206,7 @@ android-x86: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x86/Make
 #-------------------------------------------------
 
 $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64/Makefile: makefile $(SCRIPTS) $(GENIE)
-ifndef ANDROID_NDK_X64
-	$(error ANDROID_NDK_X64 is not set)
-endif
-	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-x64 --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=x64 --NO_USE_MIDI=1 --NO_OPENGL=1 --USE_QTDEBUG=0 --NO_X11=1 --USE_TAPTUN=0 --USE_PCAP=0 $(MAKETYPE)
+	$(SILENT) $(GENIE) $(PARAMS) --gcc=android-x64 --gcc_version=$(CLANG_VERSION) --osd=sdl --targetos=android --PLATFORM=x64 $(MAKETYPE)
 
 .PHONY: android-x64
 android-x64: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64/Makefile
@@ -1304,6 +1262,11 @@ $(PROJECTDIR)/$(MAKETYPE)-linux-clang/Makefile: makefile $(SCRIPTS) $(GENIE)
 
 .PHONY: linux_x64_clang
 linux_x64_clang: generate $(PROJECTDIR)/$(MAKETYPE)-linux-clang/Makefile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR)/$(MAKETYPE)-linux-clang config=$(CONFIG)64 precompile
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR)/$(MAKETYPE)-linux-clang config=$(CONFIG)64
+
+.PHONY: linux_arm64_clang
+linux_arm64_clang: generate $(PROJECTDIR)/$(MAKETYPE)-linux-clang/Makefile
 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR)/$(MAKETYPE)-linux-clang config=$(CONFIG)64 precompile
 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR)/$(MAKETYPE)-linux-clang config=$(CONFIG)64
 
@@ -1482,6 +1445,11 @@ openbsd_x64: generate $(PROJECTDIR)/$(MAKETYPE)-openbsd/Makefile
 	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd config=$(CONFIG)64 precompile
 	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd config=$(CONFIG)64
 
+.PHONY: openbsd_arm64
+openbsd_arm64: generate $(PROJECTDIR)/$(MAKETYPE)-openbsd/Makefile
+	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd config=$(CONFIG)64 precompile
+	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd config=$(CONFIG)64
+
 .PHONY: openbsd
 openbsd: openbsd_x86
 
@@ -1502,6 +1470,11 @@ openbsd_x64_clang: generate $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang/Makefile
 	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang config=$(CONFIG)64 precompile
 	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang config=$(CONFIG)64
 
+.PHONY: openbsd_arm64_clang
+openbsd_arm64_clang: generate $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang/Makefile
+	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang config=$(CONFIG)64 precompile
+	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang config=$(CONFIG)64
+
 .PHONY: openbsd_x86_clang
 openbsd_x86_clang: generate $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang/Makefile
 	$(SILENT) $(MAKE) -C $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang config=$(CONFIG)32 precompile
@@ -1514,13 +1487,13 @@ openbsd_x86_clang: generate $(PROJECTDIR)/$(MAKETYPE)-openbsd-clang/Makefile
 GENIE_SRC=$(wildcard 3rdparty/genie/src/host/*.c)
 
 $(GENIE): $(GENIE_SRC)
-	$(SILENT) $(MAKE) $(MAKEPARAMS) -C 3rdparty/genie/build/gmake.$(GENIEOS) -f genie.make MPARAM=$(MPARAM)
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C 3rdparty/genie/build/gmake.$(GENIEOS) -f genie.make
 
 3rdparty/genie/src/hosts/%.c:
 
 .PHONY: genieclean
 genieclean:
-	$(SILENT) $(MAKE) $(MAKEPARAMS) -C 3rdparty/genie/build/gmake.$(GENIEOS) -f genie.make MPARAM=$(MPARAM) clean
+	$(SILENT) $(MAKE) $(MAKEPARAMS) -C 3rdparty/genie/build/gmake.$(GENIEOS) -f genie.make clean
 
 clean: genieclean
 	@echo Cleaning...
@@ -1551,12 +1524,7 @@ generate: \
 		$(GEN_FOLDERS) \
 		$(GENDIR)/version.cpp \
 		$(patsubst %.po,%.mo,$(call rwildcard, language/, *.po)) \
-		$(patsubst $(SRC)/%.lay,$(GENDIR)/%.lh,$(LAYOUTS)) \
-		$(GENDIR)/includes/SDL2
-
-$(GENDIR)/includes/SDL2:
-	-$(call MKDIR,$@)
-	-$(call COPY,3rdparty/SDL2/include,$(GENDIR)/includes/SDL2)
+		$(patsubst $(SRC)/%.lay,$(GENDIR)/%.lh,$(LAYOUTS))
 
 ifneq ($(NEW_GIT_VERSION),$(OLD_GIT_VERSION))
 stale:
@@ -1569,7 +1537,7 @@ endif
 
 ifeq (posix,$(SHELLTYPE))
 $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
-	@echo '#define BARE_BUILD_VERSION "0.245"' > $@
+	@echo '#define BARE_BUILD_VERSION "0.286"' > $@
 	@echo '#define BARE_VCS_REVISION "$(NEW_GIT_VERSION)"' >> $@
 	@echo 'extern const char bare_build_version[];' >> $@
 	@echo 'extern const char bare_vcs_revision[];' >> $@
@@ -1579,7 +1547,7 @@ $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
 	@echo 'const char build_version[] = BARE_BUILD_VERSION " (" BARE_VCS_REVISION ")";' >> $@
 else
 $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
-	@echo #define BARE_BUILD_VERSION "0.245" > $@
+	@echo #define BARE_BUILD_VERSION "0.286" > $@
 	@echo #define BARE_VCS_REVISION "$(NEW_GIT_VERSION)" >> $@
 	@echo extern const char bare_build_version[]; >> $@
 	@echo extern const char bare_vcs_revision[]; >> $@
@@ -1622,18 +1590,18 @@ tests: $(REGTESTS)
 cleansrc:
 	@echo Cleaning up tabs/spaces/end of lines....
 ifeq (posix,$(SHELLTYPE))
-	$(SILENT) find src \( \
+	$(SILENT)- find src \( \
 		-name \*.c -o -name \*.cpp -o \
 		-name \*.h -o -name \*.hpp -o -name \*.hxx -o \
 		-name \*.ipp -o \
 		-name \*.mm -o \
 		-name \*.lay -o \
 		-name \*.lst \
-		\) -exec ./srcclean {} \; >&2
-	$(SILENT) find hash    \( -name \*.hsi -o -name \*.xml  \) -exec ./srcclean {} \; >&2
-	$(SILENT) find bgfx    \( -name \*.json                 \) -exec ./srcclean {} \; >&2
-	$(SILENT) find plugins \( -name \*.lua -o -name \*.json \) -exec ./srcclean {} \; >&2
-	$(SILENT) find scripts \( -name \*.lua                  \) -exec ./srcclean {} \; >&2
+		\) -print0 | xargs -0 -n 20 ./srcclean >&2
+	$(SILENT)- find hash    \( -name \*.hsi -o -name \*.xml  \) -print0 | xargs -0 -n 20 ./srcclean >&2
+	$(SILENT)- find bgfx    \( -name \*.json                 \) -print0 | xargs -0 -n 20 ./srcclean >&2
+	$(SILENT)- find plugins \( -name \*.lua -o -name \*.json \) -print0 | xargs -0 -n 20 ./srcclean >&2
+	$(SILENT)- find scripts \( -name \*.lua                  \) -print0 | xargs -0 -n 20 ./srcclean >&2
 else
 	$(shell for /r src     %%i in (*.c, *.cpp, *.h, *.hpp, *.hxx, *.ipp, *.mm, *.lay, *.lst) do srcclean %%i >&2 )
 	$(shell for /r hash    %%i in (*.hsi, *.xml)  do srcclean %%i >&2 )
@@ -1677,8 +1645,6 @@ CPPCHECK_PARAMS += -I3rdparty/bx/include
 CPPCHECK_PARAMS += -I$(BUILDDIR)/generated/emu
 CPPCHECK_PARAMS += -I$(BUILDDIR)/generated/emu/layout
 CPPCHECK_PARAMS += -I$(BUILDDIR)/generated/mame/layout
-CPPCHECK_PARAMS += -DX64_WINDOWS_ABI
-CPPCHECK_PARAMS += -DPTR64=1
 CPPCHECK_PARAMS += -DMAME_DEBUG
 CPPCHECK_PARAMS += -DMAME_PROFILER
 CPPCHECK_PARAMS += -DCRLF=3
@@ -1686,7 +1652,6 @@ CPPCHECK_PARAMS += -DLSB_FIRST
 ifndef USE_SYSTEM_LIB_FLAC
 CPPCHECK_PARAMS += -DFLAC__NO_DLL
 endif
-CPPCHECK_PARAMS += -DNATIVE_DRC=drcbe_x64
 CPPCHECK_PARAMS += -DLUA_COMPAT_APIINTCASTS
 CPPCHECK_PARAMS += -DWIN32
 CPPCHECK_PARAMS += -D__GNUC__

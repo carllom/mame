@@ -1,12 +1,13 @@
 // This file is part of AsmJit project <https://asmjit.com>
 //
-// See asmjit.h or LICENSE.md for license and copyright information
+// See <asmjit/core.h> or LICENSE.md for license and copyright information
 // SPDX-License-Identifier: Zlib
 
 #ifndef ASMJIT_CORE_TARGET_H_INCLUDED
 #define ASMJIT_CORE_TARGET_H_INCLUDED
 
 #include "../core/archtraits.h"
+#include "../core/cpuinfo.h"
 #include "../core/func.h"
 
 ASMJIT_BEGIN_NAMESPACE
@@ -22,6 +23,10 @@ public:
 
   //! Target environment information.
   Environment _environment;
+  //! Target CPU features.
+  CpuFeatures _cpu_features;
+  //! Target CPU hints.
+  CpuHints _cpu_hints;
 
   //! \name Construction & Destruction
   //! \{
@@ -37,11 +42,24 @@ public:
   //! \{
 
   //! Returns target's environment.
-  inline const Environment& environment() const noexcept { return _environment; }
+  [[nodiscard]]
+  ASMJIT_INLINE_NODEBUG const Environment& environment() const noexcept { return _environment; }
+
   //! Returns the target architecture.
-  inline Arch arch() const noexcept { return _environment.arch(); }
+  [[nodiscard]]
+  ASMJIT_INLINE_NODEBUG Arch arch() const noexcept { return _environment.arch(); }
+
   //! Returns the target sub-architecture.
-  inline SubArch subArch() const noexcept { return _environment.subArch(); }
+  [[nodiscard]]
+  ASMJIT_INLINE_NODEBUG SubArch sub_arch() const noexcept { return _environment.sub_arch(); }
+
+  [[nodiscard]]
+  //! Returns target CPU features.
+  ASMJIT_INLINE_NODEBUG const CpuFeatures& cpu_features() const noexcept { return _cpu_features; }
+
+  [[nodiscard]]
+  //! Returns target CPU hints.
+  ASMJIT_INLINE_NODEBUG CpuHints cpu_hints() const noexcept { return _cpu_hints; }
 
   //! \}
 };

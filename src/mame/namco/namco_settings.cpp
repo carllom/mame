@@ -3,6 +3,9 @@
 #include "emu.h"
 #include "namco_settings.h"
 
+#define VERBOSE ( 0 )
+#include "logmacro.h"
+
 DEFINE_DEVICE_TYPE(NAMCO_SETTINGS, namco_settings_device, "namco_settings", "Namco Settings")
 
 namco_settings_device::namco_settings_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
@@ -10,7 +13,7 @@ namco_settings_device::namco_settings_device(const machine_config &mconfig, cons
 {
 }
 
-WRITE_LINE_MEMBER( namco_settings_device::ce_w )
+void namco_settings_device::ce_w(int state)
 {
 	if(ce != state) {
 		ce = state;
@@ -19,7 +22,7 @@ WRITE_LINE_MEMBER( namco_settings_device::ce_w )
 	}
 }
 
-WRITE_LINE_MEMBER( namco_settings_device::clk_w )
+void namco_settings_device::clk_w(int state)
 {
 	if(clk != state) {
 		clk = state;
@@ -31,13 +34,13 @@ WRITE_LINE_MEMBER( namco_settings_device::clk_w )
 			cur_bit++;
 			if(cur_bit == 16) {
 				cur_bit = 0;
-				logerror("%s: %02x = %02x\n", tag(), adr, value);
+				LOG("%s: %02x = %02x\n", tag(), adr, value);
 			}
 		}
 	}
 }
 
-WRITE_LINE_MEMBER( namco_settings_device::data_w )
+void namco_settings_device::data_w(int state)
 {
 	data = state;
 }

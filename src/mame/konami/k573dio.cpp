@@ -3,10 +3,9 @@
 #include "emu.h"
 #include "k573dio.h"
 
-#define LOG_GENERAL    (1 << 0)
-#define LOG_FPGA       (1 << 1)
-#define LOG_MP3        (1 << 2)
-#define LOG_UNKNOWNREG (1 << 3)
+#define LOG_FPGA       (1U << 1)
+#define LOG_MP3        (1U << 2)
+#define LOG_UNKNOWNREG (1U << 3)
 // #define VERBOSE        (LOG_GENERAL | LOG_FPGA | LOG_MP3 | LOG_UNKNOWNREG)
 // #define LOG_OUTPUT_STREAM std::cout
 
@@ -140,8 +139,6 @@ k573dio_device::k573dio_device(const machine_config &mconfig, const char *tag, d
 
 void k573dio_device::device_start()
 {
-	output_cb.resolve_safe();
-
 	save_item(NAME(ram_adr));
 	save_item(NAME(ram_read_adr));
 	save_item(NAME(output_data));
@@ -179,8 +176,8 @@ void k573dio_device::device_add_mconfig(machine_config &config)
 {
 	KONAMI_573_DIGITAL_FPGA(config, k573fpga);
 	k573fpga->set_ram(ram);
-	k573fpga->add_route(0, ":lspeaker", 1.0);
-	k573fpga->add_route(1, ":rspeaker", 1.0);
+	k573fpga->add_route(0, ":speaker", 1.0, 0);
+	k573fpga->add_route(1, ":speaker", 1.0, 1);
 
 	DS2401(config, digital_id);
 }

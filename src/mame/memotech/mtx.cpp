@@ -29,6 +29,8 @@
 #include "softlist_dev.h"
 #include "speaker.h"
 
+#include "utf8.h"
+
 
 /***************************************************************************
     MEMORY MAPS
@@ -188,8 +190,8 @@ static INPUT_PORTS_START( mtx512 )
 	PORT_BIT( 0x200, IP_ACTIVE_LOW, IPT_KEYBOARD ) PORT_CODE(KEYCODE_F4)    PORT_CHAR(UCHAR_MAMEKEY(F4))
 
 	PORT_START("RESET")
-	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Reset") PORT_CODE(KEYCODE_LALT) PORT_CHAR(UCHAR_MAMEKEY(LALT)) PORT_CHANGED_MEMBER(DEVICE_SELF, mtx_state, trigger_reset, 0)
-	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Reset") PORT_CODE(KEYCODE_RALT) PORT_CHAR(UCHAR_MAMEKEY(RALT)) PORT_CHANGED_MEMBER(DEVICE_SELF, mtx_state, trigger_reset, 0)
+	PORT_BIT( 0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Reset") PORT_CODE(KEYCODE_LALT) PORT_CHAR(UCHAR_MAMEKEY(LALT)) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(mtx_state::trigger_reset), 0)
+	PORT_BIT( 0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Reset") PORT_CODE(KEYCODE_RALT) PORT_CHAR(UCHAR_MAMEKEY(RALT)) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(mtx_state::trigger_reset), 0)
 
 	PORT_START("JOY0")
 	PORT_BIT( 0x3ff, IP_ACTIVE_LOW, IPT_UNUSED)
@@ -275,7 +277,7 @@ TIMER_DEVICE_CALLBACK_MEMBER(mtx_state::ctc_tick)
 	m_z80ctc->trg2(0);
 }
 
-WRITE_LINE_MEMBER(mtx_state::ctc_trg1_w)
+void mtx_state::ctc_trg1_w(int state)
 {
 	if (m_z80dart)
 	{
@@ -284,7 +286,7 @@ WRITE_LINE_MEMBER(mtx_state::ctc_trg1_w)
 	}
 }
 
-WRITE_LINE_MEMBER(mtx_state::ctc_trg2_w)
+void mtx_state::ctc_trg2_w(int state)
 {
 	if (m_z80dart)
 	{
@@ -392,7 +394,7 @@ void mtx_state::mtx512(machine_config &config)
 	m_exp_ext->set_io_space(m_maincpu, AS_IO);
 	m_exp_ext->int_handler().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
 	m_exp_ext->nmi_handler().set_inputline(m_maincpu, INPUT_LINE_NMI);
-	m_exp_ext->busreq_handler().set_inputline(m_maincpu, Z80_INPUT_LINE_BUSRQ);
+	m_exp_ext->busreq_handler().set_inputline(m_maincpu, Z80_INPUT_LINE_BUSREQ);
 
 	/* J0 internal expansion - rs232 board with disk drive bus */
 	MTX_EXP_SLOT(config, m_exp_int, mtx_int_expansion_devices, nullptr);
@@ -400,7 +402,7 @@ void mtx_state::mtx512(machine_config &config)
 	m_exp_int->set_io_space(m_maincpu, AS_IO);
 	m_exp_int->int_handler().set_inputline(m_maincpu, INPUT_LINE_IRQ0);
 	m_exp_int->nmi_handler().set_inputline(m_maincpu, INPUT_LINE_NMI);
-	m_exp_int->busreq_handler().set_inputline(m_maincpu, Z80_INPUT_LINE_BUSRQ);
+	m_exp_int->busreq_handler().set_inputline(m_maincpu, Z80_INPUT_LINE_BUSREQ);
 
 	/* software lists */
 	SOFTWARE_LIST(config, "cass_list").set_original("mtx_cass");
