@@ -17,17 +17,62 @@ The e6400 shares the **E4XT / E-Synth Rack** platform (main board AP524).
 
 The EIV schematics (SK500, SK414 etc.) cover an older platform but the same CPU family and are useful for cross-reference of the boot/diagnostic architecture.
 
+The technical documents contain these schematics:
+
+
+| Schematic ID | Revision | Description |
+| -- | -- | -- |
+| **SK411** | rev 2 | E-IV analog board |
+| **SK414** | rev A | EIV front panel |
+| **SK415** | rev C | E-IV processor ROM SIMM card |
+| **SK417** | rev A | E4/E64 16MB sound flash SIMM |
+| **SK500** | rev A | E-IV, e-64 digital board |
+| **SK501** | rev C | E4 keyboard analog board |
+| **SK502** | rev A | E4 keyboard digital board |
+| **SK503** | rev C | E4K / E4X / E6400 polyphony board |
+| **SK504** | rev A | E4 keyboard left panel |
+| **SK505** | rev A | E4 keyboard right panel |
+| **SK507** | rev A | G0.5 effects card |
+| **SK510** | rev A | lower board |
+| **SK511** | rev A | Expansion card interface |
+| **SK518** | rev A | E4/E4K compatible G0.5 effects card |
+| **SK524** | rev C | E4X/E6400 main board |
+| **SK528** | rev A | E4K/EKX 16MB sound flash SIMM |
+| **SK535** | rev A | E4/e64 16M sound ROM SIMM |
+| **SK639** | rev B | E4 ADAT |
+| **SK10255** | rev A.1 | E4 ADAT redesign |
+| **SK10485** | rev A.1 | E4 Ultra |
+
+## Nomenclature
+
+### EOS — The Operating System
+
+EOS (E-mu Operating System) is the software/firmware, not a hardware model. It's what all the samplers in this generation run. When people say "EOS sampler" they mean any hardware unit in this family. EOS went through multiple versions (1.x through 4.x), and importantly, most hardware units in the family could be updated — so the same box could run EOS 2.x or 3.x etc.
+
+### Models
+
+| Model name | Description |
+| -- | -- |
+| E-IV / E4 | The original flagship rack-mount Emulator IV (1994). The baseline of the whole family. |
+| E4K | The keyboard version of the E4. The "K" = keys. Same engine, built-in keyboard added. Aimed at live performance / studio use without a separate controller. |
+| E4X | The eXpanded rack version. More voices, more RAM capacity, enhanced I/O compared to the original E4. Still rack-mount. |
+| EKX | The keyboard + eXpanded combination. Essentially the E4X engine in a keyboard chassis. K + X = EKX. |
+| E64 | The E64 was a more stripped-down, lower-cost entry point into the EOS family — fewer voices, less expandability, fewer I/O options. The E6400 sat above it with more polyphony and expansion capability. They were distinct products, not just different configurations of the same box. |
+| E6400 | A somewhat different beast. A more streamlined/accessible rack unit, positioned below the E4X in cost. The "64" refers to 64-voice polyphony. It lacked some of the high-end I/O and options of the E4X but ran the same EOS and sounded the same. |
+| E6400 Ultra | A later revised version of the E6400 with significant upgrades — faster processor, more RAM capacity, improved EOS version. |
+| E4 Ultra | The top-tier late-generation revision of the rack flagship. Basically the ultimate expression of the platform — faster, more voices, more RAM, updated EOS. The "Ultra" suffix marks the later revised hardware generation across the line. |
+
 ---
 
 ## CPU
 
 | Item | Detail |
 |---|---|
-| CPU | **MC68C020 @ 25 MHz** (IM405, U78) |
+| CPU | **MC68C020 @ 22.5792 MHz** (IM405, U78) — 45.1584 MHz audio XTAL ÷2 via D-latch toggle |
 | Bus width | 16-bit data bus (BD[15:0]) — it is the 68EC020 variant with no full 32-bit external bus |
 | Address space | 24-bit (A[23:0]) |
 
-> **Note:** The parts list says "68C020 25 MHz" but the driver was wired as 24 MHz based on the crystal present. The boot diagnostic comment confirms 24 MHz crystal (ZX315, V1). The 25 MHz is the rated speed of the chip, not necessarily the actual clock used.
+> **Note:** The parts list says "68C020 25 MHz" but this is the chip speed rating, not the actual clock. The CPU clock is derived from the 45.1584 MHz audio crystal (ZX316/U37) divided by 2 via a D-latch toggle flip-flop (/Q→D), giving **22.5792 MHz** (= 44100 × 512). The 24 MHz crystal (ZX315/V1) serves the FDC, not the CPU.
 
 ---
 
@@ -35,9 +80,9 @@ The EIV schematics (SK500, SK414 etc.) cover an older platform but the same CPU 
 
 | Ref | Part | Frequency | Usage |
 |---|---|---|---|
-| V1 | ZX315 | **24 MHz** | CPU clock |
-| U56 | ZX314 | **16 MHz** | Unknown (FDC candidate) |
-| U37 | ZX316 | **45.1584 MHz** | Audio sample clock (= 44100 × 1024) |
+| V1 | ZX315 | **24 MHz** | FDC clock source |
+| U56 | ZX314 | **16 MHz** | MC68901 MFP timer clock source (÷4 via HC393 Q1 = 4 MHz) |
+| U37 | ZX316 | **45.1584 MHz** | Audio sample clock (= 44100 × 1024); also CPU clock source (÷2 via D-latch = 22.5792 MHz) |
 | U48 | ZX317 | **49.152 MHz** | Audio/DAC clock (= 48000 × 1024) |
 
 ---
@@ -77,34 +122,126 @@ Allowed sound RAM SIMM sizes: **4 MB, 16 MB, 64 MB** (72-pin, 8 or 9 bit, ≤70 
 | Ref | Part | E-mu P/N | Description |
 |---|---|---|---|
 | U80 | MEM PAL | IP822 (rev d required) | Memory address decoding (LMEM / MEM_PAL) |
-| U45 | ChipSel PAL | IP872 (rev a required) | Chip select generation (CS_PAL) |
+| U45 | ChipSel PAL | IP872 (rev a required) | Chip select generation (CS_PAL) |v
 | U33 | Sample PAL | IP751 | Sample address control |
 | U73 | G0.5 FX PAL | IP826 | Effects sub-board PAL |
 
 > From the update checklist: U80 **must** have IP822**d** installed; U45 must have IP872**a**.
 
-### Chip Selects (from CS_PAL / ACT138 decoding in SK524)
+### Chip Select Decode (CS_PAL IP872 + 3× 74ACT138)
 
-The chip select PAL (U45, IP872) and two 74ACT138 demultiplexers decode the upper address lines. The following active-low chip select signals are generated:
+The chip select PAL (U45, IP872) takes address lines A15–A23 as inputs. One of its outputs, **ENBIO1**, enables three 74ACT138 1-of-8 decoders that generate all peripheral chip selects in the 0x400000–0x5FFFFF range.
 
-| Signal | Peripheral |
-|---|---|
-| CSRJACKN | Rear-panel jack detection ADC |
-| CSWGAINN | Wet/gain control |
-| CSMFPN | MC68901 MFP (MIDI / timers / UART) |
-| CSLCDN | LCD (T6963C via LM24014H) |
-| CSFDCN | FDC (82078 floppy disk controller) |
-| CSEXPN | Expansion port |
-| CSDSPN | DSP (H-chip) |
-| CSKCHIPN | K-Chip |
-| CSRFIFON | IDT7202 FIFO |
-| CSSCCN | 85C80 SCSI/SCC controller |
-| CSHDDN | Hard disk (SCSI target) |
-| CSHDCN | Hard disk control |
-| CSHCHIPN | H-chip select |
-| CSG1CHIPN | G-chip 1 |
-| CSG2CHIPN | G-chip 2 |
-| CSPOTADCN | Panel pot ADC |
+**ENBIO1 active when:** A23=0, A22=1, A21=0 → address range **0x400000–0x5FFFFF**.
+
+#### Decoder #1 — selected by A20=1 (0x500000–0x5FFFFF)
+
+Address inputs: A17–A19. Each output covers a 128 KB window.
+
+| A19:A17 | Signal | Address Range | Device |
+|---|---|---|---|
+| 000 | CSKCHIP | 0x500000–0x51FFFF | K-Chip key scanner (IT433). A0–A3 address bus, 8-bit data on D[15:8] |
+| 001 | CSDSP | 0x520000–0x53FFFF | DSP daughter card (effects processor) |
+| 010 | CSEXP | 0x540000–0x55FFFF | Expansion daughter card |
+| 011 | CSFDC | 0x560000–0x57FFFF | Intel 82078 floppy disk controller |
+| 100 | CSLCD | 0x580000–0x59FFFF | Sharp LM24014H LCD (T6963C) |
+| 101 | CSMFP | 0x5A0000–0x5BFFFF | MC68901 MFP (MIDI UART, timers, GPIO) |
+| 110 | CSWGAIN | 0x5C0000–0x5DFFFF | Sample gain latch (write). 8 bits on D[15:8]: bits 0–5 = gain, bit 7 = BIGEECS (big EEPROM CS) |
+| 111 | CSRJACK | 0x5E0000–0x5FFFFF | Jack detection latch (read). 8 bits on D[15:8]: bits 2–7 = jack insertion status |
+
+#### Decoder #2 — selected by /A20 (0x400000–0x4FFFFF)
+
+Address inputs: A17–A19. Each output covers a 128 KB window.
+
+| A19:A17 | Signal | Address Range | Device |
+|---|---|---|---|
+| 000 | CNTRLSEL | 0x400000–0x41FFFF | Partial selector → feeds Decoder #3 |
+| 001 | CSG1CHIP | 0x420000–0x43FFFF | G-chip 1 — sound engine (polyphony board) |
+| 010 | CSG2CHIP | 0x440000–0x45FFFF | G-chip 2 — sound engine (polyphony board) |
+| 011 | CSHCHIP | 0x460000–0x47FFFF | H-chip — digital filter IC413 (+ polyphony connector) |
+| 100 | CSHDC | 0x480000–0x49FFFF | AM85C80 SCSI controller (NCR5380-compatible portion) |
+| 101 | CSHDD | 0x4A0000–0x4BFFFF | SCSI DMA data port (via memory PAL IP822) |
+| 110 | CSSCC | 0x4C0000–0x4DFFFF | AM85C80 SCC (Z85C30-compatible DUART portion) |
+| 111 | CSRFIFO | 0x4E0000–0x4FFFFF | IDT7202 1K×9 sampling FIFO buffer (read) |
+
+#### Decoder #3 — selected by CNTRLSEL (0x400000–0x41FFFF)
+
+Address inputs: A14–A16. Each output covers a 16 KB window.
+
+| A16:A14 | Signal | Address Range | Device |
+|---|---|---|---|
+| 000 | CSWCR1 | 0x400000–0x403FFF | Control register 1 — 16-bit write latch (see bit definitions below) |
+| 001 | CSWCR2 | 0x404000–0x407FFF | Control register 2 — 16-bit write latch (see bit definitions below) |
+| 010 | CSMSR | 0x408000–0x40BFFF | Misc status register — 16-bit read (HW variant, FIFO status, EEPROM data) |
+| 011 | CSLED | 0x40C000–0x40FFFF | LED latch — 16-bit write. Bits 0–11 = front panel LEDs, bits 12–15 → DAC for LCD contrast |
+| 100 | — | 0x410000–0x413FFF | NC |
+| 101 | CSAESRX | 0x414000–0x417FFF | CS8411 AES/EBU digital audio receiver |
+| 110 | — | 0x418000–0x41BFFF | NC |
+| 111 | — | 0x41C000–0x41FFFF | NC |
+
+#### Control Register 1 — CSWCR1 (0x400000, 16-bit write)
+
+| Bit | Signal | Description |
+|---|---|---|
+| 0 | AESCTL0 | AES/EBU control bit 0 |
+| 1 | AESCTL1 | AES/EBU control bit 1 |
+| 2 | AESCTL2 | AES/EBU control bit 2 |
+| 3 | HCHIP18 | H-chip control signal |
+| 4 | EEPROMCK | EEPROM clock (both big and small EEPROM) |
+| 5 | EEPROMDI | EEPROM data in (both big and small EEPROM) |
+| 6 | EEPROMCS | Small EEPROM (93C46) chip select |
+| 7 | DSPBOOT | DSP boot signal |
+| 8 | LCDA0 | LCD register/data select (directly drives T6963C RS pin) |
+| 9 | SCSITPN | SCSI terminator power enable (active low) |
+| 10 | DSPRST | DSP reset |
+| 11 | HDCRST | SCSI host adapter reset |
+| 12 | EXPRST | Expansion board reset |
+| 13 | FDCRST | FDC reset |
+| 14 | LCDRST | LCD reset |
+| 15 | UPROMPGM | Flash ROM program enable |
+
+#### Control Register 2 — CSWCR2 (0x404000, 16-bit write)
+
+| Bit | Signal | Description |
+|---|---|---|
+| 0 | LITEOFF | LCD backlight off |
+| 1 | VDIMMER0 | LCD backlight dimmer bit 0 (resistor-ladder DAC with LITEOFF) |
+| 2 | VDIMMER1 | LCD backlight dimmer bit 1 |
+| 3 | VDIMMER2 | LCD backlight dimmer bit 2 |
+| 4 | SFLASHPGM | Sample flash program enable |
+| 5 | AESBOOST | AES/EBU boost |
+| 6 | AESPRO | AES/EBU professional mode |
+| 7 | SAMPARM | Sample ARM signal |
+| 8 | SAMPSEL0 | Sample source select bit 0 |
+| 9 | SAMPSEL1 | Sample source select bit 1 |
+| 10 | SCLKSEL0 | Sample clock select bit 0 |
+| 11 | SCLKSEL1 | Sample clock select bit 1 |
+| 12 | SAMPRATE | Sample rate select |
+| 13 | AESRST | AES/EBU receiver reset |
+| 14 | SFLASHWP | Sample flash write protect |
+| 15 | GHRST | G-chip / H-chip reset |
+
+#### Misc Status Register — CSMSR (0x408000, 16-bit read)
+
+| Bit | Signal | Description |
+|---|---|---|
+| 15 | EEPROMD | EEPROM serial data out |
+| 14 | FIFOF | Sampling FIFO full |
+| 13 | FIFOHF | Sampling FIFO half-full |
+| 12 | SROMBSY | Sample ROM busy |
+| 11:9 | — | Hardware variant code (see variant table below) |
+| 8:0 | — | Reserved / unused |
+
+**Hardware variant decode** (bits[11:9] of CSMSR → `byte_F00A84` in firmware):
+
+| bits[11:9] | Variant ID | Model |
+|---|---|---|
+| 0 | 2 | E-mu E6400 Ultra |
+| 1 | 0 | Prototype |
+| 2 | 4 | (unknown) |
+| 3 | 1 | E-mu E6400 |
+| 4 | — | (error / invalid) |
+| 5 | 3 | (unknown) |
 
 ### Serial / MIDI / System Controller
 
@@ -204,17 +341,17 @@ DAC supply: ±5V via discrete regulators VR1 (7905, −5V) and VR2 (7805, +5V).
 
 ### `sub_239C2` — hardware initializer
 
-1. `loc_23948`  — reads hardware variant from 0x408000 bits[11:9]; stores result in `byte_F00A84`
-2. Programs CS_PAL control registers (0x400000, 0x404000) with initial chip-select masks
-3. Passes 0x4C0000 to `sub_20814` (SCC channel A reset)
-4. Passes 0x54FF00 to `sub_21976` (SCC channel B probe with WR13 readback test)
-5. If SCC probe fails → error: passes 1 and 0x54FF00 to `sub_3DE5E` + `sub_21608`
+1. `loc_23948`  — reads hardware variant from CSMSR (0x408000) bits[11:9]; stores result in `byte_F00A84`
+2. Programs control register 1 (CSWCR1, 0x400000) and control register 2 (CSWCR2, 0x404000) with initial chip-select/reset masks
+3. Passes 0x4C0000 (CSSCC) to `sub_20814` — SCC channel A reset
+4. Passes 0x54FF00 (CSEXP) to `sub_21976` — probes for expansion SCC (WR13 readback test)
+5. If expansion SCC probe fails → error: passes 1 and 0x54FF00 to `sub_3DE5E` + `sub_21608`
 6. `sub_200F2` — **MC68901 MFP full initialization** (see register table above)
 7. `sub_3FA16(0x21)` — stores 0x21 in `byte_F01450`
-8. `sub_23B2C`  — reads hardware variant again; selects SCSI terminator scheme
-9. `sub_872DC`  — reads 0x5E0000 bits[6:1] and [0]; stores board config
-10. `init_mem`  — memory size detection
-11. `sub_502AC` — effects DSP RAM probe: write/read test at 0x540400–0x540407
+8. `sub_23B2C`  — reads hardware variant again from CSMSR; selects SCSI terminator scheme
+9. `sub_872DC`  — reads CSRJACK (0x5E0000) bits[1] and [0]; stores board config flags
+10. `init_mem`  — memory size detection (probes sound RAM at 0xC1BE3E–0xF1BE3E)
+11. `sub_502AC` — effects DSP RAM probe: write/read test at 0x540400–0x540407 (CSEXP window)
 12. `loc_2535C/25302` — sets up memory zone headers
 
 ### Boot diagnostics (from EOS Technical Documents — E4 platform)
@@ -257,25 +394,30 @@ If certain boot errors occur, code jumps to an infinite bus loop exercising BD[3
 
 ### Peripheral Map
 
-Decoded by CS_PAL (IP872) + two 74ACT138 demultiplexers. All addresses word-aligned; byte devices on even addresses via D[15:8].
+Decoded by CS_PAL (IP872) + three 74ACT138 decoders. All addresses word-aligned; byte devices on even addresses via D[15:8].
 
-| Address | Device | Status | Notes |
-|---|---|---|---|
-| 0x400000 | CS_PAL control register 1 | **Confirmed** | Word write; controls chip selects and LCD A0 (bit 8) |
-| 0x404000 | CS_PAL control register 2 | **Confirmed** | Word write; additional peripheral enables |
-| 0x408000 | Hardware ID register | **Confirmed** | Read word; bits[11:9] = variant code 0–4 (0=proto, 1=e6400, 2=e6400 Ultra, …) |
-| 0x480000–0x48000E | NCR5380-compatible SCSI | **Confirmed** | AM85C80 SCSI port; word-spaced byte registers. 0x48000A = Reg5 Bus&Status (bit6=DRQ) |
-| 0x4A0000 | SCSI DMA data port | **Confirmed** | AM85C80 DMA read port; data burst via `move.b (a3)+,(a2)` DMA loop |
-| 0x4C0000 | SCC channel A control | *Tentative* | AM85C80 Z85C30-compatible; channel A at +4, init writes 0x09/0x80 (WR9=RESA) |
-| 0x500000–0x50000E | Unknown, word-spaced byte regs | *Unknown* | Byte access at offsets 0,2,4,6,8,A,E; write to +0xE controls bus; probed in SCSI boot check |
-| 0x540000 | Unknown write | *Tentative* | Single word write; may be variant config or effects enable |
-| 0x540400–0x540407 | Effects DSP RAM | *Tentative* | Longword read/write test (0x12345678/0x87654321) on boot |
-| 0x54FF00 | SCC channel B control | *Tentative* | AM85C80 Z85C30-compatible; channel B at base; WR13 baud rate probe confirms Z85C30 |
-| 0x560000–0x560007 | 82078 FDC | **Confirmed** | n82077aa-compatible register map |
-| 0x580000–0x580003 | LM24014H LCD (T6963C) | **Confirmed** | Data/command selected via CS_PAL bit 8; single byte port |
-| 0x5A0000–0x5A002F | MC68901 MFP | **Confirmed** | Word-spaced byte registers; full init in boot ROM sub_200F2 (see below) |
-| 0x5C0000 | Unknown byte write | *Tentative* | Variant code (0–4) mirrored here from ID result — possible K-chip or G-chip config |
-| 0x5E0000 | Hardware config register | *Tentative* | Bits[6:1] and bit[0] read at boot; stored as board config flags |
+| Address Range | CS Signal | Device | Status | Notes |
+|---|---|---|---|---|
+| 0x400000–0x403FFF | CSWCR1 | Control register 1 | **Confirmed** | 16-bit write latch; see bit definitions in Chip Select section |
+| 0x404000–0x407FFF | CSWCR2 | Control register 2 | **Confirmed** | 16-bit write latch; see bit definitions in Chip Select section |
+| 0x408000–0x40BFFF | CSMSR | Misc status register | **Confirmed** | 16-bit read; bits[15:12]=EEPROMD/FIFOF/FIFOHF/SROMBSY, bits[11:9]=HW variant |
+| 0x40C000–0x40FFFF | CSLED | LED / LCD contrast latch | **Confirmed** | 16-bit write; bits 0–11 = front panel LEDs, bits 12–15 = LCD contrast DAC |
+| 0x414000–0x417FFF | CSAESRX | CS8411 AES/EBU receiver | **Confirmed** | Digital audio interface receiver chip select |
+| 0x420000–0x43FFFF | CSG1CHIP | G-chip 1 (sound engine) | **Confirmed** | Polyphony board connector |
+| 0x440000–0x45FFFF | CSG2CHIP | G-chip 2 (sound engine) | **Confirmed** | Polyphony board connector |
+| 0x460000–0x47FFFF | CSHCHIP | H-chip (digital filter) | **Confirmed** | IC413 + polyphony board connector |
+| 0x480000–0x49FFFF | CSHDC | AM85C80 SCSI (NCR5380) | **Confirmed** | Word-spaced byte regs; 0x48000A = Reg5 Bus&Status (bit6=DRQ) |
+| 0x4A0000–0x4BFFFF | CSHDD | SCSI DMA data port | **Confirmed** | Via memory PAL IP822; DMA burst via `move.b` loop |
+| 0x4C0000–0x4DFFFF | CSSCC | AM85C80 SCC (Z85C30) | **Confirmed** | DUART portion; both SCC channels A & B |
+| 0x4E0000–0x4FFFFF | CSRFIFO | IDT7202 FIFO (read) | **Confirmed** | 1K×9 sampling FIFO buffer |
+| 0x500000–0x51FFFF | CSKCHIP | K-Chip key scanner | **Confirmed** | IT433; A0–A3 address, 8-bit data on D[15:8] |
+| 0x520000–0x53FFFF | CSDSP | DSP daughter card | **Confirmed** | Effects processor board |
+| 0x540000–0x55FFFF | CSEXP | Expansion daughter card | **Confirmed** | Effects DSP RAM at +0x400; expansion SCC probe at +0xFF00 |
+| 0x560000–0x57FFFF | CSFDC | 82078 FDC | **Confirmed** | n82077aa-compatible register map |
+| 0x580000–0x59FFFF | CSLCD | LM24014H LCD (T6963C) | **Confirmed** | Data/command selected via CR1 bit 8 (LCDA0) |
+| 0x5A0000–0x5BFFFF | CSMFP | MC68901 MFP | **Confirmed** | Word-spaced byte regs on D[15:8]; full init in sub_200F2 |
+| 0x5C0000–0x5DFFFF | CSWGAIN | Sample gain latch | **Confirmed** | 8-bit write on D[15:8]; bits 0–5 = gain, bit 7 = big EEPROM CS |
+| 0x5E0000–0x5FFFFF | CSRJACK | Jack detection latch | **Confirmed** | 8-bit read on D[15:8]; bits 2–7 = jack status |
 
 ### MC68901 MFP Register Init (sub_200F2 in eos30b.raw)
 
@@ -357,23 +499,23 @@ Boot ROM revision ".7" firmware or newer required for EOS 2.0–3.0.
 
 ## TODO / Open Questions
 
-- [ ] Confirm exact CPU clock: 24 MHz (crystal V1/ZX315) vs 25 MHz (chip rating)
-- [ ] Verify MC68901 MFP clock source and divider (currently using 24 MHz placeholder)
-- [ ] Verify which CPU IPL level the MC68901 IRQ output connects to (driver uses IPL4 as placeholder)
-- [ ] Confirm MFP data bus connection: D[15:8] (even byte) or D[7:0] (odd byte)? Driver uses umask16(0xff00).
-- [ ] Identify device at 0x500000–0x50000E (K-chip IT433? second SCSI window? IDT7202 FIFO?)
-- [ ] Confirm the AM85C80 SCC address windows (0x4C0000 and/or 0x54FF00)
-- [ ] Identify device at 0x5C0000 (receives hardware variant byte on boot)
-- [ ] Identify 0x5E0000 config register (bit layout and meaning)
-- [ ] Determine 82078 FDC clock source (16 MHz from U56/ZX314 is likely)
-- [ ] Map all CS signals to exact address ranges from schematic SK524
-- [ ] Obtain SHA1 for eos30b.raw ROM (currently placeholder in driver)
-- [ ] Map G-chip (sound engine, IC402), H-chip (digital filter, IC413), K-chip (IT433) addresses
-- [ ] Understand effects DSP RAM layout at 0x540000+
-- [ ] Identify K-chip register interface and MIDI routing  
-- [ ] Identify EMU8000 vs G2.0-chip distinction (parts list shows both IC402 and IC405 — may be different board revisions)  
-- [ ] Confirm interrupt levels for all peripherals (MC68901 → CPU IPL lines)  
-- [ ] Decode CS_PAL (IP872) address ranges for each peripheral window  
-- [ ] Determine sound RAM address space (G-chip side)  
-- [ ] Compute SHA1 for eos30b.raw ROM  
-- [ ] Obtain SK524 schematic page images for full address decode  
+- [x] ~~Confirm exact CPU clock: 24 MHz (crystal V1/ZX315) vs 25 MHz (chip rating)~~ → **22.5792 MHz** (45.1584 MHz ÷2 via D-latch toggle; V1/24 MHz is FDC clock)
+- [x] ~~Verify MC68901 MFP clock source and divider (currently using 24 MHz placeholder)~~ → **4 MHz** (16 MHz XTAL U56/ZX314 ÷4 via HC393 Q1)
+- [ ] Verify which CPU IPL level the MC68901 IRQ output connects to (driver uses IPL6 as placeholder)
+- [x] ~~Confirm MFP data bus connection~~ → D[15:8] (upper byte). All byte devices on this bus use D[15:8] (CSKCHIP, CSMFP, CSWGAIN, CSRJACK, FDC, LCD).
+- [x] ~~Identify device at 0x500000–0x50000E~~ → **K-Chip key scanner (IT433)**, CSKCHIP. A0–A3 address bus, 8-bit data on D[15:8].
+- [x] ~~Confirm the AM85C80 SCC address windows~~ → **CSSCC at 0x4C0000** (main SCC, both channels). 0x54FF00 is in the **CSEXP** (expansion) window — firmware probes for an optional expansion SCC there.
+- [x] ~~Identify device at 0x5C0000~~ → **CSWGAIN** — sample gain latch (write). bits 0–5 = gain, bit 7 = BIGEECS (big EEPROM chip select).
+- [x] ~~Identify 0x5E0000 config register~~ → **CSRJACK** — jack detection latch (read). bits 2–7 = jack insertion status, bits 0–1 = board config.
+- [x] ~~Determine 82078 FDC clock source~~ → **24 MHz** (V1/ZX315). Confirmed: the 16 MHz XTAL goes to MFP, 45.1584 MHz to CPU.
+- [x] ~~Map all CS signals to exact address ranges from schematic SK524~~ → Complete decode in Chip Select section above.
+- [x] ~~Obtain SHA1 for eos30b.raw ROM (currently placeholder in driver)~~
+- [x] ~~Map G-chip, H-chip, K-chip addresses~~ → CSG1CHIP=0x420000, CSG2CHIP=0x440000, CSHCHIP=0x460000, CSKCHIP=0x500000.
+- [x] ~~Understand effects DSP RAM layout at 0x540000+~~ → 0x540000 is **CSEXP** (expansion card window). DSP RAM probe at +0x400 and expansion SCC at +0xFF00 are within this space.
+- [ ] Identify K-chip register interface and MIDI routing (IT433 has 4-bit address A0–A3, 8-bit data D[15:8])
+- [ ] Identify EMU8000 vs G2.0-chip distinction (parts list shows both IC402 and IC405 — may be different board revisions)
+- [ ] Confirm interrupt levels for all peripherals (MC68901 → CPU IPL lines)
+- [x] ~~Decode CS_PAL (IP872) address ranges for each peripheral window~~ → Complete decode above.
+- [ ] Determine sound RAM address space (G-chip side)
+- [ ] Compute SHA1 for eos30b.raw ROM
+- [x] ~~Obtain SK524 schematic page images for full address decode~~ → Full CS decode obtained from schematic analysis.
