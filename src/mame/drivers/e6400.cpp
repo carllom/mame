@@ -94,7 +94,7 @@ public:
 	void e6400(machine_config &config);
 
 private:
-	required_device<cpu_device> m_maincpu;
+	required_device<m68ec020_device> m_maincpu;
 	required_device<mc68901_device> m_mfp;
 	required_device<lm24014h_device> m_lcd;
 	required_device<n82077aa_device> m_fdc;
@@ -102,6 +102,7 @@ private:
 	u16 m_csel = 0;
 
 	void mem_map(address_map &map) ATTR_COLD;
+	void cpuspace_map(address_map &map) ATTR_COLD;
 
 	void chipsel_w(offs_t offset, u16 data);
 	u8 lcd_r();
@@ -143,6 +144,15 @@ void e6400_state::mem_map(address_map &map)
 	map(0xf00000, 0xffffff).ram(); // 2x HM514260 256Kx16-bit DRAM
 }
 
+void e6400_state::cpuspace_map(address_map &map)
+{
+	// MC68020 CPU space: autovectors for all levels, MFP gets level-6 IACK slot
+	// Level N IACK address = 0xfffffff1 + N*2; level 6 → 0xfffffffd
+	// TODO: confirm IPL6 from schematic (assumed by analogy with MC68901/VR=0x48 designs)
+	map(0xfffffff0, 0xffffffff).m(m_maincpu, FUNC(m68ec020_device::autovectors_map));
+	map(0xfffffffd, 0xfffffffd).r(m_mfp, FUNC(mc68901_device::get_vector));
+}
+
 static void e6400_floppies(device_slot_interface &device)
 {
 	device.option_add("35hd", FLOPPY_35_HD);
@@ -152,6 +162,7 @@ void e6400_state::e6400(machine_config &config)
 {
 	M68EC020(config, m_maincpu, 24_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &e6400_state::mem_map);
+	m_maincpu->set_addrmap(m68000_base_device::AS_CPU_SPACE, &e6400_state::cpuspace_map);
 
 	N82077AA(config, m_fdc, 24_MHz_XTAL, n82077aa_device::mode_t::AT);
 	FLOPPY_CONNECTOR(config, "fdc:0", e6400_floppies, "35hd", floppy_image_device::default_pc_floppy_formats);
@@ -162,7 +173,7 @@ void e6400_state::e6400(machine_config &config)
 	// TODO: determine which CPU IPL level the MFP IRQ output connects to
 	MC68901(config, m_mfp, 24_MHz_XTAL);
 	m_mfp->set_timer_clock(24_MHz_XTAL);
-	m_mfp->out_irq_cb().set_inputline(m_maincpu, M68K_IRQ_4); // level TBD
+	m_mfp->out_irq_cb().set_inputline(m_maincpu, M68K_IRQ_6); // IPL6 (assumed; IACK at 0xfffffffd)
 
 	LM24014H(config, m_lcd, 0);
 	m_lcd->set_fs(1); // font size 6x8
