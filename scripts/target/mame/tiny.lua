@@ -18,53 +18,59 @@
 
 CPUS["M680X0"] = true -- e6400
 CPUS["NS32000"] = true -- emu3
-
-CPUS["M6800"] = true -- SWTPC8212 (terminal)
-CPUS["IE15"] = true -- IE15 (terminal)
+CPUS["M6800"] = true  -- RS232 -> votraxtnt machine
+CPUS["Z80"] = true    -- RS232 -> heath_h19 -> tlb
+CPUS["IE15"] = true   -- RS232 -> ie15 machine
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
 -- drivers referenced in tiny.lst.
 --------------------------------------------------
 
-SOUNDS["DAC"] = true
-SOUNDS["BEEP"] = true -- ???
+SOUNDS["BEEP"] = true          -- RS232 -> heath_h19 -> tlb
+SOUNDS["VOTRAX_SC01A"] = true  -- RS232 -> votraxtnt machine
+SOUNDS["AY8910"] = true        -- RS232 -> mboardd
 
 --------------------------------------------------
 -- specify available video cores
 --------------------------------------------------
 
-VIDEOS["T6963C"] = true -- e6400
+VIDEOS["T6963C"] = true  -- e6400
 VIDEOS["HD44780"] = true -- emu3
-VIDEOS["MC6845"] = true -- SWTPC8212
+VIDEOS["MC6845"] = true  -- RS232 -> heath_h19 -> tlb
 
 --------------------------------------------------
 -- specify available machine cores
 --------------------------------------------------
-MACHINES["UPD765"] = true -- e6400
 
-MACHINES["WD_FDC"] = true -- emu3
-MACHINES["NCR5380N"] = true -- emu3
-MACHINES["ACIA6850"] = true -- emu3
-MACHINES["PIT8253"] = true -- emu3
-MACHINES["NSCSI"] = true -- emu3
-MACHINES["Z80SCC"] = true -- emu3
-MACHINES["SWTPC8212"] = true -- ??? terminal machine
-MACHINES["6821PIA"] = true -- SWTPC8212
-MACHINES["INS8250"] = true -- SWTPC8212
-MACHINES["INPUT_MERGER"] = true -- SWTPC8212
-MACHINES["IE15"] = true -- ??? terminal machine
-MACHINES["Z80DAISY"] = true -- Z80SCC
-MACHINES["FDC_PLL"] = true -- UPD765
+MACHINES["UPD765"] = true    -- e6400
+MACHINES["FDC_PLL"] = true   -- UPD765
+
+MACHINES["WD_FDC"] = true    -- emu3
+MACHINES["NCR5380"] = true   -- emu3
+MACHINES["ACIA6850"] = true  -- emu3
+MACHINES["PIT8253"] = true   -- emu3
+MACHINES["NSCSI"] = true     -- emu3
+MACHINES["Z80SCC"] = true    -- emu3
+MACHINES["Z80DAISY"] = true  -- Z80SCC
+
+MACHINES["INS8250"] = true   -- RS232 -> heath_h19 -> tlb
+MACHINES["MM5740"] = true    -- RS232 -> heath_h19 -> tlb
+MACHINES["PCF8573"] = true   -- RS232 -> scorpion
+MACHINES["VOTRAXTNT"] = true  -- RS232 -> votraxtnt bus device
+MACHINES["IE15"] = true       -- RS232 -> ie15 bus device
+MACHINES["SWTPC8212"] = true  -- RS232 -> swtpc8212 bus device
+MACHINES["6821PIA"] = true    -- RS232 -> swtpc8212
+MACHINES["INPUT_MERGER"] = true -- RS232 -> swtpc8212
 
 --------------------------------------------------
 -- specify available bus cores
 --------------------------------------------------
 
-BUSES["NSCSI"] = true -- emu3
-BUSES["SCSI"] = true -- e6400?
-BUSES["RS232"] = true -- emu3
-BUSES["SUNKBD"] = true -- ???
+BUSES["NSCSI"] = true           -- emu3
+BUSES["RS232"] = true           -- emu3
+BUSES["HEATHZENITH_H19"] = true -- RS232 -> heath_h19
+BUSES["SUNKBD"] = true          -- RS232 -> sun_kbd
 
 --------------------------------------------------
 -- This is the list of files that are necessary
