@@ -62,6 +62,7 @@ MACHINES["IE15"] = true       -- RS232 -> ie15 bus device
 MACHINES["SWTPC8212"] = true  -- RS232 -> swtpc8212 bus device
 MACHINES["6821PIA"] = true    -- RS232 -> swtpc8212
 MACHINES["INPUT_MERGER"] = true -- RS232 -> swtpc8212
+MACHINES["MC68901"] = true      -- e6400 MFP
 
 --------------------------------------------------
 -- specify available bus cores
