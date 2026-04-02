@@ -229,19 +229,19 @@ Address inputs: A14–A16. Each output covers a 16 KB window.
 | 14 | FIFOF | Sampling FIFO full |
 | 13 | FIFOHF | Sampling FIFO half-full |
 | 12 | SROMBSY | Sample ROM busy |
-| 11:9 | — | Hardware variant code (see variant table below) |
-| 8:0 | — | Reserved / unused |
+| 11:8 | — | Hardware variant code (4 bits from schematic; firmware reads [11:9] via `bfextu d0{20:3}`) |
+| 7:0 | — | Reserved / unused |
 
-**Hardware variant decode** (bits[11:9] of CSMSR → `byte_F00A84` in firmware):
+**Hardware variant decode** (bits[11:8] from schematic; firmware `bfextu{20:3}` reads bits[11:9] → switch → `byte_F00A84`):
 
-| bits[11:9] | Variant ID | Model |
-|---|---|---|
-| 0 | 2 | E-mu E6400 Ultra |
-| 1 | 0 | Prototype |
-| 2 | 4 | (unknown) |
-| 3 | 1 | E-mu E6400 |
-| 4 | — | (error / invalid) |
-| 5 | 3 | (unknown) |
+| bits[11:8] | bits[11:9] | Variant ID | Model |
+|---|---|---|---|
+| 0101 | 2 | 4 | **E-mu E6400** (confirmed from schematic) |
+| — | 0 | 2 | (unknown) |
+| — | 1 | 0 | (unknown) |
+| — | 3 | 1 | (unknown) |
+| — | 4 | — | (error / invalid) |
+| — | 5 | 3 | (unknown) |
 
 ### Serial / MIDI / System Controller
 
@@ -341,7 +341,7 @@ DAC supply: ±5V via discrete regulators VR1 (7905, −5V) and VR2 (7805, +5V).
 
 ### `sub_239C2` — hardware initializer
 
-1. `loc_23948`  — reads hardware variant from CSMSR (0x408000) bits[11:9]; stores result in `byte_F00A84`
+1. `loc_23948`  — reads hardware variant from CSMSR (0x408000) bits[11:8] (firmware uses bfextu{20:3} on bits[11:9]); stores result in `byte_F00A84`
 2. Programs control register 1 (CSWCR1, 0x400000) and control register 2 (CSWCR2, 0x404000) with initial chip-select/reset masks
 3. Passes 0x4C0000 (CSSCC) to `sub_20814` — SCC channel A reset
 4. Passes 0x54FF00 (CSEXP) to `sub_21976` — probes for expansion SCC (WR13 readback test)
@@ -400,7 +400,7 @@ Decoded by CS_PAL (IP872) + three 74ACT138 decoders. All addresses word-aligned;
 |---|---|---|---|---|
 | 0x400000–0x403FFF | CSWCR1 | Control register 1 | **Confirmed** | 16-bit write latch; see bit definitions in Chip Select section |
 | 0x404000–0x407FFF | CSWCR2 | Control register 2 | **Confirmed** | 16-bit write latch; see bit definitions in Chip Select section |
-| 0x408000–0x40BFFF | CSMSR | Misc status register | **Confirmed** | 16-bit read; bits[15:12]=EEPROMD/FIFOF/FIFOHF/SROMBSY, bits[11:9]=HW variant |
+| 0x408000–0x40BFFF | CSMSR | Misc status register | **Confirmed** | 16-bit read; bits[15:12]=EEPROMD/FIFOF/FIFOHF/SROMBSY, bits[11:8]=HW variant |
 | 0x40C000–0x40FFFF | CSLED | LED / LCD contrast latch | **Confirmed** | 16-bit write; bits 0–11 = front panel LEDs, bits 12–15 = LCD contrast DAC |
 | 0x414000–0x417FFF | CSAESRX | CS8411 AES/EBU receiver | **Confirmed** | Digital audio interface receiver chip select |
 | 0x420000–0x43FFFF | CSG1CHIP | G-chip 1 (sound engine) | **Confirmed** | Polyphony board connector |
