@@ -292,6 +292,73 @@ Contains:
 
 The LCD is driven via the T6963C interface. `CSLCDN` is the active-low chip select. `LCDA0` distinguishes data/command. `LCDRST`/`LCDRSTN` is the reset signal.
 
+### LED assignments (CSLED register 0x40C000, bits 0–11)
+
+| Bit | LED |
+|---|---|
+| 0 | Preset Manage |
+| 1 | Sample Manage |
+| 2 | Preset Edit |
+| 3 | Sample Edit |
+| 4 | Master |
+| 5 | Disk |
+| 6 | Page Previous |
+| 7 | Page Next |
+| 8 | MIDI |
+| 9 | SCSI |
+| 10 | Play |
+| 11 | Record |
+
+Bits 12–15 drive a DAC for LCD contrast.
+
+### Key matrix (K-chip IT433 scan matrix, 6 scan columns × 8 scan rows)
+
+| Bit | SC0 | SC1 | SC2 | SC3 | SC4 | SC5 |
+|---|---|---|---|---|---|---|
+| SI0 | Return to zero | Sample Manage | | Page Prev | Down | 5 |
+| SI1 | Rewind | Preset Edit | F1 | F5 | Dec | 6 |
+| SI2 | Fast forward | Sample Edit | Assignable #3 | Page Next | Inc | 7 |
+| SI3 | Stop | Master | F2 | F6 | 0 | 8 |
+| SI4 | Play | Disk | | Enter | 1 | Lock |
+| SI5 | Record | Exit | F3 | Up | 2 | 9 |
+| SI6 | Sequencer | Assignable #1 | Controls/FX | Left | 3 | Set |
+| SI7 | Preset Manage | Assignable #2 | F4 | Right | 4 | |
+
+### IT433 K-chip Register Map (CSKCHIP 0x500000–0x50001F)
+
+The IT433 is a custom E-mu key scanner/encoder IC. It has 4 address pins (A1–A4) giving 16 word-aligned registers, and an 8-bit data bus on D8–D15. It scans the 6×8 button matrix, a rotary encoder, and a volume potentiometer ADC. When data is available, it asserts KCHPINT (active low → MFP GP4), triggering ISR_User7.
+
+Registers (deduced from firmware disassembly):
+
+| Reg | CPU Address | R/W | Function |
+|---|---|---|---|
+| 0 | 0x500000 | R | **Key code** — bits[6:0] = key number; bit 7 = release flag (1=release, 0=press). Key numbers ≤0x50 = keyboard notes; >0x50 = panel buttons. Reading pops one event from the internal FIFO. |
+| 1 | 0x500002 | R | **Key velocity** — raw 8-bit value latched with key code. Firmware maps: `(vel − 0x68)`, clamped to 1–127. |
+| 2 | 0x500004 | R | **Status** — bit 7: key data ready; bit 6: pot data ready; bit 5: encoder data ready. |
+| 3 | 0x500006 | R | **Pot MSB** — upper 8 bits of 11-bit pot ADC value. Reading clears pot-ready flag (bit 6). |
+| 4 | 0x500008 | R | **Pot LSB** — lower 3 bits (bits[2:0]) of 11-bit pot value. Read first, before reg 3. |
+| 5 | 0x50000A | R | **Encoder delta** — signed 8-bit relative encoder movement. Reading clears encoder-ready flag (bit 5). |
+| 6 | 0x50000C | — | Not referenced by firmware. |
+| 7 | 0x50000E | W | **Control** — bit 7: enable scanning; bits[3:2]: MIDI activity LEDs; bit 0: scan config. Shadow copy at `byte_F00991`. |
+
+Data read protocol (sub_21AD0, called from ISR_User7 in a loop):
+1. Read status reg 2 → if bit 7 set: read key code reg 0 (pops FIFO), read velocity reg 1
+2. Read status reg 2 again → if bit 5 set: read encoder delta reg 5
+3. ISR loops while KCHPINT remains asserted (GPDR bit 4 low)
+4. On exit: ISR clears ISRB bit 6 (GP4 in-service)
+
+Volume pot read (sub_21FEE, polled from main loop):
+1. Read status reg 2 → if bit 6 set: read reg 4 (LSB) then reg 3 (MSB, clears flag)
+2. Combine: `(reg3 << 3) | (reg4 & 7)` → 11-bit value (0–2047)
+
+Init (sub_21F48, called from bootSystem):
+- Writes 0x85 to control reg 7 (enable + scan config)
+- sub_21F08 toggles bit 0 based on runtime parameter
+
+MIDI LED control:
+- sub_21D24: clears bits[3:2] → `byte_F00991 &= 0xC3` → LEDs off
+- sub_21D42: sets bits[3:2] → `byte_F00991 |= 0x0C` → LEDs on
+
 ---
 
 ## Power Supply
@@ -457,6 +524,21 @@ Executed once during boot from `sub_239C2 → loc_23AF0 → sub_200F2`:
 
 Timer data registers (TADR/TBDR/TCDR/TDDR at 0x5A001E–0x5A0024) are programmed later by `sub_20050` using a lookup table to produce baud rates 1000–50000 Hz. The MFP timer drives the software system-tick counter (`timer_value` in DRAM), used by `wait_msec()` and the 12-second SCSI mount timeout.
 
+#### MFP GPIO Pin Assignments (GP0–GP7)
+
+All pins configured as inputs (DDR=0x00). Active-edge register AER=0x0B selects rising edge for GP0, GP1, GP3; falling edge for the rest.
+
+| Pin | Signal | Source | Description |
+|---|---|---|---|
+| GP0 | FDCINT | N82077AA FDC | Floppy disc controller interrupt |
+| GP1 | ROMWRINT | PAL IP822 (MEM_PAL) | Flash ROM write interrupt |
+| GP2 | FIFOHF | IDT7202 FIFO | Sample FIFO buffer half-full |
+| GP3 | HDCINT | AM85C80 (NCR5380) | SCSI controller interrupt |
+| GP4 | KCHPINT | PAL IT433 (K-chip) | Key scanner interrupt |
+| GP5 | EXPINT2 | Expansion bus | Expansion interrupt #2 |
+| GP6 | EXPINT1 | Expansion bus | Expansion interrupt #1 |
+| GP7 | SCCINT | AM85C80 SCC (Z85C30) | Serial controller interrupt |
+
 Interrupt vector assignments (VR=0x48, vectors at 0x120+):
 - The ISR at CPU vector-table offset **0x120** (`ISR_User9_Timer`) is MFP vector 0 → system tick.
 - The ISR at **0x11C** (`ISR_User8_Exp2`) handles voice card interrupts.
@@ -531,7 +613,7 @@ Boot ROM revision ".7" firmware or newer required for EOS 2.0–3.0.
 - [x] ~~Obtain SHA1 for eos30b.raw ROM (currently placeholder in driver)~~
 - [x] ~~Map G-chip, H-chip, K-chip addresses~~ → CSG1CHIP=0x420000, CSG2CHIP=0x440000, CSHCHIP=0x460000, CSKCHIP=0x500000.
 - [x] ~~Understand effects DSP RAM layout at 0x540000+~~ → 0x540000 is **CSEXP** (expansion card window). DSP RAM probe at +0x400 and expansion SCC at +0xFF00 are within this space.
-- [ ] Identify K-chip register interface and MIDI routing (IT433 has 4-bit address A0–A3, 8-bit data D[15:8])
+- [x] ~~Identify K-chip register interface and MIDI routing (IT433 has 4-bit address A0–A3, 8-bit data D[15:8])~~ → Complete register map in IT433 section above. 8 registers deduced from firmware: key code/vel FIFO, status, pot ADC (11-bit), encoder delta, control/LED.
 - [ ] Identify EMU8000 vs G2.0-chip distinction (parts list shows both IC402 and IC405 — may be different board revisions)
 - [ ] Confirm interrupt levels for all peripherals (MC68901 → CPU IPL lines)
 - [x] ~~Decode CS_PAL (IP872) address ranges for each peripheral window~~ → Complete decode above.
