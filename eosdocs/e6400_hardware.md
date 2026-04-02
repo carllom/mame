@@ -316,7 +316,7 @@ DAC supply: ±5V via discrete regulators VR1 (7905, −5V) and VR2 (7805, +5V).
 
 `eos30b.raw` **is** the cold-boot ROM — no prior bootprom stage exists.
 
-1. CPU fetches ISP (0xFFBFFE) and reset PC (0x034FD0) from the vector table alias at 0x000000. These bytes are the first 8 bytes of the flash ROM, aliased there by CS_PAL hardware.
+1. CPU fetches ISP (0xFFBFFE) and reset PC (0x034FD0) from the vector table alias at 0x000000. These bytes come from flash offset 0x400 (CPU 0x010400), aliased to 0x000000 by CS_PAL hardware.
 2. **`reset()`** at 0x034FD0:
    - Sets supervisor mode, masks interrupts, enables instruction cache
    - Copies 0x6000 bytes from ROM (0x0F9400 = `api_src`) to DRAM (0xF00400) — the API jump table
@@ -384,9 +384,28 @@ If certain boot errors occur, code jumps to an infinite bus loop exercising BD[3
 
 | Address Range | Content |
 |---|---|
-| 0x000000–0x0001FF | ROM vector table (hardware mirror via CS_PAL — same bytes as 0x010000–0x0101FF) |
+| 0x000000–0x0001FF | ROM vector table (hardware mirror via CS_PAL — same bytes as flash[0x400], i.e. CPU 0x010400) |
 | 0x000200–0x0003FF | Scratch RAM |
 | 0x010000–0x0FEFFF | Flash ROM (eos30b.raw, full image at CPU base 0x010000) |
+
+#### Flash Header (CPU 0x010000–0x0103FF)
+
+The first 1024 bytes of the flash chip form a header used by the firmware update process and version display. The format (confirmed from `eos30b.img` floppy and firmware cross-reference):
+
+| Flash Offset | CPU Address | Size | Content |
+|---|---|---|---|
+| 0x000 | 0x010000 | 4 | Magic: `0x12345678` |
+| 0x004 | 0x010004 | 24 | Version string, space-padded: `"EOS v3.00b"` |
+| 0x01C | 0x01001C | 4 | ROM sector count (excluding header): `0x00000778` (= 0xEF000 bytes) |
+| 0x020 | 0x010020 | 4 | Checksum: `0x2DF72B2B` |
+| 0x034 | 0x010034 | 4 | `0x000000E0` (unknown) |
+| 0x038 | 0x010038 | 4 | `0x000002C9` (unknown) |
+| 0x040–0x3FF | 0x010040–0x0103FF | 960 | Zero padding |
+
+Firmware references:
+- `sub_A2AD4` (boot display): `pea ($10004).l` → `sprintf("Software: %s", version_string)`
+- `sub_2E1E8` ("Saving System to Floppy"): `move.l #$10000,d2` (flash base); `move.l ($1001C).l,d1` (sector count); `addq.l #2,d1` (adds 2 sectors for header)
+
 | 0xF00000–0xF7FFFF | CPU DRAM low bank (2× HM514260 256K×16) |
 | 0xF00400–0xF063FF | API jump table mirror (0x6000 bytes copied from ROM 0x0F9400 on boot) |
 | 0xF80000–0xFFBFFE | CPU DRAM high bank |
@@ -517,5 +536,4 @@ Boot ROM revision ".7" firmware or newer required for EOS 2.0–3.0.
 - [ ] Confirm interrupt levels for all peripherals (MC68901 → CPU IPL lines)
 - [x] ~~Decode CS_PAL (IP872) address ranges for each peripheral window~~ → Complete decode above.
 - [ ] Determine sound RAM address space (G-chip side)
-- [ ] Compute SHA1 for eos30b.raw ROM
 - [x] ~~Obtain SK524 schematic page images for full address decode~~ → Full CS decode obtained from schematic analysis.
