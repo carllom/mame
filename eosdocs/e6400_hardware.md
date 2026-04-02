@@ -361,6 +361,72 @@ MIDI LED control:
 
 ---
 
+## Sound Memory (Sample RAM)
+
+### Architecture
+
+Sound memory (sample RAM) is **not** in the CPU's address space. The CPU has a 24-bit address bus (MC68EC020) and can only directly address 16MB; the maximum 128MB of sample RAM would never fit.
+
+Instead, sample RAM sits behind the **G-chip sound engine** on the polyphony board (AP503). The G-chip has its own address bus to the SIMM slots. The CPU accesses sample memory **indirectly** through G-chip memory-mapped registers at **CSG1CHIP (0x420000)** and **CSG2CHIP (0x440000)**.
+
+### SIMM Configuration
+
+- 2× 72-pin SIMM slots on the polyphony board
+- Maximum: 2× 64MB SIMMs = 128MB total
+- Standard 72-pin fast-page DRAM SIMMs (same as vintage PCs)
+
+### G-chip Register Interface for Sample Memory
+
+The G-chip register file is accessed through the CSG1CHIP window at 0x420000. The firmware stores this base address at DRAM location `$F07E22` (read by `unk_F3A42C`). The window is organized as a 64-voice array with 0x40-byte stride per voice.
+
+Key registers (offsets from G-chip base, voice 0):
+
+| Offset | R/W | Function |
+|---|---|---|
+| +$1C | R | **Sample data read** — reads 16-bit word from address set by +$30. Read twice to flush G-chip pipeline. |
+| +$1E | W | **Sample data write** — writes 16-bit word to address set by +$34. |
+| +$30 | W | **Read address** — sets G-chip internal sample memory address for read operations. |
+| +$34 | W | **Write address** — sets G-chip internal sample memory address for write operations. |
+| +$43E | W | **SIMM config A** — sample rate / timing configuration |
+| +$83E | W | **SIMM config B** — bank select / size configuration (bit 8 = bank select, bits 6-7 = mode) |
+| +$C3E | W | **SIMM type** — SIMM size/type code (from template table) |
+
+Addresses in the G-chip space are **word-addressed** (shifted right by 1 from byte addresses): the firmware does `asr.l #1, address` before writing to registers +$30/+$34.
+
+### Sound Memory Detection (`sub_24210`, called from `bootSystem`)
+
+The firmware probes for installed SIMMs by trial-and-error through 4 template configurations:
+
+| Template | Config word | Size multiplier | SIMM size |
+|---|---|---|---|
+| 0 | 0x27 | 1 | 1 MB |
+| 1 | 0x2F | 4 | 4 MB |
+| 2 | 0x37 | 0x10 | 16 MB |
+| 3 | 0x3F | 0x40 | 64 MB |
+
+For each template configuration:
+1. Programs the G-chip SIMM config registers (+$C3E, +$43E, +$83E) via `sub_224E4`
+2. Writes unique test patterns to voice sample addresses: voice N writes `N × 0x7531` to address `(N-1) × 0x80000`
+3. Reads back each address via register +$1C and compares — first/last matching voices determine SIMM start/end addresses
+4. Computes memory range: `start = (first_valid-1) << 20`, `end = last_valid << 20 - 1`
+
+After probing all 4 configurations, picks the one with the largest valid range, finalizes the G-chip config, and stores the result via `setRAMSize` → `$F074AE`.
+
+### Boot Display
+
+The `sub_23DFC` boot status routine calls `getRAMSize` (returns `$F074AE`) and `getPrstMemSize`, computes available memory, shifts right by 20 to convert to MB, and displays: `"%dmb of Sound Memory Installed."`. A return value of 0 means the G-chip probe found no valid SIMMs.
+
+### CPU DRAM vs Sound Memory
+
+| Memory | Address Range | Size | Access |
+|---|---|---|---|
+| CPU DRAM | 0xF00000–0xFFBFFE | 1–4 MB (probed by `init_mem` at 0xC1BE3E–0xF1BE3E) | Direct CPU access |
+| Sound RAM | Behind G-chip | 1–128 MB (probed via G-chip registers) | Indirect via G-chip register reads/writes |
+
+The `init_mem` routine at `$2503A` probes CPU DRAM by writing test patterns (0x11111111, 0x22222222, 0x33333333, 0x44444444) to addresses 0xC1BE3E, 0xD1BE3E, 0xE1BE3E, 0xF1BE3E (1MB apart in the CPU address space) and storing the detected size in `$F1BE3A`.
+
+---
+
 ## Power Supply
 
 - Switching PSU, auto-selects 110/220V
@@ -617,5 +683,5 @@ Boot ROM revision ".7" firmware or newer required for EOS 2.0–3.0.
 - [ ] Identify EMU8000 vs G2.0-chip distinction (parts list shows both IC402 and IC405 — may be different board revisions)
 - [ ] Confirm interrupt levels for all peripherals (MC68901 → CPU IPL lines)
 - [x] ~~Decode CS_PAL (IP872) address ranges for each peripheral window~~ → Complete decode above.
-- [ ] Determine sound RAM address space (G-chip side)
+- [x] ~~Determine sound RAM address space (G-chip side)~~ → Sound RAM is behind the G-chip, accessed indirectly via registers at CSG1CHIP (0x420000). CPU cannot directly address it. See Sound Memory section above.
 - [x] ~~Obtain SK524 schematic page images for full address decode~~ → Full CS decode obtained from schematic analysis.
