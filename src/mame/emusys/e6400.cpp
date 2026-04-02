@@ -36,7 +36,7 @@
     400000-403FFF:  CSWCR1 — control register 1 (16-bit write latch, confirmed)
     404000-407FFF:  CSWCR2 — control register 2 (16-bit write latch, confirmed)
     408000-40BFFF:  CSMSR — misc status register (16-bit read, confirmed)
-                      bits[15:12]= EEPROMD,FIFOF,FIFOHF,SROMBSY; bits[11:9]= HW variant
+                      bits[15:12]= EEPROMD,FIFOF,FIFOHF,SROMBSY; bits[11:8]= HW variant
     40C000-40FFFF:  CSLED — LED latch (16-bit write; bits 0-11 LEDs, 12-15 LCD contrast)
     414000-417FFF:  CSAESRX — CS8411 AES/EBU digital audio receiver
 
@@ -69,7 +69,7 @@
     - reset() copies 0x6000 bytes of API jump table from ROM (0x0F9400) to DRAM (0xF00400)
       then calls bootSystem() which performs all hardware and OS initialization.
     - "RTC" time base is a software counter (timer_value) incremented by MFP timer ISR.
-    - Hardware variants 0-4 decoded from register at 0x408000 bits[11:9].
+    - Hardware variant from register at 0x408000 bits[11:8] (4 bits from HW, firmware reads [11:9]).
 
 ******************************************************************************/
 
@@ -135,8 +135,9 @@ u16 e6400_state::status_r()
 {
 	// CSMSR — misc status register
 	// bits[15:12] = EEPROMD, FIFOF, FIFOHF, SROMBSY
-	// bits[11:9]  = hardware variant (3 = e6400, 0 = e6400 Ultra)
-	return 0x0600; // bits[11:9] = 3 → variant ID 1 (E6400)
+	// bits[11:8]  = hardware variant (4 bits from schematic; firmware reads [11:9] via bfextu)
+	// E6400 schematic: bits[11:8] = 0101 → firmware bfextu{20:3} reads bits[11:9] = 010 = 2 → variant_id 4
+	return 0x0500; // bits[11:8] = 0b0101 (E6400)
 }
 
 u8 e6400_state::lcd_r()
