@@ -23,9 +23,10 @@
     - W5 IP751B.1 EMU 1098
 
     ROM memory map (CPU addresses, confirmed from MAME debugger cross-reference with IDA):
-    000000-0001FF: vector table (hardware mirror of ROM[000000-0001FF] via CS_PAL)
+    000000-0001FF: vector table (hardware mirror of flash[0x400:0x5FF] via CS_PAL)
     000200-0003FF: scratch RAM
-    010400-0FF3FF: flash ROM (eos30b.raw, base CPU 010400)
+    010000-0FF3FF: flash ROM (eos30b.raw = 1024-byte header + code, base CPU 010000)
+      010000-0103FF: flash header (magic 0x12345678, "EOS v3.00b", sector count, checksum)
       010400-0105FF: vector table bytes (also visible at 000000)
       010600-0107FF: 0xFF padding (erased flash)
       010800-0FF3FF: firmware code and data (IDA "eOS_ROM" segment starts here)
@@ -163,9 +164,9 @@ u8 e6400_state::jack_r()
 
 void e6400_state::mem_map(address_map &map)
 {
-	map(0x000000, 0x0001ff).rom().region("eos_flash", 0);        // vector table mirror (CS_PAL)
+	map(0x000000, 0x0001ff).rom().region("eos_flash", 0x400);    // vector table mirror (CS_PAL maps flash[0x400:0x5FF])
 	map(0x000200, 0x0003ff).ram();                                // scratch RAM
-	map(0x010400, 0x0ff3ff).rom().region("eos_flash", 0);        // full ROM at its CPU base
+	map(0x010000, 0x0ff3ff).rom().region("eos_flash", 0);        // flash ROM at CPU base (header + code)
 
 	// Decoder #3 (via CNTRLSEL, A14..A16 select) — 0x400000-0x41FFFF
 	map(0x400000, 0x400001).w(FUNC(e6400_state::cr1_w));         // CSWCR1 — control register 1
@@ -232,7 +233,7 @@ void e6400_state::e6400(machine_config &config)
 
 ROM_START( e6400 )
 	ROM_REGION32_BE(0x100000, "eos_flash", 0)
-	ROM_LOAD( "eos30b.raw", 0x000000, 0x0ef000, CRC(69e5d16e) SHA1(97AE737FCF7E9EA876C3BD3DE9CD568458F448AF) )
+	ROM_LOAD( "eos30b.raw", 0x000000, 0x0ef400, CRC(8b4408fc) SHA1(BD2D1FF7ACA5F658475AD677F815A275E9BB8923) )
 ROM_END
 
 } // anonymous namespace
