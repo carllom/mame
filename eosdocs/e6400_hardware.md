@@ -468,6 +468,186 @@ The `sub_23DFC` boot status routine calls `getRAMSize` (returns `$F074AE`) and `
 
 The `init_mem` routine at `$2503A` probes CPU DRAM by writing test patterns (0x11111111, 0x22222222, 0x33333333, 0x44444444) to addresses 0xC1BE3E, 0xD1BE3E, 0xE1BE3E, 0xF1BE3E (1MB apart in the CPU address space) and storing the detected size in `$F1BE3A`.
 
+### Per-Voice G-chip Registers
+
+Each G-chip manages 64 voices. Per-voice registers are mapped at a stride of **0x40 bytes** (32 word registers) per voice within the chip-select window. Voice N's registers start at CSG1CHIP + N × 0x40.
+
+**Initialization** (`sub_224E4`): On boot, the firmware iterates over all 64 voices and clears registers +$00, +$04, +$10 (longwords) and calls `sub_22624` to clear +$20 through +$2E (8 words). The G-chip base is stored at `unk_F3A42C` and the current voice × 0x40 offset at `unk_F3A850`.
+
+**Known per-voice register map** (byte offsets from voice base):
+
+| Offset | Size | R/W | Init | Function |
+|--------|------|-----|------|----------|
+| +$00 | 32-bit | R/W | Cleared | Voice control/status. Bit 12 is read by `sub_22EC0` to determine register write order (appears to be an oscillator phase/busy flag). |
+| +$04 | 32-bit | R/W | Cleared | Unknown. Cleared during init and by the voice stop function. |
+| +$08 | 32-bit | R/W | — | **Oscillator accumulator / start address.** Bits[25:0] = 26-bit value (written ones'-complemented via `not.l`). Upper 6 bits (31:26) are preserved on write (read-modify-write). |
+| +$0C | 32-bit | W | — | **Oscillator end address / amplitude.** 32-bit value, ones'-complemented (`not.l`) before write. |
+| +$10 | 32-bit | R/W | Cleared | **Oscillator mode/control.** Masked to 16-bit on some paths. Written directly (not inverted) in multi-voice mode. |
+| +$14 | 32-bit | W | — | **Oscillator trigger.** Bit 26 = enable/start flag (`bset #$1A`). Written directly (not inverted). |
+| +$1C | 16-bit | R | — | Sample data read (chip-wide — overlaps voice 0's register space). |
+| +$1E | 16-bit | W | — | Sample data write (chip-wide). |
+| +$20–$2E | 16-bit ×8 | W | Cleared | Unknown. Cleared by `sub_22624` during init. May be filter coefficients, volume, or modulation registers. |
+| +$30/+$32 | 32-bit | W | — | Sample read address (chip-wide). |
+| +$34/+$36 | 32-bit | W | — | Sample write address (chip-wide). |
+
+**Notes:**
+- The ones'-complement pattern (`not.l` before write to +$08 and +$0C) suggests the G-chip uses inverted or down-counting logic internally.
+- Registers +$1C/+$1E/+$30-$36 are chip-wide sample memory access registers that overlap voice 0's register space. Voice 0 may be reserved or these registers may be dual-function.
+- For stereo playback, two consecutive voices (N and N+1) are paired. The second voice is at offset +$40 from the first: writes to +$48/+$4C/+$54 correspond to the second voice's +$08/+$0C/+$14.
+
+### Voice Oscillator Write — `sub_22EC0`
+
+This is the critical function that writes computed voice parameters to the G-chip hardware. It is called from `sub_8318E` (pitch/volume update) during each voice tick.
+
+**Input:** Pointer to a voice oscillator state structure (offset $32 within voice register block):
+- +$00: G-chip voice A hardware pointer (address: CSG1CHIP + voice_N × 0x40)
+- +$04: G-chip voice B hardware pointer (for stereo pair)
+- +$10: Oscillator mode value (compared to 8 for mode selection)
+- +$14: Oscillator accumulator/address value
+- +$18: Voice mode: 0=inactive, 1/2=active stereo modes, 3=disabled
+- +$19: Secondary flag
+- +$1A: Dirty flag (cleared after hardware write)
+
+**Write algorithm:** Disables interrupts (`ori #$300,sr`), then:
+
+1. **Single-voice mode** ($10 == 8): Writes `not($14)` to +$08 (masked 26-bit, preserving upper 6 bits), writes `not(dword_F00A5C)` to +$0C, writes `dword_F00A58 | bit26` to +$14.
+
+2. **Multi-voice mode** ($10 != 8): Writes $10 to +$14 directly, writes `not($14)` to +$08 (26-bit masked).
+
+3. **Stereo pair:** If $18 indicates dual-voice, repeats appropriate writes at voice base + $40 using parameters from the B pointer.
+
+4. Re-enables interrupts (`andi #$F8FF,sr`).
+
+The **write order** depends on bit 12 of the voice status register at +$00. When bit 12 is clear, the sequence is: +$08, +$0C, +$14. When bit 12 is set, the sequence reverses to: +$0C, +$08, +$14. This likely avoids glitches during the oscillator's active phase.
+
+**Global parameters:**
+- `dword_F00A58` (at $F00A58): Initialized to 8 by `sub_22EA0`. Used as the +$14 base value.
+- `dword_F00A5C` (at $F00A5C): Initialized to 0x1C by `sub_22EA0`. Used as the +$0C base value.
+- `sub_22EA0` computes: `dword_F00A58 = (offset >> 1) + 8`, `dword_F00A5C = dword_F00A58 + 0x14`.
+
+### G-chip Helper Functions (Sample Memory Access)
+
+Functions in the 0x22xxx ROM area handle G-chip sample memory transfers:
+
+| Function | Address | Operation |
+|----------|---------|-----------|
+| `sub_2211E` | 0x02211E | Set sample read address (+$30), read one sample word (+$1C) |
+| `sub_22160` | 0x022160 | Set read address + pipeline prime (reads +$1C twice) |
+| `sub_22188` | 0x022188 | Set sample write address (+$34), write sample data (+$1E) |
+| `sub_224E4` | 0x0224E4 | Full G-chip init — SIMM config, clear all 64 voice registers |
+| `sub_22624` | 0x022624 | Clear voice registers +$20–+$2E (8 words) |
+| `sub_22EA0` | 0x022EA0 | Configure sample addressing parameters (dword_F00A58/5C) |
+| `sub_22EC0` | 0x022EC0 | Voice oscillator hardware write (main audio path) |
+
+All sample memory access helpers convert byte addresses to word addresses (`asr.l #1`) and write via `move.l` to +$30 or +$34 (which splits into two 16-bit writes on the M68K bus).
+
+---
+
+## MIDI Note Processing
+
+### MIDI Event Queue
+
+The firmware uses a **1024-byte circular buffer** at `$F3FE70` for internal MIDI events:
+
+| Offset | Size | Function |
+|--------|------|----------|
+| +$00 | 32-bit | Queue item count |
+| +$02 | 16-bit | Size threshold (compared to 3 in dequeue guard) |
+| +$04 | 8-bit | Overflow flag (set to 1 when write catches read) |
+| +$06 | 16-bit | Write index (masked with 0x3FF for 1024-entry wrap) |
+| +$08 | 16-bit | Read index (masked with 0x3FF) |
+| +$0A | 1024 bytes | Circular data buffer |
+
+**Event format:** 4 bytes per event: `[channel, velocity, note, terminator]`. Terminator non-zero = note-on, zero = note-off.
+
+**Enqueue functions:**
+- `sub_7E4FE` — Note-on: queues `(channel, 0, note, 0)` [terminator=0 is overwritten]
+- `sub_7E446` — Note-off: queues `(channel, 0x7F, note, 0)`
+
+**Dequeue function:** `sub_7E5CC` — registered as a timer callback (type 3) via `sub_7EE6C` during synth init. Fires periodically, checks queue depth ≥ 4, then:
+1. Dequeues 4 bytes: channel (d3), velocity (d2), note (d1), terminator
+2. **Terminator non-zero** → calls `sub_7E68C` (note-on handler)
+3. **Terminator zero** → calls `sub_7EA2A` (note-off handler)
+
+### Note-On Processing Chain
+
+```
+sub_7E68C   (Note-on handler)
+  ├─ Velocity curve lookup: (current_VelCurve)[raw_vel] → synth velocity
+  ├─ Optional callback via function pointer at $F033E0
+  ├─ Store channel/velocity/note in synth registers ($F34026–$F3402C)
+  └─ sub_7EA42 → sub_8185C (voice dispatcher)
+       ├─ Checks voice bitmap at $F34056
+       ├─ sub_816E8 (voice configuration)
+       │    ├─ sub_806B6 (pitch calculation)
+       │    ├─ sub_81CE0 (sample/loop setup)
+       │    └─ sub_822C6 → sub_828CA (master voice init)
+       └─ Returns allocated voice ID
+```
+
+### Master Voice Initialization — `sub_828CA`
+
+Called with: voice context pointer (a5), voice index (d3), secondary index (d1).
+
+1. **Voice descriptor lookup:** `dword_86906[voice_N]` + $F41540 → voice descriptor base. Each descriptor is **0x374 bytes** (884 decimal). The table `dword_86906` contains pre-computed offsets for 128 voices.
+
+2. **State machine install:** Stores handler function pointers:
+   - +$1E: `sub_8434A` (voice tick handler)
+   - +$22: `sub_84B12` (voice release handler)
+   - +$26: `sub_84B2C` (voice stop handler)
+
+3. **Parameter setup:** Calls multiple initialization subroutines:
+   - `sub_8253C` — Pitch configuration: base pitch + transpose + sample tuning + key follow. Stores at voice register block offset +$5A. Also configures pitch envelope initial values and rates.
+   - `sub_82F56` — Sample/zone configuration.
+   - `sub_826A6` — Filter coefficient init from preset data (copies 13 longwords of envelope/filter data).
+   - `sub_82ED2` — Amplitude envelope init.
+   - `sub_83E88` — LFO / auxiliary parameters.
+
+4. **Filter envelope init** at voice register block +$1DE: Clears 7 longwords + 1 word, sets +$0E to 0x1000.
+
+5. **Start playback:** Calls `sub_86C60` with voice index → adds voice to timer-driven execution linked list. The voice state machine (`sub_8434A`) will then be called on each tick.
+
+### Voice State Machine — `sub_8434A`
+
+This is the per-voice "tick" function, invoked periodically (~every 10 timer units). It processes all voice modulation and triggers hardware writes:
+
+1. **Modulation loop:** Iterates 18 modulation sources (at descriptor offset +$254, 16-byte stride). Each source has: source pointer, destination pointer, amount, enable flag, and accumulator. Computes `source_value × amount >> 12`, applies delta to destination.
+
+2. **Envelope generators:** Calls `loc_84022` three times for envelope segments at descriptor offsets +$13C, +$172, +$1A8 (likely: amplitude, filter, auxiliary envelopes).
+
+3. **Volume / randomization** at offset +$1DE: Applies volume envelope with clamping (0–127), lookup via table `word_8145E`. Uses a PRNG (`dword_F0345A`, LCG with multiplier 0x72D138B5) for random modulation.
+
+4. **Pitch processing** at offset +$B0: Velocity-to-pitch mapping via `word_8125E` table, pitch envelope computation with mode-dependent filtering ($2D flag selects direct vs. blended mode).
+
+5. **Key follow / crossfade** at offset +$A0: Amplitude scaling based on note number with breakpoint and slope.
+
+6. **Hardware update calls:**
+   - `sub_8328C` — Computes final pitch and stereo pan, calls `sub_22EC0` to write G-chip oscillator registers.
+   - `sub_8341C` — Filter processing, calls filter coefficient generator `sub_7BE20`, may write to H-chip filter IC.
+   - `sub_8393C` — Unknown (possibly output routing or DMA control).
+
+7. **Reschedule:** Sets next tick time = current `timer_value` + 10, stores at descriptor +$2A.
+
+### Audition Key
+
+The Audition button (SC2/SI4 in E-IV key matrix) generates **event type 0x16** through the module dispatch system, not directly through the keyboard key code handler.
+
+**Call flow:**
+```
+Event 0x16 dispatched
+  → sub_44072 (Module 0xA handler)
+    → sub_440CC → sub_2BC30 (loads handler from $F00B68)
+      → sub_2BBB8 (Audition key handler)
+        ├─ sub_2BB98: enqueue note-on (note=_auditionkey, vel=0, channel)
+        │    └─ sub_7E4FE: writes 4 bytes to MIDI queue at $F3FE70
+        └─ sub_7E446: enqueue note-off (note=_auditionkey, vel=0x7F, channel)
+             └─ writes 4 bytes to MIDI queue
+```
+
+**Audition note:** Stored at `_auditionkey` ($F00B62), default value **0x27** (MIDI note 39, D♯2). Configurable in Master settings as `v007_AuditionKey` (range 0–127, parameter ID 7).
+
+The audition key bypasses keyboard transpose and zone mapping — it directly injects MIDI note-on/note-off events at a fixed note number and velocity (on=0, off=0x7F). The channel is determined by the MIDI mode setting: mode 2 uses the current MIDI channel from `sub_A0224`, otherwise channel 0.
+
 ---
 
 ## Power Supply

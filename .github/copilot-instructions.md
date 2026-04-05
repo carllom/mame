@@ -138,6 +138,19 @@ Note: The firmware uses `move.l` (32-bit) to write addresses to +$30 and +$34. O
 | 0x023FB6 | sub_23FB6 | Dual G-chip detection (register write/readback test) |
 | 0x024066 | sub_24066 | Channel count query (calls sub_23FB6, returns 64 or 128) |
 | 0x0A2AD4 | sub_A2AD4 | Boot display: "Software: %s" from flash header at 0x10004 |
+| 0x022EC0 | sub_22EC0 | G-chip voice oscillator hardware write (pitch/volume to per-voice regs) |
+| 0x0224E4 | sub_224E4 | G-chip full init (SIMM config + clear all 64 voice registers) |
+| 0x022EA0 | sub_22EA0 | Configure sample addressing parameters (dword_F00A58/5C) |
+| 0x07E4FE | sub_7E4FE | MIDI event queue: note-on enqueue (→ circular buffer at $F3FE70) |
+| 0x07E446 | sub_7E446 | MIDI event queue: note-off enqueue |
+| 0x07E5CC | sub_7E5CC | MIDI event queue: timer-driven dequeue + dispatch |
+| 0x07E68C | sub_7E68C | Note-on handler (velocity curve → voice allocation) |
+| 0x0828CA | sub_828CA | Master voice init (descriptor setup, state machine install, start playback) |
+| 0x08434A | sub_8434A | Voice state machine tick (modulation, envelopes, → hardware writes) |
+| 0x086C60 | sub_86C60 | Voice playback start (adds voice to timer-driven execution list) |
+| 0x08318E | sub_8318E | Per-tick pitch/pan/volume update (calls sub_22EC0 for hardware write) |
+| 0x02BB98 | sub_2BB98 | Audition key note-on (reads _auditionkey, queues MIDI event) |
+| 0x02BBB8 | sub_2BBB8 | Audition key handler (note-on + note-off, via event 0x16) |
 
 ## Conventions
 
