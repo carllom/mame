@@ -58,7 +58,7 @@
     580000-59FFFF:  CSLCD — LM24014H LCD / T6963C (confirmed)
     5A0000-5BFFFF:  CSMFP — MC68901 MFP (confirmed)
     5C0000-5DFFFF:  CSWGAIN — sample gain latch (write, D[15:8])
-                      bits 0-5 gain, bit 7 BIGEECS (big EEPROM CS)
+                      bits 0-5 gain, bit 7 unused (BIGEECS pad not populated on E6400)
     5E0000-5FFFFF:  CSRJACK — jack detection latch (read, D[15:8])
                       bits 2-7 jack status
 
@@ -77,6 +77,7 @@
 #include "emu.h"
 
 #include "cpu/m68000/m68020.h"
+#include "machine/eepromser.h"
 #include "machine/mc68901.h"
 #include "machine/ncr5380.h"
 #include "machine/upd765.h"
@@ -97,6 +98,7 @@ public:
 		: driver_device(mconfig, type, tag)
 		, m_maincpu(*this, "maincpu")
 		, m_mfp(*this, "mfp")
+		, m_eeprom(*this, "eeprom")
 		, m_lcd(*this, "lcd")
 		, m_fdc(*this, "fdc")
 		, m_scsi(*this, "ncr5380")
@@ -112,6 +114,7 @@ public:
 private:
 	required_device<m68ec020_device> m_maincpu;
 	required_device<mc68901_device> m_mfp;
+	required_device<eeprom_serial_93c46_16bit_device> m_eeprom;
 	required_device<lm24014h_device> m_lcd;
 	required_device<n82077aa_device> m_fdc;
 	required_device<ncr5380_device> m_scsi;
@@ -208,6 +211,11 @@ void e6400_state::machine_reset()
 void e6400_state::cr1_w(u16 data)
 {
 	m_cr1 = data;
+
+	// EEPROM bit-bang: CS=bit6, DI=bit5, CLK=bit4
+	m_eeprom->cs_write(BIT(data, 6));
+	m_eeprom->di_write(BIT(data, 5));
+	m_eeprom->clk_write(BIT(data, 4));
 }
 
 void e6400_state::cr2_w(u16 data)
@@ -221,7 +229,10 @@ u16 e6400_state::status_r()
 	// bits[15:12] = EEPROMD, FIFOF, FIFOHF, SROMBSY
 	// bits[11:8]  = hardware variant (4 bits from schematic; firmware reads [11:9] via bfextu)
 	// E6400 schematic: bits[11:8] = 0101 → firmware bfextu{20:3} reads bits[11:9] = 010 = 2 → variant_id 4
-	return 0x0500; // bits[11:8] = 0b0101 (E6400)
+	u16 result = 0x0500; // bits[11:8] = 0b0101 (E6400)
+	if (m_eeprom->do_read())
+		result |= 0x8000; // bit 15 = EEPROMD
+	return result;
 }
 
 void e6400_state::led_w(u16 data)
@@ -243,7 +254,7 @@ void e6400_state::lcd_w(offs_t offset, u8 data)
 
 void e6400_state::gain_w(u8 data)
 {
-	// CSWGAIN — sample gain latch (bits 0-5 = gain, bit 7 = big EEPROM CS)
+	// CSWGAIN — sample gain latch (bits 0-5 = gain, bit 7 = BIGEECS pad, not populated on E6400)
 }
 
 u8 e6400_state::jack_r()
@@ -440,6 +451,10 @@ void e6400_state::e6400(machine_config &config)
 	N82077AA(config, m_fdc, 24_MHz_XTAL, n82077aa_device::mode_t::AT);
 	m_fdc->intrq_wr_callback().set(m_mfp, FUNC(mc68901_device::i0_w)); // FDCINT → MFP GP0
 	FLOPPY_CONNECTOR(config, "fdc:0", e6400_floppies, "35hd", floppy_image_device::default_pc_floppy_formats);
+
+	// 93C46 1Kbit serial EEPROM (64×16-bit) — stores system settings (LCD contrast, SCSI ID, etc.)
+	// Bit-banged via CSWCR1: CS=bit6, DI=bit5, CLK=bit4; DO read from CSMSR bit 15
+	EEPROM_93C46_16BIT(config, m_eeprom);
 
 	// AM85C80 SCSI controller (NCR5380-compatible)
 	// Register space at CSHDC (0x480000), pseudo-DMA data port at CSHDD (0x4A0000)
