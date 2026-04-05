@@ -76,6 +76,8 @@
 
 #include "emu.h"
 
+#include "emu_gchip.h"
+
 #include "cpu/m68000/m68020.h"
 #include "machine/eepromser.h"
 #include "machine/mc68901.h"
@@ -105,6 +107,7 @@ public:
 		, m_lcd(*this, "lcd")
 		, m_fdc(*this, "fdc")
 		, m_scsi(*this, "ncr5380")
+		, m_gchip(*this, "gchip%u", 1U)
 		, m_leds(*this, "led%u", 0U)
 		, m_keys(*this, "SC%u", 0U)
 		, m_encoder(*this, "ENCODER")
@@ -122,6 +125,7 @@ private:
 	required_device<lm24014h_device> m_lcd;
 	required_device<n82077aa_device> m_fdc;
 	required_device<ncr5380_device> m_scsi;
+	required_device_array<emu_gchip_device, 2> m_gchip;
 	output_finder<12> m_leds;
 	required_ioport_array<6> m_keys;
 	required_ioport m_encoder;
@@ -151,6 +155,7 @@ private:
 	void machine_reset() override ATTR_COLD;
 	void mem_map(address_map &map) ATTR_COLD;
 	void cpuspace_map(address_map &map) ATTR_COLD;
+	void gchip_sample_map(address_map &map) ATTR_COLD;
 
 	void cr1_w(u16 data);
 	void cr2_w(u16 data);
@@ -405,8 +410,8 @@ void e6400_state::mem_map(address_map &map)
 	// 0x414000: CSAESRX — CS8411 AES/EBU receiver
 
 	// Decoder #2 (A20=0, A17..A19 select) — 0x420000-0x4FFFFF
-	// 0x420000: CSG1CHIP — G-chip 1 sound engine (polyphony board)
-	// 0x440000: CSG2CHIP — G-chip 2 sound engine (polyphony board)
+	map(0x420000, 0x43ffff).rw(m_gchip[0], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG1CHIP — G-chip 1
+	map(0x440000, 0x45ffff).rw(m_gchip[1], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG2CHIP — G-chip 2
 	// 0x460000: CSHCHIP — H-chip digital filter IC413
 	map(0x480000, 0x48000f).rw(m_scsi, FUNC(ncr5380_device::read), FUNC(ncr5380_device::write)).umask16(0xff00); // CSHDC — AM85C80 SCSI (NCR5380)
 	map(0x4a0000, 0x4a0001).rw(m_scsi, FUNC(ncr5380_device::dma_r), FUNC(ncr5380_device::dma_w)).umask16(0xff00); // CSHDD — SCSI pseudo-DMA data port
@@ -437,6 +442,13 @@ void e6400_state::cpuspace_map(address_map &map)
 	// Level N IACK address = 0xfffff1 + N*2; level 6 → 0xfffffd
 	map(0xfffff0, 0xffffff).m(m_maincpu, FUNC(m68ec020_device::autovectors_map));
 	map(0xfffffd, 0xfffffd).r(m_mfp, FUNC(mc68901_device::get_vector));
+}
+
+void e6400_state::gchip_sample_map(address_map &map)
+{
+	// Each G-chip has up to 128 MB of sample RAM (two 72-pin SIMMs)
+	// 27-bit byte address space = 128 MB; 16-bit data width (64M words)
+	map(0x0000000, 0x7ffffff).ram();
 }
 
 static void e6400_floppies(device_slot_interface &device)
@@ -478,6 +490,14 @@ void e6400_state::e6400(machine_config &config)
 	NCR5380(config, m_scsi);
 	scsibus.set_external_device(5, m_scsi); // E6400 default SCSI ID = 5
 	m_scsi->irq_handler().set(m_mfp, FUNC(mc68901_device::i3_w)); // HDCINT → MFP GP3
+
+	// G-chip 1 — polyphony board sound engine (64 voices, up to 128 MB sample RAM)
+	EMU_GCHIP(config, m_gchip[0]);
+	m_gchip[0]->set_addrmap(0, &e6400_state::gchip_sample_map);
+
+	// G-chip 2 — second polyphony board sound engine (64 voices, up to 128 MB sample RAM)
+	EMU_GCHIP(config, m_gchip[1]);
+	m_gchip[1]->set_addrmap(0, &e6400_state::gchip_sample_map);
 
 	// AM85C80 SCC (Z85C30) — MIDI on channel A, AT keyboard on channel B
 	// PCLK = 8 MHz (AM85C80 pin 28, directly from 16 MHz XTAL ÷2 with HC393 Q0 on SK524)
