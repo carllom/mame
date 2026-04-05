@@ -78,9 +78,11 @@
 
 #include "cpu/m68000/m68020.h"
 #include "machine/mc68901.h"
+#include "machine/ncr5380.h"
 #include "machine/upd765.h"
 #include "video/t6963c.h"
 
+#include "bus/nscsi/hd.h"
 #include "formats/pc_dsk.h"
 #include "imagedev/floppy.h"
 
@@ -96,6 +98,7 @@ public:
 		, m_mfp(*this, "mfp")
 		, m_lcd(*this, "lcd")
 		, m_fdc(*this, "fdc")
+		, m_scsi(*this, "ncr5380")
 		, m_leds(*this, "led%u", 0U)
 		, m_keys(*this, "SC%u", 0U)
 		, m_encoder(*this, "ENCODER")
@@ -110,6 +113,7 @@ private:
 	required_device<mc68901_device> m_mfp;
 	required_device<lm24014h_device> m_lcd;
 	required_device<n82077aa_device> m_fdc;
+	required_device<ncr5380_device> m_scsi;
 	output_finder<12> m_leds;
 	required_ioport_array<6> m_keys;
 	required_ioport m_encoder;
@@ -388,8 +392,8 @@ void e6400_state::mem_map(address_map &map)
 	// 0x420000: CSG1CHIP — G-chip 1 sound engine (polyphony board)
 	// 0x440000: CSG2CHIP — G-chip 2 sound engine (polyphony board)
 	// 0x460000: CSHCHIP — H-chip digital filter IC413
-	// 0x480000: CSHDC — AM85C80 SCSI controller (NCR5380)
-	// 0x4A0000: CSHDD — SCSI DMA data port (via memory PAL IP822)
+	map(0x480000, 0x48000f).rw(m_scsi, FUNC(ncr5380_device::read), FUNC(ncr5380_device::write)).umask16(0xff00); // CSHDC — AM85C80 SCSI (NCR5380)
+	map(0x4a0000, 0x4a0001).rw(m_scsi, FUNC(ncr5380_device::dma_r), FUNC(ncr5380_device::dma_w)).umask16(0xff00); // CSHDD — SCSI pseudo-DMA data port
 	// 0x4C0000: CSSCC — AM85C80 SCC (Z85C30 DUART)
 	// 0x4E0000: CSRFIFO — IDT7202 sampling FIFO
 
@@ -408,16 +412,21 @@ void e6400_state::mem_map(address_map &map)
 
 void e6400_state::cpuspace_map(address_map &map)
 {
-	// MC68020 CPU space: autovectors for all levels, MFP gets level-6 IACK slot
-	// Level N IACK address = 0xfffffff1 + N*2; level 6 → 0xfffffffd
-	// TODO: confirm IPL6 from schematic (assumed by analogy with MC68901/VR=0x48 designs)
-	map(0xfffffff0, 0xffffffff).m(m_maincpu, FUNC(m68ec020_device::autovectors_map));
-	map(0xfffffffd, 0xfffffffd).r(m_mfp, FUNC(mc68901_device::get_vector));
+	// MC68EC020 CPU space: 24-bit address bus → mask to 0xFFFFFF
+	// Autovectors for all levels, MFP gets level-6 IACK slot
+	// Level N IACK address = 0xfffff1 + N*2; level 6 → 0xfffffd
+	map(0xfffff0, 0xffffff).m(m_maincpu, FUNC(m68ec020_device::autovectors_map));
+	map(0xfffffd, 0xfffffd).r(m_mfp, FUNC(mc68901_device::get_vector));
 }
 
 static void e6400_floppies(device_slot_interface &device)
 {
 	device.option_add("35hd", FLOPPY_35_HD);
+}
+
+static void e6400_scsi_devices(device_slot_interface &device)
+{
+	device.option_add("harddisk", NSCSI_HARDDISK);
 }
 
 void e6400_state::e6400(machine_config &config)
@@ -429,6 +438,21 @@ void e6400_state::e6400(machine_config &config)
 	N82077AA(config, m_fdc, 24_MHz_XTAL, n82077aa_device::mode_t::AT);
 	m_fdc->intrq_wr_callback().set(m_mfp, FUNC(mc68901_device::i0_w)); // FDCINT → MFP GP0
 	FLOPPY_CONNECTOR(config, "fdc:0", e6400_floppies, "35hd", floppy_image_device::default_pc_floppy_formats);
+
+	// AM85C80 SCSI controller (NCR5380-compatible)
+	// Register space at CSHDC (0x480000), pseudo-DMA data port at CSHDD (0x4A0000)
+	// HDCINT → MFP GP3 (active rising edge)
+	auto &scsibus(NSCSI_BUS(config, "scsi"));
+	NSCSI_CONNECTOR(config, "scsi:0", e6400_scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:1", e6400_scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:2", e6400_scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:3", e6400_scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:4", e6400_scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:6", e6400_scsi_devices, nullptr);
+	NSCSI_CONNECTOR(config, "scsi:7", e6400_scsi_devices, nullptr);
+	NCR5380(config, m_scsi);
+	scsibus.set_external_device(5, m_scsi); // E6400 default SCSI ID = 5
+	m_scsi->irq_handler().set(m_mfp, FUNC(mc68901_device::i3_w)); // HDCINT → MFP GP3
 
 	// MC68901 MFP — MIDI UART, timers (system tick), GPIO
 	// Timer clock: 16 MHz XTAL (U56/ZX314) ÷4 via HC393 binary counter Q1 = 4 MHz
