@@ -146,7 +146,7 @@ Address inputs: A17–A19. Each output covers a 128 KB window.
 | 011 | CSFDC | 0x560000–0x57FFFF | Intel 82078 floppy disk controller |
 | 100 | CSLCD | 0x580000–0x59FFFF | Sharp LM24014H LCD (T6963C) |
 | 101 | CSMFP | 0x5A0000–0x5BFFFF | MC68901 MFP (MIDI UART, timers, GPIO) |
-| 110 | CSWGAIN | 0x5C0000–0x5DFFFF | Sample gain latch (write). 8 bits on D[15:8]: bits 0–5 = gain, bit 7 = BIGEECS (big EEPROM CS) |
+| 110 | CSWGAIN | 0x5C0000–0x5DFFFF | Sample gain latch (write). 8 bits on D[15:8]: bits 0–5 = gain, bit 7 = BIGEECS pad (not populated on E6400; designed for optional 4Mbit×1 parallel flash EEPROM, see note below) |
 | 111 | CSRJACK | 0x5E0000–0x5FFFFF | Jack detection latch (read). 8 bits on D[15:8]: bits 2–7 = jack insertion status |
 
 #### Decoder #2 — selected by /A20 (0x400000–0x4FFFFF)
@@ -187,8 +187,8 @@ Address inputs: A14–A16. Each output covers a 16 KB window.
 | 1 | AESCTL1 | AES/EBU control bit 1 |
 | 2 | AESCTL2 | AES/EBU control bit 2 |
 | 3 | HCHIP18 | H-chip control signal |
-| 4 | EEPROMCK | EEPROM clock (both big and small EEPROM) |
-| 5 | EEPROMDI | EEPROM data in (both big and small EEPROM) |
+| 4 | EEPROMCK | EEPROM clock (shared line; active for small EEPROM only on E6400 since big EEPROM is not populated) |
+| 5 | EEPROMDI | EEPROM data in (shared line; active for small EEPROM only on E6400 since big EEPROM is not populated) |
 | 6 | EEPROMCS | Small EEPROM (93C46) chip select |
 | 7 | DSPBOOT | DSP boot signal |
 | 8 | LCDA0 | LCD register/data select (directly drives T6963C RS pin) |
@@ -568,7 +568,7 @@ Decoded by CS_PAL (IP872) + three 74ACT138 decoders. All addresses word-aligned;
 | 0x560000–0x57FFFF | CSFDC | 82078 FDC | **Confirmed** | n82077aa-compatible register map |
 | 0x580000–0x59FFFF | CSLCD | LM24014H LCD (T6963C) | **Confirmed** | Data/command selected via CR1 bit 8 (LCDA0) |
 | 0x5A0000–0x5BFFFF | CSMFP | MC68901 MFP | **Confirmed** | Word-spaced byte regs on D[15:8]; full init in sub_200F2 |
-| 0x5C0000–0x5DFFFF | CSWGAIN | Sample gain latch | **Confirmed** | 8-bit write on D[15:8]; bits 0–5 = gain, bit 7 = big EEPROM CS |
+| 0x5C0000–0x5DFFFF | CSWGAIN | Sample gain latch | **Confirmed** | 8-bit write on D[15:8]; bits 0–5 = gain, bit 7 = BIGEECS pad (not populated on E6400) |
 | 0x5E0000–0x5FFFFF | CSRJACK | Jack detection latch | **Confirmed** | 8-bit read on D[15:8]; bits 2–7 = jack status |
 
 ### MC68901 MFP Register Init (sub_200F2 in eos30b.raw)
@@ -672,7 +672,7 @@ Boot ROM revision ".7" firmware or newer required for EOS 2.0–3.0.
 - [x] ~~Confirm MFP data bus connection~~ → D[15:8] (upper byte). All byte devices on this bus use D[15:8] (CSKCHIP, CSMFP, CSWGAIN, CSRJACK, FDC, LCD).
 - [x] ~~Identify device at 0x500000–0x50000E~~ → **K-Chip key scanner (IT433)**, CSKCHIP. A0–A3 address bus, 8-bit data on D[15:8].
 - [x] ~~Confirm the AM85C80 SCC address windows~~ → **CSSCC at 0x4C0000** (main SCC, both channels). 0x54FF00 is in the **CSEXP** (expansion) window — firmware probes for an optional expansion SCC there.
-- [x] ~~Identify device at 0x5C0000~~ → **CSWGAIN** — sample gain latch (write). bits 0–5 = gain, bit 7 = BIGEECS (big EEPROM chip select).
+- [x] ~~Identify device at 0x5C0000~~ → **CSWGAIN** — sample gain latch (write). bits 0–5 = gain, bit 7 = BIGEECS pad (not populated on E6400; the E6400 stores firmware on a flash ROM SIMM module instead).
 - [x] ~~Identify 0x5E0000 config register~~ → **CSRJACK** — jack detection latch (read). bits 2–7 = jack insertion status, bits 0–1 = board config.
 - [x] ~~Determine 82078 FDC clock source~~ → **24 MHz** (V1/ZX315). Confirmed: the 16 MHz XTAL goes to MFP, 45.1584 MHz to CPU.
 - [x] ~~Map all CS signals to exact address ranges from schematic SK524~~ → Complete decode in Chip Select section above.
