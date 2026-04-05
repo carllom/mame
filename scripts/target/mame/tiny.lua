@@ -71,6 +71,7 @@ MACHINES["MC68901"] = true      -- e6400 MFP
 --------------------------------------------------
 
 BUSES["NSCSI"] = true           -- emu3
+BUSES["MIDI"] = true            -- e6400
 BUSES["RS232"] = true           -- emu3
 BUSES["HEATHZENITH_H19"] = true -- RS232 -> heath_h19
 BUSES["SUNKBD"] = true          -- RS232 -> sun_kbd
