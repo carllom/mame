@@ -30,6 +30,7 @@ CPUS["IE15"] = true   -- RS232 -> ie15 machine
 SOUNDS["BEEP"] = true          -- RS232 -> heath_h19 -> tlb
 SOUNDS["VOTRAX_SC01A"] = true  -- RS232 -> votraxtnt machine
 SOUNDS["AY8910"] = true        -- RS232 -> mboardd
+SOUNDS["CDDA"] = true          -- e6400 SCSI CD-ROM
 
 --------------------------------------------------
 -- specify available video cores
