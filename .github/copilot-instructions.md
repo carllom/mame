@@ -5,6 +5,8 @@ This branch adds a MAME driver for the E-mu E6400 sampler (EOS generation). All 
 ## Key Files
 
 - `src/mame/emusys/e6400.cpp` — Main MAME machine driver
+- `src/mame/emusys/emu_gchip.h` — G-chip device header (sound engine / sample memory)
+- `src/mame/emusys/emu_gchip.cpp` — G-chip device implementation
 - `eosdocs/e6400_hardware.md` — Comprehensive hardware reference (register maps, boot sequence, schematics index)
 - `eosdocs/eos30b.lst` — IDA Pro disassembly listing of the EOS 3.00b firmware (~800K lines). **Gitignored** — use `includeIgnoredFiles: true` when searching.
 
@@ -88,9 +90,11 @@ Custom keyscanner at CSKCHIP (0x500000–0x50001F). 4 address pins A1–A4, 8-bi
 
 **Emulation:** A 200 Hz `emu_timer` scans input ports, queues events into a 32-entry FIFO, and drives `m_mfp->i4_w()`.
 
-## Sound Memory — G-Chip Architecture
+## Sound Memory — G-Chip Architecture (Emulated)
 
 Sound sample RAM is **not CPU-addressable**. It sits behind the G-chip on the polyphony board (AP503), accessed indirectly through G-chip memory-mapped registers.
+
+The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interface`) in `src/mame/emusys/emu_gchip.h/.cpp`. Two instances are wired into the driver: `gchip1` at CSG1CHIP (0x420000) and `gchip2` at CSG2CHIP (0x440000). Each chip has a 128 KB register window (0x10000 words) backed by a flat register file, plus a 128 MB sample memory address space (27-bit byte address, 16-bit data, big-endian).
 
 **G-chip register interface (offsets from CSG1CHIP base 0x420000):**
 
@@ -98,17 +102,19 @@ Sound sample RAM is **not CPU-addressable**. It sits behind the G-chip on the po
 |---|---|---|
 | +$1C | R | Sample data read (from address in +$30). Read twice for pipeline flush. |
 | +$1E | W | Sample data write (to address in +$34) |
-| +$30 | W | Sample read address (word-addressed: byte_addr >> 1) |
-| +$34 | W | Sample write address (word-addressed) |
+| +$30/+$32 | W | Sample read address high/low words (word-addressed, 32-bit via move.l). Low word write triggers pipeline prime. |
+| +$34/+$36 | W | Sample write address high/low words (word-addressed, 32-bit via move.l) |
 | +$43E | W | SIMM config A (timing) |
 | +$83E | W | SIMM config B (bank/size; bit 8=bank select) |
 | +$C3E | W | SIMM type code |
 
+Note: The firmware uses `move.l` (32-bit) to write addresses to +$30 and +$34. On the 16-bit bus, this generates two consecutive word writes: high word to offset+0, low word to offset+2. The emulation handles +$30/+$32 and +$34/+$36 as separate high/low word registers that accumulate a 32-bit word address.
+
 **SIMM detection** (`sub_24210`): Firmware tries 4 SIMM configs (1MB/4MB/16MB/64MB), writes test patterns `voice_N × 0x7531` to G-chip address `(N−1) × 0x80000`, reads back via +$1C. Result stored via `setRAMSize` → `$F074AE`, displayed as `"%dmb of Sound Memory Installed."`.
 
-**Max config:** 2× 64MB 72-pin SIMMs = 128MB. The boot currently shows "0mb" because the G-chip is not emulated.
+**Channel detection** (`sub_24066` → `sub_23FB6`): Tests for second G-chip by writing 4 test patterns (0x12345C00, 0x54321000, 0x5A5A5A, 0xA5A5A5) to high offsets within G-chip 1's register window (+$1F014, +$1F314, +$1F148, +$1F5CC) and reading them back. Success → 128 channels (0x80), failure → 64 channels (0x40). Stored at `word_F00A88`.
 
-**Recommended implementation:** Separate MAME device class (`device_t` + `device_sound_interface` + `device_memory_interface`), following the ES5506 pattern in `src/devices/sound/es5506.h`. Two address spaces for two SIMM banks.
+**Current emulation status:** Both SIMM detection and channel detection pass. Boot shows "128mb of Sound Memory Installed" and "128 Channel Card Installed". Sound generation is not yet implemented.
 
 ## ROM Layout
 
@@ -128,7 +134,9 @@ Sound sample RAM is **not CPU-addressable**. It sits behind the G-chip on the po
 | 0x021FEE | sub_21FEE | Volume pot read (11-bit from K-chip regs 3+4) |
 | 0x0200F2 | sub_200F2 | MFP full register initialization |
 | 0x0350F0 | ISR_User7 | MFP GP4 (KCHPINT) interrupt handler |
-| 0x023DFC | sub_23DFC | Boot status display ("Sound Memory Installed" etc.) |
+| 0x023DFC | sub_23DFC | Boot status display ("Sound Memory Installed", "Channel Card", etc.) |
+| 0x023FB6 | sub_23FB6 | Dual G-chip detection (register write/readback test) |
+| 0x024066 | sub_24066 | Channel count query (calls sub_23FB6, returns 64 or 128) |
 | 0x0A2AD4 | sub_A2AD4 | Boot display: "Software: %s" from flash header at 0x10004 |
 
 ## Conventions
