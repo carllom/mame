@@ -46,6 +46,7 @@ VIDEOS["MC6845"] = true  -- RS232 -> heath_h19 -> tlb
 
 MACHINES["UPD765"] = true    -- e6400
 MACHINES["FDC_PLL"] = true   -- UPD765
+MACHINES["EEPROMDEV"] = true  -- e6400 93C46 EEPROM
 
 MACHINES["WD_FDC"] = true    -- emu3
 MACHINES["NCR5380"] = true   -- emu3
