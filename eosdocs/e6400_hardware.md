@@ -294,24 +294,26 @@ The LCD is driven via the T6963C interface. `CSLCDN` is the active-low chip sele
 
 ### LED assignments (CSLED register 0x40C000, bits 0–11)
 
-| Bit | LED |
-|---|---|
-| 0 | Preset Manage |
-| 1 | Sample Manage |
-| 2 | Preset Edit |
-| 3 | Sample Edit |
-| 4 | Master |
-| 5 | Disk |
-| 6 | Page Previous |
-| 7 | Page Next |
-| 8 | MIDI |
-| 9 | SCSI |
-| 10 | Play |
-| 11 | Record |
+| Bit | LED | Notes |
+|---|---|---|
+| 0 | Preset Manage | |
+| 1 | Sample Manage | |
+| 2 | Preset Edit | |
+| 3 | Sample Edit | |
+| 4 | Master | |
+| 5 | Disk | |
+| 6 | Page Previous | |
+| 7 | Page Next | |
+| 8 | MIDI | |
+| 9 | SCSI | |
+| 10 | Play | E4K only |
+| 11 | Record | E4K only |
 
 Bits 12–15 drive a DAC for LCD contrast.
 
 ### Key matrix (K-chip IT433 scan matrix, 6 scan columns × 8 scan rows)
+
+#### Front panel key matrix for E4K (Schematic SK504+SK505)
 
 | Bit | SC0 | SC1 | SC2 | SC3 | SC4 | SC5 |
 |---|---|---|---|---|---|---|
@@ -323,6 +325,20 @@ Bits 12–15 drive a DAC for LCD contrast.
 | SI5 | Record | Exit | F3 | Up | 2 | 9 |
 | SI6 | Sequencer | Assignable #1 | Controls/FX | Left | 3 | Set |
 | SI7 | Preset Manage | Assignable #2 | F4 | Right | 4 | |
+
+#### Front panel key matrix for E-IV (Schematic SK414)
+
+| Bit | SC0 | SC1 | SC2 | SC3 | SC4 | SC5 |
+|---|---|---|---|---|---|---|
+| SI0 | | Sample Manage | | Page Prev | Down | 6 |
+| SI1 | | Preset Edit | F1 | F5 | Dec | 7 |
+| SI2 | | Sample Edit | Assignable #3 | Page Next | Inc | 8 |
+| SI3 | | Master | F2 | F6 | 1 | 9 |
+| SI4 | | Disk | Audition | Enter | 2 | +/- |
+| SI5 | | Exit | F3 | Up | 3 | 0 |
+| SI6 | | Assignable #1 | | Left | 4 | Dot |
+| SI7 | Preset Manage | Assignable #2 | F4 | Right | 5 | |
+
 
 ### IT433 K-chip Register Map (CSKCHIP 0x500000–0x50001F)
 
