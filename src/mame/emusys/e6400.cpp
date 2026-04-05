@@ -8,8 +8,8 @@
     - MC68EC020 CPU @ 22.5792 MHz (45.1584 MHz audio XTAL ÷2 via D-latch toggle)
     - S82078 / N82077AA FDC controller (24 MHz crystal)
     - Sharp LM24014H LCD unit (T6963C-based, 240x64)
-    - MC68901 MFP (MIDI UART, timers, GPIO)
-    - AM85C80-16JC SCSI + SCC (Z85C30) controller
+    - MC68901 MFP (timers, GPIO)
+    - AM85C80-16JC SCSI + SCC (Z85C30 — MIDI on ch A, AT keyboard on ch B)
     - 2x HM514260 DRAM (256Kx16-bit, total 1 Mbit)
     - IDT7202SO 1Kx9 dual-port FIFO buffer
     - CS8411-CP Digital Audio Interface Receiver (S/PDIF)
@@ -81,8 +81,10 @@
 #include "machine/mc68901.h"
 #include "machine/ncr5380.h"
 #include "machine/upd765.h"
+#include "machine/z80scc.h"
 #include "video/t6963c.h"
 
+#include "bus/midi/midi.h"
 #include "bus/nscsi/cd.h"
 #include "bus/nscsi/hd.h"
 #include "formats/pc_dsk.h"
@@ -98,6 +100,7 @@ public:
 		: driver_device(mconfig, type, tag)
 		, m_maincpu(*this, "maincpu")
 		, m_mfp(*this, "mfp")
+		, m_scc(*this, "scc")
 		, m_eeprom(*this, "eeprom")
 		, m_lcd(*this, "lcd")
 		, m_fdc(*this, "fdc")
@@ -114,6 +117,7 @@ public:
 private:
 	required_device<m68ec020_device> m_maincpu;
 	required_device<mc68901_device> m_mfp;
+	required_device<scc85c30_device> m_scc;
 	required_device<eeprom_serial_93c46_16bit_device> m_eeprom;
 	required_device<lm24014h_device> m_lcd;
 	required_device<n82077aa_device> m_fdc;
@@ -406,7 +410,11 @@ void e6400_state::mem_map(address_map &map)
 	// 0x460000: CSHCHIP — H-chip digital filter IC413
 	map(0x480000, 0x48000f).rw(m_scsi, FUNC(ncr5380_device::read), FUNC(ncr5380_device::write)).umask16(0xff00); // CSHDC — AM85C80 SCSI (NCR5380)
 	map(0x4a0000, 0x4a0001).rw(m_scsi, FUNC(ncr5380_device::dma_r), FUNC(ncr5380_device::dma_w)).umask16(0xff00); // CSHDD — SCSI pseudo-DMA data port
-	// 0x4C0000: CSSCC — AM85C80 SCC (Z85C30 DUART)
+	// CSSCC — AM85C80 SCC (Z85C30); register order: B data, B ctrl, A data, A ctrl
+	map(0x4c0000, 0x4c0001).rw(m_scc, FUNC(scc85c30_device::db_r), FUNC(scc85c30_device::db_w)).umask16(0xff00);
+	map(0x4c0002, 0x4c0003).rw(m_scc, FUNC(scc85c30_device::cb_r), FUNC(scc85c30_device::cb_w)).umask16(0xff00);
+	map(0x4c0004, 0x4c0005).rw(m_scc, FUNC(scc85c30_device::da_r), FUNC(scc85c30_device::da_w)).umask16(0xff00);
+	map(0x4c0006, 0x4c0007).rw(m_scc, FUNC(scc85c30_device::ca_r), FUNC(scc85c30_device::ca_w)).umask16(0xff00);
 	// 0x4E0000: CSRFIFO — IDT7202 sampling FIFO
 
 	// Decoder #1 (A20=1, A17..A19 select) — 0x500000-0x5FFFFF
@@ -471,7 +479,22 @@ void e6400_state::e6400(machine_config &config)
 	scsibus.set_external_device(5, m_scsi); // E6400 default SCSI ID = 5
 	m_scsi->irq_handler().set(m_mfp, FUNC(mc68901_device::i3_w)); // HDCINT → MFP GP3
 
-	// MC68901 MFP — MIDI UART, timers (system tick), GPIO
+	// AM85C80 SCC (Z85C30) — MIDI on channel A, AT keyboard on channel B
+	// PCLK = 8 MHz (AM85C80 pin 28, directly from 16 MHz XTAL ÷2 with HC393 Q0 on SK524)
+	// SCCINT → MFP GP7 (active falling edge)
+	SCC85C30(config, m_scc, 16_MHz_XTAL / 2); // 8 MHz PCLK
+	m_scc->out_int_callback().set(m_mfp, FUNC(mc68901_device::i7_w));
+
+	// MIDI OUT: SCC channel A TX → MIDI out port
+	m_scc->out_txda_callback().set("mdout", FUNC(midi_port_device::write_txd));
+
+	// MIDI IN: MIDI in port → SCC channel A RX
+	MIDI_PORT(config, "mdin", midiin_slot, "midiin").rxd_handler().set(m_scc, FUNC(scc85c30_device::rxa_w));
+
+	// MIDI OUT port
+	MIDI_PORT(config, "mdout", midiout_slot, "midiout");
+
+	// MC68901 MFP — timers (system tick), GPIO
 	// Timer clock: 16 MHz XTAL (U56/ZX314) ÷4 via HC393 binary counter Q1 = 4 MHz
 	// VR=0x48 → vectors 0x120-0x15F; timer ISR at 0x120 increments software timer
 	// GPIO interrupt inputs:
@@ -482,7 +505,7 @@ void e6400_state::e6400(machine_config &config)
 	//   GP4 = KCHPINT (key scanner, from PAL IT433)
 	//   GP5 = EXPINT2 (expansion bus interrupt #2)
 	//   GP6 = EXPINT1 (expansion bus interrupt #1)
-	//   GP7 = SCCINT (SCC Z85C30)
+	//   GP7 = SCCINT (SCC Z85C30, active falling edge)
 	MC68901(config, m_mfp, 16_MHz_XTAL / 4); // 4 MHz — 16 MHz XTAL ÷4 via HC393 Q1
 	m_mfp->set_timer_clock(16_MHz_XTAL / 4);
 	m_mfp->out_irq_cb().set_inputline(m_maincpu, M68K_IRQ_6); // IPL6 (assumed; IACK at 0xfffffffd)
