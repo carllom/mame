@@ -145,7 +145,7 @@ Address inputs: A17–A19. Each output covers a 128 KB window.
 | 010 | CSEXP | 0x540000–0x55FFFF | Expansion daughter card |
 | 011 | CSFDC | 0x560000–0x57FFFF | Intel 82078 floppy disk controller |
 | 100 | CSLCD | 0x580000–0x59FFFF | Sharp LM24014H LCD (T6963C) |
-| 101 | CSMFP | 0x5A0000–0x5BFFFF | MC68901 MFP (MIDI UART, timers, GPIO) |
+| 101 | CSMFP | 0x5A0000–0x5BFFFF | MC68901 MFP (timers, GPIO) |
 | 110 | CSWGAIN | 0x5C0000–0x5DFFFF | Sample gain latch (write). 8 bits on D[15:8]: bits 0–5 = gain, bit 7 = BIGEECS pad (not populated on E6400; designed for optional 4Mbit×1 parallel flash EEPROM, see note below) |
 | 111 | CSRJACK | 0x5E0000–0x5FFFFF | Jack detection latch (read). 8 bits on D[15:8]: bits 2–7 = jack insertion status |
 
@@ -247,9 +247,9 @@ Address inputs: A14–A16. Each output covers a 16 KB window.
 
 | Ref | Part | E-mu P/N | Description |
 |---|---|---|---|
-| U44 | MC68901 MFP PLCC-52 | IM408 | Multi-function peripheral: MIDI UART, timers, GPIO |
+| U44 | MC68901 MFP PLCC-52 | IM408 | Multi-function peripheral: timers, GPIO, interrupts |
 
-> **Important:** MC68901 is the **primary MIDI, timer, and UART** device. The boot diagnostic tests write/read this device as the first peripheral health check.  
+> **Important:** MC68901 is the **primary timer and interrupt controller**. The boot diagnostic tests write/read this device as the first peripheral health check. MIDI is handled by the SCC (Z85C30 portion of AM85C80 at CSSCC), not by the MFP.  
 > Update checklist warns: **replace all ST SGS-Thomson 96 date-code MC68901 parts** — they are known-bad.
 
 ### Storage / FDC
@@ -492,7 +492,7 @@ DAC supply: ±5V via discrete regulators VR1 (7905, −5V) and VR2 (7805, +5V).
 | LED | Test | Description |
 |---|---|---|
 | Master | CPU | CPU is running |
-| Preset Manage | MC68901 MFP | Tests write/read to 68901 — MIDI, timer, UART |
+| Preset Manage | MC68901 MFP | Tests write/read to 68901 — timer, GPIO (MIDI is via SCC) |
 | Preset Edit | LCD | LCD write/read OK |
 | — | Boot message | Displays boot version on LCD |
 | — | Computer running | Floppy probed; Flash loaded into CPU RAM |
@@ -623,7 +623,7 @@ Password: **1-3-5-8** (notes of a major chord)
 | Panel Test | LCD pixels, all buttons, encoder (0–36), volume pot (0–255) |
 | RAM Test | CPU RAM (cRAM) then Sound RAM (gRAM), 4-pass pattern write/read |
 | Jack Detection | Submix output jack insertion detection |
-| Serial Test | MIDI loopback (Out→In), writes 0xAA then 0x55 |
+| Serial Test | MIDI loopback (Out→In) via SCC channel A, writes 0xAA then 0x55 |
 | AutoTest | Burn-in: continuous CPU RAM, G-chip RAM, SCSI disk, floppy |
 | Hard Disk Tests | Read-only, write (destructive), media defects, checksum |
 | Floppy Test | Drive alignment and format compatibility |
