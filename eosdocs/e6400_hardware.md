@@ -385,13 +385,40 @@ Key registers (offsets from G-chip base, voice 0):
 |---|---|---|
 | +$1C | R | **Sample data read** — reads 16-bit word from address set by +$30. Read twice to flush G-chip pipeline. |
 | +$1E | W | **Sample data write** — writes 16-bit word to address set by +$34. |
-| +$30 | W | **Read address** — sets G-chip internal sample memory address for read operations. |
-| +$34 | W | **Write address** — sets G-chip internal sample memory address for write operations. |
+| +$30/+$32 | W | **Read address** — 32-bit word address written via `move.l`. High word to +$30, low word to +$32 (M68K 16-bit bus splits 32-bit writes). Low word write triggers pipeline prime. |
+| +$34/+$36 | W | **Write address** — 32-bit word address written via `move.l`. High word to +$34, low word to +$36. |
 | +$43E | W | **SIMM config A** — sample rate / timing configuration |
 | +$83E | W | **SIMM config B** — bank select / size configuration (bit 8 = bank select, bits 6-7 = mode) |
 | +$C3E | W | **SIMM type** — SIMM size/type code (from template table) |
 
-Addresses in the G-chip space are **word-addressed** (shifted right by 1 from byte addresses): the firmware does `asr.l #1, address` before writing to registers +$30/+$34.
+Addresses in the G-chip space are **word-addressed** (shifted right by 1 from byte addresses): the firmware does `asr.l #1, address` before writing to registers +$30/+$34. These addresses are written as 32-bit values via `move.l`, which on the 16-bit bus produces two consecutive word writes: high 16 bits to offset+0, low 16 bits to offset+2.
+
+### Dual G-Chip / Channel Detection (`sub_24066` → `sub_23FB6`)
+
+The firmware detects whether a second G-chip is present by writing 4 test patterns to high offsets within G-chip 1's register window and reading them back:
+
+| Offset | Test Pattern |
+|---|---|
+| +$1F014 | 0x12345C00 |
+| +$1F314 | 0x54321000 |
+| +$1F148 | 0x005A5A5A |
+| +$1F5CC | 0x00A5A5A5 |
+
+These offsets are near the top of the 128 KB CSG1CHIP window (0x420000–0x43FFFF). Between each write and the corresponding read, a delay loop (`sub_23F9E`) executes ~500 iterations.
+
+If all 4 patterns match on readback, the routine returns true → 128 channels (0x80). Otherwise → 64 channels (0x40). The result is stored at `word_F00A88` and displayed as "128 Channel Card Installed" or "64 Channel Card Installed" during boot.
+
+Before the test, the routine also programs SIMM config registers on both G-chips:
+- Both chips: +$C3E = 0x0400, +$43E = 0x0000, config B = 0x012F
+
+### MAME Emulation Status
+
+The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interface`) in `src/mame/emusys/emu_gchip.h/.cpp`. Two instances (`gchip1`, `gchip2`) are mapped at CSG1CHIP and CSG2CHIP respectively. Each has:
+- A flat 128 KB register file (0x10000 words) backing the full chip-select window
+- A 128 MB sample memory address space (27-bit byte address, 16-bit data, big-endian)
+- Side-effect handling for sample read/write registers and SIMM config registers
+
+Both SIMM detection and channel detection pass. Boot displays "128mb of Sound Memory Installed" and "128 Channel Card Installed". Sound generation is not yet implemented.
 
 ### Sound Memory Detection (`sub_24210`, called from `bootSystem`)
 
