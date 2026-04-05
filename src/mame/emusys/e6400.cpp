@@ -82,6 +82,7 @@
 #include "machine/upd765.h"
 #include "video/t6963c.h"
 
+#include "bus/nscsi/cd.h"
 #include "bus/nscsi/hd.h"
 #include "formats/pc_dsk.h"
 #include "imagedev/floppy.h"
@@ -426,6 +427,7 @@ static void e6400_floppies(device_slot_interface &device)
 
 static void e6400_scsi_devices(device_slot_interface &device)
 {
+	device.option_add("cdrom", NSCSI_CDROM);
 	device.option_add("harddisk", NSCSI_HARDDISK);
 }
 
