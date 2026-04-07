@@ -94,7 +94,7 @@ public:
 		: driver_device(mconfig, type, tag)
 		, m_maincpu(*this, "maincpu")
 		, m_rom(*this, "maincpu")
-		, m_ram(*this, "ram", 512 * 1024 / 2, ENDIANNESS_LITTLE)
+		, m_ram(*this, "ram", 512 * 1024, ENDIANNESS_LITTLE)
 		, m_view0(*this, "view0")
 		, m_view1(*this, "view1")
 		, m_view2(*this, "view2")

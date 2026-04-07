@@ -1,5 +1,8 @@
 # Roland MV-30 MAME Driver Reference
 
+Run driver with: `./mametinyd mv30 -window -resolution 960x256 -nofilter -flop1 mv30os109.dsk`
+Add `-debug` for the debugger and `-log` for logging output.
+
 ## Hardware Overview
 
 The MV-30 "Studio M" (1990) is a combined sequencer and sound module using a
