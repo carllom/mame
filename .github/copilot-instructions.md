@@ -67,11 +67,17 @@ Functions should follow PascalCase naming convention. The prefix of the function
 
 Functions should have a plate comment describing their purpose, parameters, and return value. The comment should be concise but informative enough to understand the function's role in the system.
 
+> Note: When writing function names, ensure they go into overlays of type "Program". For 4000-7FFF that is SYSOL_P3F. The overlay type is not visible in Ghidra, use the table in the "Memory layout" section for reference. There might be multiple overlays of type "Program" for the same window, in that case choose the one that was recently mapped or the one that has a function entry point at the same address.
+
+
+
 #### Function variable
 
 Variables should follow camelCase naming convention. The name of the variable should be descriptive of its purpose.
 
 Variable types should be annotated in the variable declaration. For example, if a variable is an integer, it should be declared as "int variableName". If the exact type is unknown, but the size is known, it can be declared as byte/word/dword variableName.
+
+> Note: When writing function variables, ensure they go into overlays of type "Program". For 4000-7FFF that is SYSOL_P3F. The overlay type is not visible in Ghidra, use the table in the "Memory layout" section for reference. There might be multiple overlays of type "Program" for the same window, in that case choose the one that was recently mapped or the one that has a function entry point at the same address.
 
 #### Global variables
 
@@ -80,6 +86,8 @@ Global variables should follow camelCase naming convention. Constants should be 
 Global variables should be annotated with their type and an end of line comment describing their purpose and usage. If the end of line comment is larger than 40 characters, a plate comment should be used instead.
 
 Even if a variable cannot be named or typed with certainty, it should still be typed with size-based types (byte/word/dword) if it can be determined.
+
+> Note: When writing global variables, ensure they go into overlays of type "Data". For 4000-7FFF that is SYSOL_PA1. The overlay type is not visible in Ghidra, use the table in the "Memory layout" section for reference.
 
 #### Structures
 

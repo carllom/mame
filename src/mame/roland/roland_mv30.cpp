@@ -141,9 +141,11 @@ private:
 	u8 rcc_r(offs_t offset);
 	void rcc_w(offs_t offset, u8 data);
 
-	// C800: Key scan / LED gate array
+	// C800: Key scan / LED gate array (TC23SC060)
 	void keyscan_w(offs_t offset, u8 data);
 	u8 keyscan_r(offs_t offset);
+	TIMER_CALLBACK_MEMBER(keyscan_scan_tick);
+	void keyscan_update_irq();
 
 	// E000: FSK gate array
 	u8 fsk_r(offs_t offset);
@@ -212,8 +214,14 @@ private:
 
 	unsigned m_ram_size;   // effective RAM size in bytes (512KB or 1MB)
 
-	// Key scan state
-	u8 m_keyscan_select;
+	// TC23SC060 key scan / LED gate array state
+	u8 m_keyscan_cmd;              // last command written to C800
+	u8 m_keyscan_prev[8];          // previous column scan state (for edge detection)
+	u8 m_keyscan_fifo[16];         // key event FIFO (6-bit keycodes)
+	u8 m_keyscan_fifo_head;        // FIFO read pointer
+	u8 m_keyscan_fifo_tail;        // FIFO write pointer
+	bool m_keyscan_enabled;        // autonomous scanning enabled (config 0x70 bit 7)
+	emu_timer *m_keyscan_timer;    // periodic scan timer
 
 	// Slider mux state
 	u8 m_port1_out;
@@ -433,8 +441,15 @@ void roland_mv30_state::lcd_palette(palette_device &palette) const
 void roland_mv30_state::machine_start()
 {
 	save_item(NAME(m_bank_reg));
-	save_item(NAME(m_keyscan_select));
+	save_item(NAME(m_keyscan_cmd));
+	save_item(NAME(m_keyscan_prev));
+	save_item(NAME(m_keyscan_fifo));
+	save_item(NAME(m_keyscan_fifo_head));
+	save_item(NAME(m_keyscan_fifo_tail));
+	save_item(NAME(m_keyscan_enabled));
 	save_item(NAME(m_port1_out));
+
+	m_keyscan_timer = timer_alloc(FUNC(roland_mv30_state::keyscan_scan_tick), this);
 	save_item(NAME(m_encoder_last));
 	save_item(NAME(m_encoder_moved));
 	save_item(NAME(m_encoder_dir));
@@ -466,7 +481,12 @@ void roland_mv30_state::machine_reset()
 	m_bank_reg[6] = 0x020;       // data 0x8000-0xBFFF -> RAM offset 0x8000
 	m_bank_reg[7] = IO_PAGE;     // data 0xC000-0xFFFF -> I/O (power-on default)
 
-	m_keyscan_select = 0;
+	m_keyscan_cmd = 0;
+	std::fill(std::begin(m_keyscan_prev), std::end(m_keyscan_prev), 0);
+	std::fill(std::begin(m_keyscan_fifo), std::end(m_keyscan_fifo), 0);
+	m_keyscan_fifo_head = 0;
+	m_keyscan_fifo_tail = 0;
+	m_keyscan_enabled = false;
 	m_port1_out = 0;
 	m_encoder_last = 0;
 	m_encoder_moved = false;
@@ -559,19 +579,55 @@ void roland_mv30_state::rcc_w(offs_t offset, u8 data)
 }
 
 // C800-C8FF: Key scan / LED gate array - Roland TC23SC060
-// C800 (write): KEY_SCAN register - selects which SCn row to scan or LED register
-// C801 (read):  KEY_DATA register - returns SB bits for selected scan row
-// C801 (write): LED data register
+//
+// The gate array has two operating modes:
+//
+// 1. Poll mode (commands 0x00-0x07): Write column number to C800, then
+//    read raw row data from C801.  Used by the firmware's KeyscanPollButtons
+//    to detect PLAY/STOP, REC, and CTRL button transitions.
+//
+// 2. Interrupt mode (command 0x78): The gate array autonomously scans the
+//    button matrix.  When a key press is detected, it queues a 6-bit keycode
+//    (column*8 + bit) in an internal FIFO and asserts the BCC KEY interrupt.
+//    The ISR writes 0x78 to C800, then reads C801 to get the event:
+//      bit 7 = event pending, bits 5:0 = 6-bit keycode.
+//    If bit 7 is clear, the FIFO is empty.
+//
+// Configuration registers (0x70-0x7B) are written by sending the register
+// number to C800 then the value to C801.  Config 0x70 bit 7 enables
+// autonomous scanning.
+//
+// LED registers (0x08-0x17) work similarly: register number to C800,
+// LED data to C801.
+//
 void roland_mv30_state::keyscan_w(offs_t offset, u8 data)
 {
 	if (offset == 0)
 	{
-		// KEY_SCAN register select (which SC row)
-		m_keyscan_select = data;
+		// Command/address register
+		m_keyscan_cmd = data;
 	}
 	else
 	{
-		// LED data register
+		// Data register write — behavior depends on current command
+		if (m_keyscan_cmd == 0x70)
+		{
+			// Config register 0x70: bit 7 = enable autonomous scanning
+			bool was_enabled = m_keyscan_enabled;
+			m_keyscan_enabled = BIT(data, 7);
+			if (m_keyscan_enabled && !was_enabled)
+			{
+				// Snapshot current key state so we only report transitions
+				for (int col = 0; col < 8; col++)
+					m_keyscan_prev[col] = m_keys[col]->read();
+				m_keyscan_timer->adjust(attotime::from_msec(10), 0, attotime::from_msec(10));
+			}
+			else if (!m_keyscan_enabled && was_enabled)
+			{
+				m_keyscan_timer->adjust(attotime::never);
+			}
+		}
+		// Other config/LED register writes are ignored for now
 	}
 }
 
@@ -579,17 +635,62 @@ u8 roland_mv30_state::keyscan_r(offs_t offset)
 {
 	if (offset == 1)
 	{
-		// KEY_DATA: return SB bits for the selected SC row
-		if (m_keyscan_select < 8)
-			return m_keys[m_keyscan_select]->read();
-
-		logerror("keyscan_r: read key data for unknown row %02x\n", m_keyscan_select);
-	}
-	else
-	{
-		logerror("keyscan_r: unexpected read at offset %x\n", offset);
+		if (m_keyscan_cmd < 8)
+		{
+			// Poll mode: return raw row data for selected column
+			return m_keys[m_keyscan_cmd]->read();
+		}
+		else if (m_keyscan_cmd == 0x78)
+		{
+			// Interrupt mode: read key event from FIFO
+			if (m_keyscan_fifo_head != m_keyscan_fifo_tail)
+			{
+				u8 keycode = m_keyscan_fifo[m_keyscan_fifo_head];
+				m_keyscan_fifo_head = (m_keyscan_fifo_head + 1) & 0x0f;
+				keyscan_update_irq();
+				return 0x80 | keycode;  // bit 7 = event pending
+			}
+			return 0x00;  // no event
+		}
 	}
 	return 0x00;
+}
+
+// Periodic timer: scan the button matrix for changes and queue events
+TIMER_CALLBACK_MEMBER(roland_mv30_state::keyscan_scan_tick)
+{
+	for (int col = 0; col < 8; col++)
+	{
+		u8 cur = m_keys[col]->read();
+		u8 changed = cur ^ m_keyscan_prev[col];
+		if (changed)
+		{
+			for (int bit = 0; bit < 8; bit++)
+			{
+				if (BIT(changed, bit) && BIT(cur, bit))
+				{
+					// Key press detected — queue 6-bit keycode
+					u8 fifo_next = (m_keyscan_fifo_tail + 1) & 0x0f;
+					if (fifo_next != m_keyscan_fifo_head)  // not full
+					{
+						m_keyscan_fifo[m_keyscan_fifo_tail] = u8(col * 8 + bit);
+						m_keyscan_fifo_tail = fifo_next;
+					}
+				}
+			}
+			m_keyscan_prev[col] = cur;
+		}
+	}
+	keyscan_update_irq();
+}
+
+// Update BCC KEY interrupt based on FIFO state
+void roland_mv30_state::keyscan_update_irq()
+{
+	if (m_keyscan_fifo_head != m_keyscan_fifo_tail)
+		bcc_assert_source(BCC_KEY);
+	else
+		bcc_clear_source(BCC_KEY);
 }
 
 //
