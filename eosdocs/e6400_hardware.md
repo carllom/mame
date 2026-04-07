@@ -541,6 +541,41 @@ Functions in the 0x22xxx ROM area handle G-chip sample memory transfers:
 
 All sample memory access helpers convert byte addresses to word addresses (`asr.l #1`) and write via `move.l` to +$30 or +$34 (which splits into two 16-bit writes on the M68K bus).
 
+### H-chip (IC413) — Digital Filter Hardware Interface
+
+The H-chip (IC413) is a custom digital filter IC on the polyphony board (AP503). Two H-chips per G-chip (even/odd channels), for a total of 4 in a 128-channel system. The H-chip processes G-chip audio output through per-voice digital filters and volume/pan attenuation before the DAC.
+
+**Bus access:** The H-chip is NOT accessed at CSHCHIP (0x460000). Instead, the CPU reaches it via a DSP bus:
+
+| Address | Name | Description |
+|---------|------|-------------|
+| 0x520000 | DSP_BUS | Primary H-chip bus (default) |
+| 0x530000 | DSP_BUS (alt) | Alternate bus (E6400 variant, `hw_variant_code == 4`) |
+| 0x540000 | EXP_BUS | Expansion polyphony board |
+
+Key bus offsets from `hchip_bus_base`:
+
+| Offset | Width | Function |
+|--------|-------|----------|
+| +$0E | 16-bit | Channel select (0–31) |
+| +$18 | 16/32-bit | Global config/control registers |
+| +$28 | 16-bit | H-chip 0 data port (G1 even channels) |
+| +$2A | 16-bit | H-chip 1 data port (G1 odd channels) |
+| +$38 | 16-bit | H-chip 2 data port (G2 even channels) |
+| +$3A | 16-bit | H-chip 3 data port (G2 odd channels) |
+| +$3E | 16-bit | Bus enable (write 1 to activate) |
+
+**CTRLREG1 (0x400000) H-chip bits:**
+
+| Bit | Set | Clear |
+|-----|-----|-------|
+| 7 | Normal operation | Assert G/H-chip reset |
+| 10 | H-chip clock running | H-chip clock stopped |
+
+**Presence detection:** Write `0x10` to config register `$181E`, read back. Result `0x50` = H-chip present.
+
+For complete register maps, coefficient tables, voice runtime registers, addressing format, and firmware function reference, see [EOS_developer_guide.md — H-chip section](EOS_developer_guide.md#h-chip-ic413--digital-filter-subsystem).
+
 ---
 
 *MIDI note processing, voice state machine, and audition key documentation moved to [EOS_developer_guide.md](EOS_developer_guide.md#midi-note-processing).*
