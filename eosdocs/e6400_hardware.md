@@ -393,23 +393,34 @@ Instead, sample RAM sits behind the **G-chip sound engine** on the polyphony boa
 
 ### G-chip Register Interface for Sample Memory
 
-The G-chip register file is accessed through the CSG1CHIP window at 0x420000. The firmware stores this base address at DRAM location `$F07E22` (read by `unk_F3A42C`). The window is organized as a 64-voice array with 0x40-byte stride per voice.
+The G-chip register file is accessed through the CSG1CHIP window at 0x420000. The firmware stores this base address at DRAM location `gchip_reg_base` ($F3A42C), G-chip 2 at `pG2CHIP_BUS` ($F07E22). The window is organized as a 64-voice array with 0x40-byte stride per voice.
 
-Key registers (offsets from G-chip base, voice 0):
+Key registers (offsets from G-chip base):
 
 | Offset | R/W | Function |
 |---|---|---|
 | +$1C | R | **Sample data read** — reads 16-bit word from address set by +$30. Read twice to flush G-chip pipeline. |
-| +$1E | W | **Sample data write** — writes 16-bit word to address set by +$34. |
+| +$1E | W | **Sample data write** — writes 16-bit word to address set by +$34. Auto-increments. |
 | +$30/+$32 | W | **Read address** — 32-bit word address written via `move.l`. High word to +$30, low word to +$32 (M68K 16-bit bus splits 32-bit writes). Low word write triggers pipeline prime. |
 | +$34/+$36 | W | **Write address** — 32-bit word address written via `move.l`. High word to +$34, low word to +$36. |
+| +$3E | R/W | **Global control / DMA mode** — write: 0x39=forward DMA (normal), 0x09=reverse DMA, 0x33/0x3C=other modes. Read: bit 11 and bit 12 are status flags. |
+| +$BC | R | **DAC counter** — 32-bit timer/counter for measuring DAC output frequency. |
 | +$43E | W | **SIMM config A** — sample rate / timing configuration |
 | +$83E | W | **SIMM config B** — bank select / size configuration (bit 8 = bank select, bits 6-7 = mode) |
 | +$C3E | W | **SIMM type** — SIMM size/type code (from template table) |
 
+**AES/EBU receiver** registers at offset 0x14000 from G-chip base (0x434000 for G-chip 1):
+
+| Offset | Register | R/W | Function |
+|---|---|---|---|
+| +$14000 | AESRCV_SR1 | R | Status register 1 |
+| +$14002 | AESRCV_SR2 | R | Status register 2 |
+| +$14004 | AESRCV_CR1 | W | Control register 1 |
+| +$14006 | AESRCV_CR2 | W | Control register 2 |
+
 Addresses in the G-chip space are **word-addressed** (shifted right by 1 from byte addresses): the firmware does `asr.l #1, address` before writing to registers +$30/+$34. These addresses are written as 32-bit values via `move.l`, which on the 16-bit bus produces two consecutive word writes: high 16 bits to offset+0, low 16 bits to offset+2.
 
-### Dual G-Chip / Channel Detection (`sub_24066` → `sub_23FB6`)
+### Dual G-Chip / Channel Detection (`get_channel_count` → `detect_dual_gchip`)
 
 The firmware detects whether a second G-chip is present by writing 4 test patterns to high offsets within G-chip 1's register window and reading them back:
 
@@ -422,7 +433,7 @@ The firmware detects whether a second G-chip is present by writing 4 test patter
 
 These offsets are near the top of the 128 KB CSG1CHIP window (0x420000–0x43FFFF). Between each write and the corresponding read, a delay loop (`sub_23F9E`) executes ~500 iterations.
 
-If all 4 patterns match on readback, the routine returns true → 128 channels (0x80). Otherwise → 64 channels (0x40). The result is stored at `word_F00A88` and displayed as "128 Channel Card Installed" or "64 Channel Card Installed" during boot.
+If all 4 patterns match on readback, the routine returns true → 128 channels (0x80). Otherwise → 64 channels (0x40). The result is stored at `channel_count` ($F00A88) and displayed as "128 Channel Card Installed" or "64 Channel Card Installed" during boot.
 
 Before the test, the routine also programs SIMM config registers on both G-chips:
 - Both chips: +$C3E = 0x0400, +$43E = 0x0000, config B = 0x012F
@@ -472,21 +483,22 @@ The `init_mem` routine at `$2503A` probes CPU DRAM by writing test patterns (0x1
 
 Each G-chip manages 64 voices. Per-voice registers are mapped at a stride of **0x40 bytes** (32 word registers) per voice within the chip-select window. Voice N's registers start at CSG1CHIP + N × 0x40.
 
-**Initialization** (`sub_224E4`): On boot, the firmware iterates over all 64 voices and clears registers +$00, +$04, +$10 (longwords) and calls `sub_22624` to clear +$20 through +$2E (8 words). The G-chip base is stored at `unk_F3A42C` and the current voice × 0x40 offset at `unk_F3A850`.
+**Initialization** (`gchip_init_voices`): On boot, the firmware iterates over all 64 voices and clears registers +$00, +$04, +$10 (longwords) and calls `gchip_clear_voice_filter_regs` to clear +$20 through +$2E (8 words). The G-chip base is stored at `gchip_reg_base` ($F3A42C) and the current voice × 0x40 offset at `current_voice_channel` ($F3A850).
 
 **Known per-voice register map** (byte offsets from voice base):
 
 | Offset | Size | R/W | Init | Function |
 |--------|------|-----|------|----------|
-| +$00 | 32-bit | R/W | Cleared | Voice control/status. Bit 12 is read by `sub_22EC0` to determine register write order (appears to be an oscillator phase/busy flag). |
-| +$04 | 32-bit | R/W | Cleared | Unknown. Cleared during init and by the voice stop function. |
-| +$08 | 32-bit | R/W | — | **Oscillator accumulator / start address.** Bits[25:0] = 26-bit value (written ones'-complemented via `not.l`). Upper 6 bits (31:26) are preserved on write (read-modify-write). |
-| +$0C | 32-bit | W | — | **Oscillator end address / amplitude.** 32-bit value, ones'-complemented (`not.l`) before write. |
-| +$10 | 32-bit | R/W | Cleared | **Oscillator mode/control.** Masked to 16-bit on some paths. Written directly (not inverted) in multi-voice mode. |
-| +$14 | 32-bit | W | — | **Oscillator trigger.** Bit 26 = enable/start flag (`bset #$1A`). Written directly (not inverted). |
+| +$00 | 32-bit | R/W | 0 | **VOICE_CTRL** — Voice control/status. Bit 12 = oscillator phase flag (determines write order). 0x1800 = enabled+running, 0x1000 = disabled. |
+| +$04 | 32-bit | R/W | 0 | **VOICE_RATE_LO** — Sample rate low portion. Written by `gchip_compute_sample_rate`. 0x80000 = silence. |
+| +$08 | 32-bit | R/W | — | **VOICE_OSC_ACC** — Oscillator accumulator / sample address. Bits[25:0] = 26-bit value (written ones'-complemented). Upper 6 bits preserved via read-modify-write. Also written as rate mid by `gchip_compute_sample_rate`. |
+| +$0C | 32-bit | W | — | **VOICE_END_ADDR** — Oscillator end address / loop length. Ones'-complemented before write. |
+| +$10 | 32-bit | R/W | 0 | **VOICE_MODE** — Oscillator mode/control. Written by `gchip_compute_sample_rate` as rate high/mode. Value 8 = one-shot. Low byte 0x98 = one-shot trigger. 0x80000 = silence. |
+| +$14 | 32-bit | W | — | **VOICE_TRIGGER** — Oscillator trigger / start address. Bit 26 (0x4000000) = start/enable flag. Written directly (not inverted). |
+| +$18 | 32-bit | W | — | **VOICE_PARAM** — Mode parameter. Written during voice start. Read for DAC frequency computation. |
 | +$1C | 16-bit | R | — | Sample data read (chip-wide — overlaps voice 0's register space). |
 | +$1E | 16-bit | W | — | Sample data write (chip-wide). |
-| +$20–$2E | 16-bit ×8 | W | Cleared | Unknown. Cleared by `sub_22624` during init. May be filter coefficients, volume, or modulation registers. |
+| +$20–$2E | 16-bit ×8 | W | 0 | **VOICE_FILT0–7** — Filter/volume registers. Cleared by `gchip_clear_voice_filter_regs` during init and voice start. |
 | +$30/+$32 | 32-bit | W | — | Sample read address (chip-wide). |
 | +$34/+$36 | 32-bit | W | — | Sample write address (chip-wide). |
 
@@ -495,7 +507,7 @@ Each G-chip manages 64 voices. Per-voice registers are mapped at a stride of **0
 - Registers +$1C/+$1E/+$30-$36 are chip-wide sample memory access registers that overlap voice 0's register space. Voice 0 may be reserved or these registers may be dual-function.
 - For stereo playback, two consecutive voices (N and N+1) are paired. The second voice is at offset +$40 from the first: writes to +$48/+$4C/+$54 correspond to the second voice's +$08/+$0C/+$14.
 
-### Voice Oscillator Write — `sub_22EC0`
+### Voice Oscillator Write — `gchip_write_voice`
 
 This is the critical function that writes computed voice parameters to the G-chip hardware. It is called from `sub_8318E` (pitch/volume update) during each voice tick.
 
@@ -510,7 +522,7 @@ This is the critical function that writes computed voice parameters to the G-chi
 
 **Write algorithm:** Disables interrupts (`ori #$300,sr`), then:
 
-1. **Single-voice mode** ($10 == 8): Writes `not($14)` to +$08 (masked 26-bit, preserving upper 6 bits), writes `not(dword_F00A5C)` to +$0C, writes `dword_F00A58 | bit26` to +$14.
+1. **Single-voice mode** ($10 == 8): Writes `not($14)` to +$08 (masked 26-bit, preserving upper 6 bits), writes `not(gchip_sample_addr_lo)` to +$0C, writes `gchip_sample_addr_hi | bit26` to +$14.
 
 2. **Multi-voice mode** ($10 != 8): Writes $10 to +$14 directly, writes `not($14)` to +$08 (26-bit masked).
 
@@ -521,9 +533,9 @@ This is the critical function that writes computed voice parameters to the G-chi
 The **write order** depends on bit 12 of the voice status register at +$00. When bit 12 is clear, the sequence is: +$08, +$0C, +$14. When bit 12 is set, the sequence reverses to: +$0C, +$08, +$14. This likely avoids glitches during the oscillator's active phase.
 
 **Global parameters:**
-- `dword_F00A58` (at $F00A58): Initialized to 8 by `sub_22EA0`. Used as the +$14 base value.
-- `dword_F00A5C` (at $F00A5C): Initialized to 0x1C by `sub_22EA0`. Used as the +$0C base value.
-- `sub_22EA0` computes: `dword_F00A58 = (offset >> 1) + 8`, `dword_F00A5C = dword_F00A58 + 0x14`.
+- `gchip_sample_addr_hi` (at $F00A58): Initialized to 8 by `gchip_set_sample_params`. Used as the +$14 base value.
+- `gchip_sample_addr_lo` (at $F00A5C): Initialized to 0x1C by `gchip_set_sample_params`. Used as the +$0C base value.
+- `gchip_set_sample_params` computes: `gchip_sample_addr_hi = (offset >> 1) + 8`, `gchip_sample_addr_lo = gchip_sample_addr_hi + 0x14`.
 
 ### G-chip Helper Functions (Sample Memory Access)
 
@@ -531,13 +543,21 @@ Functions in the 0x22xxx ROM area handle G-chip sample memory transfers:
 
 | Function | Address | Operation |
 |----------|---------|-----------|
-| `sub_2211E` | 0x02211E | Set sample read address (+$30), read one sample word (+$1C) |
-| `sub_22160` | 0x022160 | Set read address + pipeline prime (reads +$1C twice) |
-| `sub_22188` | 0x022188 | Set sample write address (+$34), write sample data (+$1E) |
-| `sub_224E4` | 0x0224E4 | Full G-chip init — SIMM config, clear all 64 voice registers |
-| `sub_22624` | 0x022624 | Clear voice registers +$20–+$2E (8 words) |
-| `sub_22EA0` | 0x022EA0 | Configure sample addressing parameters (dword_F00A58/5C) |
-| `sub_22EC0` | 0x022EC0 | Voice oscillator hardware write (main audio path) |
+| `wmem_readword` | 0x02211E | Set sample read address (+$30), read one sample word (+$1C) |
+| `wmem_readword` | 0x022160 | Set read address + pipeline prime (reads +$1C twice) |
+| `wmem_writeword` | 0x022188 | Set sample write address (+$34), write sample data (+$1E) |
+| `wmem_readbyte` | 0x022396 | Read byte (reads word, extracts high/low based on addr bit 0) |
+| `wmem_writebyte` | 0x022354 | Write byte (read-modify-write) |
+| `wmem_copy` | 0x0222AE | Block copy within sample memory |
+| `gchip_init_voices` | 0x0224E4 | Full G-chip init — SIMM config, clear all 64 voice registers |
+| `gchip_clear_voice_filter_regs` | 0x022624 | Clear voice registers +$20–+$2E (8 words) |
+| `gchip_silence_all_voices` | 0x0225EC | Disable all voices (+$00=0x1000, +$10/+$04=0x80000) |
+| `gchip_set_forward_dma` | 0x0226EC | Silence voices + set +$3E=0x39 (forward DMA) |
+| `gchip_set_reverse_dma` | 0x022704 | Silence voices + set +$3E=0x09 (reverse DMA) |
+| `gchip_set_sample_params` | 0x022EA0 | Configure sample addressing parameters |
+| `gchip_write_voice` | 0x022EC0 | Voice oscillator hardware write (main audio path) |
+| `gchip_voice_start_osc` | 0x0230AE | Voice oscillator start (full register setup) |
+| `gchip_compute_sample_rate` | 0x0231A8 | Pitch → rate register conversion via LUT |
 
 All sample memory access helpers convert byte addresses to word addresses (`asr.l #1`) and write via `move.l` to +$30 or +$34 (which splits into two 16-bit writes on the M68K bus).
 

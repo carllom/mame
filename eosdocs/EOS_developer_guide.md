@@ -624,6 +624,281 @@ The `hchip_write_channels` function (0x064064) iterates all 128 entries in the c
 
 ---
 
+## G-Chip (IC402) — Sample Oscillator & Memory Controller
+
+The G-chip (IC402) is a custom E-mu ASIC located on the polyphony board (AP503). It is the sample oscillator engine: it generates audio by reading sample data from dedicated sound RAM, interpolating at the correct rate, and feeding data to the H-chip (IC413) digital filters. It also manages all access to sample memory, which is not directly addressable by the CPU.
+
+### Physical Topology
+
+The E6400 supports one or two polyphony boards, each containing one G-chip:
+
+| Instance | Chip Select | CPU Address | Voices |
+|----------|-------------|-------------|--------|
+| G-chip 1 | CSG1CHIP | 0x420000–0x43FFFF | 0–63 |
+| G-chip 2 | CSG2CHIP | 0x440000–0x45FFFF | 64–127 |
+
+Each G-chip manages **64 independent voice oscillators**. With two polyphony boards, the system has 128 voices total. The firmware stores the G-chip 1 bus pointer at `gchip_reg_base` (0xF3A42C), G-chip 2 at `pG2CHIP_BUS` (0xF07E22), and the chip count at `gchip_count` (0xF07E12, 1 or 2).
+
+The channel detection routine `get_channel_count` (0x024066) calls `detect_dual_gchip` (0x023FB6) to probe for the second G-chip by writing 4 test patterns to high offsets in G-chip 1's register window. Result stored at `channel_count` (0xF00A88): 0x80 (128) or 0x40 (64).
+
+### Register Architecture
+
+The 128 KB chip-select window is organized as a flat register file of 0x10000 words (65536 × 16-bit). Within this space:
+
+- **Per-voice registers** occupy the low portion: 64 voices × 0x40 bytes/voice = 0x1000 bytes (voice 0 at +$00, voice 63 at +$FC0).
+- **Chip-wide registers** for sample memory access (+$1C/+$1E, +$30–$36) overlap voice 0's space.
+- **Global control register** at +$3E controls DMA mode.
+- **SIMM configuration** registers at +$43E, +$83E, +$C3E configure memory timing and bank selection.
+- **DAC counter** at +$BC provides timing measurement.
+- **AES receiver** registers at offset 0x14000 from G-chip base (i.e. 0x434000 for G-chip 1).
+
+### Per-Voice Register Map
+
+Each voice occupies 0x40 bytes (32 word registers). Voice N starts at G-chip base + N × 0x40.
+
+| Offset | Size | R/W | Init | Name | Description |
+|--------|------|-----|------|------|-------------|
+| +$00 | 32-bit | R/W | 0 | VOICE_CTRL | Voice control/status. Bit 12 = oscillator phase flag (determines register write order in `gchip_write_voice`). Value 0x1800 = enabled+running; 0x1000 = disabled. |
+| +$04 | 32-bit | R/W | 0 | VOICE_RATE_LO | Sample rate low portion. Written by `gchip_compute_sample_rate`. Cleared (0x80000) on silence. Set to 0 on voice start. |
+| +$08 | 32-bit | R/W | — | VOICE_OSC_ACC | Oscillator accumulator / sample address. Bits[25:0] = 26-bit value. Written **ones'-complemented** (`not.l`). Upper 6 bits (31:26) preserved via read-modify-write. Written by `gchip_compute_sample_rate` as rate mid-portion. |
+| +$0C | 32-bit | W | — | VOICE_END_ADDR | Oscillator end address / loop length. Written **ones'-complemented** (`not.l`). In one-shot mode: end sample address. In loop mode: loop length. |
+| +$10 | 32-bit | R/W | 0 | VOICE_MODE | Oscillator mode/control. Written by `gchip_compute_sample_rate` as rate high/mode. Values: 8 = one-shot, other = loop modes. Low byte 0x98 = one-shot trigger via `gchip_voice_set_oneshot`. Set to 0x80000 on silence. |
+| +$14 | 32-bit | W | — | VOICE_TRIGGER | Oscillator trigger / start address. Bit 26 (0x4000000) = start/enable flag. Written directly (not inverted). In one-shot mode: `gchip_sample_addr_hi \| 0x4000000`. In loop mode: loop endpoint. |
+| +$18 | 32-bit | W | — | VOICE_PARAM | Mode parameter. Written during voice start. Read during DAC frequency computation. |
+| +$20 | 16-bit | W | 0 | VOICE_FILT0 | Filter/volume register 0 (purpose TBD) |
+| +$22 | 16-bit | W | 0 | VOICE_FILT1 | Filter/volume register 1 |
+| +$24 | 16-bit | W | 0 | VOICE_FILT2 | Filter/volume register 2 |
+| +$26 | 16-bit | W | 0 | VOICE_FILT3 | Filter/volume register 3 |
+| +$28 | 16-bit | W | 0 | VOICE_FILT4 | Filter/volume register 4 |
+| +$2A | 16-bit | W | 0 | VOICE_FILT5 | Filter/volume register 5 |
+| +$2C | 16-bit | W | 0 | VOICE_FILT6 | Filter/volume register 6 |
+| +$2E | 16-bit | W | 0 | VOICE_FILT7 | Filter/volume register 7 |
+
+**Notes on addressing:**
+- The ones'-complement pattern (`not.l` before write to +$08 and +$0C) suggests the G-chip uses inverted / down-counting oscillator logic internally.
+- For stereo playback, two consecutive voices (N and N+1) are paired. The second voice is accessed at +$40 offset from the first.
+
+### Chip-Wide Registers
+
+These registers overlap voice 0's address space and provide chip-level functions:
+
+| Offset | Size | R/W | Function |
+|--------|------|-----|----------|
+| +$1C | 16-bit | R | **Sample data read** — reads word from address set by +$30/+$32. Pipeline: must read twice after setting address; first read is stale. |
+| +$1E | 16-bit | W | **Sample data write** — writes word to address set by +$34/+$36. Auto-increments. |
+| +$30/+$32 | 32-bit | W | **Read address** — word address. Written as `move.l` (two consecutive word writes on 16-bit bus). Low word write (+$32) triggers pipeline prime. |
+| +$34/+$36 | 32-bit | W | **Write address** — word address. Written as `move.l`. |
+| +$3E | 16-bit | R/W | **Global control / DMA mode** — see below. |
+| +$BC | 32-bit | R | **DAC counter** — timer/counter register read for DAC frequency measurement. |
+| +$43E | 16-bit | W | **SIMM config A** — memory timing configuration. |
+| +$83E | 16-bit | W | **SIMM config B** — bank/size configuration. Bit 8 = bank select, bits 6-7 = mode (0x40/0xC0 for dual G-chip banks). |
+| +$C3E | 16-bit | W | **SIMM type code** — SIMM size identifier (0x27/0x2F/0x37/0x3F for 1/4/16/64 MB). |
+
+### Global Control Register (+$3E) — DMA Mode
+
+The register at offset +$3E controls the G-chip's DMA/transfer mode and provides status bits:
+
+| Value | Binary | Mode | Set By |
+|-------|--------|------|--------|
+| 0x09 | 00001001 | Reverse DMA | `gchip_set_reverse_dma` (silences voices first) |
+| 0x33 | 00110011 | Unknown | `gchip_write_ctrl_33` |
+| 0x39 | 00111001 | Forward DMA (normal) | `gchip_set_forward_dma` (silences first), `gchip_write_ctrl_39` (no silence) |
+| 0x3C | 00111100 | Unknown | `gchip_write_ctrl_3c`, `gchip_write_ctrl_3c_alt` |
+
+**Read status bits:**
+- Bit 11: checked by `gchip_check_status_bit11` — DMA/transfer status flag
+- Bit 12: checked by `gchip_check_status_bit12` — DMA/transfer status flag
+
+Forward DMA (0x39) is the normal operating mode set during initialization. The `gchip_set_forward_dma` and `gchip_set_reverse_dma` functions call `gchip_silence_all_voices` before changing the mode to prevent audio glitches.
+
+### Voice Lifecycle
+
+#### Voice Start — `gchip_voice_start_osc` (0x0230AE)
+
+Sets up a voice oscillator with initial parameters:
+1. +$04 = 0 (clear rate)
+2. +$14 = start_addr | 0x4000000 (trigger with start bit)
+3. +$00 = 0x1800 (enable + running)
+4. +$0C = ~end_addr (ones'-complement end address)
+5. +$18 = mode_param
+6. Clears +$20–+$2E (filter registers via `gchip_clear_voice_filter_regs`)
+7. +$10 = playback_mode
+
+For stereo pairs, repeats at +$40 offset with pan width adjustment.
+
+#### Voice Silence — `gchip_silence_all_voices` (0x0225EC)
+
+Iterates all voices (64 or 128 based on `channel_count`), writing per voice:
+- +$00 = 0x1000 (disabled)
+- +$10 = 0x80000 (mode clear)
+- +$04 = 0x80000 (rate clear)
+
+#### Voice Update — `voice_update_hardware` (0x08318E)
+
+Called per-tick from the voice state machine. Computes pitch, calls `gchip_compute_sample_rate` for rate register programming, then calls `gchip_write_voice` for the oscillator address/trigger update. Handles voice release states (0, -1, -2).
+
+#### Voice Hardware Write — `gchip_write_voice` (0x022EC0)
+
+The critical audio-path function. Disables interrupts, then:
+
+**One-shot mode** (+$10 == 8):
+1. Read bit 12 of +$00 to determine write order
+2. If bit 12 clear: write +$08, +$0C, +$14
+3. If bit 12 set: write +$0C, +$08, +$14
+4. +$08 = ~accumulator (26-bit, preserve upper 6 bits)
+5. +$0C = ~gchip_sample_addr_lo
+6. +$14 = gchip_sample_addr_hi | 0x4000000
+
+**Loop/multi-voice mode** (+$10 != 8):
+1. +$14 = mode value directly
+2. +$08 = ~accumulator (26-bit masked)
+
+For stereo pairs, repeats at voice base + $40 offset. Re-enables interrupts on exit.
+
+The bit 12 phase-dependent write order prevents oscillator glitches during active playback.
+
+### Oscillator Parameter Preparation — `gchip_prepare_oscillator` (0x01E94E)
+
+Converts sample zone descriptors into G-chip register values. Reads upper 2 bits of sample zone +$3A to determine mode:
+
+| Mode bits | Playback | +$0C | +$10 | +$14 |
+|-----------|----------|------|------|------|
+| 0 | One-shot | end_addr | 8 | start_addr |
+| 1 | Forward loop | loop_length | loop_start | loop_end - 1 |
+| 2 | Bidirectional loop | loop_length | loop_start | loop_end - 1 |
+
+### Sample Rate Computation — `gchip_compute_sample_rate` (0x0231A8)
+
+Converts a pitch value into G-chip rate registers using a lookup table.
+
+**Algorithm:**
+1. Split pitch into octave (upper bits) and fractional part (lower bits)
+2. Index `PITCH_RATE_LUT` (768-entry word table at 0x022818) with fractional part
+3. Shift by octave to get final rate
+4. For 48 kHz output clock: subtract `PITCH_48KHZ_OFFSET` (0x005E at 0x0231A6) from the pitch word before lookup
+5. Write result to voice registers +$04 (rate low), +$08 (rate mid), +$10 (rate high/mode)
+6. Stereo mode 2: applies pan width offset to pitch for the second voice
+
+The output clock rate is determined by `output_clock_rate` (0x02C934), which returns 44100 or 48000 based on the `output_clock` global (0xF00C48).
+
+### Sample Memory Access (wmem_ Functions)
+
+Sample RAM sits behind the G-chip and is accessed indirectly through the register interface. The firmware provides a set of `wmem_` helper functions:
+
+| Function | Address | Description |
+|----------|---------|-------------|
+| `wmem_readword` | 0x0220F4 | Read word at current address (no addr param, pipeline flush) |
+| `wmem_readword` | 0x02211E | Read word at given word address (set +$30/+$32, read +$1C ×2) |
+| `wmem_readword` | 0x022160 | Read word at base+offset |
+| `wmem_readword` | 0x02222E | Read word (stdcall variant) |
+| `wmem_readword_wport` | 0x02224A | Read word, also setting write address (for subsequent write) |
+| `wmem_readwords` | 0x022266 | Read multiple consecutive words |
+| `wmem_writeword` | 0x022108 | Write word at current address (no addr param) |
+| `wmem_writeword` | 0x022140 | Write word at given address (set +$34/+$36, write +$1E) |
+| `wmem_writeword` | 0x022188 | Write word (another variant) |
+| `wmem_writewords` | 0x02228A | Write multiple consecutive words |
+| `wmem_readbyte` | 0x022396 | Read byte (reads word, extracts high/low based on bit 0) |
+| `wmem_writebyte` | 0x022354 | Write byte (read-modify-write) |
+| `wmem_copy` | 0x0222AE | Block copy within sample memory (read loop +$1C → +$1E) |
+| `wmem_set_readaddr` | 0x022216 | Set read pointer (+$30/+$32) |
+| `wmem_set_writeaddr` | 0x0221FE | Set write pointer (+$34/+$36) |
+| `wmem_set_rwaddr` | 0x0221DE | Set both read and write address, returns pipeline read |
+| `wmem_get_dataport` | 0x0221AE | Get pointer to +$1C (read) or +$1E (write) port |
+
+All addresses in sample memory are **word-addressed** (byte address >> 1). The firmware uses `asr.l #1, addr` before writing to the address registers.
+
+### DAC Frequency Measurement
+
+Two functions measure the actual DAC output rate:
+
+- `gchip_read_dac_counter` (0x023336): Configures voice 0 oscillator with test parameters, reads back counter from +$BC.
+- `gchip_compute_dac_frequency` (0x023376): Converts +$18 counter value to frequency using double-precision FP math. Result stored at `dac_output_frequency` (0xF00A60).
+
+### AES/EBU Digital Audio Receiver
+
+The AES receiver is mapped at offset 0x14000 from the G-chip base (e.g. 0x434000 for G-chip 1):
+
+| Offset | Register | R/W | Function |
+|--------|----------|-----|----------|
+| +$00 | AESRCV_SR1 | R | Status register 1 |
+| +$02 | AESRCV_SR2 | R | Status register 2 |
+| +$04 | AESRCV_CR1 | W | Control register 1 |
+| +$06 | AESRCV_CR2 | W | Control register 2 |
+
+- `aesrcv_init` (0x0238D4): Configures AES receiver control registers for external digital input.
+- `aesrcv_detect_external_clock` (0x02356C): Reads status registers to check if valid external AES/EBU clock is present. Returns 1 if locked.
+- `ctrlreg2_pulse_bit13` (0x023770): Pulses CTRLREG2 (0x404000) bit 13 with delay loop (~0x10000 iterations) — toggles clock/reset signal during clock source switching.
+
+### SIMM Detection and Configuration
+
+The firmware detects sound memory via `detect_sound_memory` (0x024210), trying 4 SIMM configurations:
+
+| Config | +$C3E Type | Size |
+|--------|-----------|------|
+| 0 | 0x27 | 1 MB |
+| 1 | 0x2F | 4 MB |
+| 2 | 0x37 | 16 MB |
+| 3 | 0x3F | 64 MB |
+
+For each configuration, writes test patterns (voice_N × 0x7531) to sample memory at word address (N-1) × 0x80000, reads back via +$1C. Override globals `simm_config_a_override` (0xF009D4) and `simm_config_b_override` (0xF009D6) can force specific timing parameters. Saved SIMM config state at `saved_simm_cfg_a_chip1` (0xF07E14) through `saved_simm_cfg_b_chip2` (0xF07E1A).
+
+### G-chip Function Reference
+
+| Function | Address | Description |
+|----------|---------|-------------|
+| `gchip_init_voices` | 0x0224E4 | Programs SIMM config, clears all 64/128 voice registers |
+| `gchip_silence_all_voices` | 0x0225EC | Disables all voices (+$00=0x1000, +$10=0x80000, +$04=0x80000) |
+| `gchip_clear_voice_filter_regs` | 0x022624 | Clears voice +$20–+$2E (8 words) |
+| `gchip_set_forward_dma` | 0x0226EC | Silence + set +$3E=0x39 (forward DMA) |
+| `gchip_set_reverse_dma` | 0x022704 | Silence + set +$3E=0x09 (reverse DMA) |
+| `gchip_write_ctrl_3c` | 0x02271C | Set +$3E=0x3C |
+| `gchip_check_status_bit11` | 0x022730 | Read +$3E bit 11 |
+| `gchip_check_status_bit12` | 0x022750 | Read +$3E bit 12 |
+| `gchip_write_ctrl_33` | 0x022784 | Set +$3E=0x33 |
+| `gchip_write_ctrl_3c_alt` | 0x022798 | Set +$3E=0x3C (alt entry) |
+| `gchip_write_ctrl_39` | 0x0227E8 | Set +$3E=0x39 (no silence) |
+| `gchip_get_voice_base` | 0x022E18 | Returns gchip_reg_base + N × 0x40 |
+| `gchip_voice_set_oneshot` | 0x022E64 | Sets +$10 low byte to 0x98 (one-shot trigger) |
+| `gchip_set_sample_params` | 0x022EA0 | Computes gchip_sample_addr_hi/lo from parameter |
+| `gchip_write_voice` | 0x022EC0 | Main voice hardware write (oscillator address/trigger) |
+| `gchip_voice_start_osc` | 0x0230AE | Voice oscillator start (full register setup) |
+| `gchip_compute_sample_rate` | 0x0231A8 | Pitch → rate register conversion via LUT |
+| `gchip_read_dac_counter` | 0x023336 | Read DAC counter from +$BC |
+| `gchip_compute_dac_frequency` | 0x023376 | Compute DAC frequency from counter (FP math) |
+| `gchip_prepare_oscillator` | 0x01E94E | Convert sample zone data to oscillator parameters |
+| `gchip_get_sample_length` | 0x01EE74 | Compute sample length from loop/end points |
+| `detect_sound_memory` | 0x024210 | SIMM detection (write/readback test patterns) |
+| `detect_dual_gchip` | 0x023FB6 | Test for second G-chip presence |
+| `get_channel_count` | 0x024066 | Returns 0x40 or 0x80 channel count |
+| `aesrcv_init` | 0x0238D4 | Initialize AES/EBU receiver |
+| `aesrcv_detect_external_clock` | 0x02356C | Check for external AES clock lock |
+| `ctrlreg2_pulse_bit13` | 0x023770 | Pulse CTRLREG2 bit 13 for clock switching |
+| `output_clock_rate` | 0x02C934 | Returns 44100 or 48000 Hz |
+
+### G-chip Global Variables
+
+| Name | Address | Type | Description |
+|------|---------|------|-------------|
+| `gchip_reg_base` | 0xF3A42C | pointer | G-chip 1 register base (0x420000 bus address) |
+| `pG2CHIP_BUS` | 0xF07E22 | pointer | G-chip 2 register base (0x440000 bus address) |
+| `gchip_count` | 0xF07E12 | byte | Number of G-chips installed (1 or 2) |
+| `channel_count` | 0xF00A88 | word | Total voice channels (0x40 or 0x80) |
+| `gchip_sample_addr_hi` | 0xF00A58 | dword | Sample address offset high — `(param>>1)+8`, used as +$14 base |
+| `gchip_sample_addr_lo` | 0xF00A5C | dword | Sample address offset low — `gchip_sample_addr_hi + 0x14`, used as +$0C base |
+| `output_clock` | 0xF00C48 | dword | Output clock selection (0=44.1kHz, 1=48kHz) |
+| `dac_output_frequency` | 0xF00A60 | dword | Measured DAC output frequency in Hz |
+| `simm_config_a_override` | 0xF009D4 | word | If nonzero, overrides SIMM timing config A (+$43E) |
+| `simm_config_b_override` | 0xF009D6 | word | If nonzero, overrides SIMM bank/size config B (+$83E) |
+| `saved_simm_cfg_a_chip1` | 0xF07E14 | word | Saved SIMM config A for G-chip 1 |
+| `saved_simm_cfg_a_chip2` | 0xF07E16 | word | Saved SIMM config A for G-chip 2 |
+| `saved_simm_cfg_b_chip1` | 0xF07E18 | word | Saved SIMM config B for G-chip 1 |
+| `saved_simm_cfg_b_chip2` | 0xF07E1A | word | Saved SIMM config B for G-chip 2 |
+| `saved_simm_timing_override` | 0xF07E1C | word | Saved SIMM timing override backup |
+| `PITCH_RATE_LUT` | 0x022818 | word[768] | Pitch-to-rate lookup table (ROM constant) |
+| `PITCH_48KHZ_OFFSET` | 0x0231A6 | word | 48 kHz pitch correction offset (= 0x005E) |
+
+---
+
 ## UI Widget Class Hierarchy (Firmware vtable system)
 
 The EOS firmware implements a C++ single-inheritance UI widget class hierarchy using virtual method tables (vtables). Each class has a `vtbl_<class>` header (8 bytes: reserved dword + method count) followed by an array of `{this_adjust, func_ptr}` pairs. Objects store their vtable pointer at offset +0x08. All `this_adjust` values are zero (simple single inheritance, no thunking).
