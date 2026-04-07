@@ -18,7 +18,7 @@ make SUBTARGET=tiny -j12 DEBUG=1     # build (uses mametiny target list)
 ./mametinyd e6400 -nofilter -window -resolution 960x256
 ```
 
-The driver is registered in the `tiny` subtarget. ROM file: `roms/e6400/eos30b.raw`.
+The driver is registered in the `tiny` subtarget. ROM files in `roms/e6400/`: `eos30b.raw` (default), `eos462.raw`, `eos410.raw`, `eos28.raw`. Select via `-bios v462` etc.
 
 ## Hardware Architecture
 
@@ -118,7 +118,16 @@ Note: The firmware uses `move.l` (32-bit) to write addresses to +$30 and +$34. O
 
 ## ROM Layout
 
-`eos30b.raw` = 0xEF400 bytes. First 0x400 bytes = flash header (magic 0x12345678, version string at +4, sector count at +0x1C). Mapped at CPU 0x10000. Vector table at ROM offset 0x400 is aliased to CPU 0x000000 by CS_PAL.
+ROM images (`.raw` files) include a 1024-byte flash header followed by firmware code. Total size = 0x400 + sector_count × 512. The header starts with magic `0x12345678`, version string at +4, sector count at +0x1C, checksum at +0x20. Mapped at CPU 0x10000. Vector table at offset 0x400 within the file is aliased to CPU 0x000000 by CS_PAL.
+
+| ROM File | Version | Size | Sectors |
+|---|---|---|---|
+| eos28.raw | EOS v2.80f | 0xEB800 | 0x075A |
+| eos30b.raw | EOS v3.00b | 0xEF400 | 0x0778 |
+| eos410.raw | EOS v4.10a | 0x113400 | 0x0898 |
+| eos462.raw | EOS v4.62 | 0x130000 | 0x097E |
+
+Firmware update floppy disks (`.img`, 1.44 MB raw sector images) contain the flash image at offset 0 with the remainder padded (`0x55` for EOS ≤3.x, `0xF6` for EOS ≥4.x). To extract: read sector_count from offset 0x1C, then copy `0x400 + sector_count × 512` bytes from the start of the disk image.
 
 ## Firmware Reference Points (IDA listing)
 
@@ -158,3 +167,33 @@ Note: The firmware uses `move.l` (32-bit) to write addresses to +$30 and +$34. O
 - All addresses in firmware analysis are CPU addresses unless noted as "flash offset" or "ROM offset".
 - Byte devices on the peripheral bus always use D[15:8] (upper byte). The `.umask16(0xff00)` pattern is used throughout the memory map.
 - The IDA listing uses segment `eOS_ROM` for firmware code (base CPU 0x010800) and `CfgRam` for scratch RAM at 0x000200.
+
+## Instructions for Ghidra documentation
+
+## General principles
+
+- Before doing the actual rename, present a suggestion list with the current name, new name, and comment. Wait for accept before applying the rename and adding the comment.
+- Use snake_case for function and variable names.
+- Use ALL_CAPS with underscores for memory-mapped register definitions and constants.
+
+### Function naming
+
+- Primary candidates for renaming are functions that still have their standard name (FUN_<address>).
+- If you know or can figure out what the function does, give it a suitable name.
+- Avoid names that already exist as functions or variables.
+- Use "snake casing" - lower case words separated by underscore.
+- Add a plate comment with a brief description of the function's purpose and any relevant details (e.g. "Initializes the MFP interrupt controller and configures GPIO pins").
+
+### Plate comments
+
+- Use a brief, descriptive comment that summarizes the function's purpose and key details.
+- If the function takes parameters or returns a value, include that information in the comment. Use the format "Parameters: param1 (type) - description; Returns: type - description".
+- If the function interacts with specific hardware or data structures, mention that in the comment.
+
+### Global variables
+
+- Candidates for renaming are global variables that still have their standard name (DAT_<address>).
+- Set the variable type if it can be determined by its references or usage. If a specific type cannot be determined, use a generic type representing size: byte, word, dword, qword. 
+- If you can determine the purpose of the variable, give it a descriptive name. Look for clues in how the variable is used, such as what functions read or write it, and any patterns in the values it holds.
+- Avoid names that conflict with existing functions or variables.
+- Add a EOL comment with a brief description of the variable's purpose and any relevant details (e.g. "Holds the detected size of the sound memory in megabytes").

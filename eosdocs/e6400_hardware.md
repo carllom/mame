@@ -543,110 +543,7 @@ All sample memory access helpers convert byte addresses to word addresses (`asr.
 
 ---
 
-## MIDI Note Processing
-
-### MIDI Event Queue
-
-The firmware uses a **1024-byte circular buffer** at `$F3FE70` for internal MIDI events:
-
-| Offset | Size | Function |
-|--------|------|----------|
-| +$00 | 32-bit | Queue item count |
-| +$02 | 16-bit | Size threshold (compared to 3 in dequeue guard) |
-| +$04 | 8-bit | Overflow flag (set to 1 when write catches read) |
-| +$06 | 16-bit | Write index (masked with 0x3FF for 1024-entry wrap) |
-| +$08 | 16-bit | Read index (masked with 0x3FF) |
-| +$0A | 1024 bytes | Circular data buffer |
-
-**Event format:** 4 bytes per event: `[channel, velocity, note, terminator]`. Terminator non-zero = note-on, zero = note-off.
-
-**Enqueue functions:**
-- `sub_7E4FE` — Note-on: queues `(channel, 0, note, 0)` [terminator=0 is overwritten]
-- `sub_7E446` — Note-off: queues `(channel, 0x7F, note, 0)`
-
-**Dequeue function:** `sub_7E5CC` — registered as a timer callback (type 3) via `sub_7EE6C` during synth init. Fires periodically, checks queue depth ≥ 4, then:
-1. Dequeues 4 bytes: channel (d3), velocity (d2), note (d1), terminator
-2. **Terminator non-zero** → calls `sub_7E68C` (note-on handler)
-3. **Terminator zero** → calls `sub_7EA2A` (note-off handler)
-
-### Note-On Processing Chain
-
-```
-sub_7E68C   (Note-on handler)
-  ├─ Velocity curve lookup: (current_VelCurve)[raw_vel] → synth velocity
-  ├─ Optional callback via function pointer at $F033E0
-  ├─ Store channel/velocity/note in synth registers ($F34026–$F3402C)
-  └─ sub_7EA42 → sub_8185C (voice dispatcher)
-       ├─ Checks voice bitmap at $F34056
-       ├─ sub_816E8 (voice configuration)
-       │    ├─ sub_806B6 (pitch calculation)
-       │    ├─ sub_81CE0 (sample/loop setup)
-       │    └─ sub_822C6 → sub_828CA (master voice init)
-       └─ Returns allocated voice ID
-```
-
-### Master Voice Initialization — `sub_828CA`
-
-Called with: voice context pointer (a5), voice index (d3), secondary index (d1).
-
-1. **Voice descriptor lookup:** `dword_86906[voice_N]` + $F41540 → voice descriptor base. Each descriptor is **0x374 bytes** (884 decimal). The table `dword_86906` contains pre-computed offsets for 128 voices.
-
-2. **State machine install:** Stores handler function pointers:
-   - +$1E: `sub_8434A` (voice tick handler)
-   - +$22: `sub_84B12` (voice release handler)
-   - +$26: `sub_84B2C` (voice stop handler)
-
-3. **Parameter setup:** Calls multiple initialization subroutines:
-   - `sub_8253C` — Pitch configuration: base pitch + transpose + sample tuning + key follow. Stores at voice register block offset +$5A. Also configures pitch envelope initial values and rates.
-   - `sub_82F56` — Sample/zone configuration.
-   - `sub_826A6` — Filter coefficient init from preset data (copies 13 longwords of envelope/filter data).
-   - `sub_82ED2` — Amplitude envelope init.
-   - `sub_83E88` — LFO / auxiliary parameters.
-
-4. **Filter envelope init** at voice register block +$1DE: Clears 7 longwords + 1 word, sets +$0E to 0x1000.
-
-5. **Start playback:** Calls `sub_86C60` with voice index → adds voice to timer-driven execution linked list. The voice state machine (`sub_8434A`) will then be called on each tick.
-
-### Voice State Machine — `sub_8434A`
-
-This is the per-voice "tick" function, invoked periodically (~every 10 timer units). It processes all voice modulation and triggers hardware writes:
-
-1. **Modulation loop:** Iterates 18 modulation sources (at descriptor offset +$254, 16-byte stride). Each source has: source pointer, destination pointer, amount, enable flag, and accumulator. Computes `source_value × amount >> 12`, applies delta to destination.
-
-2. **Envelope generators:** Calls `loc_84022` three times for envelope segments at descriptor offsets +$13C, +$172, +$1A8 (likely: amplitude, filter, auxiliary envelopes).
-
-3. **Volume / randomization** at offset +$1DE: Applies volume envelope with clamping (0–127), lookup via table `word_8145E`. Uses a PRNG (`dword_F0345A`, LCG with multiplier 0x72D138B5) for random modulation.
-
-4. **Pitch processing** at offset +$B0: Velocity-to-pitch mapping via `word_8125E` table, pitch envelope computation with mode-dependent filtering ($2D flag selects direct vs. blended mode).
-
-5. **Key follow / crossfade** at offset +$A0: Amplitude scaling based on note number with breakpoint and slope.
-
-6. **Hardware update calls:**
-   - `sub_8328C` — Computes final pitch and stereo pan, calls `sub_22EC0` to write G-chip oscillator registers.
-   - `sub_8341C` — Filter processing, calls filter coefficient generator `sub_7BE20`, may write to H-chip filter IC.
-   - `sub_8393C` — Unknown (possibly output routing or DMA control).
-
-7. **Reschedule:** Sets next tick time = current `timer_value` + 10, stores at descriptor +$2A.
-
-### Audition Key
-
-The Audition button (SC2/SI4 in E-IV key matrix) generates **event type 0x16** through the module dispatch system, not directly through the keyboard key code handler.
-
-**Call flow:**
-```
-Event 0x16 dispatched
-  → sub_44072 (Module 0xA handler)
-    → sub_440CC → sub_2BC30 (loads handler from $F00B68)
-      → sub_2BBB8 (Audition key handler)
-        ├─ sub_2BB98: enqueue note-on (note=_auditionkey, vel=0, channel)
-        │    └─ sub_7E4FE: writes 4 bytes to MIDI queue at $F3FE70
-        └─ sub_7E446: enqueue note-off (note=_auditionkey, vel=0x7F, channel)
-             └─ writes 4 bytes to MIDI queue
-```
-
-**Audition note:** Stored at `_auditionkey` ($F00B62), default value **0x27** (MIDI note 39, D♯2). Configurable in Master settings as `v007_AuditionKey` (range 0–127, parameter ID 7).
-
-The audition key bypasses keyboard transpose and zone mapping — it directly injects MIDI note-on/note-off events at a fixed note number and velocity (on=0, off=0x7F). The channel is determined by the MIDI mode setting: mode 2 uses the current MIDI channel from `sub_A0224`, otherwise channel 0.
+*MIDI note processing, voice state machine, and audition key documentation moved to [EOS_developer_guide.md](EOS_developer_guide.md#midi-note-processing).*
 
 ---
 
@@ -742,25 +639,39 @@ If certain boot errors occur, code jumps to an infinite bus loop exercising BD[3
 |---|---|
 | 0x000000–0x0001FF | ROM vector table (hardware mirror via CS_PAL — same bytes as flash[0x400], i.e. CPU 0x010400) |
 | 0x000200–0x0003FF | Scratch RAM |
-| 0x010000–0x0FEFFF | Flash ROM (eos30b.raw, full image at CPU base 0x010000) |
+| 0x010000–0x0FEFFF | Flash ROM (full image at CPU base 0x010000; size varies by firmware version) |
 
 #### Flash Header (CPU 0x010000–0x0103FF)
 
-The first 1024 bytes of the flash chip form a header used by the firmware update process and version display. The format (confirmed from `eos30b.img` floppy and firmware cross-reference):
+The first 1024 bytes (2 sectors) of the flash chip form a header used by the firmware update process and version display. The ROM image files (`.raw`) include this header at offset 0, so the file maps directly to CPU address 0x010000. The format (confirmed from floppy disk images and firmware cross-reference):
 
 | Flash Offset | CPU Address | Size | Content |
 |---|---|---|---|
 | 0x000 | 0x010000 | 4 | Magic: `0x12345678` |
-| 0x004 | 0x010004 | 24 | Version string, space-padded: `"EOS v3.00b"` |
-| 0x01C | 0x01001C | 4 | ROM sector count (excluding header): `0x00000778` (= 0xEF000 bytes) |
-| 0x020 | 0x010020 | 4 | Checksum: `0x2DF72B2B` |
-| 0x034 | 0x010034 | 4 | `0x000000E0` (unknown) |
-| 0x038 | 0x010038 | 4 | `0x000002C9` (unknown) |
+| 0x004 | 0x010004 | 24 | Version string, space-padded (e.g. `"EOS v3.00b"`) |
+| 0x01C | 0x01001C | 4 | ROM sector count (code only, excluding the 2-sector header) |
+| 0x020 | 0x010020 | 4 | Checksum (32-bit, algorithm TBD) |
+| 0x034 | 0x010034 | 4 | `0x00E00000` — consistent across all versions (unknown purpose, possibly flash base or size) |
+| 0x038 | 0x010038 | 4 | `0x000002C9` — consistent across all versions (unknown purpose) |
 | 0x040–0x3FF | 0x010040–0x0103FF | 960 | Zero padding |
+
+Total image size = 0x400 (header) + sector_count × 512 (code).
+
+**Per-version header values:**
+
+| Version | Sectors | Code Size | Total Size | Checksum |
+|---|---|---|---|---|
+| EOS v2.80f | 0x075A (1882) | 0xEB400 | 0xEB800 (964,608) | 0xE7CE5FD5 |
+| EOS v3.00b | 0x0778 (1912) | 0xEF000 | 0xEF400 (979,968) | 0x2DF72B2B |
+| EOS v4.10a | 0x0898 (2200) | 0x113000 | 0x113400 (1,127,424) | 0x7F56834D |
+| EOS v4.62  | 0x097E (2430) | 0x12FC00 | 0x130000 (1,245,184) | 0x19C17BEF |
 
 Firmware references:
 - `sub_A2AD4` (boot display): `pea ($10004).l` → `sprintf("Software: %s", version_string)`
 - `sub_2E1E8` ("Saving System to Floppy"): `move.l #$10000,d2` (flash base); `move.l ($1001C).l,d1` (sector count); `addq.l #2,d1` (adds 2 sectors for header)
+- `sub_25D6E` (boot): sets UPROMPGM = CR1 bit 15 (flash program enable)
+- `sub_25CCA` (boot): flash type identification — AMD (manufacturer ID 1) or Intel (0x89)
+- `sub_260C0`: flash ID command sequence — copied to RAM before execution since the flash chip cannot be read during the ID command
 
 | 0xF00000–0xF7FFFF | CPU DRAM low bank (2× HM514260 256K×16) |
 | 0xF00400–0xF063FF | API jump table mirror (0x6000 bytes copied from ROM 0x0F9400 on boot) |
@@ -858,19 +769,11 @@ Password: **1-3-5-8** (notes of a major chord)
 
 ---
 
-## EOS Firmware / ROM Versions
+*EOS version history and firmware update disk format moved to [EOS_developer_guide.md](EOS_developer_guide.md#eos-firmware--rom-versions).*
 
-| Version | Notable e6400-relevant changes |
-|---|---|
-| 1.4 | Bus Error crash fix |
-| 2.0 | SyQuest/CD-ROM booting; SMDI |
-| 2.1 | SMDI; SCSI compatibility; Akai/Emax II import |
-| 2.12 | Motorola CPU chip compatibility fix |
-| 3.00 | 17 filter types; G-chip/H-chip bug fixes |
-| 4.01 | Word clock (Ultra only); Export WAV/AIFF; FIR filter |
-| 4.10 | DVD/Orb drive support; SMDI bug fixes |
+---
 
-Boot ROM revision ".7" firmware or newer required for EOS 2.0–3.0.
+*UI widget class hierarchy, vtable slot maps, and virtual dispatch documentation moved to [EOS_developer_guide.md](EOS_developer_guide.md#ui-widget-class-hierarchy-firmware-vtable-system).*
 
 ---
 
