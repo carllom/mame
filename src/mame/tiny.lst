@@ -9,5 +9,8 @@
 
 *******************************************************************************/
 
+@source:emusys/emu3.cpp
 emu3        // Emulator III (match against my emuiii)
+
+@source:emusys/e6400.cpp
 e6400       // E-mu e6400 Sampler
