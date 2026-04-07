@@ -178,9 +178,8 @@ private:
 
 	// CPU port I/O
 	u16 ach0_r();
-	u16 ach5_r();
-	u16 ach6_r();
 	void hso_w(offs_t offset, u8 data, u8 mem_mask);
+	u8 port0_r();
 	u8 port1_r();
 	void port1_w(u8 data);
 	u8 port2_r();
@@ -897,33 +896,34 @@ u16 roland_mv30_state::ach0_r()
 	return m_sliders[mux]->read();
 }
 
-// ACH5 (P05): encoder direction latch
-//   Returns high (0xFF) or low (0x00) depending on rotation direction.
-u16 roland_mv30_state::ach5_r()
+// PORT0 (SFR 0x0E): encoder latch signals
+//   P0.5 = encoder direction (0 = CW, 1 = CCW)
+//   P0.6 = encoder "moved" flag (1 = encoder turned since last HSO2 reset)
+//
+// The hardware uses external latch flip-flops to capture the quadrature
+// encoder signals and present a moved + direction interface to the CPU.
+// Reading PORT0 samples the current latch state.
+u8 roland_mv30_state::port0_r()
 {
-	// Check if encoder has moved since last read
+	// Sample the encoder for any change since last HSO2 reset
 	u8 cur = m_encoder->read();
 	if (cur != m_encoder_last)
 	{
-		// Determine direction from delta (IPT_DIAL wraps, so signed compare)
 		s8 delta = s8(cur - m_encoder_last);
-		m_encoder_dir = (delta > 0);  // true = clockwise
+		m_encoder_dir = (delta > 0);   // true = CW
 		m_encoder_moved = true;
 		m_encoder_last = cur;
 	}
-	return m_encoder_dir ? 0xff : 0x00;
+
+	u8 val = 0;
+	if (m_encoder_moved)
+		val |= (1 << 6);    // P0.6 = moved
+	if (!m_encoder_dir)     // P0.5: 0 = CW, 1 = CCW
+		val |= (1 << 5);
+	return val;
 }
 
-// ACH6 (P06): encoder "moved" flag latch
-//   Set high on any encoder step, cleared by HSO2 reset.
-u16 roland_mv30_state::ach6_r()
-{
-	// Sample the encoder to update state
-	ach5_r();
-	return m_encoder_moved ? 0xff : 0x00;
-}
-
-// HSO callback: HSO2 (bit 2) resets the encoder "moved" latch
+// HSO callback: HSO2 (bit 2) rising edge resets the encoder latch
 void roland_mv30_state::hso_w(offs_t offset, u8 data, u8 mem_mask)
 {
 	if (BIT(mem_mask, 2))
@@ -1142,9 +1142,8 @@ void roland_mv30_state::mv30(machine_config &config)
 	m_maincpu->set_addrmap(AS_OPCODES, &roland_mv30_state::opcodes_map);
 	m_maincpu->serial_tx_cb().set("mdout", FUNC(midi_port_device::write_txd));
 	m_maincpu->ach0_cb().set(FUNC(roland_mv30_state::ach0_r));
-	m_maincpu->ach5_cb().set(FUNC(roland_mv30_state::ach5_r));
-	m_maincpu->ach6_cb().set(FUNC(roland_mv30_state::ach6_r));
 	m_maincpu->hso_cb().set(FUNC(roland_mv30_state::hso_w));
+	m_maincpu->in_p0_cb().set(FUNC(roland_mv30_state::port0_r));
 	m_maincpu->in_p1_cb().set(FUNC(roland_mv30_state::port1_r));
 	m_maincpu->out_p1_cb().set(FUNC(roland_mv30_state::port1_w));
 	m_maincpu->in_p2_cb().set(FUNC(roland_mv30_state::port2_r));
