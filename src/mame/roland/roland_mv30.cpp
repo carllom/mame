@@ -94,7 +94,7 @@ public:
 		: driver_device(mconfig, type, tag)
 		, m_maincpu(*this, "maincpu")
 		, m_rom(*this, "maincpu")
-		, m_ram(*this, "ram", 512 * 1024, ENDIANNESS_LITTLE)
+		, m_ram(*this, "ram", 1024 * 1024, ENDIANNESS_LITTLE)
 		, m_view0(*this, "view0")
 		, m_view1(*this, "view1")
 		, m_view2(*this, "view2")
@@ -117,7 +117,7 @@ protected:
 	virtual void machine_reset() override ATTR_COLD;
 
 private:
-	static constexpr unsigned RAM_SIZE    = 512 * 1024;   // 512KB
+	static constexpr unsigned RAM_SIZE_MAX = 1024 * 1024;  // 1MB (max with expansion)
 	static constexpr unsigned ROM_SIZE    = 16 * 1024;    // 16KB
 	static constexpr unsigned WINDOW_SIZE = 16 * 1024;    // 16KB per banking window
 	static constexpr unsigned PAGE_SHIFT  = 10;           // 1KB page granularity
@@ -210,6 +210,8 @@ private:
 	required_device<t6963c_device> m_lcd;
 	required_device<timer_device> m_midi_timer;
 
+	unsigned m_ram_size;   // effective RAM size in bytes (512KB or 1MB)
+
 	// Key scan state
 	u8 m_keyscan_select;
 
@@ -295,11 +297,11 @@ void roland_mv30_state::mem_map(address_map &map)
 	m_view0[1](0x0000, 0x3fff).lrw16(                               // banked RAM
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[4]) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		}),
 		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
 			u32 idx = (u32(m_bank_reg[4]) << (PAGE_SHIFT - 1)) + offset;
-			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+			if (idx < m_ram_size / 2) COMBINE_DATA(&m_ram[idx]);
 		})
 	);
 	m_view0[1](0x0100, 0x010f).rw(FUNC(roland_mv30_state::bank_r), FUNC(roland_mv30_state::bank_w));
@@ -329,11 +331,11 @@ void roland_mv30_state::mem_map(address_map &map)
 	m_view1[0](0x4000, 0x7fff).lrw16(                               // banked RAM
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[5]) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		}),
 		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
 			u32 idx = (u32(m_bank_reg[5]) << (PAGE_SHIFT - 1)) + offset;
-			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+			if (idx < m_ram_size / 2) COMBINE_DATA(&m_ram[idx]);
 		})
 	);
 
@@ -341,11 +343,11 @@ void roland_mv30_state::mem_map(address_map &map)
 	m_view2[0](0x8000, 0xbfff).lrw16(                               // banked RAM
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[6]) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		}),
 		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
 			u32 idx = (u32(m_bank_reg[6]) << (PAGE_SHIFT - 1)) + offset;
-			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+			if (idx < m_ram_size / 2) COMBINE_DATA(&m_ram[idx]);
 		})
 	);
 
@@ -353,11 +355,11 @@ void roland_mv30_state::mem_map(address_map &map)
 	m_view3[0](0xc000, 0xffff).lrw16(                               // banked RAM
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[7]) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		}),
 		NAME([this](offs_t offset, u16 data, u16 mem_mask) {
 			u32 idx = (u32(m_bank_reg[7]) << (PAGE_SHIFT - 1)) + offset;
-			if (idx < RAM_SIZE / 2) COMBINE_DATA(&m_ram[idx]);
+			if (idx < m_ram_size / 2) COMBINE_DATA(&m_ram[idx]);
 		})
 	);
 	// I/O view: devices mapped 0x800 apart
@@ -385,7 +387,7 @@ void roland_mv30_state::opcodes_map(address_map &map)
 			if (page == ROM_PAGE)
 				return m_rom[offset];
 			u32 idx = (u32(page) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		})
 	);
 
@@ -393,7 +395,7 @@ void roland_mv30_state::opcodes_map(address_map &map)
 	map(0x4000, 0x7fff).lr16(
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[1]) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		})
 	);
 
@@ -401,7 +403,7 @@ void roland_mv30_state::opcodes_map(address_map &map)
 	map(0x8000, 0xbfff).lr16(
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[2]) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		})
 	);
 
@@ -409,7 +411,7 @@ void roland_mv30_state::opcodes_map(address_map &map)
 	map(0xc000, 0xffff).lr16(
 		NAME([this](offs_t offset) -> u16 {
 			u32 idx = (u32(m_bank_reg[3]) << (PAGE_SHIFT - 1)) + offset;
-			return (idx < RAM_SIZE / 2) ? m_ram[idx] : 0;
+			return (idx < m_ram_size / 2) ? m_ram[idx] : 0;
 		})
 	);
 }
@@ -443,6 +445,7 @@ void roland_mv30_state::machine_start()
 	save_item(NAME(m_dma_adr_hi));
 	save_item(NAME(m_bcc_irq_source));
 	save_item(NAME(m_bcc_irq_pending));
+	save_item(NAME(m_ram_size));
 }
 
 
@@ -477,6 +480,8 @@ void roland_mv30_state::machine_reset()
 	m_dma_adr_hi = 0;
 	m_bcc_irq_source = BCC_NONE;
 	m_bcc_irq_pending = 0;
+
+	m_ram_size = (ioport("RAMSIZE")->read()) ? 1024 * 1024 : 512 * 1024;
 
 	// Window 0 starts showing ROM for instruction fetch at reset
 	m_view0.select(0);
@@ -656,7 +661,7 @@ void roland_mv30_state::dma_drq_w(int state)
 			u32 phys = (u32(m_dma_adr_hi & 0xff) << 16) | m_dma_adr_lo;
 
 			// FDC -> RAM (reading from floppy)
-			if (phys < RAM_SIZE)
+			if (phys < m_ram_size)
 			{
 				u32 word_idx = phys >> 1;
 				if (phys & 1)
@@ -1007,6 +1012,11 @@ static INPUT_PORTS_START(mv30)
 
 	PORT_START("ENCODER")
 	PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_NAME("Data Dial") PORT_SENSITIVITY(25) PORT_KEYDELTA(1) PORT_CODE_DEC(KEYCODE_Z) PORT_CODE_INC(KEYCODE_X)
+
+	PORT_START("RAMSIZE")
+	PORT_CONFNAME(0x01, 0x00, "RAM Size")
+	PORT_CONFSETTING(0x00, "512KB")
+	PORT_CONFSETTING(0x01, "1MB (Expanded)")
 INPUT_PORTS_END
 
 
