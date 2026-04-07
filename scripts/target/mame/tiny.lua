@@ -108,7 +108,7 @@ files{
 	MAME_DIR .. "src/mame/emusys/emu_gchip.h",
 	-- eiii
 	-- MAME_DIR .. "src/mame/drivers/emuiii.cpp",	
-	MAME_DIR .. "src/mame/drivers/emu3.cpp",	
+	MAME_DIR .. "src/mame/emusys/emu3.cpp",
 }
 end
 
