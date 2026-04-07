@@ -151,6 +151,479 @@ The audition key bypasses keyboard transpose and zone mapping — it directly in
 
 ---
 
+## Voice Structure
+
+The **voice** is the fundamental sound-producing unit in EOS presets. Each preset contains a variable-length linked list of voice structs, each describing a single layer of the sound: key/velocity ranges, tuning, filter, envelopes, LFOs, modulation routing (cords), and sample zone assignment. Voices are NOT stored in arrays — new voices are appended inline and the list is traversed using the `length` field to step from one voice to the next.
+
+**Total size:** 306 bytes (0x132) per voice.
+
+### Voice struct layout
+
+| Offset | Size | Type | Name | Description |
+|--------|------|------|------|-------------|
+| 0 | 2 | short | length | Total size of this voice entry in bytes. Used to walk the linked list: next voice = (byte*)this + length. |
+| 2 | 1 | byte | number | Voice number within preset (1-based). |
+| 3 | 1 | byte | group | Voice group assignment. |
+| 4–11 | 8 | — | *(padding)* | Reserved / unused. Cleared by `init_voice`. |
+| 12 | 4 | range | key | Key range (low/fadeLow/fadeHigh/high). |
+| 16 | 4 | range | velocity | Velocity range. |
+| 20 | 4 | range | realtime | Realtime controller range. |
+| 24 | 1 | byte | bVoiceType | Voice type (mono/poly/etc). Initialized by `init_voice_link`. |
+| 25 | 1 | byte | bAssignGroup | Assign group for voice stealing. |
+| 26 | 2 | short | delay | Voice delay time (ms). |
+| 28 | 2 | short | linkedPreset | Linked preset number. |
+| 30 | 2 | short | nStartOffset | Sample start offset. 16-bit value gives the offset within the sample to begin playback. |
+| 32 | 1 | byte | bKeyTranspose | Key transpose (semitones, signed). |
+| 33 | 1 | byte | bCoarseTune | Coarse tune (semitones, signed). |
+| 34 | 1 | byte | bFineTune | Fine tune (cents, signed). |
+| 35 | 1 | byte | bGlideRate | Glide/portamento rate. |
+| 36 | 1 | byte | bNonTranspose | Non-transpose flag (1=sample pitch ignores key number). |
+| 37 | 1 | byte | bSoloMode | Solo mode enable. |
+| 38 | 1 | byte | bArpEnabled | Arpeggiator enable. |
+| 39 | 1 | byte | bChorusStereoWidth | Chorus stereo width. |
+| 40 | 1 | byte | bChorusAmount | Chorus wet/dry amount. |
+| 41 | 1 | — | *(padding)* | Unused. |
+| 42 | 1 | byte | bChorusInitialITD | Chorus initial inter-aural time delay. |
+| 43–47 | 5 | — | *(padding)* | Unused. |
+| 48 | 1 | byte | bLatchMode | Latch mode. |
+| 49 | 1 | byte | bLatchChannels | Latch channels. |
+| 50 | 1 | byte | bTriggerMode | Trigger mode (poly normally / poly release). |
+| 51 | 1 | byte | bGlideCurve | Glide curve type. |
+| 52 | 1 | byte | bVolume | Voice volume (0–127). |
+| 53 | 1 | byte | bPan | Pan position. |
+| 54 | 1 | byte | bSubmix | Submix bus assignment. Also addressed by "Initial Controller D" overlay (ParamID 0x5EF). |
+| 55 | 1 | byte | bAmpEnvDepth | Amplitude envelope depth. |
+| 56 | 1 | byte | bFilterType | Filter type selector. |
+| 57 | 1 | byte | bInitialCtrlD | Initial controller D value. Shares offset range with submix via controller overlay mechanism (ParamIDs 0x5EC–0x5EF). |
+| 58 | 1 | byte | vcfCutoff | Filter cutoff frequency. |
+| 59 | 1 | byte | vcfQ | Filter resonance (Q). |
+| 60 | 1 | byte | bFilterParam0 | Filter parameter 0 (morph). |
+| 61 | 1 | byte | bFilterParam1 | Filter parameter 1. |
+| 62 | 1 | byte | bFilterParam2 | Filter parameter 2. |
+| 63 | 1 | byte | bFilterParam3 | Filter parameter 3. |
+| 64 | 1 | byte | bFilterParam4 | Filter parameter 4. |
+| 65 | 1 | byte | bFilterParam5 | Filter parameter 5. |
+| 66 | 1 | byte | bFilterParam6 | Filter parameter 6. |
+| 67 | 1 | byte | bFilterParam7 | Filter parameter 7. |
+| 68–107 | 40 | — | *(internal)* | Runtime processing coefficients. Not exposed to the UI parameter system. No ROM or RAM descriptors exist for these offsets. Likely stores intermediate computed filter/tuning state. |
+| 108 | 14 | envelope | amp_env | Amplitude envelope (6-stage: Atk1→Atk2→Dcy1→Dcy2→Rls1→Rls2). |
+| 122 | 14 | envelope | filter_env | Filter envelope. |
+| 136 | 14 | envelope | aux_env | Auxiliary envelope. |
+| 150 | 6 | lfo | lfo1 | LFO 1. |
+| 156–187 | 32 | — | *(lfo2 + padding)* | LFO 2 area. Byte 0 initialized to 1 (type), followed by LFO2 rate/shape/delay/variation/sync/lag parameters. Partially mapped by ROM descriptors. Remaining bytes are padding to align the cord array. |
+| 188 | 96 | cord[24] | cords | Modulation routing: 24 patch cords (source→destination with signed amount). |
+| 284 | 22 | sample_zone | sampleZone | Sample zone assignment (key/velocity ranges, sample number, original key). |
+
+### Sub-structs
+
+#### range (4 bytes)
+
+Key/velocity/controller range with crossfade support.
+
+| Offset | Type | Name | Description |
+|--------|------|------|-------------|
+| 0 | byte | low | Range lower bound. |
+| 1 | byte | fadeLow | Crossfade-in width (from low). |
+| 2 | byte | fadeHigh | Crossfade-out width (from high). |
+| 3 | byte | high | Range upper bound. |
+
+#### envelope (14 bytes)
+
+Six-stage envelope generator: Attack 1 → Attack 2 → Decay 1 → Decay 2 → Release 1 → Release 2. Each stage has a rate and a target level.
+
+| Offset | Type | Name | Description |
+|--------|------|------|-------------|
+| 0 | byte | atk1rate | Attack 1 rate. |
+| 1 | byte | atk1level | Attack 1 target level. |
+| 2 | byte | atk2rate | Attack 2 rate. |
+| 3 | byte | atk2level | Attack 2 target level. |
+| 4 | byte | dcy1rate | Decay 1 rate. |
+| 5 | byte | dcy1level | Decay 1 target level (sustain level when dcy2rate=0). |
+| 6 | byte | dcy2rate | Decay 2 rate. |
+| 7 | byte | dcy2level | Decay 2 target level. |
+| 8 | byte | rls1rate | Release 1 rate. |
+| 9 | byte | rls1level | Release 1 target level. |
+| 10 | byte | rls2rate | Release 2 rate. |
+| 11 | byte | rls2level | Release 2 target level (normally 0). |
+
+*Note: offsets 12–13 exist in the struct (14 bytes total) but are unnamed — likely padding.*
+
+#### lfo (6 bytes)
+
+Low-frequency oscillator parameters.
+
+| Offset | Type | Name | Description |
+|--------|------|------|-------------|
+| 0 | byte | rate | LFO rate/frequency. |
+| 1 | byte | shape | Waveform shape (sine, triangle, square, etc). |
+| 2 | byte | delay | Onset delay time. |
+| 3 | byte | variation | Random variation amount. |
+| 4 | byte | sync | Sync mode (free-run, key sync, etc). |
+| 5 | byte | — | Padding. |
+
+#### cord (4 bytes)
+
+Single modulation patch cord routing.
+
+| Offset | Type | Name | Description |
+|--------|------|------|-------------|
+| 0 | byte | source | Modulation source ID. |
+| 1 | byte | destination | Modulation destination ID. |
+| 2 | byte | amount | Signed modulation depth. |
+| 3 | byte | — | Padding. |
+
+EOS provides 24 cords per voice, stored contiguously at offset 188 (96 bytes total).
+
+#### sample_zone (22 bytes)
+
+Per-zone sample assignment within a voice. One voice typically has one sample zone, though the variable-length voice mechanism could support more.
+
+| Offset | Type | Name | Description |
+|--------|------|------|-------------|
+| 0 | 4 | range | keyRange | Key range for this zone. |
+| 4 | 4 | range | velRange | Velocity range for this zone. |
+| 8 | 2 | short | samplenumber | Sample number (index into preset's sample table). |
+| 10 | 2 | short | *(unknown)* | Unknown (possibly a secondary sample ref or flags). |
+| 12 | 1 | byte | originalKey | Original key (root note for pitch calculation). |
+| 13–21 | 9 | — | *(unknown)* | Remaining fields not yet identified. |
+
+### Voice list traversal
+
+Voices within a preset form a contiguous linked list. There is no pointer chain — instead, each voice's `length` field gives the byte stride to the next entry:
+
+```
+voice *get_next_voice(voice *v) {
+    return (voice *)((byte *)v + v->length);
+}
+```
+
+Iteration counts are maintained separately via `get_num_voices()`. Helper functions:
+
+| Function | Address | Description |
+|----------|---------|-------------|
+| `init_voice` | 0x07019A | Zero-fill and initialize all fields/sub-structs to defaults. |
+| `get_voice` | 0x06FA40 | Get pointer to first voice in a preset. |
+| `get_next_voice` | 0x06FA62 | Step to next voice using length field. |
+| `get_num_voices` | 0x06FA72 | Get voice count for a preset. |
+| `sizeof_voice` | 0x06FA88 | Return sizeof(voice) — 306. |
+| `get_voice_length` | 0x06FA96 | Read a specific voice's length field. |
+| `get_voice_smpl` | 0x06FAAC | Get pointer to sample_zone within a voice. |
+| `get_voice_number` | 0x06FAD4 | Get voice number field. |
+| `get_voice_entry` | 0x06FB04 | Get Nth voice by iterating the list. |
+| `get_voice_param` | 0x06FDF4 | Read a parameter from a voice by descriptor ID (ROM param table). |
+| `init_voice_link` | 0x0703E4 | Initialize voiceType/assignGroup/delay/linkedPreset fields. |
+| `init_voice_filter` | 0x070476 | Initialize filter-related fields (cutoff, Q, type, params). |
+| `init_voice_tuning` | 0x0704AA | Initialize tuning fields (coarseTune, fineTune, transpose, glide). |
+| `voice_init_master` | 0x0828CA | Master voice init (descriptor setup, state machine, start playback). |
+| `voice_start_playback` | 0x086C60 | Add voice to timer-driven execution list. |
+| `voice_tick` | 0x08434A | Voice state machine tick (modulation, envelopes → hardware writes). |
+
+### Parameter descriptor table
+
+Voice fields are accessed by the UI and MIDI systems through a two-tier parameter descriptor table:
+
+**ROM descriptors** (0x072BCE–0x073B86): Static voice parameters. Each 12-byte entry maps a parameter ID to a voice struct byte offset, with min/max/default values and display formatting flags. Covers most fields from offset 24 through 67, plus envelope/LFO/cord parameters.
+
+**RAM descriptors** (eOS_api:F024xx–F02Fxx): Dynamic/computed parameters including filter response, range settings, cord routing, and submix assignment. These are evaluated at runtime and may involve indirect reads through helper functions rather than simple struct offsets.
+
+The parameter ID namespace is partitioned:
+- 0x000–0x5FF: ROM-table voice parameters (direct struct field access).
+- 0x600+: RAM-table parameters (indirect access via handler functions).
+
+---
+
+## H-Chip (IC413) — Digital Filter Subsystem
+
+The **H-chip** (IC413) is E-mu's proprietary digital filter IC, responsible for per-voice filtering (lowpass, highpass, bandpass, etc.), volume/pan attenuation, and output mixing. The H-chip sits between the G-chip sample oscillators and the DAC outputs on the polyphony board (AP503).
+
+### Physical topology
+
+A fully-populated EOS system (128-channel card) has **4 H-chips** organized as:
+
+| H-chip | Data port offset | Assignment | Channels |
+|--------|-----------------|------------|----------|
+| 0 | +$28 | G-chip 1, even channels | 0, 2, 4, ... 62 |
+| 1 | +$2A | G-chip 1, odd channels | 1, 3, 5, ... 63 |
+| 2 | +$38 | G-chip 2, even channels | 64, 66, 68, ... 126 |
+| 3 | +$3A | G-chip 2, odd channels | 65, 67, 69, ... 127 |
+
+Each H-chip handles up to 32 filter channels. A 64-channel system (single G-chip) uses only H-chips 0 and 1.
+
+### Bus architecture
+
+The H-chip is **not** directly connected to the CPU bus at CSHCHIP (0x460000). Instead, the CPU accesses the H-chip indirectly through a **DSP bus** that sits on the polyphony board:
+
+| Bus | CPU address | Usage |
+|-----|------------|-------|
+| DSP_BUS (primary) | 0x520000 | Default H-chip bus (word[32768]) |
+| DSP_BUS (alternate) | 0x530000 | Used when `hw_variant_code == 4` (E6400 variant) |
+| EXP_BUS | 0x540000 | Expansion polyphony board H-chip access (word[8192]) |
+
+**Bus probe sequence** (from `hchip_init` at 0x0636C2):
+1. Assert H-chip reset: clear CTRLREG1 bit 7 (`FUN_063AB4`)
+2. Enable H-chip clock: set CTRLREG1 bit 10 (`FUN_063EE2`)
+3. Delay 1ms for clocks to stabilize
+4. Release H-chip from reset: clear CTRLREG1 bit 10 (`FUN_063F06`)
+5. Write `DSP_BUS[0x3E] = 1` (bus enable)
+6. Set `hchip_bus_base = DSP_BUS` (0x520000)
+7. Set `hchip_chan_sel_ptr = DSP_BUS + 0x0E` (channel select register at 0x52000E)
+8. Compute 4 data port pointers via `hchip_init_data_ptrs`
+9. Write config registers: `$181D=0x88`, `$181E=0x10`, `$181F=6`
+10. Read back `$181E` — if result is `0x50`, H-chip is present
+11. If primary bus fails and `hw_variant_code == 4`, retry at 0x530000
+
+**CTRLREG1** (0x400000) bit assignments for H-chip:
+
+| Bit | Function | Set = | Clear = |
+|-----|----------|-------|---------|
+| 7 | H-chip / G-chip reset | Normal operation | Assert reset |
+| 10 | H-chip clock enable | Clock running | Clock stopped |
+
+### Register addressing — packed format
+
+All H-chip register accesses use a **packed 16-bit address** encoding:
+
+```
+  15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+ [  —  |     register offset >> 1    |  —   —   —  |   channel   ]
+       bits[14:8]                                    bits[4:0]
+```
+
+- **bits[4:0]**: Channel number (0–31) within the selected H-chip. Written to `hchip_chan_sel_ptr` (DSP_BUS + $0E).
+- **bits[14:8]**: Register offset divided by 2. After shifting: `bus_offset = (packed >> 8) & 0x7E`. The actual bus write goes to `hchip_bus_base + bus_offset`.
+
+**Example**: Packed address `0x5800` with channel 5 → `0x5805`:
+- Channel = 5 (bits[4:0])
+- Register offset = (0x58 >> 8) & 0x7E = 0x58 → bus address = `hchip_bus_base + 0x58`
+
+The `hchip_write_reg16` and `hchip_write_reg32` functions (at 0x063E8A and 0x063EB6) implement this encoding:
+```c
+void hchip_write_reg16(uint16_t packed_addr, uint16_t value) {
+    *hchip_chan_sel_ptr = packed_addr & 0x1F;           // select channel
+    *(hchip_bus_base + ((packed_addr >> 8) & 0x7E)) = value;  // write register
+}
+```
+
+### H-chip global registers
+
+These registers use channel values in the "global" range (channel 0x18–0x1F for config, 0x14–0x17 for control). Packed address format applies.
+
+| Packed addr | Bus offset | R/W | Init value | Description |
+|-------------|-----------|-----|------------|-------------|
+| $181D | +$18 ch29 | W | 0x88 | Config register A — filter mode / clock config |
+| $181E | +$18 ch30 | R/W | 0x10 (write), reads 0x50 | Config register B — presence detection. Write 0x10, readback 0x50 = H-chip present |
+| $181F | +$18 ch31 | W | 6 | Config register C — interpolation / oversampling config |
+| $1800–$1813 | +$18 ch0–19 | W | 0 | Control registers (20 entries). Zeroed during `hchip_load_config`. |
+| $1814–$1817 | +$18 ch20–23 | W | 0 | 32-bit control registers (zeroed during init) |
+
+### H-chip per-channel registers (init values)
+
+These are written for all 32 channels (0–31) during `hchip_init`. The packed address ORs the register code with the channel number.
+
+**16-bit registers** (written via `hchip_write_reg16`):
+
+| Packed base | Bus offset | Init value | Probable function |
+|-------------|-----------|------------|-------------------|
+| $5800 | +$58 | 0x0080 | Channel enable / voice active flag |
+| $6A00 | +$6A | 0x0000 | Unknown (cleared) |
+| $7800 | +$78 | 0x0000 | Unknown (cleared) |
+| $0C00 | +$0C | 0x0000 | Filter coefficient A |
+| $1C00 | +$1C | 0xFF00 | Filter coefficient B (max = bypass?) |
+| $2C00 | +$2C | 0x0000 | Filter coefficient C |
+| $3C00 | +$3C | 0x0000 | Filter coefficient D |
+| $4C00 | +$4C | 0x0000 | Output gain / volume |
+| $5C00 | +$5C | 0x0000 | Unknown (cleared) |
+| $6C00 | +$6C | 0x0000 | Unknown (cleared) |
+| $7A00 | +$7A | 0x0000 | Unknown (cleared) |
+| $5A00 | +$5A | 0x0000 | Unknown (cleared) |
+| $4A00 | +$4A | 0x0000 | Unknown (cleared) |
+| $4800 | +$48 | 0x0000 | Unknown (cleared) |
+| $6800 | +$68 | 0x0000 | Unknown (cleared) |
+
+**32-bit registers** (written via `hchip_write_reg32`, zeroed first then selectively patterned):
+
+| Packed base | Bus offset | Init value | Notes |
+|-------------|-----------|------------|-------|
+| $1400 | +$14 | 0x00000000 | Cleared |
+| $3400 | +$34 | 0x00000000 | Then: every 4th channel starting at 0 → 0x8000FFFF; every 4th starting at 2 → 0x2000FFFF |
+| $6400 | +$64 | 0x00000000 | Cleared |
+| $7400 | +$74 | 0x00000000 | Cleared |
+| $0800 | +$08 | 0x00000000 | Then: every 2nd channel (0,2,4,...) → 0x08000000 |
+| $0400 | +$04 | 0x00000000 | Cleared |
+| $2400 | +$24 | 0x00000000 | Cleared |
+| $5400 | +$54 | 0x00000000 | Cleared |
+| $4400 | +$44 | 0x00000000 | Cleared. **Also used for sample rate during voice init** (see below) |
+
+**Post-init patterns** (after zeroing all 32 channels):
+
+| Register | Channel stride | Value | Interpretation |
+|----------|---------------|-------|---------------|
+| $0800 (+$08) | Every 2 channels (0,2,4,...30) | 0x08000000 | Routing matrix — connects even channels to output bus A |
+| $3400 (+$34) | Every 4 channels (0,4,8,...28) | 0x8000FFFF | Mix bus A config — full scale, bus A select |
+| $3400 (+$34) | Every 4 channels (2,6,10,...30) | 0x2000FFFF | Mix bus B config — reduced scale, bus B select |
+
+### Voice runtime H-chip registers
+
+During live playback, voices write to the H-chip through **memory-mapped offsets** relative to a voice hardware base pointer. These are NOT packed-address format; they are direct bus offsets from the voice's assigned hardware slot.
+
+Each voice runtime descriptor holds hardware pointers at:
+- +$08: Voice A hardware base (G-chip/H-chip)
+- +$0C: Voice A H-chip base (same region, different offset window)
+- +$10: Voice B hardware base (stereo pair, if +$30 nonzero)
+- +$14: Voice B H-chip base
+- +$30: Stereo flag (nonzero = stereo pair active)
+- +$31: H-chip mode (≤3 = direct DSP bus, >3 = expansion bus via EXP_BUS)
+
+**Subcommand register** (`voice_base + $46`): Selects which parameter group the subsequent data writes target.
+
+| Subcommand | Mode | Description |
+|------------|------|-------------|
+| 0 | Filter update | Subsequent writes to +$7C set filter cutoff/Q |
+| 1 | Volume/pan update | Subsequent writes to +$71/+$73 set left/right volume |
+| 4 | Mute / reset | Zeros volumes at +$71/+$73. Used by `hchip_mute_channel` |
+
+**Data registers** (written after subcommand select):
+
+| Offset | Size | Range | Written by | Description |
+|--------|------|-------|-----------|-------------|
+| +$44 | 16-bit | — | `hchip_init_all_channels` | Sample rate value (from DAT_F01C5E). Set during init. |
+| +$46 | 16-bit | 0,1,4 | `voice_update_filter`, `voice_update_volume`, `hchip_mute_channel` | Subcommand select (see table above) |
+| +$71 | 8-bit | 0–255 | `voice_update_volume`, `voice_update_volume_init` | Left channel volume |
+| +$73 | 8-bit | 0–255 | `voice_update_volume`, `voice_update_volume_init` | Right channel volume |
+| +$7B | 8-bit | — | `hchip_write_filter_coeff` | Filter coefficient data (mode-encoded, see filter section) |
+| +$7C | 8-bit | 0–255 | `voice_update_filter` | Filter cutoff / resonance (Q) |
+
+### Expansion bus channel addressing
+
+When `expansion_present != 0` (expansion polyphony board installed), voices with H-chip mode > 3 use the **expansion bus** (EXP_BUS at 0x540000) instead of direct DSP bus access:
+
+```c
+// Channel select for expansion bus
+HCHIP_CHAN_SEL = (voice_hw_ptr & 0x7400) >> 10;
+EXP_BUS[0] = HCHIP_CHAN_SEL;    // write channel select to expansion bus port 0
+
+// Remap address to expansion bus space
+voice_base = (voice_hw_ptr & 0x3FF) | 0x540400;
+```
+
+The expansion bus maps 8 additional channels with select values 0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C, configured by `FUN_050114`.
+
+**Channel address lookup table** (64 entries at 0x05082C): Maps logical voice channel indices (0–63) to signed 16-bit hardware address offsets. Used by `hchip_get_channel_addr` (0x05092C, 17 xrefs) to translate voice numbers to bus addresses.
+
+### Volume and pan computation
+
+Volume writes are computed by `voice_update_volume` (0x083678) and `voice_update_volume_init` (0x08393C):
+
+1. **Amplitude envelope** → master volume (0–255 after clamping)
+2. **Pan position** → pan offset (added to base 0x40 = center)
+3. **Pan-to-volume curve**: `WORD_ARRAY_00082CD2` (128-entry lookup table) maps pan position to volume scaling. For mono voices:
+   - Left volume = `master_vol + (pan_curve[pan + 0x40] >> 4)`
+   - Right volume = `master_vol + (pan_curve[(pan + 0x40) ^ 0x7F] >> 4)`
+   - The XOR with 0x7F creates the complementary curve for the opposite channel
+4. **Stereo voices** use a different path with an additional stereo width factor at +$F6
+5. **Dirty check**: `voice_update_volume` (the per-tick path) compares computed volume (+$F2) and pan (+$F4) against previous values and skips H-chip writes if unchanged. `voice_update_volume_init` (first tick) always writes.
+
+MIDI CC#7 (channel volume) is applied when `midi_mode == 2` or `GlobPedOvr != 0`, with three curve options:
+- Curve 0: Linear
+- Curve 1: Quadratic (square of deviation from 0x1000)
+- Curve 2: Custom curve via `BYTE_ARRAY_0008359E`
+
+### Filter processing
+
+Filter updates are computed by `voice_update_filter` (0x08341C):
+
+1. **Cutoff**: Sum of cord outputs at voice +$FC and +$100, clamped to 0–0xFFF, then shifted right 5 to yield 0–127.
+2. **Filter type dispatch**: `filter_type_dispatch` (0x07BE20) selects the active filter algorithm from a table at `DAT_F33E22`. Each filter type has its own coefficient computation function.
+3. **Q / resonance**: Sum of cord outputs at voice +$FE and +$FA, shifted right 4, clamped 0–255.
+4. **H-chip write sequence**: Subcommand 0 → write cutoff byte to +$7C.
+
+**Filter mode encoding** (from `hchip_write_filter_coeff` at 0x050D82): The filter type index selects a mode byte from a 4-entry table at 0x050D7E:
+
+| Index | Mode byte | Interpretation |
+|-------|-----------|---------------|
+| 0 | 0x37 | Mode A (default / 2-pole lowpass?) |
+| 1 | 0x01 | Mode B (highpass?) |
+| 2 | 0x13 | Mode C (bandpass?) |
+| 3 | 0x25 | Mode D (parametric?) |
+
+This mode byte is combined with the coefficient value and written to register +$7B.
+
+### Coefficient tables
+
+Three coefficient tables are stored in ROM and loaded via `hchip_set_mode` (0x0639F2) → `hchip_load_config` (0x0640CA):
+
+**`hchip_boot_coeffs`** (0x0648EC, 128 words): Default boot configuration. Uniform pattern of `0x3ECA` / `0x0474` for all 128 entries (with minor variations in entries 6–7: `0x3ECA`/`0x0363` and `0x3ECA`/`0x0263`). This represents a flat/passthrough filter state.
+
+**`hchip_reset_coeffs`** (0x063F64, 128 words): Reset/transition coefficients used during config load sequence. Structured as 4-byte entries: `[channel|register, 0xFF, bank_index, 0x30]` cycling through 16 indices across 4 banks for 64 channels total. Written with enable/disable bracketing during `hchip_load_config`.
+
+**`hchip_alt_coeffs`** (0x064140, 128 words): Alternate filter configuration with varied coefficient data — possibly a different filter response curve for special modes.
+
+### Configuration load sequence
+
+`hchip_load_config` (0x0640CA) performs a glitch-free filter configuration transition:
+
+1. Zero all 20 control registers ($1800–$1813)
+2. Write `hchip_reset_coeffs` with enable=1 (unmuted transitional state)
+3. Delay **150ms** for H-chip filters to settle
+4. Write `hchip_reset_coeffs` with enable=0 (mute transitional)
+5. Write target coefficients with enable=0 (muted target)
+6. Write target coefficients with enable=1 (unmute target — live)
+
+The `hchip_write_channels` function (0x064064) iterates all 128 entries in the coefficient table. Index bits[4:0] select the channel, bits[6:5] select which of the 4 H-chip data ports to write. When `enable=0` (muted), bit 15 is OR'd into all odd-indexed entries to set a mute flag.
+
+### H-chip `$07F7` — clear/passthrough value
+
+`hchip_clear_all` (0x063D80) writes `0x07F7` to all 32 channels on each of the 4 data ports (+$28, +$2A, +$38, +$3A). This value likely represents a unity-gain passthrough or full-mute filter coefficient, depending on the bit interpretation by the H-chip hardware.
+
+### Function reference
+
+| Function | Address | Description |
+|----------|---------|-------------|
+| `hchip_init` | 0x0636C2 | Full hardware init: probe bus, config regs, program all channels, set mode 1 |
+| `hchip_init_data_ptrs` | 0x06363E | Compute 4 data port pointers (+$28/+$2A/+$38/+$3A) from bus base |
+| `hchip_is_alternate_bus` | 0x0636A4 | Check if using $530000 alternate bus |
+| `hchip_set_mode` | 0x0639F2 | Select operating mode: 0=clear, 1=boot coeffs, 2=alt coeffs |
+| `hchip_clear_all` | 0x063D80 | Write $07F7 to all channels, zero control regs |
+| `hchip_read_reg16` | 0x063E3C | Read 16-bit register via packed address |
+| `hchip_write_reg16` | 0x063E8A | Write 16-bit register via packed address (27 xrefs) |
+| `hchip_write_reg32` | 0x063EB6 | Write 32-bit register pair via packed address (27 xrefs) |
+| `hchip_write_channels` | 0x064064 | Write 128-word coefficient table to all 4 H-chips |
+| `hchip_load_config` | 0x0640CA | Config load with reset→settle→mute→load→unmute sequence |
+| `hchip_load_config_wrapper` | 0x064128 | Thin wrapper for hchip_load_config |
+| `hchip_select_bus` | 0x024144 | Select bus base from hardware mode / channel count |
+| `hchip_setup_voice_bus` | 0x0503E4 | Store bus pointer, init 32 channels to default |
+| `hchip_init_all_channels` | 0x050410 | Write sample rate init values to all 8 (or 16) channels |
+| `hchip_get_channel_addr` | 0x05092C | Logical channel → hardware address via LUT (17 xrefs) |
+| `hchip_mute_channel` | 0x050A22 | Mute: subcommand 4, zero +$71/+$73 volumes |
+| `hchip_write_filter_coeff` | 0x050D82 | Write filter coefficient to +$7B with mode encoding (16 xrefs) |
+| `filter_type_dispatch` | 0x07BE20 | Dispatch to active filter type's coefficient computation |
+| `voice_update_pitch` | 0x08328C | Compute pitch, write G-chip oscillator registers |
+| `voice_update_filter` | 0x08341C | Compute filter cutoff/Q, write H-chip +$46=0, +$7C |
+| `voice_update_volume_init` | 0x08393C | First-tick volume/pan → H-chip +$46=1, +$71/+$73 |
+| `voice_update_volume` | 0x083678 | Per-tick volume with dirty check, same H-chip writes |
+
+### Globals reference
+
+| Symbol | Address | Type | Description |
+|--------|---------|------|-------------|
+| `HCHIP_BUS` | 0x460000 | word[16384] | CPU chip-select for H-chip (CSHCHIP). Not used for data path — see DSP_BUS. |
+| `DSP_BUS` | 0x520000 | word[32768] | Primary DSP bus — actual H-chip register access |
+| `EXP_BUS` | 0x540000 | word[8192] | Expansion polyphony board bus |
+| `hchip_bus_base` | 0xF3E0F0 | pointer | Active DSP bus base (0x520000 or 0x530000) |
+| `hchip_chan_sel_ptr` | 0xF3E110 | pointer | Pointer to channel select register (bus_base + $0E) |
+| `HCHIP_CHAN_SEL` | 0xF3DD38 | word | Channel select register shadow (expansion bus path) |
+| `HCHIP_CHAN_DATA` | 0xF3DD40 | word | Channel data register (expansion bus path) |
+| `hchip_data_ptrs` | 0xF3E100 | pointer[4] | Pointers to 4 H-chip data ports (+$28,+$2A,+$38,+$3A) |
+| `hchip_present` | 0xF2592A | byte | 1 if H-chip detected during boot, 0 otherwise |
+| `hchip_boot_coeffs` | 0x0648EC | word[128] | Boot/default coefficient table (ROM) |
+| `hchip_reset_coeffs` | 0x063F64 | word[128] | Transitional reset coefficients (ROM) |
+| `hchip_alt_coeffs` | 0x064140 | word[128] | Alternate coefficient table (ROM) |
+| `CTRLREG1` | 0x400000 | word | Control register 1 — bits 7,10 control H-chip reset/clock |
+| `CTRLREG1_copy` | 0xF0173C | word | Shadow copy of CTRLREG1 (read-modify-write via shadow) |
+| `expansion_present` | 0xF01C5C | byte | Nonzero if expansion polyphony board is installed |
+
+---
+
 ## UI Widget Class Hierarchy (Firmware vtable system)
 
 The EOS firmware implements a C++ single-inheritance UI widget class hierarchy using virtual method tables (vtables). Each class has a `vtbl_<class>` header (8 bytes: reserved dword + method count) followed by an array of `{this_adjust, func_ptr}` pairs. Objects store their vtable pointer at offset +0x08. All `this_adjust` values are zero (simple single inheritance, no thunking).
