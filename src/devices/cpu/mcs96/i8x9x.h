@@ -147,7 +147,7 @@ private:
 	hso_cam_entry hso_cam_hold;
 
 	u64 base_timer2, ad_done;
-	u8 hsi_mode, hsi_status, hso_command, ad_command, hso_active;
+	u8 hsi_mode, hsi_status, hso_command, ad_command, hso_active, hso_cam_committed;
 	u16 hso_time, ad_result;
 	u8 pwm_control;
 	u8 port1, port2;

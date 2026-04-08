@@ -298,7 +298,7 @@ cat mv30bios.asm
 - **Boot**: Fully boots from floppy (168 sector reads, OS loaded to RAM)
 - **Display**: LCD active, shows UI
 - **Input**: Key scan, sliders, rotary encoder all functional
-- **Sound**: PCM engine initialized, register writes active
+- **Sound**: PCM engine initialized, register writes active, sequencer timer chain functional
 - **MIDI**: Basic bit-bang RX/TX
 - **FDC**: Reads working, DMA working, interrupt chain complete
 - **Timer crash**: `emu_timer::schedule_next_period` assertion in DEBUG mode only (pre-existing MAME issue)
@@ -343,3 +343,159 @@ cat mv30bios.asm
 
 8. **DMA address**: `phys = ((adr_hi & 0xFF) << 16) | adr_lo`. The high byte
    of adr_hi (0x11D) is a control register (0x87 = enable), not address bits.
+
+9. **HSO CAM same-tick match suppression** — See dedicated section below.
+
+---
+
+## HSO CAM Same-Tick Match Suppression (`hso_cam_committed`)
+
+### Summary
+
+A new bitmask `hso_cam_committed` was added to `i8x9x_device` to prevent
+freshly committed HSO CAM entries from triggering in the same `internal_update`
+call that committed them. This fixes a critical timing issue where the MV-30
+firmware's sequencer timer chain died at boot and never recovered, preventing
+the sequencer from advancing and producing any audio output.
+
+### Background: i8x9x HSO (High Speed Output) CAM
+
+The i8x9x HSO subsystem contains an 8-slot Content-Addressable Memory (CAM).
+Software arms a timer event by writing a command byte to SFR 0x06
+(`HSO_COMMAND`) and a 16-bit match value to SFR 0x04 (`HSO_TIME`). The write
+to `HSO_TIME` commits the entry into the first available CAM slot. The
+hardware continuously compares each active slot's time value against TIMER1
+(or TIMER2). When a match occurs, the associated action executes (set IOS1
+bits, trigger IRQ, etc.) and the slot is freed.
+
+In MAME, `commit_hso_cam()` stores the entry and immediately calls
+`internal_update(total_cycles())`, which scans all active slots for matches
+against the current timer value. This means a newly committed entry whose
+target time equals the current TIMER1 value will fire **instantly** — within
+the same call that committed it.
+
+### The Problem on Real Hardware
+
+On real silicon, the HSO comparator operates synchronously with the timer
+clock. TIMER1 increments once every 8 CPU clock cycles (state times). The
+comparator evaluates matches at timer increment boundaries. When software
+writes `HSO_TIME`, the value is latched into the CAM, but it cannot
+participate in a comparison until the **next** timer tick boundary. If the
+written value happens to equal the current TIMER1 value, the comparison
+window for that tick has already passed — the entry will not match until
+TIMER1 wraps all the way around (65,536 ticks later, ~43.7ms at 12 MHz).
+
+The existing `timer_time_until()` function already handles this correctly for
+**scheduling purposes**: it has `if(!tdelta) tdelta = 0x10000;` which maps a
+zero delta (target == current) to a full wrap. But `internal_update()` was
+checking for exact equality (`t == current_timer1`) on **all** active slots
+including the one just committed, bypassing `timer_time_until()`'s wrap logic.
+
+### The MV-30 Failure Mode
+
+The MV-30 firmware uses four HSO channels (commands 0x38–0x3B) as software
+timers via IOS1 bits 0–3, with IRQ_SOFT (INT5) as the interrupt source:
+
+| HSO Cmd | IOS1 Bit | Purpose                              |
+|---------|----------|--------------------------------------|
+| 0x38    | 0        | Fast timer (~100µs period)           |
+| 0x39    | 1        | MIDI/system timer (~1ms period)      |
+| 0x3A    | 2        | Sequencer timer (tempo-dependent)    |
+| 0x3B    | 3        | Tempo subdivider                     |
+
+Each timer is self-re-arming: when INT5 fires and finds IOS1 bit N set, the
+handler computes the next target time (current + interval) and writes a new
+HSO entry. This creates a recurring chain.
+
+The sequencer timer (0x3A) is initially armed during boot at address 0x8081:
+
+```asm
+; Boot code at SYSOL_P2E::8081
+LDB  HSI_status, #0x3A      ; HSO command = 0x3A (IOS1.2 + IRQ_SOFT)
+ADD  HSI_time, TIMER1, [5D18h]  ; Target = TIMER1 + interval at 0x5D18
+```
+
+The interval variable at 0x5D18 lives in the **data bank** (page 0xA1 =
+uninitialized RAM), not the execute bank (page 0x2E where the firmware code
+resides and where 0x5D18 contains 0xF099). At boot, the data bank RAM is
+all zeros, so the ADD computes `target = TIMER1 + 0 = TIMER1`.
+
+**Without the fix**: `commit_hso_cam()` → `internal_update()` finds
+`target == current_timer1` → immediate trigger → IOS1 bit 2 set + IRQ_SOFT
+pending. But interrupts are still **disabled** during boot (the boot code
+enables INT_MASK only later at 0x80B2). The boot code itself reads IOS1 at
+0x80A6 to clear bit 2 as a side effect, and clears INT_PENDING at 0x80AC.
+The 0x3A event is consumed before the INT5 handler ever runs.
+
+After boot, the INT5 handler (at 0x01FB) is the **only** code path that
+re-arms 0x3A. It reads IOS1 into a register, checks bit 2, and if set,
+computes the next target and writes a new HSO entry. But IOS1 bit 2 is never
+set again because no HSO 0x3A entry is active. There is also a main-loop
+path (FUN_867a → FUN_8608 → FUN_86D6) that can arm 0x3A, but it checks a
+snapshot of IOS1 taken during the INT5 handler — which also requires bit 2
+to have been set. **Result: chicken-and-egg. The 0x3A timer chain is dead.**
+
+Timers 0x38 and 0x39 survive because their initial intervals are non-zero
+(programmed from firmware constants in the execute bank), so their first
+`ADD HSI_time, TIMER1, [interval]` produces a target in the future, avoiding
+the immediate-trigger problem.
+
+**With the fix**: The initial 0x3A commit with `target == TIMER1` does NOT
+trigger immediately. `timer_time_until()` correctly schedules the match for
+65,536 ticks later (~43.7ms). When it fires, INT5 bit 2 handler runs, the
+firmware has by then written a proper tempo interval to 0x5D18, and the
+re-arm computes a correct future target. The recurring chain is established
+and the sequencer starts advancing.
+
+### Implementation
+
+A new `u8 hso_cam_committed` bitmask in `i8x9x_device` tracks which CAM
+slots were just committed:
+
+**`commit_hso_cam()`** — Sets the bit for the newly used slot:
+```cpp
+hso_active |= 1 << i;
+hso_cam_committed |= 1 << i;  // mark as just-committed
+```
+
+**`internal_update()`** — Skips just-committed slots during match check,
+then clears the mask so they participate in future updates:
+```cpp
+for(int i=0; i<8; i++)
+    if(BIT(hso_active, i) && !BIT(hso_cam_committed, i)) {
+        // ... match check and trigger ...
+    }
+hso_cam_committed = 0;  // clear after first pass
+```
+
+The mask is also saved/restored (`save_item`) and reset in `device_reset()`.
+
+### Why This Is Correct
+
+1. **Matches real hardware timing**: On real silicon, a CAM entry cannot match
+   on the same timer tick it was written. The comparator evaluates at tick
+   boundaries; a mid-tick write is latched but not compared until the next
+   tick. The `hso_cam_committed` mask models this one-tick latency.
+
+2. **Existing wrap logic already handles the deferred case**: When the
+   committed entry's time equals the current timer, `timer_time_until()`
+   returns `current_time + 0x10000 * 8` (one full 16-bit wrap), which is
+   correct — the entry fires on the next occurrence of that timer value.
+
+3. **No impact on normal operation**: When software arms an HSO entry with
+   a future target time (the common case), the entry would not have matched
+   in `internal_update()` anyway. The mask only affects the edge case where
+   target == current.
+
+4. **Affects all i8x9x-based drivers**: This is a core CPU fix, not
+   MV-30-specific. Other Roland drivers (D-50, D-70, S-330, MT-32, etc.)
+   using the same HSO mechanism may also benefit, as any firmware that arms
+   an HSO entry with a target equal to the current timer value would have
+   experienced the same premature trigger.
+
+### Verification
+
+After the fix, the MV-30 sequencer timer chain (0x3A → 0x3B) starts
+recurring. The INT5 handler processes bit 2 (sequencer tick) and bit 3
+(tempo subdivider) events. The sequencer measure counter advances and audio
+output begins.

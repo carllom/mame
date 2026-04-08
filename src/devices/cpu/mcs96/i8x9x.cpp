@@ -22,7 +22,7 @@ i8x9x_device::i8x9x_device(const machine_config &mconfig, device_type type, cons
 	m_in_p0_cb(*this, 0),
 	m_out_p1_cb(*this), m_in_p1_cb(*this, 0xff),
 	m_out_p2_cb(*this), m_in_p2_cb(*this, 0xc2),
-	base_timer2(0), ad_done(0), hsi_mode(0), hsi_status(0), hso_command(0), ad_command(0), hso_active(0), hso_time(0), ad_result(0), pwm_control(0),
+	base_timer2(0), ad_done(0), hsi_mode(0), hsi_status(0), hso_command(0), ad_command(0), hso_active(0), hso_cam_committed(0), hso_time(0), ad_result(0), pwm_control(0),
 	port1(0), port2(0),
 	ios0(0), ios1(0), ioc0(0),
 	sbuf(0), sp_con(0), sp_stat(0), serial_send_buf(0), serial_send_timer(0), baud_reg(0), brh(false)
@@ -45,7 +45,7 @@ i8x9x_device::i8x9x_device(const machine_config &mconfig, device_type type, cons
 	m_in_p0_cb(*this, 0),
 	m_out_p1_cb(*this), m_in_p1_cb(*this, 0xff),
 	m_out_p2_cb(*this), m_in_p2_cb(*this, 0xc2),
-	base_timer2(0), ad_done(0), hsi_mode(0), hsi_status(0), hso_command(0), ad_command(0), hso_active(0), hso_time(0), ad_result(0), pwm_control(0),
+	base_timer2(0), ad_done(0), hsi_mode(0), hsi_status(0), hso_command(0), ad_command(0), hso_active(0), hso_cam_committed(0), hso_time(0), ad_result(0), pwm_control(0),
 	port1(0), port2(0),
 	ios0(0), ios1(0), ioc0(0),
 	sbuf(0), sp_con(0), sp_stat(0), serial_send_buf(0), serial_send_timer(0), baud_reg(0), brh(false)
@@ -103,6 +103,7 @@ void i8x9x_device::device_start()
 	save_item(NAME(hso_command));
 	save_item(NAME(ad_command));
 	save_item(NAME(hso_active));
+	save_item(NAME(hso_cam_committed));
 	save_item(NAME(hso_time));
 	save_item(NAME(ad_result));
 	save_item(NAME(port1));
@@ -126,6 +127,7 @@ void i8x9x_device::device_reset()
 {
 	mcs96_device::device_reset();
 	hso_active = 0;
+	hso_cam_committed = 0;
 	hso_command = 0;
 	hso_time = 0;
 	timer2_reset(total_cycles());
@@ -152,6 +154,7 @@ void i8x9x_device::commit_hso_cam()
 		if(!BIT(hso_active, i)) {
 			//logerror("hso cam %02x %04x in slot %d (%04x)\n", hso_command, hso_time, i, PPC);
 			hso_active |= 1 << i;
+			hso_cam_committed |= 1 << i;
 			if(hso_active == 0xff)
 				ios0 |= 0x40;
 			hso_info[i].command = hso_command;
@@ -508,7 +511,7 @@ void i8x9x_device::internal_update(u64 current_time)
 	u16 current_timer2 = timer_value(2, current_time);
 
 	for(int i=0; i<8; i++)
-		if(BIT(hso_active, i)) {
+		if(BIT(hso_active, i) && !BIT(hso_cam_committed, i)) {
 			u8 cmd = hso_info[i].command;
 			u16 t = hso_info[i].time;
 			if(((cmd & 0x40) && t == current_timer2) ||
@@ -517,6 +520,7 @@ void i8x9x_device::internal_update(u64 current_time)
 				trigger_cam(i, current_time);
 			}
 		}
+	hso_cam_committed = 0;
 
 	if(ad_done && current_time >= ad_done) {
 		// A/D conversion complete
