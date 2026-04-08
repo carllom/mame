@@ -87,6 +87,12 @@
 
 namespace {
 
+// PCM ROM address/data descrambling (same as D-70)
+template <typename T> constexpr auto UNSCRAMBLE_ADDR_INT(T offset) {
+	return bitswap<19>(offset, 18, 17, 15, 14, 16, 12, 11, 7, 9, 13, 10, 8, 3, 2, 1, 6, 4, 5, 0);
+}
+constexpr u8 UNSCRAMBLE_DATA(u8 data) { return bitswap<8>(data, 1, 2, 7, 3, 5, 0, 4, 6); }
+
 class roland_mv30_state : public driver_device
 {
 public:
@@ -111,6 +117,7 @@ public:
 	}
 
 	void mv30(machine_config &config) ATTR_COLD;
+	void init_mv30() ATTR_COLD;
 
 protected:
 	virtual void machine_start() override ATTR_COLD;
@@ -1187,6 +1194,20 @@ void roland_mv30_state::mv30(machine_config &config)
 	MIDI_PORT(config, "mdthru", midiout_slot, "midiout");
 }
 
+void roland_mv30_state::init_mv30()
+{
+	// Descramble PCM wave ROMs (same scrambling as D-70)
+	u8 *src = reinterpret_cast<u8 *>(memregion("pcmorg")->base());
+	u8 *dst = reinterpret_cast<u8 *>(memregion("pcm")->base());
+	for (int bank = 0; bank < 6; bank++)
+	{
+		static const offs_t bank_offsets[] = { 0x000000, 0x080000, 0x100000, 0x180000, 0x200000, 0x300000 };
+		offs_t base = bank_offsets[bank];
+		for (offs_t srcpos = 0; srcpos < 0x80000; srcpos++)
+			dst[base + UNSCRAMBLE_ADDR_INT(srcpos)] = UNSCRAMBLE_DATA(src[base + srcpos]);
+	}
+}
+
 
 ROM_START(mv30)
 	ROM_REGION16_LE(0x4000, "maincpu", 0)
@@ -1209,4 +1230,4 @@ ROM_END
 } // anonymous namespace
 
 
-SYST(1990, mv30, 0, 0, mv30, mv30, roland_mv30_state, empty_init, "Roland", "MV-30 Studio M", MACHINE_NOT_WORKING)
+SYST(1990, mv30, 0, 0, mv30, mv30, roland_mv30_state, init_mv30, "Roland", "MV-30 Studio M", MACHINE_NOT_WORKING)
