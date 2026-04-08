@@ -499,3 +499,126 @@ After the fix, the MV-30 sequencer timer chain (0x3A → 0x3B) starts
 recurring. The INT5 handler processes bit 2 (sequencer tick) and bit 3
 (tempo subdivider) events. The sequencer measure counter advances and audio
 output begins.
+
+---
+
+## Fetch IRQ Dispatch Guard (`level < 0`)
+
+### Summary
+
+A bounds check was added to the interrupt dispatch loop in `mcs96ops.lst`
+(the base `fetch` microcode) and in `i8x9x.cpp` (`fetch_196_full` for
+80C196KB). Without this guard, a stale `irq_requested` flag could cause
+the CPU to dispatch a bogus interrupt vector, corrupt the stack, and crash
+the emulated system.
+
+### The Bug
+
+The MCS96 fetch sequence checks `irq_requested` at the start of every
+instruction. If true, it scans for the highest-priority pending interrupt:
+
+```c
+int level;
+for(level = 7; level >= 0 && !(PSW & pending_irq & (1<<level)); level--);
+```
+
+This loop simultaneously checks the interrupt mask (low byte of PSW) and
+the pending interrupt register. It exits in one of two ways:
+
+1. **Match found** (`level` = 0–7): A pending interrupt is enabled in the
+   mask. Normal dispatch proceeds.
+2. **No match** (`level` = -1): The loop scanned all 8 bits and found no
+   pending interrupt that is also enabled in the mask.
+
+The original code assumed case 2 could never happen because `check_irq()`
+sets `irq_requested` only when `(PSW & pending_irq) && (PSW & F_I)`.
+However, the flag can become stale between `check_irq()` and the next
+`fetch`:
+
+- **PUSHF / DI**: The firmware saves PSW and disables interrupts. This
+  clears F_I in PSW, making all mask bits invisible to the loop, but
+  `irq_requested` remains true from the prior `check_irq()`.
+
+- **int_pending_w**: Software writes to INT_PENDING (SFR 0x09) to clear
+  bits. `check_irq()` is called after the write, but `irq_requested` may
+  have been true from an earlier evaluation with those bits still set.
+
+- **Interrupt acknowledged between check and fetch**: Another interrupt
+  source (e.g., EXTINT1 in `fetch_196_full`) may service the condition
+  that caused `irq_requested`, but the flag is not re-evaluated before
+  the INT00–INT07 scan.
+
+With `level = -1`, the original code executed:
+
+```c
+pending_irq &= ~(1 << -1);     // Undefined behavior in C++
+OP1 = -1;                       // level = -1
+PC = any_r16(0x2000 + 2*(-1));  // Read from 0x1FFE — bogus vector
+```
+
+This would push a return address onto the stack and jump to an arbitrary
+address, corrupting the firmware's execution state.
+
+### The MV-30 Trigger
+
+The MV-30 firmware makes heavy use of `PUSHF` + implicit `DI` in its main
+loop and interrupt handlers:
+
+- **FUN_88E5** (A/D conversion): Starts with `PUSHF` (saves PSW, disables
+  interrupts), processes analog inputs, exits with `POPF` + `RET`.
+- **INT5 handler** (0x01FB): Starts with `PUSHF`, reads IOS1, processes
+  HSO timer events, exits with `POPF` + `RET`.
+- **FUN_8608**: Checks IOS1 snapshot bits, exits with `POPF` + `RET` (the
+  POPF matches a PUSHF earlier in the call chain from FUN_88E5).
+
+Each `PUSHF` clears the I flag in PSW, making interrupts invisible to the
+priority scan. If an HSO timer fires between `check_irq()` setting
+`irq_requested = true` and the `fetch` executing, the scan finds no
+dispatchable interrupt and `level` exits as -1. With four recurring HSO
+timers (0x38–0x3B) firing at high rates, this race occurs frequently.
+
+### Implementation
+
+**`mcs96ops.lst`** (base MCS96 `fetch`):
+```c
+for(level = 7; level >= 0 && !(PSW & pending_irq & (1<<level)); level--);
+if(level >= 0) {
+    // ... normal interrupt dispatch ...
+} else {
+    irq_requested = false;
+}
+```
+
+**`i8x9x.cpp`** (`fetch_196_full` for 80C196KB):
+Same guard applied to the `else if(irq_requested)` branch after the
+EXTINT1 check.
+
+When `level < 0`, no interrupt is dispatched and `irq_requested` is
+cleared. This prevents the CPU from re-entering the dead scan on every
+subsequent fetch cycle. The flag will be set again correctly when
+`check_irq()` is next called (on any write to INT_PENDING, INT_MASK, or
+when a new interrupt source fires).
+
+### Why This Is Correct
+
+1. **Defensive, not masking a bug**: The `irq_requested` flag is an
+   optimization cache of `(PSW & pending_irq) && (PSW & F_I)`. It is not
+   guaranteed to be re-evaluated between every state change and the next
+   fetch. The guard handles the inherent race without adding overhead to
+   the common no-interrupt path.
+
+2. **No interrupts are lost**: Clearing `irq_requested` when no interrupt
+   is dispatchable does not suppress future interrupts. Any subsequent
+   event that sets `pending_irq` bits or changes PSW will call
+   `check_irq()`, which re-evaluates and sets `irq_requested` again if
+   appropriate.
+
+3. **Prevents undefined behavior**: `1 << -1` is undefined in C++.
+   Even if a compiler happens to produce a no-op or wrapping shift, the
+   subsequent vector read from `0x1FFE` is still a bug — that address
+   is below the interrupt vector table and reads arbitrary memory.
+
+4. **Affects both MCS96 base and 80C196KB**: The fix is applied in two
+   places: the generated `fetch_full()` (from `mcs96ops.lst`) used by
+   base MCS96 devices, and the hand-written `fetch_196_full()` in
+   `i8x9x.cpp` used by 80C196KB devices like the MV-30.
