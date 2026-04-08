@@ -237,6 +237,9 @@ private:
 	bool m_encoder_moved;  // Latch 2 output: set on encoder step, cleared by HSO2
 	bool m_encoder_dir;    // Latch 1 output: direction of last step
 
+	// LP-1 PCM interrupt (active on PORT0 bit 7)
+	int m_pcm_irq;
+
 	// MIDI bit-bang state
 	std::queue<u8> m_midi_queue;
 	u8 m_midi_rx;
@@ -497,6 +500,7 @@ void roland_mv30_state::machine_reset()
 	m_encoder_last = 0;
 	m_encoder_moved = false;
 	m_encoder_dir = false;
+	m_pcm_irq = 0;
 	m_midi_rx = 0;
 	m_midi_pos = 0;
 	std::queue<u8>().swap(m_midi_queue);
@@ -903,9 +907,10 @@ u16 roland_mv30_state::ach0_r()
 	return m_sliders[mux]->read();
 }
 
-// PORT0 (SFR 0x0E): encoder latch signals
+// PORT0 (SFR 0x0E): encoder latch signals + LP-1 PCM interrupt
 //   P0.5 = encoder direction (0 = CW, 1 = CCW)
 //   P0.6 = encoder "moved" flag (1 = encoder turned since last HSO2 reset)
+//   P0.7 = LP-1 PCM interrupt (directly wired from LP-1 IRQ output)
 //
 // The hardware uses external latch flip-flops to capture the quadrature
 // encoder signals and present a moved + direction interface to the CPU.
@@ -927,6 +932,9 @@ u8 roland_mv30_state::port0_r()
 		val |= (1 << 6);    // P0.6 = moved
 	if (!m_encoder_dir)     // P0.5: 0 = CW, 1 = CCW
 		val |= (1 << 5);
+	if (m_pcm_irq)          // P0.7 = LP-1 PCM interrupt
+		val |= (1 << 7);
+	logerror("read p0 = %02X (irq=%d)\n", val, m_pcm_irq);
 	return val;
 }
 
@@ -1166,7 +1174,7 @@ void roland_mv30_state::mv30(machine_config &config)
 	SPEAKER(config, "lspeaker").front_left();
 	SPEAKER(config, "rspeaker").front_right();
 	MB87419_MB87420(config, m_pcm, 32.768_MHz_XTAL);
-	m_pcm->int_callback().set_inputline(m_maincpu, INPUT_LINE_IRQ1);
+	m_pcm->int_callback().set([this](int state) { m_pcm_irq = state; });
 	m_pcm->add_route(0, "lspeaker", 1.0);
 	m_pcm->add_route(1, "rspeaker", 1.0);
 

@@ -48,6 +48,9 @@ void mb87419_mb87420_device::device_start()
 	m_rate = m_clock / 512; // usually 32 KHz
 
 	m_stream = stream_alloc(0, 2, m_rate);
+	m_irq_timer = timer_alloc(FUNC(mb87419_mb87420_device::irq_timer_tick), this);
+
+	save_item(NAME(m_irq_state));
 
 	logerror("Roland PCM: Clock %u, Rate %u\n", m_clock, m_rate);
 }
@@ -58,13 +61,27 @@ void mb87419_mb87420_device::device_start()
 
 void mb87419_mb87420_device::device_reset()
 {
+	m_irq_state = false;
 	m_int_callback(CLEAR_LINE);
+
+	// Periodic IRQ timer: assert interrupt at a fraction of the sample rate.
+	// The firmware clears the interrupt by accessing registers (write).
+	m_irq_timer->adjust(attotime::from_hz(m_rate / 32), 0, attotime::from_hz(m_rate / 32));
 }
 
 //-------------------------------------------------
 //  rom_bank_pre_change - refresh the stream if the
 //  ROM banking changes
 //-------------------------------------------------
+
+TIMER_CALLBACK_MEMBER(mb87419_mb87420_device::irq_timer_tick)
+{
+	if (!m_irq_state)
+	{
+		m_irq_state = true;
+		m_int_callback(ASSERT_LINE);
+	}
+}
 
 void mb87419_mb87420_device::rom_bank_pre_change()
 {
@@ -148,6 +165,13 @@ u8 mb87419_mb87420_device::read(offs_t offset)
 void mb87419_mb87420_device::write(offs_t offset, u8 data)
 {
 	logerror("Reg %02X = %02X\n", offset, data);
+
+	// Assumed: Any register write by the CPU acknowledges the pending interrupt
+	if (m_irq_state)
+	{
+		m_irq_state = false;
+		m_int_callback(CLEAR_LINE);
+	}
 	if (offset < 0x10)
 	{
 		pcm_channel& chn = m_chns[m_sel_chn];

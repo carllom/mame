@@ -31,6 +31,8 @@ protected:
 	static int16_t decode_sample(int8_t data);
 	static int16_t sample_interpolate(int16_t smp1, int16_t smp2, uint16_t frac);
 
+	TIMER_CALLBACK_MEMBER(irq_timer_tick);
+
 private:
 	static constexpr unsigned NUM_CHANNELS = 32;
 
@@ -60,6 +62,8 @@ private:
 	uint32_t m_clock;                   // clock
 	uint32_t m_rate;                    // sample rate (usually 32000 Hz)
 	sound_stream* m_stream;             // stream handle
+	emu_timer* m_irq_timer;             // periodic IRQ timer
+	bool m_irq_state;                   // current IRQ line state
 	pcm_channel m_chns[NUM_CHANNELS];   // channel memory
 	uint8_t m_sel_chn;                  // selected channel
 };
