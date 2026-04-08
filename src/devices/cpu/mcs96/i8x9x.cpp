@@ -793,16 +793,20 @@ void i80c196_device::fetch_196_full()
 		// Normal INT00-INT07 dispatch (same as mcs96_device::fetch_full)
 		int level;
 		for(level = 7; level >= 0 && !(PSW & pending_irq & (1 << level)); level--);
-		if(level != 7)
-			pending_irq &= ~(1 << level);
-		OP1 = level;
-		standard_irq_callback(OP1, PC);
-		TMP = reg_r16(0x18);
-		TMP -= 2;
-		reg_w16(0x18, TMP);
-		any_w16(TMP, PC);
-		PC = any_r16(0x2000 + 2 * OP1);
-		check_irq();
+		if(level >= 0) {
+			if(level != 7)
+				pending_irq &= ~(1 << level);
+			OP1 = level;
+			standard_irq_callback(OP1, PC);
+			TMP = reg_r16(0x18);
+			TMP -= 2;
+			reg_w16(0x18, TMP);
+			any_w16(TMP, PC);
+			PC = any_r16(0x2000 + 2 * OP1);
+			check_irq();
+		} else {
+			irq_requested = false;
+		}
 	}
 	PPC = PC;
 	if(debugger_enabled())
