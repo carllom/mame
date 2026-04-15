@@ -84,6 +84,7 @@
 
 #include <queue>
 
+#include "roland_mv30.lh"
 
 namespace {
 
@@ -1200,6 +1201,8 @@ void roland_mv30_state::mv30(machine_config &config)
 
 	MIDI_PORT(config, "mdout", midiout_slot, "midiout");
 	MIDI_PORT(config, "mdthru", midiout_slot, "midiout");
+
+	config.set_default_layout(layout_roland_mv30);
 }
 
 void roland_mv30_state::init_mv30()
