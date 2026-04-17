@@ -5,55 +5,25 @@ copyright-holders:Carl Lom
 -->
 <mamelayout version="2">
 
-<!-- define elements -->
-
-	<element name="red_led" defstate="0">
-		<disk state="1">
-			<color red="1" green="0.2" blue="0.2" />
-		</disk>
-		<disk state="0">
-			<color red="0.3" green="0.1" blue="0.1" />
-		</disk>
-	</element>
-
-	<element name="red_led_highlight" defstate="0">
-		<disk state="1">
-			<color red="1" green=".7" blue=".7" />
-		</disk>
-		<disk state="0">
-			<color red="0.5" green="0.2" blue="0.2" />
-		</disk>
-	</element>
-
-	<element name="red_green_led" defstate="0">
-		<rect state="1">
-			<color red="1" green="0.2" blue="0.2" />
-		</rect>
-		<rect state="2">
-			<color red="0.2" green="1" blue="0.2" />
-		</rect>
-		<rect state="0">
-			<color red="0.2" green="0.2" blue="0.2" />
-		</rect>
-	</element>
-
-
-
-	<element name="button">
-		<rect state="0"><color red="0.25" green="0.25" blue="0.25"/></rect>
-		<rect state="1"><color red="0.5" green="0.5" blue="0.5"/></rect>
-	</element>
-
-	<element name="tone_display_text"><text string="TONE DISPLAY"><color red="0.8" green="0.8" blue="0.8" /></text></element>
-
-	<element name="grey_arrows">
-		<image><data><![CDATA[
-			<svg width="90" height="110" viewBox="0 0 23.8125 29.1">
-				<path fill="#d1d1d1" d="m 13.23,25.43 -1.32,3.67 -1.32,-3.67 z m 0,-21.76 L 11.9,0 10.58,3.67 Z m 6.88,9.94 3.7,1.3 -3.7,1.3 z m -16.4,0 L 0,14.92 3.7,16.23 Z" />
-			</svg>
-		]]></data></image>
-	</element>
-
+	<!-- Text labels -->
+	<element name="0_text"><text string="0"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="1_text"><text string="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="2_text"><text string="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="3_text"><text string="3"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="4_text"><text string="4"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="5_text"><text string="5"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="6_text"><text string="6"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="7_text"><text string="7"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="8_text"><text string="8"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="9_text"><text string="9"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="10_text"><text string="10"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="a_text"><text string="A" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="b_text"><text string="B" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="c_text"><text string="C" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="d_text"><text string="D" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="e_text"><text string="E" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="f_text"><text string="F" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="g_text"><text string="G" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="shift_text"><text string="SHIFT"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="f1_text"><text string="F1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="f2_text"><text string="F2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
@@ -74,8 +44,6 @@ copyright-holders:Carl Lom
 	<element name="min_text"><text string="MIN"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="left_text"><text string="(L)"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="right_text"><text string="(R)"><color red="0.8" green="0.8" blue="0.8" /></text></element>
-	<element name="0_text"><text string="0"><color red="0.8" green="0.8" blue="0.8" /></text></element>
-	<element name="10_text"><text string="10"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="mix_mode_text"><text string="MIX MODE"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="sequencer_text"><text string="SEQUENCER"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="ctrl_text"><text string="CTRL"><color red="0.8" green="0.8" blue="0.8" /></text></element>
@@ -92,59 +60,191 @@ copyright-holders:Carl Lom
 	<element name="start_stop_text"><text string="START/STOP"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="transport_shift_l_text"><text string="|&lt;&lt; (SHIFT)"><color red="0.8" green="0.8" blue="0.8" /></text></element>
 	<element name="transport_shift_r_text"><text string="(SHIFT) &gt;&gt;|"><color red="0.8" green="0.8" blue="0.8" /></text></element>
-	
+	<element name="play_text"><text string="PLAY"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="chain_text"><text string="CHAIN"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="load_text"><text string="LOAD"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="disk_text"><text string="DISK"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="mix_text"><text string="MIX"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="timbre_text"><text string="TIMBRE"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="edit_text"><text string="EDIT"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="system_text"><text string="SYSTEM"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="real_text"><text string="REAL"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="time_text"><text string="TIME"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="micro_text"><text string="MICRO"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="scope_text"><text string="SCOPE"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="track_text"><text string="TRACK" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="pattern_text"><text string="PATTERN" align="2"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="ins_text"><text string="INS"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="del_text"><text string="DEL"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="beat_text"><text string="BEAT"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="value_text"><text string="VALUE"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="abc_text"><text string="ABC" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="def_text"><text string="DEF" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="ghi_text"><text string="GHI" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="jkl_text"><text string="JKL" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="mno_text"><text string="MNO" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="pqr_text"><text string="PQR" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="stu_text"><text string="STU" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="vwx_text"><text string="VWX" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="yz_text"><text string="YZ!" align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="spacedotc_text"><text string="SPACE.," align="1"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="space_text"><text string="SPACE"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+	<element name="enter_text"><text string="ENTER"><color red="0.8" green="0.8" blue="0.8" /></text></element>
+
+	<!-- interactive elements -->
+	<element name="round_led" defstate="0">
+		<disk state="0">
+			<color red="0" green="0" blue="0" />
+		</disk>
+		<disk state="1">
+			<color red="1" green="0.2" blue="0.2" />
+		</disk>
+		<disk state="2">
+			<color red="0.2" green="1" blue="0.2" />
+		</disk>
+		<disk state="3">
+			<color red="1" green="1" blue="0.2" />
+		</disk>
+	</element>
+
+	<element name="rect_led" defstate="0">
+		<rect state="0">
+			<color red="0" green="0" blue="0" />
+		</rect>
+		<rect state="1">
+			<color red="1" green="0.2" blue="0.2" />
+		</rect>
+		<rect state="2">
+			<color red="0.2" green="1" blue="0.2" />
+		</rect>
+	</element>
+
+	<element name="basic_button">
+		<rect state="0"><color red="0.1" green="0.1" blue="0.1"/></rect>
+		<rect state="1"><color red="0.3" green="0.3" blue="0.3"/></rect>
+	</element>
+
+	<element name="arrow_up_edge">
+		<image>
+			<data><![CDATA[<svg width="43" height="21.5" viewBox="0 0 43 21.5"><path fill="#000" d="M 0,21.5 L 43,21.5 L 21.5,0 Z" /></svg>]]></data>
+		</image>
+	</element>
+	<element name="arrow_up">
+		<image state="0">
+			<data><![CDATA[<svg width="43" height="21.5" viewBox="0 0 43 21.5"><path fill="#1a1a1a" d="M 2.4,20.5 L 40.6,20.5 L 21.5,1 Z" /></svg>]]></data>
+		</image>
+		<image state="1">
+			<data><![CDATA[<svg width="43" height="21.5" viewBox="0 0 43 21.5"><path fill="#4d4d4d" d="M 2.4,20.5 L 40.6,20.5 L 21.5,1 Z" /></svg>]]></data>
+		</image>
+	</element>
+
+	<element name="arrow_down_edge">
+		<image>
+			<data><![CDATA[<svg width="43" height="21.5" viewBox="0 0 43 21.5"><path fill="#000" d="M 0,0 L 43,0 L 21.5,21.5 Z" /></svg>]]></data>
+		</image>
+	</element>
+	<element name="arrow_down">
+		<image state="0">
+			<data><![CDATA[<svg width="43" height="21.5" viewBox="0 0 43 21.5"><path fill="#1a1a1a" d="M 2.4,1 L 40.6,1 L 21.5,20.5 Z" /></svg>]]></data>
+		</image>
+		<image state="1">
+			<data><![CDATA[<svg width="43" height="21.5" viewBox="0 0 43 21.5"><path fill="#4d4d4d" d="M 2.4,1 L 40.6,1 L 21.5,20.5 Z" /></svg>]]></data>
+		</image>
+	</element>
+
+	<element name="arrow_left_edge">
+		<image>
+			<data><![CDATA[<svg width="21.5" height="43" viewBox="0 0 21.5 43"><path fill="#000" d="M 21.5,0 L 21.5,43 L 0,21.5 Z" /></svg>]]></data>
+		</image>
+	</element>
+	<element name="arrow_left">
+		<image state="0">
+			<data><![CDATA[<svg width="21.5" height="43" viewBox="0 0 21.5 43"><path fill="#1a1a1a" d="M 20.5,40.6 L 20.5,2.4 L 1,21.5 Z" /></svg>]]></data>
+		</image>
+		<image state="1">
+			<data><![CDATA[<svg width="21.5" height="43" viewBox="0 0 21.5 43"><path fill="#4d4d4d" d="M 20.5,40.6 L 20.5,2.4 L 1,21.5 Z" /></svg>]]></data>
+		</image>
+	</element>
+
+	<element name="arrow_right_edge">
+		<image>
+			<data><![CDATA[<svg width="21.5" height="43" viewBox="0 0 21.5 43"><path fill="#000" d="M 0,0 L 0,43 L 21.5,21.5 Z" /></svg>]]></data>
+		</image>
+	</element>
+	<element name="arrow_right">
+		<image state="0">
+			<data><![CDATA[<svg width="21.5" height="43" viewBox="0 0 21.5 43"><path fill="#1a1a1a" d="M 1,2.4 L 1,40.6 L 20.5,21.5 Z" /></svg>]]></data>
+		</image>
+		<image state="1">
+			<data><![CDATA[<svg width="21.5" height="43" viewBox="0 0 21.5 43"><path fill="#4d4d4d" d="M 1,2.4 L 1,40.6 L 20.5,21.5 Z" /></svg>]]></data>
+		</image>
+	</element>
+
+	<element name="small_button">
+		<rect><bounds x="0" y="0" width="14" height="14"/><color red="0" green="0" blue="0" /></rect>
+		<rect>
+			<bounds x="1" y="1" width="12" height="12" />
+			<color state="0" red="0.1" green="0.1" blue="0.1"/>
+			<color state="1" red="0.3" green="0.3" blue="0.3"/>
+		</rect>
+	</element>
+
+	<element name="medium_button">
+		<rect><bounds x="0" y="0" width="22" height="21"/><color red="0" green="0" blue="0" /></rect>
+		<rect>
+			<bounds x="1" y="1" width="20" height="19"/>
+			<color state="0" red="0.1" green="0.1" blue="0.1"/>
+			<color state="1" red="0.3" green="0.3" blue="0.3"/>
+		</rect>
+	</element>
+
+	<element name="wide_button">
+		<rect><bounds x="0" y="0" width="58" height="21"/><color red="0" green="0" blue="0" /></rect>
+		<rect>
+			<bounds x="1" y="1" width="56" height="19"/>
+			<color state="0" red="0.1" green="0.1" blue="0.1"/>
+			<color state="1" red="0.3" green="0.3" blue="0.3"/>
+		</rect>
+	</element>
+
+	<!-- Style elements -->
 
 	<element name="lcd_bezel"><rect x="0" y="0" width="412" height="102"><color red="0" green="0" blue="0" /></rect></element>
-
-	<element name="button_base">
-		<rect state="0"><color red="0.1" green="0.1" blue="0.1"/></rect>
-		<rect state="1"><color red="0.2" green="0.3" blue="0.3"/></rect>
-	</element>
-
-	<!-- large button, wide style -->
-	<element name="wide_button">
-		<rect state="0"><color red="0.1" green="0.1" blue="0.1"/></rect>
-		<rect state="1"><color red="0.3" green="0.3" blue="0.3"/></rect>
-	</element>
-
-	<!-- large button, standard style -->
-	<element name="func_button">
-		<rect state="0"><color red="0.1" green="0.1" blue="0.1"/></rect>
-		<rect state="1"><color red="0.3" green="0.3" blue="0.3"/></rect>
-	</element>
-
-	<!-- smallest square button -->
-	<element name="track_button">
-		<rect state="0"><color red="0.1" green="0.1" blue="0.1"/></rect>
-		<rect state="1"><color red="0.3" green="0.3" blue="0.3"/></rect>
-	</element>
-
 	<element name="panel_bg"><rect><color red="0.2" green="0.2" blue="0.25" /></rect></element>
-	<element name="button_edge"><rect><color red="0" green="0" blue="0" /></rect></element>
 	<element name="line"><rect><color red="0.8" green="0.8" blue="0.8" /></rect></element>
-	<element name="button_highlight"><rect><color red="0.33" green="0.33" blue="0.33" /></rect></element>
-	<element name="button_shadow"><rect><color red="0" green="0" blue="0" /></rect></element>
+	<element name="button_edge"><rect><color red="0" green="0" blue="0" /></rect></element>
 
-	<element name="fader_bg_shadow"><rect><color red="0.12" green="0.12" blue="0.14" /></rect></element>
-	<element name="fader_bg"><rect><color red="0.17" green="0.17" blue="0.22" /></rect></element>
-	<element name="fader_track"><rect><color red="0" green="0" blue="0" /></rect></element>
-	<element name="fader_knob_base"><rect><color red="0.1" green="0.1" blue="0.1" /></rect></element>
-	<element name="fader_knob_line"><rect><color red="0.1" green="0.1" blue="0.1" /></rect></element>
+	<element name="fader">
+		<rect><bounds x="0" y="0" width="16" height="74" /><color red="0.12" green="0.12" blue="0.14" /></rect>
+		<rect><bounds x="0.75" y="6" width="9.5" height="67.25" /><color red="0.17" green="0.17" blue="0.22" /></rect>
+		<rect><bounds x="5" y="3" width="6" height="68" /><color red="0" green="0" blue="0" /></rect>
+	</element>
 
-	<group name="fader">
-		<element ref="fader_bg_shadow"><bounds x="0" y="0" width="16" height="74" /></element>
-		<element ref="fader_bg"><bounds x="0.75" y="6" width="9.5" height="67.25" /></element>
-		<element ref="fader_track"><bounds x="5" y="3" width="6" height="68" /></element>
-	</group>
+	<element name="fader-knob">
+		<rect>
+			<bounds x="0" y="0" width="15" height="14" />
+			<color state="0" red="0.1" green="0.1" blue="0.1"/>
+			<color state="1" red="0.3" green="0.3" blue="0.3"/>
+		</rect>
+		<rect><bounds x="0" y="0" width="15" height="1.25" /><color red="0.33" green="0.33" blue="0.33" /></rect>
+		<rect><bounds x="0" y="12.75" width="15" height="1.25" /><color red="0" green="0" blue="0" /></rect>
+		<rect><bounds x="0" y="5.25" width="15" height="1" /><color red="0.33" green="0.33" blue="0.33" /></rect>
+		<rect><bounds x="0" y="8.25" width="15" height="1" /><color red="0" green="0" blue="0" /></rect>
+	</element>
+
+	<element name="jogwheel_dimple">
+		<disk><bounds x="-0.7" y="0.7" width="26" height="26"/><color red="0.33" green="0.33" blue="0.33" /></disk>
+		<disk><bounds x="0" y="0" width="26" height="26"/><color red="0" green="0" blue="0" /></disk>
+		<disk><bounds x="0" y="3" width="23" height="23"/><color red="0.1" green="0.1" blue="0.1" /></disk>
+	</element>
+
+	<element name="jogwheel">
+		<disk><bounds x="0" y="0" width="84" height="84"/><color red="0" green="0" blue="0" /></disk>
+		<disk><bounds x="1" y="1" width="82" height="82"/><color red="0.1" green="0.1" blue="0.1" /></disk>
+	</element>
+
+	<!-- Composite elements -->
 	
-	<group name="fader-knob">
-		<element ref="button_base"><bounds x="0" y="0" width="15" height="14" /></element>
-		<element ref="button_highlight"><bounds x="0" y="0" width="15" height="1.25" /></element>
-		<element ref="button_shadow"><bounds x="0" y="12.75" width="15" height="1.25" /></element>
-		<element ref="button_highlight"><bounds x="0" y="5.25" width="15" height="1" /></element>
-		<element ref="button_shadow"><bounds x="0" y="8.25" width="15" height="1" /></element>
-	</group>
-
 	<group name="faderlines">
 		<repeat count="3">
 			<param name="yposm" start="0" increment="27.5"/>
@@ -158,97 +258,93 @@ copyright-holders:Carl Lom
 		</repeat>
 	</group>
 
-	<!-- LCD section -->
+	<!-- View sections -->
+
 	<group name="display">
-		<!-- <bounds x="0" y="0" width="412" height="102" /> -->
 		<bounds x="0" y="0" width="412" height="154" />
 		<element ref="lcd_bezel"><bounds x="0" y="0" width="412" height="102" /></element>
 		<screen index="0"><bounds x="86" y="19" width="240" height="64" /></screen>
 		
 		<!-- shift button -->
 		<element ref="button_edge"><bounds x="30" y="128" width="57" height="21"/></element>
-		<element ref="wide_button" inputtag="SC0" inputmask="0x80"><bounds x="31" y="129" width="55" height="19"/></element>
+		<element ref="basic_button" inputtag="SC0" inputmask="0x80"><bounds x="31" y="129" width="55" height="19"/></element>
 		<element ref="shift_text"><bounds x="31" y="134" width="55" height="9" /></element>
 		<!-- F1 button -->
 		<element ref="button_edge"><bounds x="93" y="128" width="226" height="21"/></element>
-		<element ref="func_button" inputtag="SC1" inputmask="0x80"><bounds x="94" y="129" width="44" height="19"/></element>
+		<element ref="basic_button" inputtag="SC1" inputmask="0x80"><bounds x="94" y="129" width="44" height="19"/></element>
 		<element ref="f1_text"><bounds x="94" y="134" width="44" height="9" /></element>
 		<!-- F2 button -->
-		<element ref="func_button" inputtag="SC2" inputmask="0x80"><bounds x="139" y="129" width="44" height="19"/></element>
+		<element ref="basic_button" inputtag="SC2" inputmask="0x80"><bounds x="139" y="129" width="44" height="19"/></element>
 		<element ref="f2_text"><bounds x="139" y="134" width="44" height="9" /></element>
 		<!-- F3 button -->
-		<element ref="func_button" inputtag="SC3" inputmask="0x80"><bounds x="184" y="129" width="44" height="19"/></element>
+		<element ref="basic_button" inputtag="SC3" inputmask="0x80"><bounds x="184" y="129" width="44" height="19"/></element>
 		<element ref="f3_text"><bounds x="184" y="134" width="44" height="9" /></element>
 		<!-- F4 button -->
-		<element ref="func_button" inputtag="SC4" inputmask="0x80"><bounds x="229" y="129" width="44" height="19"/></element>
+		<element ref="basic_button" inputtag="SC4" inputmask="0x80"><bounds x="229" y="129" width="44" height="19"/></element>
 		<element ref="f4_text"><bounds x="229" y="134" width="44" height="9" /></element>
 		<!-- F5 button -->
-		<element ref="func_button" inputtag="SC5" inputmask="0x80"><bounds x="274" y="129" width="44" height="19"/></element>
+		<element ref="basic_button" inputtag="SC5" inputmask="0x80"><bounds x="274" y="129" width="44" height="19"/></element>
 		<element ref="f5_text"><bounds x="274" y="134" width="44" height="9" /></element>
 		<!-- shift button -->
 		<element ref="button_edge"><bounds x="325" y="128" width="57" height="21"/></element>
-		<element ref="wide_button" inputtag="SC6" inputmask="0x80"><bounds x="326" y="129" width="55" height="19"/></element>
+		<element ref="basic_button" inputtag="SC6" inputmask="0x80"><bounds x="326" y="129" width="55" height="19"/></element>
 		<element ref="exit_text"><bounds x="326" y="134" width="55" height="9" /></element>
 	</group>
 
-	<!-- Compumixer section -->
 	<group name="compumixer">
 		<bounds x="0" y="0" width="396" height="140" />
-		<element ref="panel_bg"><bounds x="0" y="0" width="396" height="140" /></element>
 		
 		<!-- Header -->
 		<element ref="line"><bounds x="79" y="7" width="125" height="1" /></element>
 		<element ref="line"><bounds x="248" y="7" width="125" height="1" /></element>
-		<element ref="compumixer_text"><bounds x="204" y="4" width="44" height="4.5" /></element>
+		<element ref="compumixer_text"><bounds x="204" y="2.5" width="44" height="7" /></element>
 
 		<!-- Channel buttons -->
 		<repeat count="8">
-			<param name="edge_x" start="80" increment="40"/>
+			<param name="btn_x" start="80" increment="40"/>
 			<param name="led_x" start="84.5" increment="40"/>
-			<param name="btn_x" start="81" increment="40"/>
 			<param name="chlo" start="1" increment="1"/>
 			<param name="chhi" start="9" increment="1"/>
 			<param name="count" start="0" increment="1"/>
 
-			<element ref="~chlo~_~chhi~_text"><bounds x="~edge_x~" y="9" width="14" height="4.5" /></element>
-			<element name="LED0~count~" ref="red_led"><bounds x="~led_x~" y="15" width="5" height="5" /></element>
-			<element ref="button_edge"><bounds x="~edge_x~" y="23" width="14" height="14"/></element>
-			<element ref="button_base" inputtag="SC~count~" inputmask="0x40"><bounds x="~btn_x~" y="24" width="12" height="12" /></element>
+			<element ref="~chlo~_~chhi~_text"><bounds x="~btn_x~" y="8.5" width="14" height="7" /></element>
+			<element name="LED0~count~" ref="round_led"><bounds x="~led_x~" y="15" width="5" height="5" /></element>
+			<element ref="small_button" inputtag="SC~count~" inputmask="0x40"><bounds x="~btn_x~" y="23" width="14" height="14" /></element>
 		</repeat>		
 
 		<!-- Channel fader lines and markers -->
 		<group ref="faderlines"><bounds x="69" y="70" width="314" height="56" /></group>
-		<element ref="max_text"><bounds x="55" y="68.5" width="15" height="5" /></element>
-		<element ref="right_text"><bounds x="55" y="73.5" width="15" height="5" /></element>
-		<element ref="min_text"><bounds x="55" y="123.5" width="15" height="5" /></element>
-		<element ref="left_text"><bounds x="55" y="117.5" width="15" height="5" /></element>
-		<element ref="max_text"><bounds x="382" y="68.5" width="15" height="5" /></element>
-		<element ref="right_text"><bounds x="382" y="73.5" width="15" height="5" /></element>
-		<element ref="min_text"><bounds x="382" y="123.5" width="15" height="5" /></element>
-		<element ref="left_text"><bounds x="382" y="117.5" width="15" height="5" /></element>
+		<element ref="max_text"><bounds x="55" y="67.5" width="15" height="7" /></element>
+		<element ref="right_text"><bounds x="55" y="72.5" width="15" height="7" /></element>
+		<element ref="min_text"><bounds x="55" y="121.5" width="15" height="7" /></element>
+		<element ref="left_text"><bounds x="55" y="115.5" width="15" height="7" /></element>
+		<element ref="max_text"><bounds x="382" y="67.5" width="15" height="7" /></element>
+		<element ref="right_text"><bounds x="382" y="72.5" width="15" height="7" /></element>
+		<element ref="min_text"><bounds x="382" y="121.5" width="15" height="7" /></element>
+		<element ref="left_text"><bounds x="382" y="115.5" width="15" height="7" /></element>
 
 		<!-- Master fader lines and markers -->
 		<group ref="faderlines"><bounds x="9" y="70" width="33" height="56" /></group>
-		<element ref="10_text"><bounds x="0" y="68.5" width="9" height="5" /></element>
-		<element ref="0_text"><bounds x="0" y="123.5" width="9" height="5" /></element>
-		<element ref="10_text"><bounds x="42" y="68.5" width="9" height="5" /></element>
-		<element ref="0_text"><bounds x="42" y="123.5" width="9" height="5" /></element>
+		<element ref="10_text"><bounds x="0" y="67.5" width="9" height="7" /></element>
+		<element ref="0_text"><bounds x="0" y="121.5" width="9" height="7" /></element>
+		<element ref="10_text"><bounds x="42" y="67.5" width="9" height="7" /></element>
+		<element ref="0_text"><bounds x="42" y="121.5" width="9" height="7" /></element>
 
 		<!-- Channel faders -->
 		<repeat count="8">
 			<param name="xpos" start="79" increment="40"/>
 			<param name="count" start="0" increment="1"/>
-			<group ref="fader"><bounds x="~xpos~" y="60.5" width="16" height="74" /></group>
-			<group ref="fader-knob" id="SLIDER-KNOB~count~">
+			<element ref="fader"><bounds x="~xpos~" y="60.5" width="16" height="74" /></element>
+			<element ref="fader-knob" id="SLIDER-KNOB~count~">
 				<!-- <animate inputtag="SL~count~" inputmask="0xff"/> -->
 				<bounds state="0"  x="~xpos~" y="118" width="15" height="14"/>
 				<!-- <bounds state="100" x="~xpos~" y="63.5" width="15" height="14"/> -->
-			</group>
+			</element>
 		</repeat>
 
 		<!-- Master fader (analog volume control, just for show) -->
-		<group ref="fader"><bounds x="17.5" y="60.5" width="16" height="74" /></group>
-		<group ref="fader-knob" id="SLIDER-KNOB9"><bounds state="100" x="17.5" y="63.5" width="15" height="14"/></group>
+		<element ref="fader"><bounds x="17.5" y="60.5" width="16" height="74" /></element>
+		<element ref="fader-knob" id="SLIDER-KNOB9"><bounds state="100" x="17.5" y="63.5" width="15" height="14"/></element>
 
 	</group>
 
@@ -258,68 +354,250 @@ copyright-holders:Carl Lom
 		<!-- Mix mode header -->
 		<element ref="line"><bounds x="66" y="8" width="14" height="1" /></element>
 		<element ref="line"><bounds x="108" y="8" width="16" height="1" /></element>
-		<element ref="mix_mode_text"><bounds x="74" y="5" width="40" height="4.5" /></element>
+		<element ref="mix_mode_text"><bounds x="74" y="3.5" width="40" height="7" /></element>
 
 		<!-- ctrl button -->
-		<element ref="button_edge"><bounds x="4.5" y="20.5" width="22" height="21"/></element>
-		<element ref="wide_button" inputtag="SC0" inputmask="0x80"><bounds x="5.5" y="21.5" width="20" height="19"/></element>
-		<element ref="ctrl_text"><bounds x="4.5" y="28.75" width="22" height="4.5" /></element>
+		<element ref="medium_button" inputtag="SC0" inputmask="0x10"><bounds x="4.5" y="20.5" width="22" height="21"/></element>
+		<element ref="ctrl_text"><bounds x="4.5" y="26.75" width="22" height="7" /></element>
 
 		<!-- Sequencer header -->
 		<element ref="line"><bounds x="178" y="8" width="80" height="1" /></element>
 		<element ref="line"><bounds x="290" y="8" width="74" height="1" /></element>
-		<element ref="sequencer_text"><bounds x="254" y="5" width="40" height="4.5" /></element>
+		<element ref="sequencer_text"><bounds x="254" y="3.5" width="40" height="7" /></element>
 
-		<element ref="transport_lbl0_text"><bounds x="54" y="10" width="40" height="4.5" /></element>
-		<element name="LED10" ref="red_led"><bounds x="71.5" y="16" width="5" height="5" /></element>
-		<element ref="button_edge"><bounds x="67" y="24" width="14" height="14"/></element>
-		<element ref="button_base" inputtag="SC1" inputmask="0x10"><bounds x="68" y="25" width="12" height="12" /></element>
+		<element ref="transport_lbl0_text"><bounds x="54" y="9.5" width="40" height="7" /></element>
+		<element name="LED10" ref="round_led"><bounds x="71.5" y="16" width="5" height="5" /></element>
+		<element ref="small_button" inputtag="SC1" inputmask="0x10"><bounds x="67" y="24" width="14" height="14"/></element>
 
-		<element ref="transport_lbl1_text"><bounds x="94" y="10" width="40" height="4.5" /></element>
-		<element name="LED11" ref="red_led"><bounds x="111.5" y="16" width="5" height="5" /></element>
-		<element ref="button_edge"><bounds x="107" y="24" width="14" height="14"/></element>
-		<element ref="button_base" inputtag="SC2" inputmask="0x10"><bounds x="108" y="25" width="12" height="12" /></element>
+		<element ref="transport_lbl1_text"><bounds x="94" y="9.5" width="40" height="7" /></element>
+		<element name="LED11" ref="round_led"><bounds x="111.5" y="16" width="5" height="5" /></element>
+		<element ref="small_button" inputtag="SC2" inputmask="0x10"><bounds x="107" y="24" width="14" height="14"/></element>
 
 		<repeat count="5">
 			<param name="text_x" start="174" increment="40"/>
 			<param name="edge_x" start="187" increment="40"/>
 			<param name="led_x" start="191.5" increment="40"/>
-			<param name="led_x_hi" start="194" increment="40"/>
-			<param name="btn_x" start="188" increment="40"/>
 			<param name="count" start="3" increment="1"/>
-			<element ref="transport_lbl~count~_text"><bounds x="~text_x~" y="10" width="40" height="4.5" /></element>
-			<element name="LED1~count~" ref="red_led"><bounds x="~led_x~" y="16" width="5" height="5" /></element>
-			<element ref="red_led_highlight"><bounds x="~led_x_hi~" y="16.5" width="1.5" height="1.5" /></element>
-			<element ref="button_edge"><bounds x="~edge_x~" y="24" width="14" height="14"/></element>
-			<element ref="button_base" inputtag="SC~count~" inputmask="0x40"><bounds x="~btn_x~" y="25" width="12" height="12" /></element>
+			<element ref="transport_lbl~count~_text"><bounds x="~text_x~" y="9.5" width="40" height="7" /></element>
+			<element name="LED1~count~" ref="round_led"><bounds x="~led_x~" y="16" width="5" height="5" /></element>
+			<element ref="small_button" inputtag="SC~count~" inputmask="0x10"><bounds x="~edge_x~" y="24" width="14" height="14"/></element>
 		</repeat>		
 
 		<!-- rec button -->
-		<element name="LED18" ref="red_led"><bounds x="191.5" y="49" width="5" height="5" /></element>
-		<element ref="button_edge"><bounds x="183" y="57" width="22" height="21"/></element>
-		<element ref="wide_button" inputtag="SC0" inputmask="0x80"><bounds x="184" y="58" width="20" height="19"/></element>
-		<element ref="rec_text"><bounds x="183" y="64.5" width="22" height="6" /></element>
+		<element name="LED18" ref="round_led"><bounds x="191.5" y="49" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC4" inputmask="0x08"><bounds x="183" y="57" width="22" height="21"/></element>
+		<element ref="rec_text"><bounds x="183" y="63" width="22" height="9" /></element>
 
 		<!-- rewind -->
-		<element ref="meas_dec_text"><bounds x="226.75" y="43" width="40" height="4.5" /></element>
+		<element ref="meas_dec_text"><bounds x="226.75" y="42.5" width="40" height="7" /></element>
 		<element ref="button_edge"><bounds x="227" y="57" width="39.5" height="21"/></element>
-		<element ref="wide_button" inputtag="SC6" inputmask="0x80"><bounds x="228" y="58" width="37.5" height="19"/></element>
-		<element ref="transport_shift_l_text"><bounds x="226.75" y="79" width="40" height="4.5" /></element>
+		<element ref="basic_button" inputtag="SC5" inputmask="0x08"><bounds x="228" y="58" width="37.5" height="19"/></element>
+		<element ref="transport_shift_l_text"><bounds x="226.75" y="78.5" width="40" height="6" /></element>
 		
 		<!-- start/stop -->
-		<element ref="start_stop_text"><bounds x="274" y="43" width="40" height="4.5" /></element>
-		<element name="LED19" ref="red_led"><bounds x="291.5" y="49" width="5" height="5" /></element>
+		<element ref="start_stop_text"><bounds x="274" y="42.5" width="40" height="7" /></element>
+		<element name="LED19" ref="round_led"><bounds x="291.5" y="49" width="5" height="5" /></element>
 		<element ref="button_edge"><bounds x="265.5" y="57" width="57" height="21"/></element>
-		<element ref="wide_button" inputtag="SC6" inputmask="0x80"><bounds x="266.5" y="58" width="55" height="19"/></element>
+		<element ref="basic_button" inputtag="SC6" inputmask="0x08"><bounds x="266.5" y="58" width="55" height="19"/></element>
 
 		<!-- fast forward -->
-		<element ref="meas_inc_text"><bounds x="321.25" y="43" width="40" height="4.5" /></element>
+		<element ref="meas_inc_text"><bounds x="321.25" y="42.5" width="40" height="7" /></element>
 		<element ref="button_edge"><bounds x="321.5" y="57" width="39.5" height="21"/></element>
-		<element ref="wide_button" inputtag="SC6" inputmask="0x80"><bounds x="322.5" y="58" width="37.5" height="19"/></element>
-		<element ref="transport_shift_r_text"><bounds x="321.25" y="79" width="40" height="4.5" /></element>
+		<element ref="basic_button" inputtag="SC7" inputmask="0x08"><bounds x="322.5" y="58" width="37.5" height="19"/></element>
+		<element ref="transport_shift_r_text"><bounds x="321.25" y="78.5" width="40" height="6" /></element>
+	</group>
+
+	<group name="navigation">
+		<bounds x="0" y="0" width="223" height="151" />
+
+		<!-- arrow up -->
+		<element ref="arrow_up_edge"><bounds x="32" y="15" width="43" height="21.5"/></element>
+		<element ref="arrow_up" inputtag="SC0" inputmask="0x04"><bounds x="32" y="15" width="43" height="21.5"/></element>
+
+		<!-- arrow left -->
+		<element ref="arrow_left_edge"><bounds x="6.75" y="40.25" width="21.5" height="43"/></element>
+		<element ref="arrow_left" inputtag="SC1" inputmask="0x04"><bounds x="6.75" y="40.25" width="21.5" height="43"/></element>
+
+		<!-- arrow right -->
+		<element ref="arrow_right_edge"><bounds x="78.75" y="40.25" width="21.5" height="43"/></element>
+		<element ref="arrow_right" inputtag="SC2" inputmask="0x04"><bounds x="78.75" y="40.25" width="21.5" height="43"/></element>
+
+		<!-- arrow down -->
+		<element ref="arrow_down_edge"><bounds x="32" y="87" width="43" height="21.5"/></element>
+		<element ref="arrow_down" inputtag="SC3" inputmask="0x04"><bounds x="32" y="87" width="43" height="21.5"/></element>
+
+		<!-- ins button -->
+		<element ref="medium_button" inputtag="SC4" inputmask="0x04"><bounds x="23" y="123" width="22" height="21"/></element>
+		<element ref="ins_text"><bounds x="23" y="130" width="22" height="7" /></element>
+
+		<!-- del button -->
+		<element ref="medium_button" inputtag="SC5" inputmask="0x04"><bounds x="59" y="123" width="22" height="21"/></element>
+		<element ref="del_text"><bounds x="59" y="130" width="22" height="7" /></element>
+
+		<!-- play  -->
+		<element name="LED20" ref="round_led"><bounds x="128.5" y="7" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC7" inputmask="0x02"><bounds x="120" y="15" width="22" height="21"/></element>
+		<element ref="play_text"><bounds x="120" y="22" width="22" height="7" /></element>
+
+		<!-- chainload -->
+		<element name="LED21" ref="round_led"><bounds x="164.5" y="7" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC7" inputmask="0x01"><bounds x="156" y="15" width="22" height="21"/></element>
+		<element ref="chain_text"><bounds x="156" y="19" width="22" height="7" /></element>
+		<element ref="load_text"><bounds x="156" y="25" width="22" height="7" /></element>
+
+		<!-- disk  -->
+		<element name="LED22" ref="round_led"><bounds x="200.5" y="7" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC3" inputmask="0x01"><bounds x="192" y="15" width="22" height="21"/></element>
+		<element ref="disk_text"><bounds x="192" y="22" width="22" height="7" /></element>
+
+		<!-- compu mix  -->
+		<element name="LED23" ref="round_led"><bounds x="128.5" y="43" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC6" inputmask="0x02"><bounds x="120" y="51" width="22" height="21"/></element>
+		<element ref="transport_lbl0_text"><bounds x="120" y="55" width="22" height="7" /></element>
+		<element ref="mix_text"><bounds x="120" y="61" width="22" height="7" /></element>
+
+		<!-- timbre edit -->
+		<element name="LED24" ref="round_led"><bounds x="164.5" y="43" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC6" inputmask="0x01"><bounds x="156" y="51" width="22" height="21"/></element>
+		<element ref="timbre_text"><bounds x="156" y="55" width="22" height="7" /></element>
+		<element ref="edit_text"><bounds x="156" y="61" width="22" height="7" /></element>
+
+		<!-- system -->
+		<element name="LED25" ref="round_led"><bounds x="200.5" y="43" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC2" inputmask="0x01"><bounds x="192" y="51" width="22" height="21"/></element>
+		<element ref="system_text"><bounds x="192" y="58" width="22" height="7" /></element>
+
+		<repeat count="7">
+			<param name="line_x1" start="142.5" increment="2"/>
+			<param name="line_x2" start="178.5" increment="2"/>
+			<element ref="line"><bounds x="~line_x1~" y="95.5" width="1" height="4"/></element>
+			<element ref="line"><bounds x="~line_x1~" y="131.5" width="1" height="4"/></element>
+			<element ref="line"><bounds x="~line_x2~" y="95.5" width="1" height="4"/></element>
+			<element ref="line"><bounds x="~line_x2~" y="131.5" width="1" height="4"/></element>
+		</repeat>
+
+		<!-- track -->
+		<element ref="track_text"><bounds x="90" y="94" width="28" height="7" /></element>
+
+		<!-- track realtime -->
+		<element name="LED26" ref="round_led"><bounds x="128.5" y="79" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC5" inputmask="0x02"><bounds x="120" y="87" width="22" height="21"/></element>
+		<element ref="real_text"><bounds x="120" y="91" width="22" height="7" /></element>
+		<element ref="time_text"><bounds x="120" y="97" width="22" height="7" /></element>
+
+		<!-- track microscope -->
+		<element name="LED27" ref="round_led"><bounds x="164.5" y="79" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC5" inputmask="0x01"><bounds x="156" y="87" width="22" height="21"/></element>
+		<element ref="micro_text"><bounds x="156" y="91" width="22" height="7" /></element>
+		<element ref="scope_text"><bounds x="156" y="97" width="22" height="7" /></element>
+
+		<!-- track edit button -->
+		<element name="LED28" ref="round_led"><bounds x="200.5" y="79" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC1" inputmask="0x01"><bounds x="192" y="87" width="22" height="21"/></element>
+		<element ref="edit_text"><bounds x="192" y="94" width="22" height="7" /></element>
+
+		<!-- pattern -->
+		<element ref="pattern_text"><bounds x="90" y="130" width="28" height="7" /></element>
+
+		<!-- pattern realtime -->
+		<element name="LED29" ref="round_led"><bounds x="128.5" y="115" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC4" inputmask="0x02"><bounds x="120" y="123" width="22" height="21"/></element>
+		<element ref="real_text"><bounds x="120" y="127" width="22" height="7" /></element>
+		<element ref="time_text"><bounds x="120" y="133" width="22" height="7" /></element>
+
+		<!-- pattern microscope -->
+		<element name="LED30" ref="round_led"><bounds x="164.5" y="115" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC4" inputmask="0x01"><bounds x="156" y="123" width="22" height="21"/></element>
+		<element ref="micro_text"><bounds x="156" y="127" width="22" height="7" /></element>
+		<element ref="scope_text"><bounds x="156" y="133" width="22" height="7" /></element>
+
+		<!-- pattern edit button -->
+		<element name="LED31" ref="round_led"><bounds x="200.5" y="115" width="5" height="5" /></element>
+		<element ref="medium_button" inputtag="SC0" inputmask="0x01"><bounds x="192" y="123" width="22" height="21"/></element>
+		<element ref="edit_text"><bounds x="192" y="130" width="22" height="7" /></element>
+	</group>
+
+	<group name="data_entry">
+		<bounds x="0" y="0" width="223" height="198" />
+
+		<element ref="beat_text"><bounds x="21" y="12" width="64" height="7" /></element>
+		<element name="LED40" ref="rect_led"><bounds x="21" y="20" width="10" height="3" /></element>
+		<element name="LED41" ref="rect_led"><bounds x="39" y="20" width="10" height="3" /></element>
+		<element name="LED42" ref="rect_led"><bounds x="57" y="20" width="10" height="3" /></element>
+		<element name="LED43" ref="rect_led"><bounds x="75" y="20" width="10" height="3" /></element>
+
+		<element ref="value_text"><bounds x="11" y="43" width="84" height="7" /></element>
+		<element ref="jogwheel"><bounds x="11" y="52" width="84" height="84"/></element>
+		<element ref="jogwheel_dimple"><bounds x="58" y="64" width="26" height="26"/></element>
+
+		<!-- 7 STU -->
+		<element ref="stu_text"><bounds x="120" y="57" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC6" inputmask="0x20"><bounds x="120" y="64" width="22" height="21"/></element>
+		<element ref="7_text"><bounds x="121" y="70" width="20" height="9" /></element>
+
+		<!-- 8 VWX -->
+		<element ref="vwx_text"><bounds x="156" y="57" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC3" inputmask="0x20"><bounds x="156" y="64" width="22" height="21"/></element>
+		<element ref="8_text"><bounds x="157" y="70" width="20" height="9" /></element>
+
+		<!-- 9 YZ! -->
+		<element ref="yz_text"><bounds x="192" y="57" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC3" inputmask="0x08"><bounds x="192" y="64" width="22" height="21"/></element>
+		<element ref="9_text"><bounds x="193" y="70" width="20" height="9" /></element>
+
+		<!-- 4 JKL -->
+		<element ref="jkl_text"><bounds x="120" y="93" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC5" inputmask="0x20"><bounds x="120" y="100" width="22" height="21"/></element>
+		<element ref="4_text"><bounds x="121" y="106" width="20" height="9" /></element>
+		<element ref="e_text"><bounds x="121" y="114" width="20" height="7" /></element>
+
+		<!-- 5 MNO -->
+		<element ref="mno_text"><bounds x="156" y="93" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC2" inputmask="0x20"><bounds x="156" y="100" width="22" height="21"/></element>
+		<element ref="5_text"><bounds x="157" y="106" width="20" height="9" /></element>
+		<element ref="f_text"><bounds x="157" y="114" width="20" height="7" /></element>
+
+		<!-- 6 PQR -->
+		<element ref="pqr_text"><bounds x="192" y="93" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC2" inputmask="0x08"><bounds x="192" y="100" width="22" height="21"/></element>
+		<element ref="6_text"><bounds x="193" y="106" width="20" height="9" /></element>
+		<element ref="g_text"><bounds x="193" y="114" width="20" height="7" /></element>
+
+		<!-- 1 ABC -->
+		<element ref="abc_text"><bounds x="120" y="129" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC4" inputmask="0x20"><bounds x="120" y="136" width="22" height="21"/></element>
+		<element ref="1_text"><bounds x="121" y="142" width="20" height="9" /></element>
+		<element ref="b_text"><bounds x="121" y="150" width="20" height="7" /></element>
+
+		<!-- 2 DEF -->
+		<element ref="def_text"><bounds x="156" y="129" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC1" inputmask="0x20"><bounds x="156" y="136" width="22" height="21"/></element>
+		<element ref="2_text"><bounds x="157" y="142" width="20" height="9" /></element>
+		<element ref="c_text"><bounds x="157" y="150" width="20" height="7" /></element>
+
+		<!-- 3 GHI -->
+		<element ref="ghi_text"><bounds x="192" y="129" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC1" inputmask="0x08"><bounds x="192" y="136" width="22" height="21"/></element>
+		<element ref="3_text"><bounds x="193" y="142" width="20" height="9" /></element>
+		<element ref="d_text"><bounds x="193" y="150" width="20" height="7" /></element>
+
+		<!-- 0 SPACE., -->
+		<element ref="spacedotc_text"><bounds x="120" y="165" width="22" height="7" /></element>
+		<element ref="medium_button" inputtag="SC0" inputmask="0x20"><bounds x="120" y="172" width="22" height="21"/></element>
+		<element ref="0_text"><bounds x="121" y="178" width="20" height="9" /></element>
+		<element ref="a_text"><bounds x="121" y="186" width="20" height="7" /></element>
+
+		<!-- Enter -->
+		<element ref="wide_button" inputtag="SC0" inputmask="0x08"><bounds x="156" y="172" width="58" height="21"/></element>
+		<element ref="enter_text"><bounds x="157" y="178" width="56" height="9" /></element>
+
+		<!-- shift button -->
+		<element ref="wide_button" inputtag="SC7" inputmask="0x20"><bounds x="23" y="172" width="58" height="21"/></element>
+		<element ref="shift_text"><bounds x="24" y="178" width="56" height="9" /></element>
 
 	</group>
-<!-- build screen -->
+
+	<!-- screens -->
 
 	<view name="Display Only">
 		<screen index="0">
@@ -328,8 +606,8 @@ copyright-holders:Carl Lom
 	</view>
 
 	<view name="Full View">
-		<bounds x="0" y="0" width="412" height="396" />
-		<element ref="panel_bg"><bounds x="0" y="0" width="412" height="396"/></element>
+		<bounds x="0" y="0" width="653" height="396" />
+		<element ref="panel_bg"><bounds x="0" y="0" width="653" height="396"/></element>
 		<group ref="display">
 			<bounds x="0" y="0" width="412" height="154" />
 		</group>
@@ -338,6 +616,12 @@ copyright-holders:Carl Lom
 		</group>
 		<group ref="transport">
 			<bounds x="23" y="308" width="366" height="88" />
+		</group>
+		<group ref="navigation">
+			<bounds x="430" y="5" width="223" height="151" />
+		</group>
+		<group ref="data_entry">
+			<bounds x="430" y="156" width="223" height="198" />
 		</group>
 	</view>
 </mamelayout>
