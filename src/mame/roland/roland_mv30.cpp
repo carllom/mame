@@ -225,6 +225,7 @@ private:
 	u8 m_keyscan_cmd;              // last command written to C800
 	u8 m_keyscan_prev[8];          // previous column scan state (for edge detection)
 	u8 m_keyscan_fifo[16];         // key event FIFO (6-bit keycodes)
+	u8 m_led[16];                  // LED state (not emulated)
 	u8 m_keyscan_fifo_head;        // FIFO read pointer
 	u8 m_keyscan_fifo_tail;        // FIFO write pointer
 	bool m_keyscan_enabled;        // autonomous scanning enabled (config 0x70 bit 7)
@@ -457,6 +458,7 @@ void roland_mv30_state::machine_start()
 	save_item(NAME(m_keyscan_fifo_head));
 	save_item(NAME(m_keyscan_fifo_tail));
 	save_item(NAME(m_keyscan_enabled));
+	save_item(NAME(m_led));
 	save_item(NAME(m_port1_out));
 
 	m_keyscan_timer = timer_alloc(FUNC(roland_mv30_state::keyscan_scan_tick), this);
@@ -497,6 +499,7 @@ void roland_mv30_state::machine_reset()
 	m_keyscan_fifo_head = 0;
 	m_keyscan_fifo_tail = 0;
 	m_keyscan_enabled = false;
+	std::fill(std::begin(m_led), std::end(m_led), 0x55);
 	m_port1_out = 0;
 	m_encoder_last = 0;
 	m_encoder_moved = false;
@@ -636,6 +639,14 @@ void roland_mv30_state::keyscan_w(offs_t offset, u8 data)
 			else if (!m_keyscan_enabled && was_enabled)
 			{
 				m_keyscan_timer->adjust(attotime::never);
+			}
+		}
+		else if (m_keyscan_cmd >= 0x08 && m_keyscan_cmd <= 0x17)
+		{
+			if (m_led[m_keyscan_cmd - 0x08] != data)
+			{
+				m_led[m_keyscan_cmd - 0x08] = data;
+				logerror("LED reg change: reg=%02x data=%02x\n", m_keyscan_cmd, data);
 			}
 		}
 		// Other config/LED register writes are ignored for now
