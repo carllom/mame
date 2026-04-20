@@ -247,6 +247,21 @@ observed in logs).
 8×8 matrix via SC0–SC7 rows. Buttons and slider select buttons. 8 analog
 sliders via MUX on ACH0. Rotary data dial via ACH5/ACH6 with HSO2 latch reset.
 
+### LED register (TC23SC060)
+
+| Reg. | Bit7 | Bit6 | Bit5 | Bit4 | Bit3 | Bit2 | Bit1 | Bit0 |
+|------|------|------|------|------|------|------|------|------|
+| 08 | - | CH1(G) 0 | CH8(R) 7 | - | - | BEAT0(G) 8 | - | P EDIT(R) 25 |
+| 09 | - | CH2(G) 1 | CH7(R) 6 | COMPU(mixmode)(R) 12 | - | BEAT0(R) 8 | - | T EDIT(R) 26 |
+| 0A | - | CH3(G) 2 | CH6(R) 5 | MANUAL(mixmode)(R) 13 | - | BEAT1(G) 9 | - | SYSTEM(R) 27 |
+| 0B | - | CH4(G) 3 | CH5(R) 4 | SONG SELECT(R) 14 | - | BEAT2(G) 10 | - | DISK(R) 28 |
+| 0C | - | CH4(R) 3 | CH5(G) 4 | STATUS(R) 15 | REC(R) 19 | BEAT3(G) 11 | P REALTIME(R) 21 | P MICROSTEP(R) 29 |
+| 0D | - | CH3(R) 2 | CH6(G) 5 | LOCATE(R) 16 | - | - | T REALTIME(R) 22 | T MICROSTEP(R) 30 |
+| 0E | - | CH2(R) 1 | CH7(G) 6 | MARK(R) 17 | START/STOP(G) 20 | - | COMPUMIX(R) 23 | TIMBRE EDIT(R) 31 |
+| 0F | - | CH1(R) 0 | CH8(G) 7 | TEMPO(R) 18 | - | - | PLAY(R) 24 | CHAINPLAY(R) 32 |
+
+LED registers are inverted before being sent out on the led bus, so a 1 bit in the register gives a 0 on the LEDn line, which turns on the led: SCm (high) connected through led to LEDn (low).
+
 ### RCC (TC23SC104AF-007)
 
 Reverb/chorus/effects processor. Stub only — reads return 0.
