@@ -94,6 +94,62 @@ template <typename T> constexpr auto UNSCRAMBLE_ADDR_INT(T offset) {
 }
 constexpr u8 UNSCRAMBLE_DATA(u8 data) { return bitswap<8>(data, 1, 2, 7, 3, 5, 0, 4, 6); }
 
+// Output map for LEDs
+struct LedMapping {
+    uint8_t reg;
+    uint8_t bit;
+    offs_t output_index;
+    int32_t state;
+};
+
+// Output map for bi-color LEDs. State is computed from the red and green bits
+struct BiColorLedMapping {
+    uint8_t reg_red, bit_red;
+    uint8_t reg_green, bit_green;
+    offs_t output_index;
+};
+
+const BiColorLedMapping bicolor_leds[] = {
+    {0x08, 2, 0x09, 2, 8}, // BEAT0
+	{0x08, 5, 0x0F, 5, 7}, // CH8
+	{0x09, 5, 0x0E, 5, 6}, // CH7
+	{0x0A, 5, 0x0D, 5, 5}, // CH6
+	{0x0B, 5, 0x0C, 5, 4}, // CH5
+	{0x0C, 6, 0x0B, 6, 3}, // CH4
+	{0x0D, 6, 0x0A, 6, 2}, // CH3
+	{0x0E, 6, 0x09, 6, 1}, // CH2
+    {0x0F, 6, 0x08, 6, 0}, // CH1
+};
+
+// For single-color LEDs
+const LedMapping leds[] = {
+	{0x08, 0, 25, 1}, // P EDIT
+	{0x09, 0, 26, 1}, // T EDIT
+	{0x09, 4, 12, 1}, // COMPU (mixmode)
+	{0x0A, 0, 27, 1}, // SYSTEM
+	{0x0A, 2, 9, 2},  // BEAT1
+	{0x0A, 4, 13, 1}, // MANUAL (mixmode)
+	{0x0B, 0, 28, 1}, // DISK
+	{0x0B, 2, 10, 2}, // BEAT2
+	{0x0B, 4, 14, 1}, // SONG SELECT
+	{0x0C, 0, 29, 1}, // P MICROSCOPE
+	{0x0C, 1, 21, 1}, // P REALTIME
+	{0x0C, 2, 11, 2}, // BEAT3
+	{0x0C, 3, 19, 1}, // REC
+	{0x0C, 4, 15, 1}, // STATUS
+	{0x0D, 0, 30, 1}, // T MICROSCOPE
+	{0x0D, 1, 22, 1}, // T REALTIME
+	{0x0D, 4, 16, 1}, // LOCATE
+	{0x0E, 0, 31, 1}, // TIMBRE EDIT
+	{0x0E, 1, 23, 1}, // COMPUMIX
+	{0x0E, 3, 20, 2}, // START/STOP
+	{0x0E, 4, 17, 1}, // MARK
+	{0x0F, 0, 32, 1}, // CHAINPLAY
+	{0x0F, 1, 24, 1}, // PLAY
+	{0x0F, 4, 18, 1}, // TEMPO
+
+};
+
 class roland_mv30_state : public driver_device
 {
 public:
@@ -109,6 +165,7 @@ public:
 		, m_keys(*this, "SC%u", 0)
 		, m_sliders(*this, "SL%u", 0)
 		, m_encoder(*this, "ENCODER")
+		, m_leds(*this, "LED%u", 0U)
 		, m_fdc(*this, "fdc")
 		, m_floppy(*this, "fdc:0")
 		, m_pcm(*this, "pcm")
@@ -212,6 +269,8 @@ private:
 	required_ioport_array<8> m_sliders;
 	required_ioport m_encoder;
 
+	output_finder<33> m_leds;
+
 	// I/O devices
 	required_device<upd72068_device> m_fdc;
 	optional_device<floppy_connector> m_floppy;
@@ -225,7 +284,7 @@ private:
 	u8 m_keyscan_cmd;              // last command written to C800
 	u8 m_keyscan_prev[8];          // previous column scan state (for edge detection)
 	u8 m_keyscan_fifo[16];         // key event FIFO (6-bit keycodes)
-	u8 m_led[16];                  // LED state (not emulated)
+	u8 m_ledreg[16];                  // LED state (not emulated)
 	u8 m_keyscan_fifo_head;        // FIFO read pointer
 	u8 m_keyscan_fifo_tail;        // FIFO write pointer
 	bool m_keyscan_enabled;        // autonomous scanning enabled (config 0x70 bit 7)
@@ -451,6 +510,8 @@ void roland_mv30_state::lcd_palette(palette_device &palette) const
 
 void roland_mv30_state::machine_start()
 {
+	m_leds.resolve();
+
 	save_item(NAME(m_bank_reg));
 	save_item(NAME(m_keyscan_cmd));
 	save_item(NAME(m_keyscan_prev));
@@ -458,7 +519,7 @@ void roland_mv30_state::machine_start()
 	save_item(NAME(m_keyscan_fifo_head));
 	save_item(NAME(m_keyscan_fifo_tail));
 	save_item(NAME(m_keyscan_enabled));
-	save_item(NAME(m_led));
+	save_item(NAME(m_ledreg));
 	save_item(NAME(m_port1_out));
 
 	m_keyscan_timer = timer_alloc(FUNC(roland_mv30_state::keyscan_scan_tick), this);
@@ -499,7 +560,7 @@ void roland_mv30_state::machine_reset()
 	m_keyscan_fifo_head = 0;
 	m_keyscan_fifo_tail = 0;
 	m_keyscan_enabled = false;
-	std::fill(std::begin(m_led), std::end(m_led), 0x55);
+	std::fill(std::begin(m_ledreg), std::end(m_ledreg), 0x55);
 	m_port1_out = 0;
 	m_encoder_last = 0;
 	m_encoder_moved = false;
@@ -641,11 +702,44 @@ void roland_mv30_state::keyscan_w(offs_t offset, u8 data)
 				m_keyscan_timer->adjust(attotime::never);
 			}
 		}
-		else if (m_keyscan_cmd >= 0x08 && m_keyscan_cmd <= 0x17)
+		else if (m_keyscan_cmd >= 0x08 && m_keyscan_cmd <= 0x0F)
 		{
-			if (m_led[m_keyscan_cmd - 0x08] != data)
+			// Save the written value for this register
+			m_ledreg[m_keyscan_cmd - 0x08] = data;
+
+			// Update bi-color LEDs
+			for (const auto &led : bicolor_leds)
 			{
-				m_led[m_keyscan_cmd - 0x08] = data;
+				if (led.reg_red == m_keyscan_cmd || led.reg_green == m_keyscan_cmd)
+				{
+					// Get the current red and green bits for this LED
+					uint8_t regval_red = m_ledreg[led.reg_red - 0x08];
+					uint8_t regval_green = m_ledreg[led.reg_green - 0x08];
+					bool red = BIT(regval_red, led.bit_red);
+					bool green = BIT(regval_green, led.bit_green);
+					uint8_t state = (red ? 1 : 0) | (green ? 2 : 0);
+					m_leds[led.output_index] = state;
+				}
+			}
+
+			// Update single-color LEDs
+			for (const auto &led : leds)
+			{
+				if (led.reg == m_keyscan_cmd)
+				{
+					uint8_t regval = m_ledreg[m_keyscan_cmd - 0x08];
+					m_leds[led.output_index] = BIT(regval, led.bit) ? led.state : 0;
+				}
+				if (led.reg > m_keyscan_cmd)
+					break;  // LED registers are contiguous, so we can stop checking
+			}
+		}
+		// Unknown config registers
+		else if (m_keyscan_cmd >= 0x10 && m_keyscan_cmd <= 0x17)
+		{
+			if (m_ledreg[m_keyscan_cmd - 0x08] != data)
+			{
+				m_ledreg[m_keyscan_cmd - 0x08] = data;
 				logerror("LED reg change: reg=%02x data=%02x\n", m_keyscan_cmd, data);
 			}
 		}

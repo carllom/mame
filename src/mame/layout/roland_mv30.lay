@@ -308,7 +308,7 @@ copyright-holders:Carl Lom
 			<param name="count" start="0" increment="1"/>
 
 			<element ref="~chlo~_~chhi~_text"><bounds x="~btn_x~" y="8.5" width="14" height="7" /></element>
-			<element name="LED0~count~" ref="round_led"><bounds x="~led_x~" y="15" width="5" height="5" /></element>
+			<element name="LED~count~" ref="round_led"><bounds x="~led_x~" y="15" width="5" height="5" /></element>
 			<element ref="small_button" inputtag="SC~count~" inputmask="0x40"><bounds x="~btn_x~" y="23" width="14" height="14" /></element>
 		</repeat>		
 
@@ -366,11 +366,11 @@ copyright-holders:Carl Lom
 		<element ref="sequencer_text"><bounds x="254" y="3.5" width="40" height="7" /></element>
 
 		<element ref="transport_lbl0_text"><bounds x="54" y="9.5" width="40" height="7" /></element>
-		<element name="LED10" ref="round_led"><bounds x="71.5" y="16" width="5" height="5" /></element>
+		<element name="LED12" ref="round_led"><bounds x="71.5" y="16" width="5" height="5" /></element>
 		<element ref="small_button" inputtag="SC1" inputmask="0x10"><bounds x="67" y="24" width="14" height="14"/></element>
 
 		<element ref="transport_lbl1_text"><bounds x="94" y="9.5" width="40" height="7" /></element>
-		<element name="LED11" ref="round_led"><bounds x="111.5" y="16" width="5" height="5" /></element>
+		<element name="LED13" ref="round_led"><bounds x="111.5" y="16" width="5" height="5" /></element>
 		<element ref="small_button" inputtag="SC2" inputmask="0x10"><bounds x="107" y="24" width="14" height="14"/></element>
 
 		<repeat count="5">
@@ -378,13 +378,14 @@ copyright-holders:Carl Lom
 			<param name="edge_x" start="187" increment="40"/>
 			<param name="led_x" start="191.5" increment="40"/>
 			<param name="count" start="3" increment="1"/>
+			<param name="ledidx" start="14" increment="1"/>
 			<element ref="transport_lbl~count~_text"><bounds x="~text_x~" y="9.5" width="40" height="7" /></element>
-			<element name="LED1~count~" ref="round_led"><bounds x="~led_x~" y="16" width="5" height="5" /></element>
+			<element name="LED~ledidx~" ref="round_led"><bounds x="~led_x~" y="16" width="5" height="5" /></element>
 			<element ref="small_button" inputtag="SC~count~" inputmask="0x10"><bounds x="~edge_x~" y="24" width="14" height="14"/></element>
 		</repeat>		
 
 		<!-- rec button -->
-		<element name="LED18" ref="round_led"><bounds x="191.5" y="49" width="5" height="5" /></element>
+		<element name="LED19" ref="round_led"><bounds x="191.5" y="49" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC4" inputmask="0x08"><bounds x="183" y="57" width="22" height="21"/></element>
 		<element ref="rec_text"><bounds x="183" y="63" width="22" height="9" /></element>
 
@@ -396,7 +397,7 @@ copyright-holders:Carl Lom
 		
 		<!-- start/stop -->
 		<element ref="start_stop_text"><bounds x="274" y="42.5" width="40" height="7" /></element>
-		<element name="LED19" ref="round_led"><bounds x="291.5" y="49" width="5" height="5" /></element>
+		<element name="LED20" ref="round_led"><bounds x="291.5" y="49" width="5" height="5" /></element>
 		<element ref="button_edge"><bounds x="265.5" y="57" width="57" height="21"/></element>
 		<element ref="basic_button" inputtag="SC6" inputmask="0x08"><bounds x="266.5" y="58" width="55" height="19"/></element>
 
@@ -435,18 +436,18 @@ copyright-holders:Carl Lom
 		<element ref="del_text"><bounds x="59" y="130" width="22" height="7" /></element>
 
 		<!-- play  -->
-		<element name="LED20" ref="round_led"><bounds x="128.5" y="7" width="5" height="5" /></element>
+		<element name="LED24" ref="round_led"><bounds x="128.5" y="7" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC7" inputmask="0x02"><bounds x="120" y="15" width="22" height="21"/></element>
 		<element ref="play_text"><bounds x="120" y="22" width="22" height="7" /></element>
 
 		<!-- chainload -->
-		<element name="LED21" ref="round_led"><bounds x="164.5" y="7" width="5" height="5" /></element>
+		<element name="LED32" ref="round_led"><bounds x="164.5" y="7" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC7" inputmask="0x01"><bounds x="156" y="15" width="22" height="21"/></element>
 		<element ref="chain_text"><bounds x="156" y="19" width="22" height="7" /></element>
 		<element ref="load_text"><bounds x="156" y="25" width="22" height="7" /></element>
 
 		<!-- disk  -->
-		<element name="LED22" ref="round_led"><bounds x="200.5" y="7" width="5" height="5" /></element>
+		<element name="LED28" ref="round_led"><bounds x="200.5" y="7" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC3" inputmask="0x01"><bounds x="192" y="15" width="22" height="21"/></element>
 		<element ref="disk_text"><bounds x="192" y="22" width="22" height="7" /></element>
 
@@ -457,13 +458,13 @@ copyright-holders:Carl Lom
 		<element ref="mix_text"><bounds x="120" y="61" width="22" height="7" /></element>
 
 		<!-- timbre edit -->
-		<element name="LED24" ref="round_led"><bounds x="164.5" y="43" width="5" height="5" /></element>
+		<element name="LED31" ref="round_led"><bounds x="164.5" y="43" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC6" inputmask="0x01"><bounds x="156" y="51" width="22" height="21"/></element>
 		<element ref="timbre_text"><bounds x="156" y="55" width="22" height="7" /></element>
 		<element ref="edit_text"><bounds x="156" y="61" width="22" height="7" /></element>
 
 		<!-- system -->
-		<element name="LED25" ref="round_led"><bounds x="200.5" y="43" width="5" height="5" /></element>
+		<element name="LED27" ref="round_led"><bounds x="200.5" y="43" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC2" inputmask="0x01"><bounds x="192" y="51" width="22" height="21"/></element>
 		<element ref="system_text"><bounds x="192" y="58" width="22" height="7" /></element>
 
@@ -480,19 +481,19 @@ copyright-holders:Carl Lom
 		<element ref="track_text"><bounds x="90" y="94" width="28" height="7" /></element>
 
 		<!-- track realtime -->
-		<element name="LED26" ref="round_led"><bounds x="128.5" y="79" width="5" height="5" /></element>
+		<element name="LED22" ref="round_led"><bounds x="128.5" y="79" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC5" inputmask="0x02"><bounds x="120" y="87" width="22" height="21"/></element>
 		<element ref="real_text"><bounds x="120" y="91" width="22" height="7" /></element>
 		<element ref="time_text"><bounds x="120" y="97" width="22" height="7" /></element>
 
 		<!-- track microscope -->
-		<element name="LED27" ref="round_led"><bounds x="164.5" y="79" width="5" height="5" /></element>
+		<element name="LED30" ref="round_led"><bounds x="164.5" y="79" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC5" inputmask="0x01"><bounds x="156" y="87" width="22" height="21"/></element>
 		<element ref="micro_text"><bounds x="156" y="91" width="22" height="7" /></element>
 		<element ref="scope_text"><bounds x="156" y="97" width="22" height="7" /></element>
 
 		<!-- track edit button -->
-		<element name="LED28" ref="round_led"><bounds x="200.5" y="79" width="5" height="5" /></element>
+		<element name="LED26" ref="round_led"><bounds x="200.5" y="79" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC1" inputmask="0x01"><bounds x="192" y="87" width="22" height="21"/></element>
 		<element ref="edit_text"><bounds x="192" y="94" width="22" height="7" /></element>
 
@@ -500,19 +501,19 @@ copyright-holders:Carl Lom
 		<element ref="pattern_text"><bounds x="90" y="130" width="28" height="7" /></element>
 
 		<!-- pattern realtime -->
-		<element name="LED29" ref="round_led"><bounds x="128.5" y="115" width="5" height="5" /></element>
+		<element name="LED21" ref="round_led"><bounds x="128.5" y="115" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC4" inputmask="0x02"><bounds x="120" y="123" width="22" height="21"/></element>
 		<element ref="real_text"><bounds x="120" y="127" width="22" height="7" /></element>
 		<element ref="time_text"><bounds x="120" y="133" width="22" height="7" /></element>
 
 		<!-- pattern microscope -->
-		<element name="LED30" ref="round_led"><bounds x="164.5" y="115" width="5" height="5" /></element>
+		<element name="LED29" ref="round_led"><bounds x="164.5" y="115" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC4" inputmask="0x01"><bounds x="156" y="123" width="22" height="21"/></element>
 		<element ref="micro_text"><bounds x="156" y="127" width="22" height="7" /></element>
 		<element ref="scope_text"><bounds x="156" y="133" width="22" height="7" /></element>
 
 		<!-- pattern edit button -->
-		<element name="LED31" ref="round_led"><bounds x="200.5" y="115" width="5" height="5" /></element>
+		<element name="LED25" ref="round_led"><bounds x="200.5" y="115" width="5" height="5" /></element>
 		<element ref="medium_button" inputtag="SC0" inputmask="0x01"><bounds x="192" y="123" width="22" height="21"/></element>
 		<element ref="edit_text"><bounds x="192" y="130" width="22" height="7" /></element>
 	</group>
@@ -521,10 +522,10 @@ copyright-holders:Carl Lom
 		<bounds x="0" y="0" width="223" height="198" />
 
 		<element ref="beat_text"><bounds x="21" y="12" width="64" height="7" /></element>
-		<element name="LED40" ref="rect_led"><bounds x="21" y="20" width="10" height="3" /></element>
-		<element name="LED41" ref="rect_led"><bounds x="39" y="20" width="10" height="3" /></element>
-		<element name="LED42" ref="rect_led"><bounds x="57" y="20" width="10" height="3" /></element>
-		<element name="LED43" ref="rect_led"><bounds x="75" y="20" width="10" height="3" /></element>
+		<element name="LED8" ref="rect_led"><bounds x="21" y="20" width="10" height="3" /></element>
+		<element name="LED9" ref="rect_led"><bounds x="39" y="20" width="10" height="3" /></element>
+		<element name="LED10" ref="rect_led"><bounds x="57" y="20" width="10" height="3" /></element>
+		<element name="LED11" ref="rect_led"><bounds x="75" y="20" width="10" height="3" /></element>
 
 		<element ref="value_text"><bounds x="11" y="43" width="84" height="7" /></element>
 		<element ref="jogwheel"><bounds x="11" y="52" width="84" height="84"/></element>
