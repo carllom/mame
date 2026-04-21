@@ -109,8 +109,8 @@ struct BiColorLedMapping {
     offs_t output_index;
 };
 
-const BiColorLedMapping bicolor_leds[] = {
-    {0x08, 2, 0x09, 2, 8}, // BEAT0
+constexpr std::array<BiColorLedMapping, 9> bicolor_leds = {{
+    {0x09, 2, 0x08, 2, 8}, // BEAT0
 	{0x08, 5, 0x0F, 5, 7}, // CH8
 	{0x09, 5, 0x0E, 5, 6}, // CH7
 	{0x0A, 5, 0x0D, 5, 5}, // CH6
@@ -118,16 +118,16 @@ const BiColorLedMapping bicolor_leds[] = {
 	{0x0C, 6, 0x0B, 6, 3}, // CH4
 	{0x0D, 6, 0x0A, 6, 2}, // CH3
 	{0x0E, 6, 0x09, 6, 1}, // CH2
-    {0x0F, 6, 0x08, 6, 0}, // CH1
-};
+    {0x0F, 6, 0x08, 6, 0} // CH1
+}};
 
 // For single-color LEDs
-const LedMapping leds[] = {
+constexpr std::array<LedMapping, 24> leds = {{
 	{0x08, 0, 25, 1}, // P EDIT
 	{0x09, 0, 26, 1}, // T EDIT
 	{0x09, 4, 12, 1}, // COMPU (mixmode)
 	{0x0A, 0, 27, 1}, // SYSTEM
-	{0x0A, 2, 9, 2},  // BEAT1
+	{0x0A, 2,  9, 2}, // BEAT1
 	{0x0A, 4, 13, 1}, // MANUAL (mixmode)
 	{0x0B, 0, 28, 1}, // DISK
 	{0x0B, 2, 10, 2}, // BEAT2
@@ -146,9 +146,8 @@ const LedMapping leds[] = {
 	{0x0E, 4, 17, 1}, // MARK
 	{0x0F, 0, 32, 1}, // CHAINPLAY
 	{0x0F, 1, 24, 1}, // PLAY
-	{0x0F, 4, 18, 1}, // TEMPO
-
-};
+	{0x0F, 4, 18, 1}  // TEMPO
+}};
 
 class roland_mv30_state : public driver_device
 {
@@ -704,6 +703,10 @@ void roland_mv30_state::keyscan_w(offs_t offset, u8 data)
 		}
 		else if (m_keyscan_cmd >= 0x08 && m_keyscan_cmd <= 0x0F)
 		{
+			if (m_ledreg[m_keyscan_cmd - 0x08] == data)
+			{
+				return;
+			}
 			// Save the written value for this register
 			m_ledreg[m_keyscan_cmd - 0x08] = data;
 
@@ -744,6 +747,7 @@ void roland_mv30_state::keyscan_w(offs_t offset, u8 data)
 			}
 		}
 		// Other config/LED register writes are ignored for now
+		m_keyscan_cmd = 0;  // reset command after data write
 	}
 }
 
@@ -1233,7 +1237,7 @@ static INPUT_PORTS_START(mv30)
 	PORT_BIT(0xff, 0x00, IPT_PADDLE) PORT_NAME("Level 8/16") PORT_SENSITIVITY(10) PORT_KEYDELTA(10) PORT_MINMAX(0x00, 0xff)
 
 	PORT_START("ENCODER")
-	PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_NAME("Data Dial") PORT_SENSITIVITY(25) PORT_KEYDELTA(1) PORT_CODE_DEC(KEYCODE_Z) PORT_CODE_INC(KEYCODE_X)
+	PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_NAME("Data Dial") PORT_SENSITIVITY(15) PORT_KEYDELTA(1) PORT_CODE_DEC(KEYCODE_Z) PORT_CODE_INC(KEYCODE_X)
 
 	PORT_START("RAMSIZE")
 	PORT_CONFNAME(0x01, 0x00, "RAM Size")
