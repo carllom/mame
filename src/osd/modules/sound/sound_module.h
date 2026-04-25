@@ -38,18 +38,18 @@ public:
 protected:
 	class abuffer {
 	public:
-		abuffer(uint32_t channels) noexcept;
+		abuffer(uint32_t channels, uint32_t rate) noexcept;
 		void set_latency(float latency);
 		void clear();
-		void get(int16_t *data, uint32_t samples) noexcept;
+		void get(int16_t *data, uint32_t samples, bool internal = false) noexcept;
 		void push(const int16_t *data, uint32_t samples);
 		uint32_t channels() const noexcept { return m_channels; }
 		uint32_t available() const noexcept;
 
 	private:
 		struct buffer {
-			uint32_t m_cpos;
-			std::vector<int16_t> m_data;
+			uint32_t cpos;
+			std::vector<int16_t> data;
 
 			buffer() noexcept = default;
 			buffer(const buffer &) = default;
@@ -59,15 +59,19 @@ protected:
 		};
 
 		void pop_buffer() noexcept;
+		void flush_buffers(uint32_t remain);
 		buffer &push_buffer();
 
 		uint32_t m_channels;
+		uint32_t m_rate;
 		uint32_t m_used_buffers;
 		uint32_t m_used_buffers_prev;
 		uint32_t m_max_buffers;
 		std::array<int32_t, 8> m_history;
 		uint8_t m_hindex;
 		bool m_overrun;
+		bool m_internal_get;
+		std::vector<int16_t> m_last_fade;
 		std::vector<int16_t> m_last_sample;
 		std::vector<buffer> m_buffers;
 
