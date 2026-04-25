@@ -197,6 +197,10 @@ void sa16_base_device::device_start()
 
 void sa16_base_device::device_reset()
 {
+	memset(m_regs,0,9*sizeof(u8));
+	memset(m_ports,0,8*sizeof(u8));
+	memset(m_regs800,0,2048*sizeof(u16));
+	m_active_channels = 0;
 }
 
 
