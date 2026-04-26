@@ -359,7 +359,7 @@ u8 i8x9x_device::sp_stat_r()
 	if (!machine().side_effects_disabled())
 	{
 		sp_stat &= 0x80;
-		logerror("read sp stat %02x (%04x)\n", res, PPC);
+		//logerror("read sp stat %02x (%04x)\n", res, PPC);
 	}
 	return res;
 }
@@ -418,17 +418,18 @@ u16 i8x9x_device::timer_value(int timer, u64 current_time) const
 {
 	if(timer == 2)
 		current_time -= base_timer2;
-	return current_time >> 3;
+	return current_time >> timer_tick_shift();
 }
 
 u64 i8x9x_device::timer_time_until(int timer, u64 current_time, u16 timer_value) const
 {
 	u64 timer_base = timer == 2 ? base_timer2 : 0;
-	u64 delta = (current_time - timer_base) >> 3;
+	u8 const timer_shift = timer_tick_shift();
+	u64 delta = (current_time - timer_base) >> timer_shift;
 	u32 tdelta = u16(timer_value - delta);
 	if(!tdelta)
 		tdelta = 0x10000;
-	return timer_base + ((delta + tdelta) << 3);
+	return timer_base + ((delta + tdelta) << timer_shift);
 }
 
 void i8x9x_device::timer2_reset(u64 current_time)
@@ -614,7 +615,8 @@ i80c196_device::i80c196_device(const machine_config &mconfig, device_type type, 
 	i8x9x_device(mconfig, type, tag, owner, clock, data_width, address_map_constructor(FUNC(i80c196_device::internal_regs), this)),
 	m_imask1(0),
 	m_wsr(0),
-	m_extint1_pending(false)
+	m_extint1_pending(false),
+	m_extint1_pin(false)
 {
 }
 
@@ -624,6 +626,7 @@ void i80c196_device::device_start()
 	save_item(NAME(m_imask1));
 	save_item(NAME(m_wsr));
 	save_item(NAME(m_extint1_pending));
+	save_item(NAME(m_extint1_pin));
 }
 
 void i80c196_device::device_reset()
@@ -632,6 +635,7 @@ void i80c196_device::device_reset()
 	m_imask1 = 0;
 	m_wsr = 0;
 	m_extint1_pending = false;
+	m_extint1_pin = false;
 }
 
 void i80c196_device::internal_regs(address_map &map)
@@ -664,21 +668,28 @@ void i80c196_device::int_pending1_w(u8 data)
 
 void i80c196_device::execute_set_input(int linenum, int state)
 {
+	// 80C196KB has two physical interrupt input pins:
+	//   EXTINT_LINE  = P0.7 / ACH7 pin
+	//   EXTINT1_LINE = P2.2 / ACK  pin
+	// IOC1.1 selects which pin is the EXTINT source (INT07, vector 0x200E):
+	//   IOC1.1 = 0 -> P2.2 is EXTINT
+	//   IOC1.1 = 1 -> P0.7 is EXTINT
+	// EXTINT1 (INT13, vector 0x203A) is always sourced from P2.2.
 	if(linenum == EXTINT_LINE) {
-		// 80C196KB: IOC1.1 selects the EXTINT source.
-		//   IOC1.1=0 -> external pin triggers EXTINT  (vector 0x200E, level 7)
-		//   IOC1.1=1 -> external pin triggers EXTINT1 (vector 0x203A, level 13)
-		if(!extint && state) {
-			if(BIT(ioc1, 1)) {
-				// EXTINT1 path: handled by fetch_196_full via m_extint1_pending
-				m_extint1_pending = true;
-			} else {
-				// Normal EXTINT (level 7)
+		if(!extint && state && BIT(ioc1, 1)) {
+			pending_irq |= IRQ_EXTINT;
+			check_irq();
+		}
+		extint = state;
+	} else if(linenum == EXTINT1_LINE) {
+		if(!m_extint1_pin && state) {
+			m_extint1_pending = true;
+			if(!BIT(ioc1, 1)) {
 				pending_irq |= IRQ_EXTINT;
 				check_irq();
 			}
 		}
-		extint = state;
+		m_extint1_pin = state;
 	} else {
 		i8x9x_device::execute_set_input(linenum, state);
 	}

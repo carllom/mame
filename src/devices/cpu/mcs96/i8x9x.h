@@ -66,6 +66,7 @@ public:
 	virtual u8 i8x9x_p0_mask() const noexcept { return 0xff; }
 	virtual bool i8x9x_has_p1() const noexcept { return true; }
 	virtual u8 i8x9x_p2_mask() const noexcept { return 0xff; }
+	virtual u8 timer_tick_shift() const noexcept { return 3; }
 
 protected:
 	i8x9x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width);
@@ -208,12 +209,20 @@ protected:
 // Combined 80C196 class: i8x9x peripherals + enhanced 196 instruction set.
 // The real 80C196 extends the 8x9x with extra opcodes (pusha, popa, bmov,
 // cmpl, djnzw, etc.) while retaining the full peripheral set.
-// It also adds EXTINT1: when IOC1.1=1 the external interrupt pin uses
-// vector 0x203A instead of 0x200E.
+//
+// Interrupt input lines:
+//   EXTINT_LINE  - P0.7 / ACH7 pin.  Acts as EXTINT (INT07, vector 0x200E)
+//                  when IOC1.1=1.  Otherwise the level is captured for P0
+//                  readback only.
+//   EXTINT1_LINE - P2.2 / ACK pin.  Always fires EXTINT1 (INT13, vector
+//                  0x203A).  When IOC1.1=0 it additionally fires EXTINT.
 class i80c196_device : public i8x9x_device {
 public:
-	// Returns true when the most recent EXTINT was routed to EXTINT1
-	// (IOC1.1=1, vector 0x203A) rather than EXTINT (vector 0x200E).
+	enum {
+		EXTINT1_LINE = HSI3_LINE + 1
+	};
+
+	// Returns true when an EXTINT1 (INT13, vector 0x203A) is pending.
 	bool extint1_pending() const { return m_extint1_pending; }
 
 protected:
@@ -242,14 +251,19 @@ private:
 	void popa_none_full();
 	void idlpd_none_full();
 
-	u8 m_imask1;   // INT_MASK1 register (80C196-specific)
-	u8 m_wsr;      // WSR register (window selection, 80C196-specific)
-	bool m_extint1_pending;  // EXTINT1 interrupt pending (via IOC1.1)
+	u8 m_imask1;             // INT_MASK1 register (80C196-specific)
+	u8 m_wsr;                // WSR register (window selection, 80C196-specific)
+	bool m_extint1_pending;  // EXTINT1 interrupt pending (vector 0x203A)
+	bool m_extint1_pin;      // last sampled state of P2.2 / EXTINT1 input
 };
 
 class c80c196kb_device : public i80c196_device {
 public:
 	c80c196kb_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
+
+protected:
+	// MV-30 song timing matches hardware with the slower 80C196KB timer base.
+	virtual u8 timer_tick_shift() const noexcept override { return 4; }
 };
 
 DECLARE_DEVICE_TYPE(C8095_90, c8095_90_device)
