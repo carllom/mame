@@ -313,7 +313,7 @@ cat mv30bios.asm
 - **Boot**: Fully boots from floppy (168 sector reads, OS loaded to RAM)
 - **Display**: LCD active, shows UI
 - **Input**: Key scan, sliders, rotary encoder all functional
-- **Sound**: PCM engine initialized, register writes active, sequencer timer chain functional
+- **Sound**: PCM engine initialized, register writes active, sequencer timer chain functional, and song timing now matches hardware closely
 - **MIDI**: Basic bit-bang RX/TX
 - **FDC**: Reads working, DMA working, interrupt chain complete
 - **Timer crash**: `emu_timer::schedule_next_period` assertion in DEBUG mode only (pre-existing MAME issue)
@@ -324,7 +324,7 @@ cat mv30bios.asm
 - FSK (tape sync) — returns 0
 - TVF (filter) — logs only, returns 0
 - FDC write path (RAM → FDC) untested
-- Sound output not verified (PCM writes occur but audio quality unknown)
+- Live audio can stutter in DEBUG builds; `-wavwrite` output is present and song timing matches hardware closely
 - BMOV/BMOVI/CMPL/IDLPD opcodes are stubs
 
 ---
@@ -334,7 +334,13 @@ cat mv30bios.asm
 1. **i80c196_device vs i8xc196_device**: These are DIFFERENT classes. MV-30
    uses i80c196_device. Do not modify i8xc196_device.
 
-2. **View shadowing**: Bank registers and DMA registers must be installed in
+2. **C80C196KB timer divisor**: MV-30 song timing matches hardware only when
+   the inherited i8x9x Timer1/Timer2/HSO timebase is slowed by one extra
+   divide-by-2 on the `c80c196kb_device` path (`timer_tick_shift() == 4`).
+   Keep that override local to the 80C196KB until more hardware evidence says
+   otherwise.
+
+3. **View shadowing**: Bank registers and DMA registers must be installed in
    BOTH view0[0] and view0[1], otherwise the underlying view handler shadows
    them when the view changes.
 

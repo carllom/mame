@@ -64,9 +64,10 @@ void mb87419_mb87420_device::device_reset()
 	m_irq_state = false;
 	m_int_callback(CLEAR_LINE);
 
-	// Periodic IRQ timer: assert interrupt at a fraction of the sample rate.
-	// The firmware clears the interrupt by accessing registers (write).
-	m_irq_timer->adjust(attotime::from_hz(m_rate / 32), 0, attotime::from_hz(m_rate / 32));
+	// IRQ is asserted only when there's a real per-voice event pending
+	// (currently nothing feeds that queue — to be wired up alongside
+	// the playback engine).  No periodic spurious IRQs.
+	m_irq_timer->adjust(attotime::never);
 }
 
 //-------------------------------------------------
@@ -105,8 +106,17 @@ u8 mb87419_mb87420_device::read(offs_t offset)
 		case 0x01:
 			m_stream->update();
 			{
-				offs_t addr = (chn.addr >> 14) | ((chn.bank & 0x3C00) << 8);
-				return read_byte(addr); // return sample data
+				// LP readback is biased two bytes ahead of the address latched in
+				// D808-D80B.  The firmware compensates by programming RW28 - 2 in
+				// LpReadByte() before reading D801, so emulate the hardware bias
+				// here rather than in the caller-visible register image.
+				//
+				// The firmware uses this path to walk PCM ROM during setup while
+				// the voice is disabled, so chn.addr is not yet a valid playback
+				// position — use chn.start instead.
+				offs_t addr = ((chn.start + (2U << 14)) >> 14) | ((chn.bank & 0x3C00) << 8);
+				logerror("WaveROM read addr=%06X (%02X)\n", addr, read_byte(addr));
+				return read_byte(addr);
 			}
 		case 0x02:  // ROM bank LSB
 			return (chn.bank >> 0) & 0xFF;
@@ -166,12 +176,6 @@ void mb87419_mb87420_device::write(offs_t offset, u8 data)
 {
 	logerror("Reg %02X = %02X\n", offset, data);
 
-	// Assumed: Any register write by the CPU acknowledges the pending interrupt
-	if (m_irq_state)
-	{
-		m_irq_state = false;
-		m_int_callback(CLEAR_LINE);
-	}
 	if (offset < 0x10)
 	{
 		pcm_channel& chn = m_chns[m_sel_chn];
@@ -264,6 +268,16 @@ void mb87419_mb87420_device::write(offs_t offset, u8 data)
 					}
 					chn.enable = play;
 				}
+			}
+			break;
+		case 0x16:
+			// IRQ acknowledge.  The firmware ISR reads D800 (voice id of
+			// the pending event) then writes the same value back to D816
+			// to dequeue it and deassert the IRQ line.
+			if (m_irq_state)
+			{
+				m_irq_state = false;
+				m_int_callback(CLEAR_LINE);
 			}
 			break;
 		case 0x1F:

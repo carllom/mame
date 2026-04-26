@@ -922,9 +922,9 @@ void roland_mv30_state::dma_drq_w(int state)
 void roland_mv30_state::bcc_update_extint()
 {
 	if (m_bcc_irq_source != BCC_NONE)
-		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, ASSERT_LINE);
+		m_maincpu->set_input_line(i80c196_device::EXTINT1_LINE, ASSERT_LINE);
 	else
-		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, CLEAR_LINE);
+		m_maincpu->set_input_line(i80c196_device::EXTINT1_LINE, CLEAR_LINE);
 }
 
 void roland_mv30_state::bcc_clear_source(u8 source)
@@ -932,9 +932,9 @@ void roland_mv30_state::bcc_clear_source(u8 source)
 	m_bcc_irq_pending &= ~(1 << source);
 	if (m_bcc_irq_source == source)
 	{
-		// Deassert EXTINT first so the next assert creates a rising edge
+		// Deassert EXTINT1 first so the next assert creates a rising edge
 		m_bcc_irq_source = BCC_NONE;
-		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE, CLEAR_LINE);
+		m_maincpu->set_input_line(i80c196_device::EXTINT1_LINE, CLEAR_LINE);
 
 		// Promote next pending source (priority: DMA > FDC > FSK > KEY)
 		for (int i = BCC_DMA; i >= BCC_KEY; i--)
@@ -1284,7 +1284,13 @@ void roland_mv30_state::mv30(machine_config &config)
 	SPEAKER(config, "lspeaker").front_left();
 	SPEAKER(config, "rspeaker").front_right();
 	MB87419_MB87420(config, m_pcm, 32.768_MHz_XTAL);
-	m_pcm->int_callback().set([this](int state) { m_pcm_irq = state; });
+	m_pcm->int_callback().set([this](int state) {
+		m_pcm_irq = state;
+		// LP-1 IRQ pin is P0.7 of the 80C196.  With IOC1.1=1 the firmware
+		// configures it as EXTINT (vector 0x200E -> SoundEngineIsr).
+		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE,
+			state ? ASSERT_LINE : CLEAR_LINE);
+	});
 	m_pcm->add_route(0, "lspeaker", 1.0);
 	m_pcm->add_route(1, "rspeaker", 1.0);
 
@@ -1350,4 +1356,4 @@ ROM_END
 } // anonymous namespace
 
 
-SYST(1990, mv30, 0, 0, mv30, mv30, roland_mv30_state, init_mv30, "Roland", "MV-30 Studio M", MACHINE_NOT_WORKING)
+SYST(1990, mv30, 0, 0, mv30, mv30, roland_mv30_state, init_mv30, "Roland", "MV-30 Studio M", MACHINE_IMPERFECT_SOUND | MACHINE_NOT_WORKING)
