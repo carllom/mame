@@ -41,6 +41,8 @@ public:
 	uint16_t dram_r(offs_t offset, uint16_t mem_mask = ~0);
 	void map(address_map &map) ATTR_COLD;
 	void set_vectors(uint16_t *src);
+	uint32_t get_vsr();
+	uint16_t get_dcr() { return m_dcr; }
 
 protected:
 	virtual void device_start() override ATTR_COLD;
@@ -74,7 +76,6 @@ private:
 	void scc66470_vram(address_map &map) ATTR_COLD;
 	void set_vsr(uint32_t vsr);
 	void set_dcp(uint32_t dcp);
-	uint32_t get_vsr();
 	uint32_t get_dcp();
 	unsigned border_width();
 	int border_height();
