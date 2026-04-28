@@ -85,6 +85,9 @@ wtchjack
 wtchjacka
 wtchjackb
 
+@source:philips/pm3585.cpp
+pm3585
+
 @source:videogames/looping.cpp
 looping
 
