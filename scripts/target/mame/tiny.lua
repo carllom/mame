@@ -77,6 +77,13 @@ MACHINES["TTL74157"] = true
 MACHINES["TTL74259"] = true
 MACHINES["TTL7474"] = true
 MACHINES["WATCHDOG"] = true
+MACHINES["MC68901"] = true
+MACHINES["PCF8583"] = true
+MACHINES["SCC66470"] = true
+MACHINES["SCC68070"] = true
+MACHINES["TMS9914"] = true
+MACHINES["FDC_PLL"] = true
+MACHINES["UPD765"] = true
 MACHINES["Z80CTC"] = true
 MACHINES["Z80DAISY"] = true
 MACHINES["Z80PIO"] = true
@@ -171,6 +178,7 @@ files{
 	MAME_DIR .. "src/mame/gaelco/gaelco_ds5002fp.cpp",
 	MAME_DIR .. "src/mame/gaelco/gaelco_ds5002fp.h",
 	MAME_DIR .. "src/mame/misc/goldnpkr.cpp",
+	MAME_DIR .. "src/mame/philips/pm3585.cpp",
 	MAME_DIR .. "src/mame/videogames/looping.cpp",
 	MAME_DIR .. "src/mame/videogames/supertnk.cpp",
 }
