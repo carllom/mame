@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-import signal
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import AsyncIterator
 
 from mamebridge.client import MameBridge
@@ -57,6 +56,7 @@ async def launch_mame(
     )
 
     bridge: MameBridge | None = None
+    stderr_task: asyncio.Task[None] | None = None
     try:
         # Start collecting stderr in background
         async def _read_stderr() -> None:
@@ -75,22 +75,37 @@ async def launch_mame(
         while asyncio.get_event_loop().time() < deadline:
             # Check if MAME exited
             if proc.returncode is not None:
-                await stderr_task
+                try:
+                    await asyncio.wait_for(stderr_task, timeout=1.0)
+                except asyncio.TimeoutError:
+                    stderr_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await stderr_task
                 stderr_text = "".join(stderr_buf)
                 raise MameDied(
                     f"MAME exited with code {proc.returncode} before accepting connections",
                     returncode=proc.returncode,
                     stderr=stderr_text,
                 )
+            candidate: MameBridge | None = None
             try:
-                bridge = await MameBridge.connect(host, port)
+                candidate = await asyncio.wait_for(MameBridge.connect(host, port), timeout=0.75)
+                # Verify this is the MAME MCP bridge and not an unrelated service.
+                await asyncio.wait_for(candidate.ping(), timeout=0.75)
+                bridge = candidate
                 connected = True
                 break
-            except (ConnectionError, OSError):
+            except (ConnectionError, OSError, asyncio.TimeoutError):
+                if candidate is not None:
+                    with suppress(Exception):
+                        await candidate.close()
                 await asyncio.sleep(0.25)
 
         if not connected:
-            await stderr_task
+            if stderr_task is not None and not stderr_task.done():
+                stderr_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await stderr_task
             stderr_text = "".join(stderr_buf)
             raise ConnectionError(
                 f"timed out connecting to MAME on {host}:{port} after {startup_timeout}s. "
@@ -100,11 +115,16 @@ async def launch_mame(
         yield bridge
 
     finally:
+        if stderr_task is not None and not stderr_task.done():
+            stderr_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await stderr_task
+
         # Clean up — try graceful quit via bridge, then signals
         if bridge is not None:
             if proc.returncode is None:
                 try:
-                    await bridge.quit()
+                    await asyncio.wait_for(bridge.quit(), timeout=1.5)
                     await asyncio.wait_for(proc.wait(), timeout=3.0)
                 except (asyncio.TimeoutError, Exception):
                     pass  # Fall through to signal-based shutdown
