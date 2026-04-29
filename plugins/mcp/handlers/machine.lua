@@ -57,6 +57,17 @@ function M.register(rpc)
             year = driver.year,
             parent = driver.parent,
             is_bios = driver.is_bios_root,
+            flags = {
+                not_working      = driver.not_working,
+                supports_save    = driver.supports_save,
+                no_cocktail      = driver.no_cocktail,
+                is_bios_root     = driver.is_bios_root,
+                requires_artwork = driver.requires_artwork,
+                unofficial       = driver.unofficial,
+                no_sound_hw      = driver.no_sound_hw,
+                mechanical       = driver.mechanical,
+                is_incomplete    = driver.is_incomplete,
+            },
         }
     end)
 

@@ -23,11 +23,13 @@
 !/keymaps/
 !/language/
 !/mamebridge/
+!/mamebridge_mcp/
 !/nl_examples/
 !/plugins/
 !/projects/
 !/regtests/
 !/samples/
+!/skills/
 !/scripts/
 !/src/
 !/shaders/

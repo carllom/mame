@@ -45,6 +45,15 @@ async def test_driver_info(bridge: MameBridge) -> None:
     assert info.year is not None
 
 
+async def test_driver_info_flags(bridge: MameBridge) -> None:
+    info = await bridge.driver_info()
+    assert isinstance(info.flags, dict)
+    assert len(info.flags) > 0
+    for key, val in info.flags.items():
+        assert isinstance(key, str)
+        assert isinstance(val, bool)
+
+
 async def test_list_handlers(bridge: MameBridge) -> None:
     handlers = await bridge.list_handlers()
     assert isinstance(handlers, list)

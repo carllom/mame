@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from mamebridge.errors import (
@@ -68,6 +68,7 @@ class DriverInfo:
     year: str
     parent: str
     is_bios: bool
+    flags: dict[str, bool] = field(default_factory=dict)
 
 
 @dataclass
@@ -250,6 +251,7 @@ class MameBridge:
             year=r["year"],
             parent=r.get("parent", ""),
             is_bios=r.get("is_bios", False),
+            flags=r.get("flags", {}),
         )
 
     async def list_handlers(self) -> list[str]:

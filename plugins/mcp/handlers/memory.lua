@@ -118,7 +118,7 @@ function M.register(rpc)
                     tap_state.drops = tap_state.drops + 1
                 end
                 entries[#entries + 1] = {
-                    addr = tap_addr + offset,
+                    addr = offset,
                     value = value,
                     mask = mask,
                 }
@@ -155,7 +155,7 @@ function M.register(rpc)
                     tap_state.drops = tap_state.drops + 1
                 end
                 entries[#entries + 1] = {
-                    addr = tap_addr + offset,
+                    addr = offset,
                     value = value,
                     mask = mask,
                 }
