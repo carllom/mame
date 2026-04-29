@@ -100,12 +100,17 @@ async def launch_mame(
         yield bridge
 
     finally:
-        # Clean up
+        # Clean up — try graceful quit via bridge, then signals
         if bridge is not None:
+            if proc.returncode is None:
+                try:
+                    await bridge.quit()
+                    await asyncio.wait_for(proc.wait(), timeout=3.0)
+                except (asyncio.TimeoutError, Exception):
+                    pass  # Fall through to signal-based shutdown
             await bridge.close()
 
         if proc.returncode is None:
-            # Try graceful shutdown first
             proc.terminate()
             try:
                 await asyncio.wait_for(proc.wait(), timeout=3.0)

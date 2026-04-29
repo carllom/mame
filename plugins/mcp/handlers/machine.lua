@@ -63,6 +63,11 @@ function M.register(rpc)
     rpc.register_method("list_handlers", function(params)
         return rpc.list_methods()
     end)
+
+    rpc.register_method("quit", function(params)
+        manager.machine:exit()
+        return {ok = true}
+    end)
 end
 
 return M

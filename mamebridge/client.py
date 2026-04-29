@@ -475,6 +475,13 @@ class MameBridge:
         r = await self.call("frame_number")
         return r["frame"]
 
+    async def quit(self) -> None:
+        """Ask MAME to exit gracefully via machine:exit()."""
+        try:
+            await self.call("quit")
+        except Exception:
+            pass  # Connection may drop before we get a response
+
     # raw.lua
     async def exec_command(self, command: str) -> str:
         r = await self.call("exec_command", command=command)
