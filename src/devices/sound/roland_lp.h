@@ -44,7 +44,10 @@ private:
 		uint16_t mode = 0;
 		uint16_t bank = 0;
 		uint16_t step = 0;      // 2.14 fixed point (0x4000 equals 32000 Hz)
-		uint16_t volume = 0;
+		uint16_t volume = 0;    // current interpolated level (16-bit, used as multiplier)
+		uint8_t vol_target = 0; // D807: target level (high byte of volume)
+		uint8_t vol_rate = 0;   // D806: ramp rate per envelope tick (added/subtracted)
+		uint8_t vol_phase = 0;  // sample counter; envelope ticks every ENV_TICK_DIVISOR samples
 		uint32_t start = 0;     // start address (18.14 fixed point)
 		uint16_t end = 0;       // end offset (high word)
 		uint16_t loop = 0;      // loop offset (high word)
@@ -65,7 +68,15 @@ private:
 	emu_timer* m_irq_timer;             // periodic IRQ timer
 	bool m_irq_state;                   // current IRQ line state
 	pcm_channel m_chns[NUM_CHANNELS];   // channel memory
-	uint8_t m_sel_chn;                  // selected channel
+	uint8_t m_sel_chn;                  // selected channel (D81F)
+
+	// Probe state: D810/D812 writes select a slot whose live phase counter
+	// (chn.addr) becomes readable through D802/D803.  The firmware writes a
+	// slot to D810 to expose the low 16 bits, then to D812 for the high half,
+	// and assembles a 26-bit value from four byte reads to track playback
+	// position for envelope decisions.
+	uint8_t m_probe_slot;
+	uint8_t m_probe_half;
 };
 
 DECLARE_DEVICE_TYPE(MB87419_MB87420, mb87419_mb87420_device)

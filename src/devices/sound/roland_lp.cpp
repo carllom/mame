@@ -35,6 +35,8 @@ mb87419_mb87420_device::mb87419_mb87420_device(const machine_config &mconfig, co
 	, m_rate(0)
 	, m_stream(nullptr)
 	, m_sel_chn(0)
+	, m_probe_slot(0)
+	, m_probe_half(0)
 {
 }
 
@@ -51,6 +53,9 @@ void mb87419_mb87420_device::device_start()
 	m_irq_timer = timer_alloc(FUNC(mb87419_mb87420_device::irq_timer_tick), this);
 
 	save_item(NAME(m_irq_state));
+	save_item(NAME(m_sel_chn));
+	save_item(NAME(m_probe_slot));
+	save_item(NAME(m_probe_half));
 
 	logerror("Roland PCM: Clock %u, Rate %u\n", m_clock, m_rate);
 }
@@ -62,6 +67,8 @@ void mb87419_mb87420_device::device_start()
 void mb87419_mb87420_device::device_reset()
 {
 	m_irq_state = false;
+	m_probe_slot = 0;
+	m_probe_half = 0;
 	m_int_callback(CLEAR_LINE);
 
 	// IRQ is asserted only when there's a real per-voice event pending
@@ -118,10 +125,22 @@ u8 mb87419_mb87420_device::read(offs_t offset)
 				logerror("WaveROM read addr=%06X (%02X)\n", addr, read_byte(addr));
 				return read_byte(addr);
 			}
-		case 0x02:  // ROM bank LSB
-			return (chn.bank >> 0) & 0xFF;
-		case 0x03:  // ROM bank MSB
-			return (chn.bank >> 8) & 0xFF;
+		case 0x02:  // probe-slot envelope counter (low or high byte of selected half)
+		case 0x03:
+			{
+				// FUN_d5da, FUN_ea4b, FUN_e9f5 in firmware all read this via D810/D81A and
+				// D812 to monitor the chip's internal envelope/volume counter — not the
+				// address phase counter.  FUN_d5da compares the low 16 bits against a
+				// per-slot threshold to detect "volume reached attack target".  FUN_ea4b
+				// /FUN_e9f5 read four bytes (low half + high half), mask to 26 bits, and
+				// treat zero as "voice fell silent" — that's the path that writes back
+				// D807=0, D806=0 and recycles the slot.
+				m_stream->update();
+				const pcm_channel& probe = m_chns[m_probe_slot & (NUM_CHANNELS - 1)];
+				if (m_probe_half)
+					return 0;  // chn.volume is 16-bit; high half always zero
+				return (probe.volume >> ((offset & 1) ? 8 : 0)) & 0xFF;
+			}
 		case 0x04:  // sample step LSB
 			return (chn.step >> 0) & 0xFF;
 		case 0x05:  // sample step LSB
@@ -199,11 +218,18 @@ void mb87419_mb87420_device::write(offs_t offset, u8 data)
 		case 0x05:  // sample step LSB
 			chn.step = (chn.step & 0x00FF) | (data << 8);
 			break;
-		case 0x06:  // volume LSB
-			chn.volume = (chn.volume & 0xFF00) | (data << 0);
+		case 0x06:  // volume rate (added/subtracted per envelope tick toward target)
+			m_stream->update();
+			chn.vol_rate = data;
 			break;
-		case 0x07:  // volume MSB
-			chn.volume = (chn.volume & 0x00FF) | (data << 8);
+		case 0x07:  // volume target (high byte of 16-bit volume; chip ramps current toward it)
+			m_stream->update();
+			chn.vol_target = data;
+			// Don't snap here.  The firmware's note-on sequence writes D807 before D806
+			// (target first, then rate), so a snap-on-D807 would always make rate=0 at
+			// the moment of the target write and skip every envelope ramp.  The chip
+			// only needs to "start at zero" at note-on; we reset chn.volume in the
+			// channel-enable transition below instead.
 			break;
 		case 0x08:  // current address, fraction LSB
 			chn.start = (chn.start & 0xFFFFFF00) | (data <<  0);
@@ -243,6 +269,15 @@ void mb87419_mb87420_device::write(offs_t offset, u8 data)
 	{
 		switch(offset)
 		{
+		case 0x10:  // probe slot select, low half (D802/D803 expose addr bits 0..15)
+		case 0x1A:  // same low-half probe path used by the envelope/voice-end checker (FUN_d5da)
+			m_probe_slot = data;
+			m_probe_half = 0;
+			break;
+		case 0x12:  // probe slot select, high half (D802/D803 expose addr bits 16..31)
+			m_probe_slot = data;
+			m_probe_half = 1;
+			break;
 		case 0x11:
 		case 0x13:
 		case 0x15:
@@ -261,6 +296,8 @@ void mb87419_mb87420_device::write(offs_t offset, u8 data)
 						chn.smpl_cur = 0;
 						chn.smpl_nxt = decode_sample((int8_t)read_byte(addr));
 						chn.play_dir = +1;
+						chn.volume = 0;
+						chn.vol_phase = 0;
 						logerror("Starting channel %u, bank 0x%04X, addr 0x%05X.%03X\n",
 							basechn + ch_id, chn.bank, chn.start >> 14, (chn.start & 0x3FFF) << 2);
 						logerror("Smpl End Ofs: 0x%04X, Loop Ofs 0x%04X, Step 0x%04X, Volume %04X\n",
@@ -303,6 +340,20 @@ void mb87419_mb87420_device::sound_stream_update(sound_stream &stream)
 
 		for (int smpl = 0; smpl < stream.samples(); smpl ++)
 		{
+			// Envelope ramp: chip integrates current volume toward target by rate per envelope tick.
+			// Empirically the tick rate is ~32kHz/10 ≈ 3.2 kHz: rate 0x0D taking ~1.3s to ramp 0..0xD200
+			// matches a divisor of ~10 between sample rate and envelope tick rate.
+			constexpr unsigned ENV_TICK_DIVISOR = 10;
+			if (++chn.vol_phase >= ENV_TICK_DIVISOR)
+			{
+				chn.vol_phase = 0;
+				uint16_t target16 = uint16_t(chn.vol_target) << 8;
+				if (chn.volume < target16)
+					chn.volume = uint16_t(std::min<uint32_t>(target16, uint32_t(chn.volume) + chn.vol_rate));
+				else if (chn.volume > target16)
+					chn.volume = uint16_t(std::max<int32_t>(int32_t(target16), int32_t(chn.volume) - chn.vol_rate));
+			}
+
 			s32 smp_data;
 			if (chn.play_dir > 0)
 				smp_data = sample_interpolate(chn.smpl_cur, chn.smpl_nxt, chn.addr & 0x3FFF);
