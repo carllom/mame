@@ -151,7 +151,7 @@ end
 function M.init(cfg)
     config = cfg or {}
     local host = config.host or "127.0.0.1"
-    local port = config.port or 8080
+    local port = config.port or 8100
 
     sock = emu.file("", 7)  -- OPEN_FLAG_CREATE = listen mode
     sock:open("socket." .. host .. ":" .. port)

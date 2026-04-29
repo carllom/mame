@@ -29,12 +29,12 @@ async def launch_mame(
         mame_binary: Path to the MAME executable.
         rom_path: Optional ROM path override.
         extra_flags: Additional command-line flags (e.g. ["-debug", "-window"]).
-        port: Bridge TCP port. Defaults to 8080 if not set.
+        port: Bridge TCP port. Defaults to 8100 if not set.
         startup_timeout: Seconds to wait for MAME to start and accept connections.
         host: Host address for bridge connection.
     """
     if port is None:
-        port = 8080
+        port = 8100
     if extra_flags is None:
         extra_flags = []
 

@@ -46,7 +46,7 @@ class Session:
         self._driver = driver
         self._attached = False
 
-    async def attach(self, host: str = "127.0.0.1", port: int = 8080) -> None:
+    async def attach(self, host: str = "127.0.0.1", port: int = 8100) -> None:
         if self._bridge is not None:
             raise ToolError(
                 "A session is already active. Call stop_session first."

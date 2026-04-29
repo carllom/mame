@@ -7,7 +7,7 @@ Usage::
 
     from mamebridge.sync import SyncMameBridge
 
-    bridge = SyncMameBridge.connect("127.0.0.1", 8080)
+    bridge = SyncMameBridge.connect("127.0.0.1", 8100)
     print(bridge.ping())
     bridge.close()
 """
@@ -37,7 +37,7 @@ class SyncMameBridge:
         self._loop = loop
 
     @classmethod
-    def connect(cls, host: str = "127.0.0.1", port: int = 8080) -> SyncMameBridge:
+    def connect(cls, host: str = "127.0.0.1", port: int = 8100) -> SyncMameBridge:
         loop = asyncio.new_event_loop()
         bridge = loop.run_until_complete(MameBridge.connect(host, port))
         return cls(bridge, loop)

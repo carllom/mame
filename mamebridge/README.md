@@ -56,7 +56,7 @@ SIGTERM/SIGKILL if needed.
 from mamebridge import MameBridge
 
 async def main():
-    async with MameBridge.connect("127.0.0.1", 8080) as bridge:
+    async with MameBridge.connect("127.0.0.1", 8100) as bridge:
         await bridge.step()
 ```
 
@@ -76,7 +76,7 @@ bridge.close()
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAME_MCP_PORT` | `8080` | TCP port the Lua plugin listens on |
+| `MAME_MCP_PORT` | `8100` | TCP port the Lua plugin listens on |
 | `MAME_BINARY` | `mame` | Path to MAME executable (used by tests) |
 | `MAME_DRIVER` | `pm3585` | System driver to launch (used by tests) |
 

@@ -17,7 +17,7 @@ from mamebridge_mcp._app import mcp
 
 MAME_BINARY = os.environ.get("MAME_BINARY", "./mametinyd")
 MAME_DRIVER = os.environ.get("MAME_DRIVER", "pm3585")
-MAME_PORT = int(os.environ.get("MAME_MCP_PORT", "8080"))
+MAME_PORT = int(os.environ.get("MAME_MCP_PORT", "8100"))
 MAME_ATTACH_PORT = MAME_PORT + 1
 
 

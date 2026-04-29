@@ -88,7 +88,7 @@ class MameBridge:
 
     Usage::
 
-        async with MameBridge.connect("127.0.0.1", 8080) as bridge:
+        async with MameBridge.connect("127.0.0.1", 8100) as bridge:
             info = await bridge.ping()
             regs = await bridge.list_regs()
     """
@@ -107,7 +107,7 @@ class MameBridge:
         self._closed = False
 
     @classmethod
-    async def connect(cls, host: str = "127.0.0.1", port: int = 8080) -> MameBridge:
+    async def connect(cls, host: str = "127.0.0.1", port: int = 8100) -> MameBridge:
         """Connect to a running MAME bridge instance."""
         try:
             reader, writer = await asyncio.open_connection(host, port)

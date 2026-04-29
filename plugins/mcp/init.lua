@@ -13,7 +13,7 @@ function exports.startplugin()
     local rpc = require("mcp/rpc")
     rpc.init({
         host = "127.0.0.1",
-        port = tonumber(os.getenv("MAME_MCP_PORT")) or 8080,
+        port = tonumber(os.getenv("MAME_MCP_PORT")) or 8100,
     })
 
     -- Register all handler modules

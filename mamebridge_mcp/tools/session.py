@@ -30,7 +30,7 @@ async def start_session(
         driver: MAME driver name, e.g. "pm3585" or "cdi".
         flags: Extra MAME command-line flags. Pass ["-debug", "-window",
                "-nomaximize"] for an interactive debug session.
-        port: Bridge TCP port (default 8080).
+        port: Bridge TCP port (default 8100).
         mame_binary: Path to the MAME executable (default "mame").
         rom_path: Override for the ROM search path.
 
@@ -46,7 +46,7 @@ async def start_session(
     st = await session.status()
     return {
         "driver": st["driver"],
-        "port": port or 8080,
+        "port": port or 8100,
         "frame": st["frame"],
         "exec_state": st["exec_state"],
     }
@@ -55,7 +55,7 @@ async def start_session(
 @mcp.tool()
 async def attach_session(
     host: str = "127.0.0.1",
-    port: int = 8080,
+    port: int = 8100,
 ) -> dict[str, Any]:
     """Connect to a MAME instance that is already running with the bridge plugin.
 
@@ -65,11 +65,11 @@ async def attach_session(
     connection but will not terminate MAME.
 
     MAME must have been started with -plugin mcp. The bridge listens on
-    localhost:8080 by default; set MAME_MCP_PORT to override.
+    localhost:8100 by default; set MAME_MCP_PORT to override.
 
     Args:
         host: Bridge host (default "127.0.0.1").
-        port: Bridge TCP port (default 8080).
+        port: Bridge TCP port (default 8100).
 
     Returns: {"driver", "port", "frame", "exec_state"}.
     """
