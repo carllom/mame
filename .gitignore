@@ -22,6 +22,7 @@
 !/hlsl/
 !/keymaps/
 !/language/
+!/mamebridge/
 !/nl_examples/
 !/plugins/
 !/projects/
@@ -41,6 +42,7 @@
 !/*.md
 !/*.bdf
 !/LICENSE
+!pyproject.toml
 /.idea
 .vscode
 docs/build

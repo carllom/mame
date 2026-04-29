@@ -1,0 +1,10 @@
+{
+	"plugin": {
+		"name": "mcp",
+		"description": "MCP bridge — JSON-RPC 2.0 debug/introspection server",
+		"version": "1.0.0",
+		"author": "Carl Lom",
+		"type": "plugin",
+		"start": "true"
+	}
+}

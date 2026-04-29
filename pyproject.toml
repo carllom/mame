@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mamebridge"
+version = "1.0.0"
+description = "Async Python client for the MAME MCP JSON-RPC bridge"
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = ">=3.11"
+authors = [
+    {name = "Carl Lom"},
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.8",
+]
+
+[tool.setuptools.packages.find]
+include = ["mamebridge*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["mamebridge/tests"]
+
+[tool.mypy]
+strict = true
+packages = ["mamebridge"]
