@@ -210,7 +210,7 @@ DEFINE_DEVICE_TYPE(SCC68070, scc68070_device, "scc68070", "Philips SCC68070")
 
 void scc68070_device::internal_map(address_map &map)
 {
-	map(0x80001001, 0x80001001).rw(FUNC(scc68070_device::lir_r), FUNC(scc68070_device::lir_w));
+	map(0x80001000, 0x80001001).rw(FUNC(scc68070_device::lir_r), FUNC(scc68070_device::lir_w));
 	map(0x80002001, 0x80002001).rw(FUNC(scc68070_device::idr_r), FUNC(scc68070_device::idr_w));
 	map(0x80002003, 0x80002003).rw(FUNC(scc68070_device::iar_r), FUNC(scc68070_device::iar_w));
 	map(0x80002005, 0x80002005).rw(FUNC(scc68070_device::isr_r), FUNC(scc68070_device::isr_w));
@@ -740,7 +740,7 @@ TIMER_CALLBACK_MEMBER(scc68070_device::tx_callback)
 
 uint8_t scc68070_device::lir_r()
 {
-	// LIR priority level: 80001001
+	// LIR priority level: 80001000 (even byte) or 80001001 (odd byte alias)
 	return m_lir & 0x77;
 }
 
