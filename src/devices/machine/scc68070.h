@@ -188,6 +188,7 @@ public:
 	};
 
 	dma_regs_t& dma() { return m_dma; }
+	void dma_channel_complete(int ch); // call from driver DRQ handler when transfer_counter hits zero
 
 protected:
 	// device_t implementation
