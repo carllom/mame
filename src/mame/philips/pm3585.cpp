@@ -139,6 +139,7 @@ private:
 
 	void vsc_irq(int state);
 	void fdc_drq_w(int state);
+	void fdc_intrq_w(int state);
 
 	required_device<scc68070_device> m_maincpu;
 	required_device<scc66470_device> m_vsc;
@@ -253,16 +254,24 @@ void pm3585_state::vsc_irq(int state)
 	m_maincpu->in2_w(state);
 }
 
-// FDC DRQ handler: service the SCC68070 DMA one byte at a time so the FDC
-// can complete its execution phase and enter the result phase.  The SCC68070
-// DMA stub already sets CSR_COC when CCR_SO is written (no real transfer
-// engine), so we only need to drain / fill the FIFO here.
+// FDC DRQ handler: service the SCC68070 DMA one byte at a time.
+//
+// When the DMA transfer counter reaches zero we:
+//   1. Set CSR_COC (DMA complete) via dma_channel_complete().
+//   2. Pulse TC to the FDC so it exits its current command cleanly and
+//      enters the result phase, which causes a proper end-of-command INTRQ.
+//
+// The guard on transfer_counter == 0 protects against writing past the end
+// of the programmed DMA window; excess FDC DRQ pulses (if any) are dropped.
 void pm3585_state::fdc_drq_w(int state)
 {
 	if (!state)
 		return;
 
 	auto &ch = m_maincpu->dma().channel[0];
+	if (ch.transfer_counter == 0)
+		return; // DMA already complete; discard any excess bytes from FDC
+
 	address_space &mem = m_maincpu->space(AS_PROGRAM);
 
 	if (ch.operation_control & SCC68070_OCR_D_D2M)
@@ -281,8 +290,60 @@ void pm3585_state::fdc_drq_w(int state)
 	}
 
 	ch.memory_address_counter++;
-	if (ch.transfer_counter > 0)
-		ch.transfer_counter--;
+	ch.transfer_counter--;
+
+	if (ch.transfer_counter == 0)
+	{
+		m_maincpu->dma_channel_complete(0);
+		// Pulse Terminal Count to the FDC.  This tells the FDC that the host
+		// DMA is exhausted, causing it to finish the current command and issue
+		// a proper end-of-command INTRQ (PHASE_RESULT) instead of continuing
+		// to assert per-byte INTRQs.
+		m_fdc->tc_w(true);
+		m_fdc->tc_w(false);
+	}
+}
+
+// FDC INTRQ handler.
+//
+// The DP8473 is configured in non-DMA mode (SPEC_ND=1) by the firmware's
+// Specify command, which causes it to assert INTRQ for every data byte ready
+// in addition to the end-of-command INTRQ.  Because the SCC68070 latches
+// the INT1 interrupt in m_lir on ASSERT but never clears the latch on the
+// subsequent CLEAR, each per-byte INTRQ permanently marks level-6 as pending
+// and the firmware's wait-for-INTRQ loop exits prematurely while the DMA
+// transfer is still in progress.
+//
+// We distinguish per-byte INTRQs (FDC in PHASE_EXEC, MSR_EXM bit set) from
+// the end-of-command INTRQ (PHASE_RESULT, MSR_EXM clear) and suppress only
+// the former while the DMA transfer counter is non-zero.  The end-of-command
+// INTRQ is always forwarded; if the FDC somehow completes with bytes
+// remaining (e.g. an error or early termination) we also force the DMA
+// complete so the firmware's status check succeeds.
+void pm3585_state::fdc_intrq_w(int state)
+{
+	if (state)
+	{
+		// MSR_EXM (bit 5) is set when the FDC is in the execution phase with
+		// NDM=1 and a data byte is ready — i.e. a per-byte INTRQ, not an
+		// end-of-command INTRQ.
+		constexpr uint8_t MSR_EXM = 0x20;
+		const uint8_t msr = m_fdc->msr_r();
+
+		auto &ch = m_maincpu->dma().channel[0];
+		if ((msr & MSR_EXM) && ch.transfer_counter > 0)
+			return; // per-byte INTRQ while DMA is still running — suppress
+
+		// End-of-command INTRQ (PHASE_RESULT).  Force the DMA complete if
+		// the transfer counter has not already been zeroed by fdc_drq_w.
+		if (ch.transfer_counter > 0)
+		{
+			ch.transfer_counter = 0;
+			m_maincpu->dma_channel_complete(0);
+		}
+	}
+
+	m_maincpu->int1_w(state);
 }
 
 
@@ -338,7 +399,7 @@ void pm3585_state::pm3585(machine_config &config)
 
 	// DP8473 FDC — 1.44MB 3.5" floppy, 500Kbit/s MFM
 	DP8473(config, m_fdc, XTAL(24'000'000)); // TODO: verify clock source
-	m_fdc->intrq_wr_callback().set(m_maincpu, FUNC(scc68070_device::int1_w));
+	m_fdc->intrq_wr_callback().set(FUNC(pm3585_state::fdc_intrq_w));
 	m_fdc->drq_wr_callback().set(FUNC(pm3585_state::fdc_drq_w));
 	FLOPPY_CONNECTOR(config, "fdc:0", pm3585_floppies, "35hd", pm3585_floppy_formats);
 

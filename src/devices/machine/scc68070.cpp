@@ -1587,6 +1587,12 @@ uint16_t scc68070_device::dma_r(offs_t offset, uint16_t mem_mask)
 	return 0;
 }
 
+void scc68070_device::dma_channel_complete(int ch)
+{
+	m_dma.channel[ch].channel_status |= CSR_COC;
+	update_ipl();
+}
+
 void scc68070_device::dma_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	switch (offset)
@@ -1626,7 +1632,10 @@ void scc68070_device::dma_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 			m_dma.channel[offset / 32].channel_control = data & 0x007f;
 			if (data & CCR_SO)
 			{
-				m_dma.channel[offset / 32].channel_status |= CSR_COC;
+				// CCR_SO starts the channel; clear COC to indicate transfer in progress.
+				// The driver's DRQ handler is responsible for calling dma_channel_complete()
+				// once transfer_counter reaches zero.
+				m_dma.channel[offset / 32].channel_status &= ~CSR_COC;
 			}
 			update_ipl();
 		}
