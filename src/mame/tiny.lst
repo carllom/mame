@@ -88,6 +88,9 @@ wtchjack
 wtchjacka
 wtchjackb
 
+@source:misc/ppg.cpp
+ppg
+
 @source:videogames/looping.cpp
 looping
 
