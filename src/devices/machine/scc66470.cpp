@@ -250,11 +250,18 @@ void scc66470_device::csr_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 void scc66470_device::dcr_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	COMBINE_DATA(&m_dcr);
+	logerror("DCR write: %04X (DE=%d CM=%d CF1=%d CF2=%d SS=%d FD=%d LS=%d)\n",
+		m_dcr,
+		BIT(m_dcr, DCR_DE), BIT(m_dcr, DCR_CM),
+		BIT(m_dcr, DCR_CF1), BIT(m_dcr, DCR_CF2),
+		BIT(m_dcr, DCR_SS), BIT(m_dcr, DCR_FD),
+		BIT(m_dcr, DCR_LS));
 }
 
 void scc66470_device::vsr_w(offs_t offset, uint16_t data, uint16_t mem_mask)
 {
 	COMBINE_DATA(&m_vsr);
+	logerror("VSR write: %04X (VSR=%05X)\n", m_vsr, get_vsr());
 }
 
 void scc66470_device::bcr_w(offs_t offset, uint8_t data)
