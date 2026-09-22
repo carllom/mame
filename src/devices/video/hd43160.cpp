@@ -190,14 +190,9 @@ void hd43160_device::control_write(uint8_t data)
 		memset(m_ram, 0x20, sizeof(m_ram));
 	}
 	else if (data == 2) {
-		// cursor home
+		// cursor home: always row 0, column 0
 		if (LOG) logerror("HD43160 '%s': cursor home\n", tag());
-		if (m_lines > 1 && m_ac > m_chars) {
-			m_ac = m_chars; // home line 2;
-		}
-		else {
-			m_ac = 0;
-		}
+		m_ac = 0;
 	}
 	else if ((data & 0xFE) == 4) {
 		// Cursor on/off

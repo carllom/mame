@@ -16,6 +16,20 @@
 #include "screen.h"
 #include "emupal.h"
 
+// Firmware analysis (Ghidra, PPG Wave 2.0 OS ROM) summary - see individual comments below:
+//  - IRQ (vector @FFF8 -> C561) is a pure timebase; FIRQ/SWI2/SWI3/NMI vectors are
+//    uninitialized filler, not wired to anything on real hardware.
+//  - Keyboard matrix scan and pot/ADC scan are both cooperatively polled from the
+//    main loop (reset entry @C000), not interrupt-driven.
+//  - Keyboard matrix: B060=row select (walking bit), B062=column read, 8 rows.
+//    B061/B063 are driven alongside but unconfirmed (possible velocity-sense pass).
+//  - Pot ADC: B071 (VIA port A, within the known B070-B07F VIA range) selects one of
+//    16 analog channels, B068 returns the conversion result, B064 is an R/W
+//    echo/mirror of unclear purpose.
+//  - B030-B047 (4x PIA-like init idiom) and B050-B053 (UART-like: status-gated
+//    data buffer, referenced from note/envelope code - candidate for the real
+//    MIDI/cassette interface) are identified but not yet implemented; still fall
+//    through to MAME's default unmapped-access logging.
 class ppg_state : public driver_device
 {
 public:
@@ -23,12 +37,13 @@ public:
 		: driver_device(mconfig, type, tag),
 		m_maincpu(*this, "maincpu"), // Main CPU
 		m_piabtn(*this, "piabtn"),
-		m_via(*this, "via"), // Tape I/O VIA (guesswork - see FUN_aeb8 analysis)
+		m_via(*this, "via"), // Confirmed role in firmware: ADC channel-select (port A -> B071) + IRQ timebase (B078). Cassette wiring is unconfirmed guesswork - see FUN_aeb8 analysis; B050-B053 (UART-like) is a stronger candidate for the real cassette/MIDI interface.
 		m_cassette(*this, "cassette"),
 		m_lcd(*this, "lcd"),
 		m_digkey0(*this, "digkey0"),
 		m_digkey1(*this, "digkey1"),
-		m_digkey2(*this, "digkey2")
+		m_digkey2(*this, "digkey2"),
+		m_knob(*this, "knob_%u", 0U)
 	{
 
 	}
@@ -52,11 +67,28 @@ public:
 	// format ppgwavecassdecode produces and pokes it straight into RAM.
 	QUICKLOAD_LOAD_MEMBER(quickload_cb);
 
-	uint8_t io_r(offs_t offset);
-	void io_w(offs_t offset, uint8_t data);
-
 	uint8_t lcd_r(offs_t offset); // TODO - make into a device
 	void lcd_w(offs_t offset, uint8_t data);
+
+	// Musical keyboard matrix (B060-B063). Row-select/column-read wiring confirmed
+	// via firmware analysis; the actual key matrix layout is not yet known, so these
+	// are logging stubs (not wired to input ports) pending further investigation.
+	uint8_t kbd_r(offs_t offset);
+	void kbd_w(offs_t offset, uint8_t data);
+	uint8_t m_kbd_row = 0;
+
+	// Pot/ADC scan (B064, B068). B071 (VIA port A) selects the channel.
+	// B068 returns the selected knob's ioport value (16 pots, per acvirus.cpp-style
+	// channel-select-through-ADC pattern). Knob 0-15 are placeholder names pending
+	// mapping against the real panel legend.
+	// B064 is implemented as a simple write-then-echo latch per observed R/W pattern.
+	uint8_t adc_echo_r();
+	void adc_echo_w(uint8_t data);
+	uint8_t adc_result_r();
+	void adc_result_w(uint8_t data);
+	uint8_t m_adc_echo = 0;
+	uint8_t m_adc_channel = 0;
+	void via_pa_w(uint8_t data);
 
 	void poll_keys();
 	DECLARE_INPUT_CHANGED_MEMBER(keyhandler);
@@ -64,28 +96,55 @@ public:
 	required_ioport m_digkey0;
 	required_ioport m_digkey1;
 	required_ioport m_digkey2;
+	required_ioport_array<16> m_knob;
 
 	uint8_t m_leds = 0;
 };
 
-uint8_t ppg_state::io_r(offs_t offset) {
-	logerror("I/O read @%02x\n", offset);
-	return 0;
-}
-
-void ppg_state::io_w(offs_t offset, uint8_t data) {
-	logerror("I/O write @%02x=%02x\n", offset, data);
-}
-
 uint8_t ppg_state::lcd_r(offs_t offset) {
-	logerror("LCD read @%02x\n", offset);
+	logerror("LCD read @%04x\n", 0xB006 + offset);
 	m_lcd->read(offset);
 	return 0;
 }
 
 void ppg_state::lcd_w(offs_t offset, uint8_t data) {
-	logerror("LCD write @%02x=%02x\n", offset, data);
+	logerror("LCD write @%04x=%02x\n", 0xB006 + offset, data);
 	m_lcd->write(offset, data);
+}
+
+uint8_t ppg_state::kbd_r(offs_t offset) {
+	//logerror("KBD read @%04x (row=%02x)\n", 0xB060 + offset, m_kbd_row);
+	return 0;
+}
+
+void ppg_state::kbd_w(offs_t offset, uint8_t data) {
+	//logerror("KBD write @%04x=%02x\n", 0xB060 + offset, data);
+	if (offset == 0) // B060: row select (walking bit, 8 rows)
+		m_kbd_row = data;
+}
+
+uint8_t ppg_state::adc_echo_r() {
+	//logerror("ADC echo read @B064=%02x\n", m_adc_echo);
+	return m_adc_echo;
+}
+
+void ppg_state::adc_echo_w(uint8_t data) {
+	//logerror("ADC echo write @B064=%02x\n", data);
+	m_adc_echo = data;
+}
+
+uint8_t ppg_state::adc_result_r() {
+	uint8_t const val = m_knob[m_adc_channel]->read();
+	//logerror("ADC result read @B068 (channel=%d)=%02x\n", m_adc_channel, val);
+	return val;
+}
+
+void ppg_state::adc_result_w(uint8_t data) {
+	//logerror("ADC result write @B068=%02x\n", data);
+}
+
+void ppg_state::via_pa_w(uint8_t data) {
+	m_adc_channel = data & 0x0f; // 16-channel analog mux select, per ADC_Scan_16Channel_Pots firmware analysis
 }
 
 void ppg_state::poll_keys() {
@@ -177,10 +236,14 @@ void ppg_state::ppg_map(address_map& map)
 	map(0x3000, 0x3FFF).ram(); // 4K WRAM
 	map(0x4000, 0x7FFF).unmaprw(); // Nothing
 	map(0x8000, 0xAFFF).rom().region("os", 0x0000); // Wave ROM
-	map(0xB000, 0xBFFF).rw(FUNC(ppg_state::io_r), FUNC(ppg_state::io_w)); // I/O space
 	map(0xB000, 0xB003).rw(m_piabtn, FUNC(pia6821_device::read), FUNC(pia6821_device::write)); // Panel buttons
 	map(0xB006, 0xB007).rw(FUNC(ppg_state::lcd_r), FUNC(ppg_state::lcd_w)); // LCD panel
-	map(0xB070, 0xB07F).rw(m_via, FUNC(via6522_device::read), FUNC(via6522_device::write)); // Tape I/O (guesswork - see FUN_aeb8 analysis)
+	map(0xB030, 0xB047).unmaprw(); // 4x PIA-like init idiom (write 0x36 then 0x76) - possible keyboard driver/sense chips, not yet identified
+	map(0xB050, 0xB053).unmaprw(); // UART-like (status-gated data buffer, wide use from note/envelope code) - candidate for the real MIDI/cassette interface, not yet identified
+	map(0xB060, 0xB063).rw(FUNC(ppg_state::kbd_r), FUNC(ppg_state::kbd_w)); // Musical keyboard matrix: row select/column read (logging stub, see class comment)
+	map(0xB064, 0xB064).rw(FUNC(ppg_state::adc_echo_r), FUNC(ppg_state::adc_echo_w)); // Pot ADC: R/W echo latch, purpose unclear
+	map(0xB068, 0xB068).rw(FUNC(ppg_state::adc_result_r), FUNC(ppg_state::adc_result_w)); // Pot ADC: conversion result (logging stub, see class comment)
+	map(0xB070, 0xB07F).rw(m_via, FUNC(via6522_device::read), FUNC(via6522_device::write)); // Confirmed role: ADC channel-select (port A) + IRQ timebase. Cassette wiring still guesswork - see FUN_aeb8 analysis
 	map(0xC000, 0xEFFF).rom().region("os", 0x3000); // OS ROM
 	map(0xF000, 0xFFFF).rom().region("os", 0x5000); // mirror of E000
 }
@@ -215,8 +278,43 @@ PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Panel") PORT_CHANGED_MEMB
 PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Run/Stop") PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ppg_state::keyhandler), 0x20) PORT_CODE(KEYCODE_G) PORT_CHAR('G')
 PORT_BIT(0xc0, IP_ACTIVE_LOW, IPT_UNUSED)
 
-// PORT_START("A7")
-// PORT_BIT(0x03ff, 0x0000, IPT_DIAL) PORT_NAME("Knob") PORT_SENSITIVITY(50) PORT_KEYDELTA(8) PORT_CODE_DEC(KEYCODE_DOWN) PORT_CODE_INC(KEYCODE_UP)
+// Front-panel pots, read through the 16-channel ADC (B071 channel-select / B068 result).
+// Placeholder names - channel-to-knob mapping not yet confirmed against the real panel legend.
+PORT_START("knob_0")
+PORT_ADJUSTER(64, "Release 2 (CH8)") PORT_MINMAX(0, 255) // ADSR-Envelope 2 group; panel2 function not yet identified
+PORT_START("knob_1")
+PORT_ADJUSTER(64, "LFO Rate") PORT_MINMAX(0, 255) // LFO/Sequ. group; panel2: LFOR (LFO rate)
+PORT_START("knob_2")
+PORT_ADJUSTER(64, "Pot 2") PORT_MINMAX(0, 255)
+PORT_START("knob_3")
+PORT_ADJUSTER(64, "Partial-Waves (Mod P)") PORT_MINMAX(0, 255) // Modifiers group
+PORT_START("knob_4")
+PORT_ADJUSTER(64, "VCF-Cutoff (Mod C)") PORT_MINMAX(0, 255) // Modifiers group
+PORT_START("knob_5")
+PORT_ADJUSTER(64, "Env1 > VCF (Mod F)") PORT_MINMAX(0, 255) // Modifiers Control group
+PORT_START("knob_6")
+PORT_ADJUSTER(64, "Env1 > Waves (Mod W)") PORT_MINMAX(0, 255) // Modifiers Control group
+PORT_START("knob_7")
+PORT_ADJUSTER(64, "VCF-Emphasis (Mod E)") PORT_MINMAX(0, 255) // Modifiers group
+PORT_START("knob_8")
+PORT_ADJUSTER(64, "Env2 > Loudn. (Mod L)") PORT_MINMAX(0, 255) // Modifiers Control group
+// Pots 9-15 confirmed against the real front panel legend (dual-labeled: primary
+// function / panel2 alternate function / CHn group position). See
+// ppg20_panel_pots.md for the full writeup.
+PORT_START("knob_9")
+PORT_ADJUSTER(64, "A1 / Delay (CH1)") PORT_MINMAX(0, 255) // ADSR-Envelope 1 group; panel2: LFODL (LFO delay)
+PORT_START("knob_10")
+PORT_ADJUSTER(64, "A2 / A3 (CH2)") PORT_MINMAX(0, 255) // ADSR-Envelope 2 group; panel2: ATK3 (envelope 3 attack)
+PORT_START("knob_11")
+PORT_ADJUSTER(64, "D1 / WaveSp (CH3)") PORT_MINMAX(0, 255) // ADSR-Envelope 1 group; panel2: LFOW (LFO waveshape)
+PORT_START("knob_12")
+PORT_ADJUSTER(64, "D2 / D3 (CH4)") PORT_MINMAX(0, 255) // ADSR-Envelope 2 group; panel2: DEC3 (envelope 3 decay)
+PORT_START("knob_13")
+PORT_ADJUSTER(64, "S1 / Mod.Int. (CH5)") PORT_MINMAX(0, 255) // ADSR-Envelope 1 group; panel2: LFOIN (LFO mod intensity)
+PORT_START("knob_14")
+PORT_ADJUSTER(64, "S2 / E3>Pitch (CH6)") PORT_MINMAX(0, 255) // ADSR-Envelope 2 group; panel2: AP3 (envelope 3 to pitch)
+PORT_START("knob_15")
+PORT_ADJUSTER(64, "Release 1 (CH7)") PORT_MINMAX(0, 255) // ADSR-Envelope 1 group; panel2 function not yet identified
 INPUT_PORTS_END
 
 void ppg_state::ppg(machine_config& config)
@@ -231,6 +329,7 @@ void ppg_state::ppg(machine_config& config)
 	// measured tape pulse widths (8/16 samples @ 44.1kHz) against FUN_aeb8's
 	// 1024-tick short/long threshold; PA/PB/CA/CB wiring still guesswork.
 	MOS6522(config, m_via, 4100000); // derived from ppgwavecassdecode fskdemoddurthres (249.4us) vs FUN_aeb8 1024-tick threshold
+	m_via->writepa_handler().set(FUNC(ppg_state::via_pa_w)); // Port A = ADC channel select (confirmed via firmware ADC_Scan_16Channel_Pots analysis)
 
 	// Tape in: comparator + transistor amplifier straight into CB2, no divider on read.
 	// Write side (SR shift-out under T2, plus a J/K flip-flop pair) not yet modeled.
