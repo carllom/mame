@@ -8,6 +8,10 @@
 #include "emu.h" // Core emulation goodies
 #include "cpu/m6809/m6809.h"
 #include "machine/6821pia.h"
+#include "machine/6522via.h"
+#include "machine/timer.h"
+#include "imagedev/cassette.h"
+#include "imagedev/snapquik.h"
 #include "video/hd43160.h"
 #include "screen.h"
 #include "emupal.h"
@@ -19,6 +23,8 @@ public:
 		: driver_device(mconfig, type, tag),
 		m_maincpu(*this, "maincpu"), // Main CPU
 		m_piabtn(*this, "piabtn"),
+		m_via(*this, "via"), // Tape I/O VIA (guesswork - see FUN_aeb8 analysis)
+		m_cassette(*this, "cassette"),
 		m_lcd(*this, "lcd"),
 		m_digkey0(*this, "digkey0"),
 		m_digkey1(*this, "digkey1"),
@@ -29,10 +35,22 @@ public:
 
 	required_device<m6809_device> m_maincpu;
 	required_device<pia6821_device> m_piabtn;
+	required_device<via6522_device> m_via;
+	required_device<cassette_image_device> m_cassette;
 	required_device<hd43160_device> m_lcd;
 
 	void ppg(machine_config& config);
 	void ppg_map(address_map& map);
+	void ppg_palette(palette_device &palette);
+
+	// Comparator + transistor amplifier stage between the tape input and VIA CB2
+	// (per hardware analysis - no flip-flop/divider on the read path)
+	TIMER_DEVICE_CALLBACK_MEMBER(cassette_poll);
+	bool m_cass_level = false;
+
+	// Bypasses real-time tape decode: takes the same header+data+checksum+endbyte
+	// format ppgwavecassdecode produces and pokes it straight into RAM.
+	QUICKLOAD_LOAD_MEMBER(quickload_cb);
 
 	uint8_t io_r(offs_t offset);
 	void io_w(offs_t offset, uint8_t data);
@@ -102,15 +120,67 @@ INPUT_CHANGED_MEMBER(ppg_state::keyhandler) {
 }
 
 
+TIMER_DEVICE_CALLBACK_MEMBER(ppg_state::cassette_poll)
+{
+	// Schmitt-trigger style hysteresis, matching the real comparator's need
+	// to reject noise/slow slew right at the zero crossing
+	double const v = m_cassette->input();
+	bool level = m_cass_level;
+	if (v > 0.1)
+		level = true;
+	else if (v < -0.1)
+		level = false;
+
+	if (level != m_cass_level)
+	{
+		m_cass_level = level;
+		m_via->write_cb2(level);
+		logerror("cass edge: t=%s level=%d v=%f\n", machine().time().as_string(9), level, v);
+	}
+}
+
+
+QUICKLOAD_LOAD_MEMBER(ppg_state::quickload_cb)
+{
+	u32 const size = image.length();
+	if (size < 6)
+		return std::make_pair(image_error::INVALIDLENGTH, "File too short for header+checksum+endbyte");
+
+	uint8_t hdr[4];
+	image.fread(hdr, 4);
+	uint16_t const startaddr = (uint16_t(hdr[0]) << 8) | hdr[1];
+	uint16_t const endaddr = (uint16_t(hdr[2]) << 8) | hdr[3];
+	if (startaddr > endaddr)
+		return std::make_pair(image_error::INVALIDIMAGE, "Bad header: start address after end address");
+
+	uint32_t const datalen = uint32_t(endaddr) - startaddr + 1;
+	if (size < 4u + datalen + 1u)
+		return std::make_pair(image_error::INVALIDLENGTH, "File truncated relative to header address range");
+
+	address_space &program = m_maincpu->space(AS_PROGRAM);
+	image.fread(program.get_write_ptr(startaddr), datalen);
+
+	return std::make_pair(std::error_condition(), std::string());
+}
+
+
+void ppg_state::ppg_palette(palette_device &palette)
+{
+	// HD43160 dot-matrix LCD: silvery blue-green background, dark pixels
+	palette.set_pen_color(0, rgb_t(140, 168, 163)); // background
+	palette.set_pen_color(1, rgb_t( 30,  35,  38)); // lit pixel
+}
+
 void ppg_state::ppg_map(address_map& map)
 {
 	map(0x0000, 0x2FFF).ram(); // 12K RAM
 	map(0x3000, 0x3FFF).ram(); // 4K WRAM
 	map(0x4000, 0x7FFF).unmaprw(); // Nothing
 	map(0x8000, 0xAFFF).rom().region("os", 0x0000); // Wave ROM
+	map(0xB000, 0xBFFF).rw(FUNC(ppg_state::io_r), FUNC(ppg_state::io_w)); // I/O space
 	map(0xB000, 0xB003).rw(m_piabtn, FUNC(pia6821_device::read), FUNC(pia6821_device::write)); // Panel buttons
 	map(0xB006, 0xB007).rw(FUNC(ppg_state::lcd_r), FUNC(ppg_state::lcd_w)); // LCD panel
-	map(0xB000, 0xBFFF).rw(FUNC(ppg_state::io_r), FUNC(ppg_state::io_w)); // I/O space
+	map(0xB070, 0xB07F).rw(m_via, FUNC(via6522_device::read), FUNC(via6522_device::write)); // Tape I/O (guesswork - see FUN_aeb8 analysis)
 	map(0xC000, 0xEFFF).rom().region("os", 0x3000); // OS ROM
 	map(0xF000, 0xFFFF).rom().region("os", 0x5000); // mirror of E000
 }
@@ -151,11 +221,26 @@ INPUT_PORTS_END
 
 void ppg_state::ppg(machine_config& config)
 {
-	M6809(config, m_maincpu, 1_MHz_XTAL);
+	M6809(config, m_maincpu, 6_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &ppg_state::ppg_map);
 
 	PIA6821(config, m_piabtn);
 	m_piabtn->writepa_handler().set(FUNC(ppg_state::key_line_select));
+
+	// Not derived from the CPU clock - likely its own oscillator. Backed out from
+	// measured tape pulse widths (8/16 samples @ 44.1kHz) against FUN_aeb8's
+	// 1024-tick short/long threshold; PA/PB/CA/CB wiring still guesswork.
+	MOS6522(config, m_via, 4100000); // derived from ppgwavecassdecode fskdemoddurthres (249.4us) vs FUN_aeb8 1024-tick threshold
+
+	// Tape in: comparator + transistor amplifier straight into CB2, no divider on read.
+	// Write side (SR shift-out under T2, plus a J/K flip-flop pair) not yet modeled.
+	CASSETTE(config, m_cassette);
+	m_cassette->set_default_state(CASSETTE_STOPPED | CASSETTE_MOTOR_ENABLED);
+	TIMER(config, "cass_poll").configure_periodic(FUNC(ppg_state::cassette_poll), attotime::from_hz(44100));
+
+	// Loads a ppgwavecassdecode-format .bin (4-byte addr header + data + checksum + endbyte)
+	// straight into RAM, bypassing the real-time tape decode entirely
+	QUICKLOAD(config, "quickload", "bin").set_load_callback(FUNC(ppg_state::quickload_cb));
 
 	HD43160(config, m_lcd, 0);
 	m_lcd->set_lcd_size(2, 40); // 2*16 internal
@@ -163,11 +248,11 @@ void ppg_state::ppg(machine_config& config)
 	screen_device& screen(SCREEN(config, "screen", SCREEN_TYPE_LCD));
 	screen.set_refresh_hz(72);
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); /* not accurate */
-	screen.set_size(480, 480);
+	screen.set_size(6 * 40, 9 * 2); // 40 chars * 6px, 2 lines * (8px + 1px spacing)
 	screen.set_visarea_full();
 	screen.set_screen_update(m_lcd, FUNC(hd43160_device::screen_update));
 	screen.set_palette("palette");
-	PALETTE(config, "palette", palette_device::MONOCHROME);
+	PALETTE(config, "palette", FUNC(ppg_state::ppg_palette), 2);
 
 }
 

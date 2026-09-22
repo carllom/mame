@@ -59,6 +59,7 @@ VIDEOS["HD43160"] = true
 -- specify available machine cores
 --------------------------------------------------
 
+MACHINES["6522VIA"] = true
 MACHINES["6821PIA"] = true
 MACHINES["68681"] = true
 MACHINES["ADC0808"] = true

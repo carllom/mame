@@ -13,6 +13,8 @@
 #include "emu.h"
 #include "video/hd43160.h"
 
+#include <algorithm>
+
 #define LOG          1
 
 //**************************************************************************
@@ -203,9 +205,10 @@ void hd43160_device::control_write(uint8_t data)
 		if (LOG) logerror("HD43160 '%s': cursor %s\n", tag(), m_cursor_on ? "on" : "off");
 	}
 	else if (data & 0x80) {
-		// Set cursor
-		if (data & 0x40)
-			m_ac = (data & 0x3F) + ((data & 0x40) ? 40 : 0);
+		// Set cursor: bit 6 selects the line, low 6 bits are the column,
+		// clamped so a stray/out-of-spec address can never index outside m_ram
+		int const base = (data & 0x40) ? 40 : 0;
+		m_ac = base + std::min<int>(data & 0x3F, 39);
 		if (LOG) logerror("HD43160 '%s': cursor position: %d\n", tag(), m_ac);
 	}
 }
