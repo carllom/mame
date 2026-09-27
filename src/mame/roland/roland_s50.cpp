@@ -27,6 +27,7 @@
 #include "video/t6963c.h"
 #include "emupal.h"
 #include "screen.h"
+#include "speaker.h"
 
 
 namespace {
@@ -137,27 +138,24 @@ public:
 		, m_psram2_bank(*this, "psram2")
 		, m_psram(*this, "psram", 0x20000U, ENDIANNESS_LITTLE)
 		, m_psram_bank(0)
+		, m_keysw(*this, "KEYSW%u", 0U)
+		, m_keyrow(0)
+		, m_leds(*this, "LED%u", 0U)
 	{
 	}
 
 	void w30(machine_config &config);
-	void s330(machine_config &config);
 
 protected:
 	virtual void machine_start() override ATTR_COLD;
 	virtual void machine_reset() override ATTR_COLD;
 
-private:
 	u8 psram_bank_r();
 	void psram_bank_w(u8 data);
 	void floppy_select_w(u8 data);
 	u8 unknown_status_r();
-	u8 unknown_hack_r();
-
-	HD44780_PIXEL_UPDATE(lcd_pixel_update);
 
 	void w30_mem_map(address_map &map) ATTR_COLD;
-	void s330_mem_map(address_map &map) ATTR_COLD;
 	void psram1_map(address_map &map) ATTR_COLD;
 	void psram2_map(address_map &map) ATTR_COLD;
 
@@ -167,7 +165,85 @@ private:
 	required_memory_bank m_psram2_bank;
 	memory_share_creator<u16> m_psram;
 
+	// M60013 keyswitch/LED controller, shared with the S-330
+	u8 keysw_r();
+	void keysw_w(u8 data);
+	void leds_w(u8 data);
+
 	u8 m_psram_bank;
+
+	required_ioport_array<4> m_keysw;
+	u8 m_keyrow; // M60013: internal counter for the SCANn outputs
+	output_finder<8> m_leds;
+
+private:
+	void mem_map(address_map &map);
+};
+
+class roland_s330_state : public roland_w30_state
+{
+public:
+	roland_s330_state(const machine_config &mconfig, device_type type, const char *tag)
+		: roland_w30_state(mconfig, type, tag)
+		, m_lcdc(*this, "lcdc")
+		, m_ctrltype(*this, "CTRLTYPE")
+		, m_midi_test(*this, "MIDITEST")
+		, m_mouse_btn(*this, "MOUSEBTN")
+		, m_mouse_x(*this, "MOUSEX")
+		, m_mouse_y(*this, "MOUSEY")
+		, m_boot_inject_done(false)
+		, m_midi_pos(0)
+		, m_midi_note_on(false)
+	{
+	}
+
+	void s330(machine_config &config);
+
+	u16 analog_vol_ctrl();
+	u16 analog_dac_value();
+
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
+	TIMER_DEVICE_CALLBACK_MEMBER(vdp_timer);
+	TIMER_DEVICE_CALLBACK_MEMBER(midi_timer_cb);
+	void s330_mem_map(address_map &map) ATTR_COLD;
+	void waveram_map(address_map &map);
+	void psram_bank_w(u8 data);
+	u8 keysw_r();
+
+	HD44780_PIXEL_UPDATE(lcd_pixel_update);
+	void init_lcd_palette(palette_device &palette) const;
+	void init_vdp_palette(palette_device &palette) const;
+
+	required_device<hd44780_device> m_lcdc;
+	required_ioport m_ctrltype;
+	required_ioport m_midi_test;
+	required_ioport m_mouse_btn;
+	required_ioport m_mouse_x;
+	required_ioport m_mouse_y;
+	bool m_boot_inject_done; // true after first boot-scan row 1 has been served
+
+	// MIDI test note injection
+	int m_midi_pos;
+	bool m_midi_note_on;
+	u8 m_midi_data[3];
+
+	// EXT port mouse state (MSX mouse protocol)
+	u16 m_mouse_data;    // packed nybbles: (u8(dx) << 8) | u8(dy)
+	u8 m_mouse_stat;     // nybble state 0-3 (cycles on each strobe edge)
+	u8 m_mouse_old_strobe;
+	s16 m_mouse_x_val;
+	s16 m_mouse_y_val;
+	attotime m_mouse_last_strobe;
+	u8 m_ext_pindir;
+
+	u8 ext_port_r();
+	void ext_port_w(u8 data);
+	void ext_pindir_w(u8 data);
+
+private:
+	void mem_map(address_map &map);
 };
 
 void roland_s50_state::machine_start()
@@ -213,12 +289,98 @@ void roland_w30_state::machine_reset()
 	psram_bank_w(0);
 }
 
+void roland_s330_state::machine_start()
+{
+	roland_w30_state::machine_start();
+	save_item(NAME(m_midi_pos));
+	save_item(NAME(m_midi_note_on));
+	save_item(NAME(m_midi_data));
+	save_item(NAME(m_mouse_data));
+	save_item(NAME(m_mouse_stat));
+	save_item(NAME(m_mouse_old_strobe));
+	save_item(NAME(m_mouse_x_val));
+	save_item(NAME(m_mouse_y_val));
+	save_item(NAME(m_mouse_last_strobe));
+	save_item(NAME(m_ext_pindir));
+}
+
+void roland_s330_state::machine_reset()
+{
+	roland_w30_state::machine_reset();
+	m_boot_inject_done = false; // allow boot-scan injection on next reset/power-on
+	m_midi_pos = 0;
+	m_midi_note_on = false;
+	memset(m_midi_data, 0, sizeof(m_midi_data));
+	m_mouse_data = 0;
+	m_mouse_stat = 3;
+	m_mouse_old_strobe = 0;
+	m_mouse_x_val = 0;
+	m_mouse_y_val = 0;
+	m_mouse_last_strobe = attotime::zero;
+	m_ext_pindir = 0;
+}
+
+// MIDI test note timer — feeds one byte per tick at ~3125 Hz (MIDI baud / 10)
+TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::midi_timer_cb)
+{
+	if (m_midi_pos < 3)
+	{
+		logerror("midi_inject: byte %d = %02x\n", m_midi_pos, m_midi_data[m_midi_pos]);
+		m_maincpu->serial_w(m_midi_data[m_midi_pos++]);
+		// Disable SA-16 log gate after note-off bytes are all sent
+		if (m_midi_pos >= 3 && !m_midi_note_on)
+		{
+			m_wave->set_log_gate(false);
+			logerror("midi_test: SA-16 logging DISABLED\n");
+		}
+	}
+}
+
 TIMER_DEVICE_CALLBACK_MEMBER(roland_s50_base_state::vdp_timer)
 {
 	// FIXME: internalize this ridiculousness
 	m_vdp->interrupt();
 }
 
+// SA-16 ENVINT (HSI0) gates the firmware's voice-processing loop at RAM_15FD.
+// The inner loop polls hsi_status bit 1: LOW = process next voice, HIGH = exit loop.
+// We alternate each VDP scanline so the firmware gets ~130 processing windows per
+// frame (one voice per window), with HIGH scanlines letting the main UI loop run.
+TIMER_DEVICE_CALLBACK_MEMBER(roland_s330_state::vdp_timer)
+{
+	roland_s50_base_state::vdp_timer(timer, param);
+	m_maincpu->set_input_line(i8x9x_device::HSI0_LINE, (param & 1) ? ASSERT_LINE : CLEAR_LINE);
+
+	// Check MIDI test note keys (once per frame, on line 0)
+	if (param == 0)
+	{
+		u8 keys = m_midi_test->read();
+		bool note_off_pressed = (keys & 2) != 0;
+		u8 note_num = 0;
+		if (keys & 0x01) note_num = 0x3c;       // N = C4 (60)
+		else if (keys & 0x04) note_num = 0x3d;  // B = C#4 (61)
+		else if (keys & 0x08) note_num = 0x48;  // V = C5 (72)
+		if (note_num && !m_midi_note_on)
+		{
+			m_midi_note_on = true;
+			m_midi_data[0] = 0x90;
+			m_midi_data[1] = note_num;
+			m_midi_data[2] = 0x64;
+			m_midi_pos = 0;
+			m_wave->set_log_gate(true);
+			logerror("midi_test: Note On %02x — SA-16 logging ENABLED\n", note_num);
+		}
+		else if (note_off_pressed && m_midi_note_on)
+		{
+			m_midi_note_on = false;
+			m_midi_data[0] = 0x90;
+			m_midi_data[1] = m_midi_data[1]; // reuse last note number
+			m_midi_data[2] = 0x00;
+			m_midi_pos = 0;
+			logerror("midi_test: Note Off %02x — SA-16 logging remains until bytes sent\n", m_midi_data[1]);
+		}
+	}
+}
 
 void roland_s50_state::p2_w(u8 data)
 {
@@ -249,6 +411,32 @@ void roland_w30_state::psram_bank_w(u8 data)
 	m_bank2_view.select(BIT(data, 0, 3) == 0 ? 0 : 1);
 	m_psram1_bank->set_entry(BIT(data, 3, 3));
 	m_psram2_bank->set_entry(BIT(data, 0, 2));
+}
+
+// S-330 bank switching (C600 write)
+//
+// C600 format: -AAAA-BB
+//   AAAA (bits 6:3) = LoBank: selects 8K overlay at 0100-1FFF
+//                    0 = ROM, 1-7 = banked RAM overlays
+//   BB   (bits 1:0) = HiBank: selects 16K chunk at 8000-BFFF
+//   bit 2 (BC pin)  = not connected
+void roland_s330_state::psram_bank_w(u8 data)
+{
+	m_psram_bank = data;
+	const u8 lobank = BIT(data, 3, 4); // bits 6:3
+	const u8 hibank = BIT(data, 0, 2); // bits 1:0
+
+	if (lobank == 0)
+		m_bank1_view.select(0); // ROM at 0000-1FFF (boot context)
+	else
+	{
+		m_bank1_view.select(1); // RAM overlay
+		m_psram1_bank->set_entry((lobank - 1) & 7);
+	}
+
+	// 8000-BFFF is always banked RAM on S-330 (no ROM mirrored there)
+	m_bank2_view.select(1);
+	m_psram2_bank->set_entry(hibank & 3);
 }
 
 u8 roland_s50_base_state::floppy_status_r()
@@ -320,17 +508,166 @@ u8 roland_w30_state::unknown_status_r()
 	return 0x1c;
 }
 
-u8 roland_w30_state::unknown_hack_r()
+// Keyswitch read register (M60013)
+//
+// Repeated reads from this register will read from consecutive keyswitch rows
+u8 roland_w30_state::keysw_r()
 {
-	return 0x01;
+	u8 value = m_keysw[m_keyrow]->read();
+	m_keyrow = (m_keyrow + 1) % 4;
+	return value;
 }
 
-HD44780_PIXEL_UPDATE(roland_w30_state::lcd_pixel_update)
+// Keyswitch command register (M60013)
+//
+// A write to this register will reset the keyscan counter
+void roland_w30_state::keysw_w(u8 data)
+{
+	if (data) logerror("KEYPORT Write: %02x\n", data);
+	m_keyrow = 0; // Reset keyscan row counter
+}
+
+// LED indicator register (M60013)
+//
+// There are 8 indicator outputs, each corresponding to one bit in the register.
+// A set bit turns LED off, an unset bit turns LED on.
+void roland_w30_state::leds_w(u8 data)
+{
+	if (data) logerror("LEDS Write: %02x\n", data);
+	m_leds[0] = BIT(data, 0) ? 0 : 1;
+	m_leds[1] = BIT(data, 1) ? 0 : 1;
+	m_leds[2] = BIT(data, 2) ? 0 : 1;
+	m_leds[3] = BIT(data, 3) ? 0 : 1;
+	m_leds[4] = BIT(data, 4) ? 0 : 1;
+	m_leds[5] = BIT(data, 5) ? 0 : 1;
+	m_leds[6] = BIT(data, 6) ? 0 : 1;
+	m_leds[7] = BIT(data, 7) ? 0 : 1;
+}
+
+// S-330 boot controller selection override.
+//
+// On real hardware the user holds Left/Down/Right before power-on to select
+// None/Mouse/RC-100. MAME keyboard input has at least one frame of latency so
+// the held key never reaches the port in time. This override injects the
+// appropriate key value into the first boot scan (row 1 only) based on the
+// "Boot controller type" configuration DIP, unless the user is actually holding
+// a key on row 1 themselves.
+u8 roland_s330_state::keysw_r()
+{
+	u8 row = m_keyrow; // peek before parent increments
+	u8 value = roland_w30_state::keysw_r();
+
+	if (!m_boot_inject_done && row == 1)
+	{
+		m_boot_inject_done = true;
+		if (value == 0xff) // no real key held — apply DIP setting
+		{
+			switch (m_ctrltype->read() & 0x03)
+			{
+			case 0: value = 0xfb; break; // Left  = None (panel keys)
+			case 2: value = 0xef; break; // Right = RC-100
+			// case 1: Mouse — leave as 0xff (firmware defaults to mouse anyway)
+			}
+			if (value != 0xff)
+				logerror("keysw_r: boot inject row 1 => %02x (ctrltype=%d)\n",
+					value, m_ctrltype->read() & 0x03);
+		}
+	}
+	return value;
+}
+
+// EXT port read (C400) — MSX-style mouse protocol
+//
+// Bits 0-3: movement nybble (cycles through X_hi, X_lo, Y_hi, Y_lo on strobe edges)
+// Bits 4-5: mouse buttons (active low: bit4=left, bit5=right)
+// Bit 6: strobe readback (directly driven by writes)
+u8 roland_s330_state::ext_port_r()
+{
+	u8 buttons = m_mouse_btn->read() & 0x30;
+	u8 nybble = (m_mouse_data >> (4 * (3 - m_mouse_stat))) & 0x0f;
+	return buttons | nybble;
+}
+
+// EXT port write (C400) — strobe output
+//
+// Bit 6 drives the mouse strobe pin. Each edge (rising or falling) advances the
+// nybble state machine: 0→1→2→3→0. State 0 latches the current mouse X/Y deltas.
+// A 3ms gap between edges resets the state machine, matching MSX mouse protocol.
+void roland_s330_state::ext_port_w(u8 data)
+{
+	u8 strobe = BIT(data, 6);
+	if (strobe != m_mouse_old_strobe)
+	{
+		attotime now = machine().scheduler().time();
+		if (now - m_mouse_last_strobe > attotime::from_msec(3))
+			m_mouse_stat = 3; // timeout — force restart
+
+		m_mouse_last_strobe = now;
+		m_mouse_stat = (m_mouse_stat + 1) & 0x03;
+
+		if (m_mouse_stat == 0)
+		{
+			// Latch mouse deltas (signed 8-bit X and Y)
+			s16 mouse_x = m_mouse_x->read();
+			s16 mouse_y = m_mouse_y->read();
+			m_mouse_data = (u8(m_mouse_x_val - mouse_x) << 8) | u8(m_mouse_y_val - mouse_y);
+			m_mouse_x_val = mouse_x;
+			m_mouse_y_val = mouse_y;
+		}
+		m_mouse_old_strobe = strobe;
+	}
+}
+
+// EXT port pin direction register (C500)
+//
+// Bits 0-1 control direction of EXT port pins 6-7.
+// Mouse mode writes 0 (all inputs); RC-100 writes 3 (pins 6-7 as outputs).
+void roland_s330_state::ext_pindir_w(u8 data)
+{
+	m_ext_pindir = data;
+}
+
+void roland_s330_state::init_lcd_palette(palette_device &palette) const
+{
+	palette.set_pen_color(0, rgb_t(131, 136, 139));
+	palette.set_pen_color(1, rgb_t( 92,  83,  88));
+}
+
+// TMS3556 attribute byte encodes color as bit0=R, bit1=G, bit2=B (confirmed from
+// bitmap plane order: name_r→bit0, name_g→bit1, name_b→bit2).
+// Standard RGB_3BIT would give bit2=R, swapping red and blue — use explicit table.
+// Use pal1bit() (0 or 255) so that black (index 0) is true black, not dark gray.
+void roland_s330_state::init_vdp_palette(palette_device &palette) const
+{
+	for (int i = 0; i < 8; i++)
+		palette.set_pen_color(i,
+			pal1bit(i >> 0),  // R = bit0
+			pal1bit(i >> 1),  // G = bit1
+			pal1bit(i >> 2)); // B = bit2
+}
+
+HD44780_PIXEL_UPDATE(roland_s330_state::lcd_pixel_update)
 {
 	if (x < 5 && y < 8 && line < 2 && pos < 16)
 		bitmap.pix(line * 8 + y, pos * 6 + x) = state;
 }
 
+u16 roland_s330_state::analog_vol_ctrl()
+{
+	return 0x1FF; // TODO: hookup to dial (10 bit value)
+}
+
+u16 roland_s330_state::analog_dac_value()
+{
+	// find_neg_sample (4946) polls ACH7 1022× and checks ADC_MSB (R29 = v>>2)
+	// against a threshold that alternates by iteration phase (R32):
+	//   R32==1: cmpb R29,#7F + jh → needs R29 <= 0x7F → v <= 0x1FF
+	//   R32!=1: cmpb R29,#80 + jnh → needs R29 >= 0x81 → v >= 0x204
+	// R29==0x80 (v=0x200..0x203) always fails both — never use those values.
+	// TODO: replace with real SA-16 DAC output once wave chip output is emulated.
+	const u8 r32 = m_maincpu->space(AS_DATA).read_byte(0x32);
+	return (r32 == 1) ? 0x1FF : 0x204;
+}
 
 void roland_s50_state::mem_map(address_map &map)
 {
@@ -394,7 +731,7 @@ void roland_w30_state::w30_mem_map(address_map &map)
 	map(0xf800, 0xffff).rw(FUNC(roland_w30_state::key_r), FUNC(roland_w30_state::key_w));
 }
 
-void roland_w30_state::s330_mem_map(address_map &map)
+void roland_s330_state::s330_mem_map(address_map &map)
 {
 	map(0x0000, 0x1fff).view(m_bank1_view);
 	m_bank1_view[0](0x0000, 0x1fff).rom().region("program", 0);
@@ -404,17 +741,29 @@ void roland_w30_state::s330_mem_map(address_map &map)
 	map(0x8000, 0xbfff).view(m_bank2_view);
 	m_bank2_view[0](0x8000, 0xbfff).rom().region("program", 0);
 	m_bank2_view[1](0x8000, 0xbfff).bankrw(m_psram2_bank);
-	map(0xc200, 0xc200).rw(FUNC(roland_w30_state::floppy_status_r), FUNC(roland_w30_state::floppy_select_w));
-	map(0xc300, 0xc303).w("lcdc", FUNC(hd44780_device::write)).umask16(0x00ff);
-	map(0xc600, 0xc600).rw(FUNC(roland_w30_state::psram_bank_r), FUNC(roland_w30_state::psram_bank_w));
-	map(0xc800, 0xc807).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
+	map(0xc000, 0xffff).rw(m_wave, FUNC(sa16_device::read), FUNC(sa16_device::write)).umask16(0xff00);
+
+	map(0xc200, 0xc200).rw(FUNC(roland_s330_state::floppy_status_r), FUNC(roland_s330_state::floppy_select_w));
+	map(0xc300, 0xc302).rw(m_lcdc, FUNC(hd44780_device::read), FUNC(hd44780_device::write)).umask16(0x00ff);
+	map(0xc400, 0xc400).rw(FUNC(roland_s330_state::ext_port_r), FUNC(roland_s330_state::ext_port_w));
+	map(0xc500, 0xc500).w(FUNC(roland_s330_state::ext_pindir_w));
+	map(0xc600, 0xc600).rw(FUNC(roland_s330_state::psram_bank_r), FUNC(roland_s330_state::psram_bank_w));
+	map(0xc800, 0xc806).rw(m_fdc, FUNC(wd1772_device::read), FUNC(wd1772_device::write)).umask16(0x00ff);
 	map(0xd000, 0xd000).r(m_vdp, FUNC(tms3556_device::vram_r));
+	// D002 read used as dummy init-read by firmware (value is discarded and overwritten
+	// with #21h immediately after). Must be initptr_r() to set m_init_read=true so the
+	// first sequential vram_r() from D000 starts at VDP_BAMP, not VDP_BAMP-1.
 	map(0xd002, 0xd002).rw(m_vdp, FUNC(tms3556_device::initptr_r), FUNC(tms3556_device::vram_w));
 	map(0xd004, 0xd004).rw(m_vdp, FUNC(tms3556_device::reg_r), FUNC(tms3556_device::reg_w));
-	map(0xd806, 0xd806).r(FUNC(roland_w30_state::unknown_hack_r));
-	map(0xe800, 0xe81f).w("outas", FUNC(bu3905_device::write)).umask16(0x00ff);
-	//map(0xf000, 0xf01f).rw(m_tvf, FUNC(mb654419u_device::read), FUNC(mb654419u_device::write)).umask16(0x00ff);
-	map(0xc000, 0xffff).rw(m_wave, FUNC(sa16_device::read), FUNC(sa16_device::write)).umask16(0xff00);
+
+	map(0xd806, 0xd806).rw(FUNC(roland_s330_state::keysw_r), FUNC(roland_s330_state::keysw_w));
+
+	map(0xf00c, 0xf00c).w(FUNC(roland_s330_state::leds_w));
+}
+
+void roland_s330_state::waveram_map(address_map &map)
+{
+	map(0x00000, 0xfffff).ram().share("waveram"); // 512k 12 bit data bus
 }
 
 void roland_s50_base_state::vram_map(address_map &map)
@@ -429,9 +778,101 @@ static INPUT_PORTS_START(s550)
 INPUT_PORTS_END
 
 static INPUT_PORTS_START(w30)
+	PORT_START("KEYSW0")
+	PORT_BIT(0x03, IP_ACTIVE_LOW, IPT_UNUSED)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Start/Stop") PORT_CODE(KEYCODE_SPACE)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_UNUSED)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F3") PORT_CODE(KEYCODE_F3)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("0 ,._") PORT_CODE(KEYCODE_0) PORT_CODE(KEYCODE_0_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("- -*/") PORT_CODE(KEYCODE_MINUS) PORT_CODE(KEYCODE_MINUS_PAD)
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Enter") PORT_CODE(KEYCODE_ENTER) PORT_CODE(KEYCODE_ENTER_PAD)
+
+	PORT_START("KEYSW1")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Performance") PORT_CODE(KEYCODE_P)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Rec") PORT_CODE(KEYCODE_R)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Tempo") PORT_CODE(KEYCODE_T)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F2") PORT_CODE(KEYCODE_F2)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F4") PORT_CODE(KEYCODE_F4)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("1 ABC") PORT_CODE(KEYCODE_1) PORT_CODE(KEYCODE_1_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("2 DEF") PORT_CODE(KEYCODE_2) PORT_CODE(KEYCODE_2_PAD)
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("3 GHI") PORT_CODE(KEYCODE_3) PORT_CODE(KEYCODE_3_PAD)
+
+	PORT_START("KEYSW2")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Sequencer") PORT_CODE(KEYCODE_Q)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("|<") PORT_CODE(KEYCODE_UP) PORT_CODE(KEYCODE_HOME)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("<") PORT_CODE(KEYCODE_LEFT)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F1") PORT_CODE(KEYCODE_F1)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F5") PORT_CODE(KEYCODE_F5)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("4 JKL") PORT_CODE(KEYCODE_4) PORT_CODE(KEYCODE_4_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("5 MNO") PORT_CODE(KEYCODE_5) PORT_CODE(KEYCODE_5_PAD)
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("6 PQR") PORT_CODE(KEYCODE_6) PORT_CODE(KEYCODE_6_PAD)
+
+	PORT_START("KEYSW3")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Sound") PORT_CODE(KEYCODE_S)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(">|") PORT_CODE(KEYCODE_DOWN) PORT_CODE(KEYCODE_END)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(">") PORT_CODE(KEYCODE_RIGHT)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("User") PORT_CODE(KEYCODE_U)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Exit") PORT_CODE(KEYCODE_BACKSPACE)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("7 STU") PORT_CODE(KEYCODE_7) PORT_CODE(KEYCODE_7_PAD)
+	PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("8 VWX") PORT_CODE(KEYCODE_8) PORT_CODE(KEYCODE_8_PAD)
+	PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("9 YZ#") PORT_CODE(KEYCODE_9) PORT_CODE(KEYCODE_9_PAD)
 INPUT_PORTS_END
 
 static INPUT_PORTS_START(s330)
+	PORT_START("KEYSW0")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Mode") PORT_CODE(KEYCODE_F1)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Menu") PORT_CODE(KEYCODE_F2)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Dec/No") PORT_CODE(KEYCODE_MINUS) PORT_CODE(KEYCODE_MINUS_PAD)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Up") PORT_CODE(KEYCODE_UP)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Inc/Yes") PORT_CODE(KEYCODE_EQUALS) PORT_CODE(KEYCODE_PLUS_PAD)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Command") PORT_CODE(KEYCODE_SPACE)
+	PORT_BIT(0xc0, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW1")
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Page") PORT_CODE(KEYCODE_F3)
+	PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Sub Menu") PORT_CODE(KEYCODE_F4)
+	PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Left") PORT_CODE(KEYCODE_LEFT) PORT_CODE(KEYCODE_4_PAD)
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Down") PORT_CODE(KEYCODE_DOWN) PORT_CODE(KEYCODE_2_PAD)
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Right") PORT_CODE(KEYCODE_RIGHT) PORT_CODE(KEYCODE_6_PAD)
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Execute") PORT_CODE(KEYCODE_ENTER) PORT_CODE(KEYCODE_ENTER_PAD)
+	PORT_BIT(0xc0, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW2")
+	PORT_BIT(0xff, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("KEYSW3")
+	PORT_BIT(0xff, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	// The S-330 determines the input controller at boot by checking which panel key
+	// is held during power-on (Left=None, Down=Mouse, Right=RC-100). Real hardware
+	// detects the physically-held key before power-up; emulation cannot replicate
+	// that timing, so this setting injects the appropriate key into the first boot scan.
+	PORT_START("CTRLTYPE")
+	PORT_CONFNAME(0x03, 0x00, "Boot controller type")
+	PORT_CONFSETTING(0x00, "None (panel keys)")
+	PORT_CONFSETTING(0x01, "Mouse")
+	PORT_CONFSETTING(0x02, "RC-100")
+
+	// MIDI test notes — N=C4, B=C#4(+1semi), V=C5(+1oct), M=NoteOff
+	PORT_START("MIDITEST")
+	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C4)") PORT_CODE(KEYCODE_N)
+	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note Off") PORT_CODE(KEYCODE_M)
+	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C#4)") PORT_CODE(KEYCODE_B)
+	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("MIDI Note On (C5)") PORT_CODE(KEYCODE_V)
+
+	// Mouse on EXT port (directly read via C400, active low buttons)
+	// MAME's UI consumes right-click for its own menu, so map the S-330's
+	// right button to IPT_BUTTON3 (middle-click) which passes through.
+	PORT_START("MOUSEBTN")
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_BUTTON1) PORT_NAME("Mouse Left Button")
+	PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_BUTTON3) PORT_NAME("Mouse Right Button")
+	PORT_BIT(0xcf, IP_ACTIVE_LOW, IPT_UNUSED)
+
+	PORT_START("MOUSEX")
+	PORT_BIT(0xffff, 0, IPT_MOUSE_X) PORT_SENSITIVITY(50)
+
+	PORT_START("MOUSEY")
+	PORT_BIT(0xffff, 0, IPT_MOUSE_Y) PORT_SENSITIVITY(50)
 INPUT_PORTS_END
 
 static void s50_floppies(device_slot_interface &device)
@@ -559,10 +1000,12 @@ void roland_w30_state::w30(machine_config &config)
 	//MB654419U(config, m_tvf, 20_MHz_XTAL);
 }
 
-void roland_w30_state::s330(machine_config &config)
+void roland_s330_state::s330(machine_config &config)
 {
 	C8095_90(config, m_maincpu, 24_MHz_XTAL / 2); // N8097-90
-	m_maincpu->set_addrmap(AS_PROGRAM, &roland_w30_state::s330_mem_map);
+	m_maincpu->set_addrmap(AS_PROGRAM, &roland_s330_state::s330_mem_map);
+	m_maincpu->ach4_cb().set(FUNC(roland_s330_state::analog_vol_ctrl)); // Volume control
+	m_maincpu->ach7_cb().set(FUNC(roland_s330_state::analog_dac_value)); // A/D compare level
 
 	WD1772(config, m_fdc, 8_MHz_XTAL); // WD1772-02
 
@@ -571,9 +1014,10 @@ void roland_w30_state::s330(machine_config &config)
 	FLOPPY_CONNECTOR(config, m_floppy[1], s50_floppies, nullptr, &floppy_formats).enable_sound(true);
 
 	// LCD unit: DM1620-5BL7 (MW-5F)
-	hd44780_device &lcdc(HD44780(config, "lcdc", 270'000)); // TODO: clock not measured, datasheet typical clock used
-	lcdc.set_lcd_size(2, 16);
-	lcdc.set_pixel_update_cb(FUNC(roland_w30_state::lcd_pixel_update));
+	HD44780(config, m_lcdc, 270'000); // TODO: clock not measured, datasheet typical clock used
+	m_lcdc->set_lcd_size(2, 16);
+	m_lcdc->set_pixel_update_cb(FUNC(roland_s330_state::lcd_pixel_update));
+	m_lcdc->set_busy_factor(0.005f);
 
 	screen_device &lcd_screen(SCREEN(config, "lcd_screen").set_lcd());
 	lcd_screen.set_refresh_hz(60);
@@ -582,11 +1026,10 @@ void roland_w30_state::s330(machine_config &config)
 	lcd_screen.set_size(6*16, 8*2);
 	lcd_screen.set_visarea_full();
 	lcd_screen.set_palette("lcd_palette");
-
-	PALETTE(config, "lcd_palette", palette_device::MONOCHROME_INVERTED);
+	PALETTE(config, "lcd_palette", FUNC(roland_s330_state::init_lcd_palette), 2);
 
 	TMS3556(config, m_vdp, 14.3496_MHz_XTAL); // TMS3556NL
-	m_vdp->set_addrmap(0, &roland_w30_state::vram_map);
+	m_vdp->set_addrmap(0, &roland_s330_state::vram_map);
 	m_vdp->set_screen("screen");
 
 	screen_device &screen(SCREEN(config, "screen"));
@@ -598,13 +1041,20 @@ void roland_w30_state::s330(machine_config &config)
 	screen.set_vblank_time(ATTOSECONDS_IN_USEC(2500)); /* not accurate */
 	screen.set_palette("palette");
 
-	PALETTE(config, "palette", palette_device::RGB_3BIT);
+	PALETTE(config, "palette", FUNC(roland_s330_state::init_vdp_palette), 8);
 
-	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_w30_state::vdp_timer), "screen", 0, 1);
+	TIMER(config, "vdp_timer").configure_scanline(FUNC(roland_s330_state::vdp_timer), "screen", 0, 1);
 
 	SA16(config, m_wave, 26.88_MHz_XTAL);
+	m_wave->set_addrmap(0, &roland_s330_state::waveram_map);
 	m_wave->int_callback().set_inputline(m_maincpu, i8x9x_device::HSI0_LINE);
 	m_wave->sh_callback().set("outas", FUNC(bu3905_device::axi_w));
+	m_wave->add_route(0, "speaker", 1.0);
+
+	SPEAKER(config, "speaker").front_center();
+
+	// MIDI byte injection timer — fires at ~3125 Hz (31250 baud / 10 bits per byte)
+	TIMER(config, "midi_timer").configure_periodic(FUNC(roland_s330_state::midi_timer_cb), attotime::from_hz(3125));
 
 	BU3905(config, "outas");
 
@@ -643,8 +1093,13 @@ ROM_END
 
 ROM_START(s330)
 	ROM_REGION16_LE(0x4000, "program", 0)
-	ROM_LOAD16_BYTE("a_s-330_even_v3.02.ic15", 0x0000, 0x2000, CRC(9039fc5d) SHA1(e5d718aab7b10e25c742b74a09eb2fedf3dccb58)) // MBM27C64-20
-	ROM_LOAD16_BYTE("b_s-330_odd_v3.02.ic14", 0x0001, 0x2000, CRC(e3855737) SHA1(ab57ed4b81bb69cceb2f274e8fb599d9b8f4e7fc)) // MBM27C64-20
+	ROM_DEFAULT_BIOS("v302")
+	ROM_SYSTEM_BIOS(0, "v302", "Firmware v3.02")
+	ROMX_LOAD("a_s-330_even_v3.02.ic15", 0x0000, 0x2000, CRC(9039fc5d) SHA1(e5d718aab7b10e25c742b74a09eb2fedf3dccb58), ROM_SKIP(1) | ROM_BIOS(0)) // MBM27C64-20
+	ROMX_LOAD("b_s-330_odd_v3.02.ic14", 0x0001, 0x2000, CRC(e3855737) SHA1(ab57ed4b81bb69cceb2f274e8fb599d9b8f4e7fc), ROM_SKIP(1) | ROM_BIOS(0)) // MBM27C64-20
+	ROM_SYSTEM_BIOS(1, "v100", "Firmware v1.00")
+	ROMX_LOAD("s-330_even_v1.00.ic15", 0x0000, 0x2000, CRC(20aa7ce0) SHA1(554839c48aa8851988d86ce1b59cb32e92588c48), ROM_SKIP(1) | ROM_BIOS(1))
+	ROMX_LOAD("s-330_odd_v1.00.ic14", 0x0001, 0x2000, CRC(32a00f31) SHA1(d764651299273ec8f4801e13e20f98690b491992), ROM_SKIP(1) | ROM_BIOS(1))
 ROM_END
 
 } // anonymous namespace
@@ -653,4 +1108,4 @@ ROM_END
 SYST(1987, s50,  0,   0, s50,  s50,  roland_s50_state,  empty_init, "Roland", "S-50 Digital Sampling Keyboard", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1987, s550, s50, 0, s550, s550, roland_s550_state, empty_init, "Roland", "S-550 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
 SYST(1988, w30,  0,   0, w30,  w30,  roland_w30_state,  empty_init, "Roland", "W-30 Music Workstation", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
-SYST(1988, s330, w30, 0, s330, s330, roland_w30_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
+SYST(1988, s330, w30, 0, s330, s330, roland_s330_state, empty_init, "Roland", "S-330 Digital Sampler", MACHINE_NO_SOUND | MACHINE_NOT_WORKING)
