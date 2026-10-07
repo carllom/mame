@@ -174,8 +174,6 @@ private:
 
 void e6400_state::machine_start()
 {
-	m_leds.resolve();
-
 	m_kchip_scan_timer = timer_alloc(FUNC(e6400_state::kchip_scan), this);
 
 	save_item(NAME(m_cr1));
