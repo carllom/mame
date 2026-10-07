@@ -218,7 +218,7 @@ u32 i8x9x_device::serial_bit_clocks() const
 		return 960;
 
 	u32 const divisor = (baud_reg & 0x7fff) + 1;
-	return ((sp_con & 3) == 0 ? 4 : 64) * divisor;
+	return serial_baud_divisor((sp_con & 3) == 0) * divisor;
 }
 
 u8 i8x9x_device::serial_data_bits() const

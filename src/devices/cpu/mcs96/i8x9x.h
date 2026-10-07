@@ -77,6 +77,10 @@ public:
 	// Timer 1 increments once every eight state times, and a state time is three
 	// oscillator periods on this family, so the divisor is 8 * 3 = 24.
 	virtual u32 timer_divisor() const noexcept { return 24; }
+	// Oscillator periods per bit for each count of BAUD_RATE with XTAL1 as the
+	// source: XTAL1 / (64 * (BAUD_REG + 1)) asynchronous, XTAL1 / (4 * (BAUD_REG + 1))
+	// in synchronous mode 0.
+	virtual u32 serial_baud_divisor(bool sync) const noexcept { return sync ? 4 : 64; }
 
 protected:
 	i8x9x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int data_width);
@@ -304,6 +308,9 @@ public:
 protected:
 	// 80C196KB state time is two oscillator periods, so the divisor is 8 * 2 = 16.
 	virtual u32 timer_divisor() const noexcept override { return 16; }
+	// The divide-by-2 state clock also changes the baud rate formulas to
+	// XTAL1 / (16 * (BAUD_REG + 1)) and XTAL1 / (2 * (BAUD_REG + 1)).
+	virtual u32 serial_baud_divisor(bool sync) const noexcept override { return sync ? 2 : 16; }
 };
 
 DECLARE_DEVICE_TYPE(C8095_90, c8095_90_device)
