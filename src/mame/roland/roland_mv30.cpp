@@ -74,7 +74,6 @@
 #include "bus/midi/midioutport.h"
 #include "imagedev/floppy.h"
 #include "machine/upd765.h"
-#include "machine/timer.h"
 #include "sound/roland_lp.h"
 #include "video/t6963c.h"
 
@@ -82,7 +81,6 @@
 #include "screen.h"
 #include "speaker.h"
 
-#include <queue>
 
 #include "roland_mv30.lh"
 
@@ -169,7 +167,6 @@ public:
 		, m_floppy(*this, "fdc:0")
 		, m_pcm(*this, "pcm")
 		, m_lcd(*this, "lcd")
-		, m_midi_timer(*this, "midi_timer")
 	{
 	}
 
@@ -249,10 +246,6 @@ private:
 	u8 port2_r();
 	void port2_w(u8 data);
 
-	// MIDI
-	void midi_in_w(int state);
-	TIMER_DEVICE_CALLBACK_MEMBER(midi_timer_cb);
-
 	required_device<i80c196_device> m_maincpu;
 	required_region_ptr<u16> m_rom;
 	memory_share_creator<u16> m_ram;
@@ -275,7 +268,6 @@ private:
 	optional_device<floppy_connector> m_floppy;
 	required_device<mb87419_mb87420_device> m_pcm;
 	required_device<t6963c_device> m_lcd;
-	required_device<timer_device> m_midi_timer;
 
 	unsigned m_ram_size;   // effective RAM size in bytes (512KB or 1MB)
 
@@ -299,11 +291,6 @@ private:
 
 	// LP-1 PCM interrupt (active on PORT0 bit 7)
 	int m_pcm_irq;
-
-	// MIDI bit-bang state
-	std::queue<u8> m_midi_queue;
-	u8 m_midi_rx;
-	int m_midi_pos;
 
 	// Gate array DMA registers (SFR 0x118-0x11D)
 	u16 m_dma_count;      // 0x118: transfer byte count (decrements to 0)
@@ -524,8 +511,6 @@ void roland_mv30_state::machine_start()
 	save_item(NAME(m_encoder_last));
 	save_item(NAME(m_encoder_moved));
 	save_item(NAME(m_encoder_dir));
-	save_item(NAME(m_midi_rx));
-	save_item(NAME(m_midi_pos));
 	save_item(NAME(m_dma_count));
 	save_item(NAME(m_dma_adr_lo));
 	save_item(NAME(m_dma_adr_hi));
@@ -564,9 +549,6 @@ void roland_mv30_state::machine_reset()
 	m_encoder_moved = false;
 	m_encoder_dir = false;
 	m_pcm_irq = 0;
-	m_midi_rx = 0;
-	m_midi_pos = 0;
-	std::queue<u8>().swap(m_midi_queue);
 
 	m_dma_count = 0;
 	m_dma_adr_lo = 0;
@@ -1099,37 +1081,6 @@ void roland_mv30_state::port2_w(u8 data)
 }
 
 
-// MIDI IN bit-bang receiver
-void roland_mv30_state::midi_in_w(int state)
-{
-	if (m_midi_pos == 0 || m_midi_pos == 9)
-	{
-		m_midi_pos += 1;
-	}
-	else if (m_midi_pos == 10)
-	{
-		m_midi_queue.push(m_midi_rx);
-		m_midi_rx = 0;
-		m_midi_pos = 0;
-	}
-	else
-	{
-		m_midi_rx |= state << (m_midi_pos - 1);
-		m_midi_pos += 1;
-	}
-}
-
-TIMER_DEVICE_CALLBACK_MEMBER(roland_mv30_state::midi_timer_cb)
-{
-	if (m_midi_queue.empty())
-		return;
-
-	u8 midi = m_midi_queue.front();
-	m_midi_queue.pop();
-	m_maincpu->serial_w(midi);
-}
-
-
 static INPUT_PORTS_START(mv30)
 	PORT_START("SC0")
 	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("PTN EDIT") PORT_CODE(KEYCODE_BACKSLASH)
@@ -1264,7 +1215,6 @@ void roland_mv30_state::mv30(machine_config &config)
 	C80C196KB(config, m_maincpu, 12_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &roland_mv30_state::mem_map);
 	m_maincpu->set_addrmap(AS_OPCODES, &roland_mv30_state::opcodes_map);
-	m_maincpu->serial_tx_cb().set("mdout", FUNC(midi_port_device::write_txd));
 	m_maincpu->ach0_cb().set(FUNC(roland_mv30_state::ach0_r));
 	m_maincpu->hso_cb().set(FUNC(roland_mv30_state::hso_w));
 	m_maincpu->in_p0_cb().set(FUNC(roland_mv30_state::port0_r));
@@ -1306,15 +1256,16 @@ void roland_mv30_state::mv30(machine_config &config)
 
 	PALETTE(config, "palette", FUNC(roland_mv30_state::lcd_palette), 2);
 
-	// MIDI
-	TIMER(config, m_midi_timer).configure_periodic(FUNC(roland_mv30_state::midi_timer_cb), attotime::from_hz(1250));
-
+	// MIDI: IN feeds the CPU serial port RXD (P2.1) and THRU is a hardware copy
+	// of it; TXD (P2.0) drives OUT
 	midi_port_device &mdin(MIDI_PORT(config, "mdin", midiin_slot, "midiin"));
-	mdin.rxd_handler().set(FUNC(roland_mv30_state::midi_in_w));
+	mdin.rxd_handler().set(m_maincpu, FUNC(i80c196_device::rxd_w));
 	mdin.rxd_handler().append("mdthru", FUNC(midi_port_device::write_txd));
 
 	MIDI_PORT(config, "mdout", midiout_slot, "midiout");
 	MIDI_PORT(config, "mdthru", midiout_slot, "midiout");
+
+	m_maincpu->txd_cb().set("mdout", FUNC(midi_port_device::write_txd));
 
 	config.set_default_layout(layout_roland_mv30);
 }

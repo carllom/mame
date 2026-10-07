@@ -272,8 +272,25 @@ Tape sync gate array. Stub only.
 
 ### MIDI
 
-Bit-bang receiver via `midi_in_w()` with timer-based delivery to CPU serial
-port. TX via MCS96 built-in serial TX callback.
+MIDI IN, OUT and THRU are wired at bit level to the 80C196KB serial port:
+
+- MIDI IN drives RXD (P2.1) via `i80c196_device::rxd_w`.
+- THRU is an electrical copy of MIDI IN (appended to the same RXD handler),
+  with no routing.
+- TXD (P2.0, enabled by IOC1.5) drives MIDI OUT via `txd_cb`.
+
+The firmware programs BAUD_RATE = 0x8017 (XTAL1, B = 23): 12 MHz / (16 * 24)
+= 31250 baud. That uses the 80C196KB formula XTAL1 / (16 * (B + 1)); the 8X9X
+formula, XTAL1 / (64 * (B + 1)), would give 7812.5 baud. SP_CON = 0x09 (mode 1,
+REN), IOC1 = 0x22.
+
+Only INT_MASK1 bit 5 (EXTINT1) is set, so the 80C196KB TI/RI vectors at
+0x2030/0x2032 are unused. Serial goes through the shared SERIAL vector 0x200C,
+whose handler (0x13E) reads SP_STAT until TI/RI are clear and then branches on
+TI (bit 5: next byte from the TX ring) and RI (bit 6: SBUF into the RX ring).
+The KB-only SP_STAT bits (FE, TXE, OE) aren't tested, and the transmitter is
+fed one byte per TI, so the 8X9X single-buffered model is sufficient.
+The firmware transmits active sensing (0xFE) and MIDI clock (0xF8).
 
 ---
 
@@ -314,7 +331,7 @@ cat mv30bios.asm
 - **Display**: LCD active, shows UI
 - **Input**: Key scan, sliders, rotary encoder all functional
 - **Sound**: PCM engine initialized, register writes active, sequencer timer chain functional, and song timing now matches hardware closely
-- **MIDI**: Basic bit-bang RX/TX
+- **MIDI**: IN/OUT/THRU at bit level through the CPU serial port (31250 baud)
 - **FDC**: Reads working, DMA working, interrupt chain complete
 - **Timer crash**: `emu_timer::schedule_next_period` assertion in DEBUG mode only (pre-existing MAME issue)
 
