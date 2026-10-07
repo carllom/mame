@@ -21,6 +21,9 @@ CPUS["NS32000"] = true -- emu3
 CPUS["M6800"] = true  -- RS232 -> votraxtnt machine
 CPUS["Z80"] = true    -- RS232 -> heath_h19 -> tlb
 CPUS["IE15"] = true   -- RS232 -> ie15 machine
+CPUS["ADSP21XX"] = true -- RS232 -> adsp2181ekl
+CPUS["MCS48"] = true  -- RS232 -> s97801 keyboard
+CPUS["MCS51"] = true  -- RS232 -> s97801
 
 --------------------------------------------------
 -- Specify all the sound cores necessary for the
@@ -40,6 +43,7 @@ SOUNDS["CDDA"] = true          -- e6400 SCSI CD-ROM
 VIDEOS["T6963C"] = true  -- e6400
 VIDEOS["HD44780"] = true -- emu3
 VIDEOS["MC6845"] = true  -- RS232 -> heath_h19 -> tlb
+VIDEOS["SCN2674"] = true -- RS232 -> s97801
 
 --------------------------------------------------
 -- specify available machine cores
@@ -65,6 +69,8 @@ MACHINES["IE15"] = true       -- RS232 -> ie15 bus device
 MACHINES["SWTPC8212"] = true  -- RS232 -> swtpc8212 bus device
 MACHINES["6821PIA"] = true    -- RS232 -> swtpc8212
 MACHINES["INPUT_MERGER"] = true -- RS232 -> swtpc8212
+MACHINES["S97801"] = true       -- RS232 -> s97801 bus device
+MACHINES["SCN_PCI"] = true      -- RS232 -> s97801
 MACHINES["MC68901"] = true      -- e6400 MFP
 
 --------------------------------------------------
