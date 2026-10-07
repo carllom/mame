@@ -509,7 +509,6 @@ void roland_mv30_state::lcd_palette(palette_device &palette) const
 
 void roland_mv30_state::machine_start()
 {
-	m_leds.resolve();
 
 	save_item(NAME(m_bank_reg));
 	save_item(NAME(m_keyscan_cmd));
@@ -1298,7 +1297,7 @@ void roland_mv30_state::mv30(machine_config &config)
 	T6963C(config, m_lcd, 0);
 	m_lcd->set_addrmap(0, &roland_mv30_state::lcd_map);
 
-	screen_device &screen(SCREEN(config, "screen", SCREEN_TYPE_LCD));
+	screen_device &screen(SCREEN(config, "screen").set_lcd());
 	screen.set_refresh_hz(60);
 	screen.set_size(240, 64);
 	screen.set_visarea(0, 240 - 1, 0, 64 - 1);
