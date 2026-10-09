@@ -344,13 +344,18 @@ u8 e6400_state::kchip_r(offs_t offset)
 	case 0: // key code — reading dequeues one event from FIFO
 		if (m_kchip_fifo_count > 0)
 		{
-			m_kchip_key = m_kchip_fifo_code[m_kchip_fifo_head];
-			m_kchip_vel = m_kchip_fifo_vel[m_kchip_fifo_head];
-			m_kchip_fifo_head = (m_kchip_fifo_head + 1) % KCHIP_FIFO_SIZE;
-			m_kchip_fifo_count--;
-			if (m_kchip_fifo_count == 0)
-				m_kchip_status &= ~0x80;
-			kchip_update_irq();
+			const u8 key = m_kchip_fifo_code[m_kchip_fifo_head];
+			if (!machine().side_effects_disabled())
+			{
+				m_kchip_key = key;
+				m_kchip_vel = m_kchip_fifo_vel[m_kchip_fifo_head];
+				m_kchip_fifo_head = (m_kchip_fifo_head + 1) % KCHIP_FIFO_SIZE;
+				m_kchip_fifo_count--;
+				if (m_kchip_fifo_count == 0)
+					m_kchip_status &= ~0x80;
+				kchip_update_irq();
+			}
+			return key;
 		}
 		return m_kchip_key;
 
@@ -361,7 +366,8 @@ u8 e6400_state::kchip_r(offs_t offset)
 		return m_kchip_status;
 
 	case 3: // pot data MSB — reading clears pot-ready flag
-		m_kchip_status &= ~0x40;
+		if (!machine().side_effects_disabled())
+			m_kchip_status &= ~0x40;
 		return u8(m_kchip_pot >> 3);
 
 	case 4: // pot data LSB (bits 2:0)
@@ -369,10 +375,13 @@ u8 e6400_state::kchip_r(offs_t offset)
 
 	case 5: // encoder delta — signed byte, reading clears encoder flag
 	{
-		u8 delta = u8(m_kchip_enc_delta);
-		m_kchip_enc_delta = 0;
-		m_kchip_status &= ~0x20;
-		kchip_update_irq();
+		const u8 delta = u8(m_kchip_enc_delta);
+		if (!machine().side_effects_disabled())
+		{
+			m_kchip_enc_delta = 0;
+			m_kchip_status &= ~0x20;
+			kchip_update_irq();
+		}
 		return delta;
 	}
 

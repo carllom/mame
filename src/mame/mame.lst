@@ -18782,6 +18782,9 @@ emax
 emax2
 emaxp
 
+@source:emusys/e6400.cpp
+e6400
+
 @source:emusys/emu2.cpp
 emu2
 

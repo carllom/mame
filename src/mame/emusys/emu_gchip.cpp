@@ -118,9 +118,12 @@ u16 emu_gchip_device::read(offs_t offset)
 	// uses a base at ~0x1F000), so we mask to the voice-relative offset.
 	if ((byte_off & 0x3f) == 0x1c)
 	{
-		u16 result = m_read_pipeline;
-		m_read_pipeline = m_sample_space.read_word(m_read_addr * 2);
-		LOGSAMPLE("read +$1C: pipeline=%04x, next from word_addr=%08x -> %04x\n", result, m_read_addr, m_read_pipeline);
+		const u16 result = m_read_pipeline;
+		if (!machine().side_effects_disabled())
+		{
+			m_read_pipeline = m_sample_space.read_word(m_read_addr * 2);
+			LOGSAMPLE("read +$1C: pipeline=%04x, next from word_addr=%08x -> %04x\n", result, m_read_addr, m_read_pipeline);
+		}
 		return result;
 	}
 
