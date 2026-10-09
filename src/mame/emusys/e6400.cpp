@@ -158,7 +158,7 @@ private:
 	u16 status_r();
 	void led_w(u16 data);
 	u8 lcd_r();
-	void lcd_w(offs_t offset, u8 data);
+	void lcd_w(u8 data);
 	void gain_w(u8 data);
 	u8 jack_r();
 
@@ -253,7 +253,7 @@ u8 e6400_state::lcd_r()
 	return m_lcd->read(BIT(m_cr1, 8));
 }
 
-void e6400_state::lcd_w(offs_t offset, u8 data)
+void e6400_state::lcd_w(u8 data)
 {
 	m_lcd->write(BIT(m_cr1, 8), data);
 }
@@ -418,7 +418,7 @@ void e6400_state::mem_map(address_map &map)
 	// 0x520000: CSDSP — DSP daughter card (effects processor)
 	// 0x540000: CSEXP — expansion daughter card
 	map(0x560000, 0x560007).m(m_fdc, FUNC(n82077aa_device::map)); // CSFDC
-	map(0x580000, 0x580003).rw(FUNC(e6400_state::lcd_r), FUNC(e6400_state::lcd_w)); // CSLCD
+	map(0x580000, 0x580003).rw(FUNC(e6400_state::lcd_r), FUNC(e6400_state::lcd_w)).umask16(0xff00); // CSLCD — C/D from CR1 bit 8
 	map(0x5a0000, 0x5a002f).rw(m_mfp, FUNC(mc68901_device::read), FUNC(mc68901_device::write)).umask16(0xff00); // CSMFP
 	map(0x5c0000, 0x5c0001).w(FUNC(e6400_state::gain_w)).umask16(0xff00);  // CSWGAIN
 	map(0x5e0000, 0x5e0001).r(FUNC(e6400_state::jack_r)).umask16(0xff00);  // CSRJACK
