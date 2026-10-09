@@ -86,6 +86,7 @@
 #include "machine/eepromser.h"
 #include "machine/mc68901.h"
 #include "machine/ncr5380.h"
+#include "machine/ram.h"
 #include "machine/upd765.h"
 #include "machine/z80scc.h"
 #include "video/t6963c.h"
@@ -106,6 +107,7 @@ public:
 		, m_fdc(*this, "fdc")
 		, m_scsi(*this, "ncr5380")
 		, m_gchip(*this, "gchip%u", 1U)
+		, m_sample_ram(*this, "gchip%u_ram", 1U)
 		, m_mdout(*this, "mdout")
 		, m_leds(*this, "led%u", 0U)
 		, m_keys(*this, "SC%u", 0U)
@@ -131,6 +133,7 @@ private:
 	required_device<n82077aa_device> m_fdc;
 	required_device<ncr5380_device> m_scsi;
 	required_device_array<emu_gchip_device, 2> m_gchip;
+	required_device_array<ram_device, 2> m_sample_ram;
 	required_device<midi_port_device> m_mdout;
 	output_finder<12> m_leds;
 	required_ioport_array<6> m_keys;
@@ -158,7 +161,6 @@ private:
 
 	void mem_map(address_map &map) ATTR_COLD;
 	void cpuspace_map(address_map &map) ATTR_COLD;
-	void gchip_sample_map(address_map &map) ATTR_COLD;
 
 	void cr1_w(u16 data);
 	void cr2_w(u16 data);
@@ -177,6 +179,12 @@ private:
 
 void e6400_state::machine_start()
 {
+	// FIXME: the SIMMs are installed as one contiguous block, which gives the
+	// firmware's probe the sizes the manual lists; the real slot decoding is
+	// unknown, and mixed sizes (18 MB, 72 MB) don't simply add up.
+	for (int i = 0; i < 2; i++)
+		m_gchip[i]->space(0).install_ram(0, m_sample_ram[i]->size() - 1, m_sample_ram[i]->pointer());
+
 	m_kchip_scan_timer = timer_alloc(FUNC(e6400_state::kchip_scan), this);
 
 	save_item(NAME(m_cr1));
@@ -452,13 +460,6 @@ void e6400_state::cpuspace_map(address_map &map)
 	map(0xfffffd, 0xfffffd).r(m_mfp, FUNC(mc68901_device::get_vector));
 }
 
-void e6400_state::gchip_sample_map(address_map &map)
-{
-	// Each G-chip has up to 128 MB of sample RAM (two 72-pin SIMMs)
-	// 27-bit byte address space = 128 MB; 16-bit data width (64M words)
-	map(0x0000000, 0x7ffffff).ram();
-}
-
 void e6400_floppies(device_slot_interface &device)
 {
 	device.option_add("35hd", FLOPPY_35_HD);
@@ -499,13 +500,15 @@ void e6400_state::e6400(machine_config &config)
 	scsibus.set_external_device(5, m_scsi); // E6400 default SCSI ID = 5
 	m_scsi->irq_handler().set(m_mfp, FUNC(mc68901_device::i3_w)); // HDCINT → MFP GP3
 
-	// G-chip 1 — polyphony board sound engine (64 voices, up to 128 MB sample RAM)
-	EMU_GCHIP(config, m_gchip[0]);
-	m_gchip[0]->set_addrmap(0, &e6400_state::gchip_sample_map);
-
-	// G-chip 2 — second polyphony board sound engine (64 voices, up to 128 MB sample RAM)
-	EMU_GCHIP(config, m_gchip[1]);
-	m_gchip[1]->set_addrmap(0, &e6400_state::gchip_sample_map);
+	// G-chip 1 and 2 — one per polyphony board (64 voices each)
+	// Each board has its own sound RAM: two 72-pin SIMM slots holding 4, 16 or 64 MB SIMMs.
+	// Supported fits (slot 1 + slot 2): 4 = 4+none, 8 = 4+4, 16 = none+16, 18 = 4+16,
+	// 32 = 16+16, 64 = 64+none, 72 = 16+64, 128 = 64+64.  Stock is 4 MB.
+	for (int i = 0; i < 2; i++)
+	{
+		EMU_GCHIP(config, m_gchip[i]);
+		RAM(config, m_sample_ram[i]).set_default_size("4M").set_extra_options("8M,16M,18M,32M,64M,72M,128M");
+	}
 
 	// AM85C80 SCC (Z85C30) — MIDI on channel A, AT keyboard on channel B
 	// PCLK = 8 MHz (AM85C80 pin 28, directly from 16 MHz XTAL ÷2 with HC393 Q0 on SK524)

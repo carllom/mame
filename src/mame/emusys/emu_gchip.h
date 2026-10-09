@@ -14,8 +14,8 @@
     live at +$43E, +$83E, +$C3E from the chip base.
 
     This implementation provides the register interface needed for the firmware
-    SIMM detection (reports "128mb of Sound Memory Installed") and sample
-    load/store operations. Sound generation is not yet implemented.
+    SIMM detection and sample load/store operations. The host system maps
+    the sound RAM into the sample address space. Sound generation is not yet implemented.
 
 ******************************************************************************/
 
