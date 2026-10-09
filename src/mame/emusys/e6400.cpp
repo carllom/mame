@@ -617,5 +617,5 @@ ROM_END
 } // anonymous namespace
 
 
-//    YEAR  NAME   PARENT  COMPAT  MACHINE  INPUT  CLASS        INIT        COMPANY  FULLNAME               FLAGS
-SYST( 1996, e6400, 0,      0,      e6400,   e6400, e6400_state, empty_init, "E-mu",  "E-6400 Sampler", MACHINE_NOT_WORKING | MACHINE_NO_SOUND )
+//    YEAR  NAME   PARENT  COMPAT  MACHINE  INPUT  CLASS        INIT        COMPANY         FULLNAME                                                      FLAGS
+SYST( 1996, e6400, 0,      0,      e6400,   e6400, e6400_state, empty_init, "E-mu Systems", "e6400 Emulator Professional Digital Sampling Synthesizer", MACHINE_NOT_WORKING | MACHINE_NO_SOUND )
