@@ -161,6 +161,7 @@ private:
 
 	void mem_map(address_map &map) ATTR_COLD;
 	void cpuspace_map(address_map &map) ATTR_COLD;
+	void kchip_map(address_map &map) ATTR_COLD;
 
 	void cr1_w(u16 data);
 	void cr2_w(u16 data);
@@ -173,8 +174,9 @@ private:
 
 	TIMER_CALLBACK_MEMBER(kchip_scan);
 	void kchip_update_irq();
-	u8 kchip_r(offs_t offset);
-	void kchip_w(offs_t offset, u8 data);
+	u8 kchip_key_r();
+	u8 kchip_pot_msb_r();
+	u8 kchip_encoder_r();
 };
 
 void e6400_state::machine_start()
@@ -345,70 +347,57 @@ void e6400_state::kchip_update_irq()
 	m_mfp->i4_w(!active);
 }
 
-u8 e6400_state::kchip_r(offs_t offset)
+u8 e6400_state::kchip_key_r()
 {
-	switch (offset)
-	{
-	case 0: // key code — reading dequeues one event from FIFO
-		if (m_kchip_fifo_count > 0)
-		{
-			const u8 key = m_kchip_fifo_code[m_kchip_fifo_head];
-			if (!machine().side_effects_disabled())
-			{
-				m_kchip_key = key;
-				m_kchip_vel = m_kchip_fifo_vel[m_kchip_fifo_head];
-				m_kchip_fifo_head = (m_kchip_fifo_head + 1) % KCHIP_FIFO_SIZE;
-				m_kchip_fifo_count--;
-				if (m_kchip_fifo_count == 0)
-					m_kchip_status &= ~0x80;
-				kchip_update_irq();
-			}
-			return key;
-		}
+	// reading dequeues one event from the FIFO and latches its velocity
+	if (!m_kchip_fifo_count)
 		return m_kchip_key;
 
-	case 1: // key velocity (latched when key code was read)
-		return m_kchip_vel;
-
-	case 2: // status (bit 7=key, bit 6=pot, bit 5=encoder)
-		return m_kchip_status;
-
-	case 3: // pot data MSB — reading clears pot-ready flag
-		if (!machine().side_effects_disabled())
-			m_kchip_status &= ~0x40;
-		return u8(m_kchip_pot >> 3);
-
-	case 4: // pot data LSB (bits 2:0)
-		return u8(m_kchip_pot & 7);
-
-	case 5: // encoder delta — signed byte, reading clears encoder flag
+	const u8 key = m_kchip_fifo_code[m_kchip_fifo_head];
+	if (!machine().side_effects_disabled())
 	{
-		const u8 delta = u8(m_kchip_enc_delta);
-		if (!machine().side_effects_disabled())
-		{
-			m_kchip_enc_delta = 0;
-			m_kchip_status &= ~0x20;
-			kchip_update_irq();
-		}
-		return delta;
+		m_kchip_key = key;
+		m_kchip_vel = m_kchip_fifo_vel[m_kchip_fifo_head];
+		m_kchip_fifo_head = (m_kchip_fifo_head + 1) % KCHIP_FIFO_SIZE;
+		m_kchip_fifo_count--;
+		if (!m_kchip_fifo_count)
+			m_kchip_status &= ~0x80;
+		kchip_update_irq();
 	}
-
-	case 7: // control register readback
-		return m_kchip_control;
-
-	default:
-		return 0;
-	}
+	return key;
 }
 
-void e6400_state::kchip_w(offs_t offset, u8 data)
+u8 e6400_state::kchip_pot_msb_r()
 {
-	switch (offset)
+	if (!machine().side_effects_disabled())
+		m_kchip_status &= ~0x40;
+	return u8(m_kchip_pot >> 3);
+}
+
+u8 e6400_state::kchip_encoder_r()
+{
+	// signed relative movement since the last read
+	const u8 delta = u8(m_kchip_enc_delta);
+	if (!machine().side_effects_disabled())
 	{
-	case 7: // control register
-		m_kchip_control = data;
-		break;
+		m_kchip_enc_delta = 0;
+		m_kchip_status &= ~0x20;
+		kchip_update_irq();
 	}
+	return delta;
+}
+
+void e6400_state::kchip_map(address_map &map)
+{
+	map(0x0, 0x0).r(FUNC(e6400_state::kchip_key_r));
+	map(0x1, 0x1).lr8(NAME([this] () { return m_kchip_vel; }));
+	map(0x2, 0x2).lr8(NAME([this] () { return m_kchip_status; }));
+	map(0x3, 0x3).r(FUNC(e6400_state::kchip_pot_msb_r));
+	map(0x4, 0x4).lr8(NAME([this] () -> u8 { return m_kchip_pot & 7; }));
+	map(0x5, 0x5).r(FUNC(e6400_state::kchip_encoder_r));
+	map(0x7, 0x7).lrw8(
+			NAME([this] () { return m_kchip_control; }),
+			NAME([this] (u8 data) { m_kchip_control = data; }));
 }
 
 void e6400_state::mem_map(address_map &map)
@@ -438,7 +427,7 @@ void e6400_state::mem_map(address_map &map)
 	// 0x4E0000: CSRFIFO — IDT7202 sampling FIFO
 
 	// Decoder #1 (A20=1, A17..A19 select) — 0x500000-0x5FFFFF
-	map(0x500000, 0x50001f).rw(FUNC(e6400_state::kchip_r), FUNC(e6400_state::kchip_w)).umask16(0xff00); // CSKCHIP — IT433 key scanner
+	map(0x500000, 0x50001f).m(*this, FUNC(e6400_state::kchip_map)).umask16(0xff00); // CSKCHIP — IT433 key scanner
 	// 0x520000: CSDSP — DSP daughter card (effects processor)
 	// 0x540000: CSEXP — expansion daughter card
 	map(0x560000, 0x560007).m(m_fdc, FUNC(n82077aa_device::map)); // CSFDC
