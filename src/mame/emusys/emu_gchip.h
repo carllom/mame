@@ -13,8 +13,8 @@
     with a 0x40-byte register stride per voice. SIMM configuration registers
     live at +$43E, +$83E, +$C3E from the chip base.
 
-    This implementation provides the register interface needed for the firmware
-    SIMM detection and sample load/store operations. The host system maps
+    This implementation provides the register interface needed for SIMM
+    detection and sample load/store operations. The host system maps
     the sound RAM into the sample address space. Sound generation is not yet implemented.
 
 ******************************************************************************/

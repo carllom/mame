@@ -22,21 +22,17 @@
     - W5 IP872A (c)EMU '96 9808 - CS_PAL
     - W5 IP751B.1 EMU 1098
 
-    ROM memory map (CPU addresses, confirmed from MAME debugger cross-reference with IDA):
-    000000-0001FF: vector table (hardware mirror of flash[0x400:0x5FF] via CS_PAL)
+    ROM memory map:
+    000000-0001FF: vector table (mirror of flash 0x400-0x5ff via CS_PAL)
     000200-0003FF: scratch RAM
-    010000-0FF3FF: flash ROM (eos30b.raw = 1024-byte header + code, base CPU 010000)
-      010000-0103FF: flash header (magic 0x12345678, "EOS v3.00b", sector count, checksum)
-      010400-0105FF: vector table bytes (also visible at 000000)
-      010600-0107FF: 0xFF padding (erased flash)
-      010800-0FF3FF: firmware code and data (IDA "eOS_ROM" segment starts here)
+    010000-0FF3FF: flash ROM (1024-byte header, vector table, code and data)
 
     Peripheral address map (active when A23=0, A22=1, A21=0 via CS_PAL ENBIO1):
 
     Decoder #3, via CNTRLSEL (A14..A16 select):
-    400000-403FFF:  CSWCR1 — control register 1 (16-bit write latch, confirmed)
-    404000-407FFF:  CSWCR2 — control register 2 (16-bit write latch, confirmed)
-    408000-40BFFF:  CSMSR — misc status register (16-bit read, confirmed)
+    400000-403FFF:  CSWCR1 — control register 1 (16-bit write latch)
+    404000-407FFF:  CSWCR2 — control register 2 (16-bit write latch)
+    408000-40BFFF:  CSMSR — misc status register (16-bit read)
                       bits[15:12]= EEPROMD,FIFOF,FIFOHF,SROMBSY; bits[11:8]= HW variant
     40C000-40FFFF:  CSLED — LED latch (16-bit write; bits 0-11 LEDs, 12-15 LCD contrast)
     414000-417FFF:  CSAESRX — CS8411 AES/EBU digital audio receiver
@@ -54,9 +50,9 @@
     500000-51FFFF:  CSKCHIP — K-chip key scanner IT433 (A0-A3 addr, D[15:8] data)
     520000-53FFFF:  CSDSP — DSP daughter card (effects processor)
     540000-55FFFF:  CSEXP — expansion daughter card (effects DSP RAM at +0x400)
-    560000-57FFFF:  CSFDC — 82078 FDC (confirmed)
-    580000-59FFFF:  CSLCD — LM24014H LCD / T6963C (confirmed)
-    5A0000-5BFFFF:  CSMFP — MC68901 MFP (confirmed)
+    560000-57FFFF:  CSFDC — 82078 FDC
+    580000-59FFFF:  CSLCD — LM24014H LCD / T6963C
+    5A0000-5BFFFF:  CSMFP — MC68901 MFP
     5C0000-5DFFFF:  CSWGAIN — sample gain latch (write, D[15:8])
                       bits 0-5 gain, bit 7 unused (BIGEECS pad not populated on E6400)
     5E0000-5FFFFF:  CSRJACK — jack detection latch (read, D[15:8])
@@ -64,13 +60,7 @@
 
     F00000-FFFFFF:  CPU DRAM (2x HM514260 256Kx16-bit)
 
-    Boot notes:
-    - eos30b.raw IS the cold-boot ROM; no separate bootprom exists.
-    - reset() at CPU 0x034FD0 runs immediately on power-on via vector alias at 0x000000.
-    - reset() copies 0x6000 bytes of API jump table from ROM (0x0F9400) to DRAM (0xF00400)
-      then calls bootSystem() which performs all hardware and OS initialization.
-    - "RTC" time base is a software counter (timer_value) incremented by MFP timer ISR.
-    - Hardware variant from register at 0x408000 bits[11:8] (4 bits from HW, firmware reads [11:9]).
+    The flash ROM is the only boot ROM; there is no separate boot PROM.
 
 ******************************************************************************/
 
@@ -244,8 +234,7 @@ u16 e6400_state::status_r()
 {
 	// CSMSR — misc status register
 	// bits[15:12] = EEPROMD, FIFOF, FIFOHF, SROMBSY
-	// bits[11:8]  = hardware variant (4 bits from schematic; firmware reads [11:9] via bfextu)
-	// E6400 schematic: bits[11:8] = 0101 → firmware bfextu{20:3} reads bits[11:9] = 010 = 2 → variant_id 4
+	// bits[11:8]  = hardware variant strapping
 	u16 result = 0x0500; // bits[11:8] = 0b0101 (E6400)
 	if (m_eeprom->do_read())
 		result |= 0x8000; // bit 15 = EEPROMD
@@ -283,14 +272,12 @@ u8 e6400_state::jack_r()
 // IT433 K-chip key scanner emulation
 //
 // The IT433 continuously scans a 6×8 button matrix, a rotary encoder, and a
-// volume potentiometer ADC.  When data is available it asserts KCHPINT (active
-// low → MFP GP4).  The ISR (ISR_User7 at 0x350F0) loops calling the key-read
-// routine sub_21AD0, which reads one key event and one encoder event per call,
-// until the IT433 deasserts KCHPINT (indicating its internal FIFO is empty).
+// volume potentiometer ADC.  It asserts KCHPINT (active low → MFP GP4) while
+// key or encoder data is waiting in its internal FIFO.
 //
 // Register map (A1-A4 address → 16 word-aligned registers, 8-bit data on D8-D15):
 //   Reg 0 (0x500000) R  — key code: bits[6:0]=key number, bit 7=release
-//   Reg 1 (0x500002) R  — key velocity: raw 8-bit (firmware maps: vel-0x68, clamp 1-127)
+//   Reg 1 (0x500002) R  — key velocity: raw 8-bit
 //   Reg 2 (0x500004) R  — status: bit 7=key ready, bit 6=pot ready, bit 5=encoder ready
 //   Reg 3 (0x500006) R  — pot MSB: upper 8 bits of 11-bit pot ADC value
 //   Reg 4 (0x500008) R  — pot LSB: lower 3 bits of 11-bit pot ADC value

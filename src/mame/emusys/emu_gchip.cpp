@@ -11,8 +11,7 @@
       Voice N base = N × 0x40
 
     Per-voice register map (byte offsets from voice base):
-      +$00  R/W  Voice control/status — bit 12 read by firmware to select
-                 register write order (oscillator phase/busy flag).
+      +$00  R/W  Voice control/status — bit 12 is an oscillator phase/busy flag.
       +$04  R/W  Unknown (cleared on init and voice stop)
       +$08  R/W  Oscillator accumulator — bits[25:0] ones'-complemented sample
                  address/frequency. Upper 6 bits preserved (read-modify-write).
@@ -24,22 +23,13 @@
     Chip-wide registers (mirrored at every voice window, accessed via & 0x3f):
       +$1C  R   Sample data read — returns word from address set by +$30
       +$1E  W   Sample data write — stores word to address set by +$34
-      +$30  W   Read address — word-addressed (firmware does asr.l #1, addr)
+      +$30  W   Read address — word-addressed
       +$34  W   Write address — word-addressed
-      Note: The firmware's G-chip base pointer is NOT always at byte offset 0.
-            For gchip1, the base is at ~0x1F000 within the device window.
 
     Global SIMM configuration registers:
       +$43E W   SIMM config A (timing)
       +$83E W   SIMM config B (bank/size; bit 8 = bank select)
       +$C3E W   SIMM type code
-
-    During SIMM detection, the firmware:
-    1. Programs config registers via sub_224E4
-    2. Writes test pattern: voice N writes (N × 0x7531) to word address ((N-1) << 20 >> 1)
-       via +$34 (write addr) and +$1E (write data), for N = 1..96
-    3. Reads back via +$30 (read addr) and +$1C (read data, read twice for pipeline)
-    4. Matching patterns determine SIMM size; largest valid config wins
 
 ******************************************************************************/
 
@@ -107,9 +97,6 @@ void emu_gchip_device::device_reset()
 // Special register offsets have side-effects (sample memory access,
 // SIMM config). Everything else is plain read/write into m_regs[].
 //
-// The firmware accesses registers throughout the full 128 KB window,
-// including high offsets for G-chip 2 detection (sub_23FB6).
-//
 
 u16 emu_gchip_device::read(offs_t offset)
 {
@@ -117,8 +104,7 @@ u16 emu_gchip_device::read(offs_t offset)
 
 	// Sample data read register at +$1C within any voice window.
 	// Pipeline delay: first read primes the latch, second returns data.
-	// The firmware may access this through any voice window (e.g. gchip1
-	// uses a base at ~0x1F000), so we mask to the voice-relative offset.
+	// It is reachable through any voice window, so mask to the voice-relative offset.
 	if ((byte_off & 0x3f) == 0x1c)
 	{
 		const u16 result = m_read_pipeline;
@@ -156,9 +142,7 @@ void emu_gchip_device::write(offs_t offset, u16 data)
 	}
 
 	// Sample memory access registers — appear at the same offsets within every
-	// voice window.  The firmware's G-chip base pointer can sit anywhere in the
-	// 128 KB register window (e.g. gchip1 base is at byte_off ~0x1F000), so we
-	// mask to the 0x40-byte voice-relative offset to match.
+	// 0x40-byte voice window, so mask to the voice-relative offset.
 	switch (byte_off & 0x3f)
 	{
 	case 0x1e: // Sample data write — writes to m_write_addr
@@ -189,8 +173,7 @@ void emu_gchip_device::write(offs_t offset, u16 data)
 	}
 
 	// Per-voice register logging (64 voices × 0x40 bytes per voice window).
-	// The firmware's G-chip base can be anywhere in the 128 KB window, so the
-	// voice-relative register offset is (byte_off & 0x3f).
+	// The voice-relative register offset is (byte_off & 0x3f).
 	// The 68020 writes 32-bit values as two words, high word first, so log on
 	// the low-word write, combining it with the high word already in m_regs[].
 	const unsigned vreg = byte_off & 0x3f;
