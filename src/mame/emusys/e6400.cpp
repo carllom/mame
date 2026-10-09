@@ -43,7 +43,7 @@
 
     Decoder #2 (A20=0, A17..A19 select):
     420000-43FFFF:  CSG1CHIP — G-chip 1 sound engine (polyphony board)
-    440000-45FFFF:  CSG2CHIP — G-chip 2 sound engine (polyphony board)
+    440000-45FFFF:  CSG2CHIP — G-chip 2 sound engine (optional expansion polyphony board)
     460000-47FFFF:  CSHCHIP — H-chip digital filter IC413 (+ polyphony connector)
     480000-49FFFF:  CSHDC — AM85C80 SCSI controller (NCR5380-compatible)
     4A0000-4BFFFF:  CSHDD — SCSI DMA data port (via memory PAL IP822)
@@ -106,8 +106,8 @@ public:
 		, m_lcd(*this, "lcd")
 		, m_fdc(*this, "fdc")
 		, m_scsi(*this, "ncr5380")
-		, m_gchip(*this, "gchip%u", 1U)
-		, m_sample_ram(*this, "gchip%u_ram", 1U)
+		, m_gchip(*this, "gchip")
+		, m_sample_ram(*this, "sample_ram")
 		, m_mdout(*this, "mdout")
 		, m_leds(*this, "led%u", 0U)
 		, m_keys(*this, "SC%u", 0U)
@@ -132,8 +132,8 @@ private:
 	required_device<lm24014h_device> m_lcd;
 	required_device<n82077aa_device> m_fdc;
 	required_device<ncr5380_device> m_scsi;
-	required_device_array<emu_gchip_device, 2> m_gchip;
-	required_device_array<ram_device, 2> m_sample_ram;
+	required_device<emu_gchip_device> m_gchip;
+	required_device<ram_device> m_sample_ram;
 	required_device<midi_port_device> m_mdout;
 	output_finder<12> m_leds;
 	required_ioport_array<6> m_keys;
@@ -182,8 +182,7 @@ void e6400_state::machine_start()
 	// FIXME: the SIMMs are installed as one contiguous block, which gives the
 	// firmware's probe the sizes the manual lists; the real slot decoding is
 	// unknown, and mixed sizes (18 MB, 72 MB) don't simply add up.
-	for (int i = 0; i < 2; i++)
-		m_gchip[i]->space(0).install_ram(0, m_sample_ram[i]->size() - 1, m_sample_ram[i]->pointer());
+	m_gchip->space(0).install_ram(0, m_sample_ram->size() - 1, m_sample_ram->pointer());
 
 	m_kchip_scan_timer = timer_alloc(FUNC(e6400_state::kchip_scan), this);
 
@@ -426,8 +425,8 @@ void e6400_state::mem_map(address_map &map)
 	// 0x414000: CSAESRX — CS8411 AES/EBU receiver
 
 	// Decoder #2 (A20=0, A17..A19 select) — 0x420000-0x4FFFFF
-	map(0x420000, 0x43ffff).rw(m_gchip[0], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG1CHIP — G-chip 1
-	map(0x440000, 0x45ffff).rw(m_gchip[1], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG2CHIP — G-chip 2
+	map(0x420000, 0x43ffff).rw(m_gchip, FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG1CHIP — G-chip 1
+	// 0x440000: CSG2CHIP — G-chip 2 on the optional expansion polyphony board (not emulated)
 	// 0x460000: CSHCHIP — H-chip digital filter IC413
 	map(0x480000, 0x48000f).rw(m_scsi, FUNC(ncr5380_device::read), FUNC(ncr5380_device::write)).umask16(0xff00); // CSHDC — AM85C80 SCSI (NCR5380)
 	map(0x4a0000, 0x4a0001).rw(m_scsi, FUNC(ncr5380_device::dma_r), FUNC(ncr5380_device::dma_w)).umask16(0xff00); // CSHDD — SCSI pseudo-DMA data port
@@ -500,15 +499,13 @@ void e6400_state::e6400(machine_config &config)
 	scsibus.set_external_device(5, m_scsi); // E6400 default SCSI ID = 5
 	m_scsi->irq_handler().set(m_mfp, FUNC(mc68901_device::i3_w)); // HDCINT → MFP GP3
 
-	// G-chip 1 and 2 — one per polyphony board (64 voices each)
-	// Each board has its own sound RAM: two 72-pin SIMM slots holding 4, 16 or 64 MB SIMMs.
+	// G-chip — polyphony board sound engine (64 voices)
+	EMU_GCHIP(config, m_gchip);
+
+	// Polyphony board sound RAM: two 72-pin SIMM slots holding 4, 16 or 64 MB SIMMs.
 	// Supported fits (slot 1 + slot 2): 4 = 4+none, 8 = 4+4, 16 = none+16, 18 = 4+16,
 	// 32 = 16+16, 64 = 64+none, 72 = 16+64, 128 = 64+64.  Stock is 4 MB.
-	for (int i = 0; i < 2; i++)
-	{
-		EMU_GCHIP(config, m_gchip[i]);
-		RAM(config, m_sample_ram[i]).set_default_size("4M").set_extra_options("8M,16M,18M,32M,64M,72M,128M");
-	}
+	RAM(config, m_sample_ram).set_default_size("4M").set_extra_options("8M,16M,18M,32M,64M,72M,128M");
 
 	// AM85C80 SCC (Z85C30) — MIDI on channel A, AT keyboard on channel B
 	// PCLK = 8 MHz (AM85C80 pin 28, directly from 16 MHz XTAL ÷2 with HC393 Q0 on SK524)
