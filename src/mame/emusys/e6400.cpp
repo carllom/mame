@@ -2,7 +2,7 @@
 // copyright-holders: Carl Lom
 /******************************************************************************
 
-    Skeleton driver for the E-mu E6400 sampler.
+    Driver for the E-mu E6400 sampler.
 
     Hardware:
     - MC68EC020 CPU @ 22.5792 MHz (45.1584 MHz audio XTAL ÷2 via D-latch toggle)
@@ -78,19 +78,17 @@
 
 #include "emu_gchip.h"
 
+#include "bus/midi/midi.h"
+#include "bus/nscsi/cd.h"
+#include "bus/nscsi/hd.h"
 #include "cpu/m68000/m68020.h"
+#include "imagedev/floppy.h"
 #include "machine/eepromser.h"
 #include "machine/mc68901.h"
 #include "machine/ncr5380.h"
 #include "machine/upd765.h"
 #include "machine/z80scc.h"
 #include "video/t6963c.h"
-
-#include "bus/midi/midi.h"
-#include "bus/nscsi/cd.h"
-#include "bus/nscsi/hd.h"
-#include "formats/pc_dsk.h"
-#include "imagedev/floppy.h"
 
 
 namespace {
@@ -108,6 +106,7 @@ public:
 		, m_fdc(*this, "fdc")
 		, m_scsi(*this, "ncr5380")
 		, m_gchip(*this, "gchip%u", 1U)
+		, m_mdout(*this, "mdout")
 		, m_leds(*this, "led%u", 0U)
 		, m_keys(*this, "SC%u", 0U)
 		, m_encoder(*this, "ENCODER")
@@ -115,9 +114,15 @@ public:
 	{
 	}
 
-	void e6400(machine_config &config);
+	void e6400(machine_config &config) ATTR_COLD;
+
+protected:
+	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 private:
+	static constexpr u8 KCHIP_FIFO_SIZE = 32;
+
 	required_device<m68ec020_device> m_maincpu;
 	required_device<mc68901_device> m_mfp;
 	required_device<scc85c30_device> m_scc;
@@ -126,6 +131,7 @@ private:
 	required_device<n82077aa_device> m_fdc;
 	required_device<ncr5380_device> m_scsi;
 	required_device_array<emu_gchip_device, 2> m_gchip;
+	required_device<midi_port_device> m_mdout;
 	output_finder<12> m_leds;
 	required_ioport_array<6> m_keys;
 	required_ioport m_encoder;
@@ -144,15 +150,12 @@ private:
 	u16 m_kchip_pot = 0;
 	u8 m_prev_keys[6] = {};
 	u8 m_prev_encoder = 0;
-	static constexpr int KCHIP_FIFO_SIZE = 32;
 	u8 m_kchip_fifo_code[KCHIP_FIFO_SIZE] = {};
 	u8 m_kchip_fifo_vel[KCHIP_FIFO_SIZE] = {};
-	int m_kchip_fifo_head = 0;
-	int m_kchip_fifo_tail = 0;
-	int m_kchip_fifo_count = 0;
+	u8 m_kchip_fifo_head = 0;
+	u8 m_kchip_fifo_tail = 0;
+	u8 m_kchip_fifo_count = 0;
 
-	void machine_start() override ATTR_COLD;
-	void machine_reset() override ATTR_COLD;
 	void mem_map(address_map &map) ATTR_COLD;
 	void cpuspace_map(address_map &map) ATTR_COLD;
 	void gchip_sample_map(address_map &map) ATTR_COLD;
@@ -205,8 +208,6 @@ void e6400_state::machine_reset()
 	m_kchip_vel = 0;
 	m_kchip_enc_delta = 0;
 	m_kchip_pot = 0;
-	std::fill(std::begin(m_prev_keys), std::end(m_prev_keys), 0);
-	m_prev_encoder = 0;
 	m_kchip_fifo_head = 0;
 	m_kchip_fifo_tail = 0;
 	m_kchip_fifo_count = 0;
@@ -334,7 +335,7 @@ void e6400_state::kchip_update_irq()
 {
 	// KCHPINT is active low — asserted when key or encoder data available
 	bool active = (m_kchip_status & 0xa0) != 0;
-	m_mfp->i4_w(active ? 0 : 1);
+	m_mfp->i4_w(!active);
 }
 
 u8 e6400_state::kchip_r(offs_t offset)
@@ -458,12 +459,12 @@ void e6400_state::gchip_sample_map(address_map &map)
 	map(0x0000000, 0x7ffffff).ram();
 }
 
-static void e6400_floppies(device_slot_interface &device)
+void e6400_floppies(device_slot_interface &device)
 {
 	device.option_add("35hd", FLOPPY_35_HD);
 }
 
-static void e6400_scsi_devices(device_slot_interface &device)
+void e6400_scsi_devices(device_slot_interface &device)
 {
 	device.option_add("cdrom", NSCSI_CDROM);
 	device.option_add("harddisk", NSCSI_HARDDISK);
@@ -513,13 +514,13 @@ void e6400_state::e6400(machine_config &config)
 	m_scc->out_int_callback().set(m_mfp, FUNC(mc68901_device::i7_w));
 
 	// MIDI OUT: SCC channel A TX → MIDI out port
-	m_scc->out_txda_callback().set("mdout", FUNC(midi_port_device::write_txd));
+	m_scc->out_txda_callback().set(m_mdout, FUNC(midi_port_device::write_txd));
 
 	// MIDI IN: MIDI in port → SCC channel A RX
 	MIDI_PORT(config, "mdin", midiin_slot, "midiin").rxd_handler().set(m_scc, FUNC(scc85c30_device::rxa_w));
 
 	// MIDI OUT port
-	MIDI_PORT(config, "mdout", midiout_slot, "midiout");
+	MIDI_PORT(config, m_mdout, midiout_slot, "midiout");
 
 	// MC68901 MFP — timers (system tick), GPIO
 	// Timer clock: 16 MHz XTAL (U56/ZX314) ÷4 via HC393 binary counter Q1 = 4 MHz
@@ -545,13 +546,7 @@ void e6400_state::e6400(machine_config &config)
 // Layout: E-IV rack front panel (Schematic SK414)
 static INPUT_PORTS_START( e6400 )
 	PORT_START("SC0")
-	PORT_BIT(0x01, IP_ACTIVE_HIGH, IPT_UNUSED)
-	PORT_BIT(0x02, IP_ACTIVE_HIGH, IPT_UNUSED)
-	PORT_BIT(0x04, IP_ACTIVE_HIGH, IPT_UNUSED)
-	PORT_BIT(0x08, IP_ACTIVE_HIGH, IPT_UNUSED)
-	PORT_BIT(0x10, IP_ACTIVE_HIGH, IPT_UNUSED)
-	PORT_BIT(0x20, IP_ACTIVE_HIGH, IPT_UNUSED)
-	PORT_BIT(0x40, IP_ACTIVE_HIGH, IPT_UNUSED)
+	PORT_BIT(0x7f, IP_ACTIVE_HIGH, IPT_UNUSED)
 	PORT_BIT(0x80, IP_ACTIVE_HIGH, IPT_KEYBOARD) PORT_NAME("Preset Manage")   PORT_CODE(KEYCODE_F9)
 
 	PORT_START("SC1")

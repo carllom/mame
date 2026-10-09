@@ -46,6 +46,9 @@
 #include "emu.h"
 #include "emu_gchip.h"
 
+#include <algorithm>
+#include <utility>
+
 #define LOG_SAMPLE (1U << 1)
 #define LOG_CONFIG (1U << 2)
 #define LOG_VOICE  (1U << 3)
@@ -56,7 +59,7 @@
 #define LOGCONFIG(...) LOGMASKED(LOG_CONFIG, __VA_ARGS__)
 #define LOGVOICE(...)  LOGMASKED(LOG_VOICE, __VA_ARGS__)
 
-DEFINE_DEVICE_TYPE(EMU_GCHIP, emu_gchip_device, "emu_gchip", "E-mu G-chip Sound Engine")
+DEFINE_DEVICE_TYPE(EMU_GCHIP, emu_gchip_device, "emu_gchip", "E-mu G-chip sound engine")
 
 emu_gchip_device::emu_gchip_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock)
 	: device_t(mconfig, EMU_GCHIP, tag, owner, clock)
@@ -186,61 +189,38 @@ void emu_gchip_device::write(offs_t offset, u16 data)
 	}
 
 	// Per-voice register logging (64 voices × 0x40 bytes per voice window).
-	// The firmware's G-chip base can be anywhere in the 128 KB window, so we
-	// use (byte_off & 0x3f) to get the voice-relative register offset, and
-	// derive voice number from the full byte_off modulo the voice stride.
-	// The M68K writes 32-bit values as two 16-bit words (high word first via move.l).
-	// We log on the low-word write when the complete 32-bit value is available.
-	// The high word was stored to m_regs[] during the preceding write call.
+	// The firmware's G-chip base can be anywhere in the 128 KB window, so the
+	// voice-relative register offset is (byte_off & 0x3f).
+	// The 68020 writes 32-bit values as two words, high word first, so log on
+	// the low-word write, combining it with the high word already in m_regs[].
+	const unsigned vreg = byte_off & 0x3f;
+	const unsigned voice = (byte_off >> 6) & 0x3f;
+	const u32 raw = (u32(m_regs[(offset - 1) & (NUM_REGS - 1)]) << 16) | data;
+	switch (vreg)
 	{
-		const int vreg = byte_off & 0x3f;
-
-		switch (vreg)
-		{
-		case 0x02: // Control/status low word (completes +$00/+$02 pair)
-		{
-			const u32 raw = (u32(m_regs[(offset - 1) & (NUM_REGS - 1)]) << 16) | data;
-			LOGVOICE("V%02d control=%08x\n", (byte_off >> 6) & 0x3f, raw);
-			break;
-		}
-		case 0x06: // Unknown low word (completes +$04/+$06 pair)
-		{
-			const u32 raw = (u32(m_regs[(offset - 1) & (NUM_REGS - 1)]) << 16) | data;
-			LOGVOICE("V%02d reg04=%08x\n", (byte_off >> 6) & 0x3f, raw);
-			break;
-		}
-		case 0x0a: // Oscillator accumulator low word (completes +$08/+$0A pair)
-		{
-			const u32 raw = (u32(m_regs[(offset - 1) & (NUM_REGS - 1)]) << 16) | data;
-			const u32 addr = ~raw & 0x03ffffff; // ones'-complement, 26-bit
-			LOGVOICE("V%02d osc acc raw=%08x addr=%07x\n", (byte_off >> 6) & 0x3f, raw, addr);
-			break;
-		}
-		case 0x0e: // End/amplitude low word (completes +$0C/+$0E pair)
-		{
-			const u32 raw = (u32(m_regs[(offset - 1) & (NUM_REGS - 1)]) << 16) | data;
-			LOGVOICE("V%02d end/amp raw=%08x val=%08x\n", (byte_off >> 6) & 0x3f, raw, ~raw);
-			break;
-		}
-		case 0x16: // Trigger/mode low word (completes +$14/+$16 pair)
-		{
-			const u32 raw = (u32(m_regs[(offset - 1) & (NUM_REGS - 1)]) << 16) | data;
-			LOGVOICE("V%02d trigger=%08x%s\n", (byte_off >> 6) & 0x3f, raw, (raw & (1U << 26)) ? " START" : "");
-			break;
-		}
-		case 0x12: // Oscillator mode low word (completes +$10/+$12 pair)
-		{
-			const u32 raw = (u32(m_regs[(offset - 1) & (NUM_REGS - 1)]) << 16) | data;
-			LOGVOICE("V%02d mode=%08x\n", (byte_off >> 6) & 0x3f, raw);
-			break;
-		}
-		default:
-			// Log other word writes in the voice filter/volume region (+$20..+$2E)
-			// Skip +$30..+$3E which overlap sample address and SIMM config registers
-			if ((vreg & 1) == 0 && vreg >= 0x20 && vreg <= 0x2e)
-				LOGVOICE("V%02d +$%02x=%04x\n", (byte_off >> 6) & 0x3f, vreg, data);
-			break;
-		}
+	case 0x02:
+		LOGVOICE("V%02u control=%08x\n", voice, raw);
+		break;
+	case 0x06:
+		LOGVOICE("V%02u reg04=%08x\n", voice, raw);
+		break;
+	case 0x0a: // ones'-complemented 26-bit address
+		LOGVOICE("V%02u osc acc raw=%08x addr=%07x\n", voice, raw, ~raw & 0x03ffffff);
+		break;
+	case 0x0e:
+		LOGVOICE("V%02u end/amp raw=%08x val=%08x\n", voice, raw, ~raw);
+		break;
+	case 0x12:
+		LOGVOICE("V%02u mode=%08x\n", voice, raw);
+		break;
+	case 0x16:
+		LOGVOICE("V%02u trigger=%08x%s\n", voice, raw, BIT(raw, 26) ? " START" : "");
+		break;
+	default:
+		// Filter/volume region (+$20..+$2E); +$30..+$3E are the sample address registers
+		if (vreg >= 0x20 && vreg <= 0x2e)
+			LOGVOICE("V%02u +$%02x=%04x\n", voice, vreg, data);
+		break;
 	}
 
 	// Store to backing register file
