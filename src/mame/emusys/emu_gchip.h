@@ -29,7 +29,8 @@ class emu_gchip_device : public device_t, public device_memory_interface
 public:
 	emu_gchip_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock = 0);
 
-	// Host CPU interface — 16-bit data on D[15:0], word-addressed register space
+	// Host CPU interface — 16-bit data on D[15:0], word-addressed register space.
+	// The expansion bus has no byte enables, so every write stores a whole word.
 	u16 read(offs_t offset);
 	void write(offs_t offset, u16 data);
 
