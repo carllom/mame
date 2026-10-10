@@ -74,6 +74,8 @@ public:
 	virtual u8 i8x9x_p0_mask() const noexcept { return 0xff; }
 	virtual bool i8x9x_has_p1() const noexcept { return true; }
 	virtual u8 i8x9x_p2_mask() const noexcept { return 0xff; }
+	// Oscillator periods per state time; instruction timings are in states.
+	virtual int state_clocks() const noexcept { return 3; }
 	// Timer 1 increments once every eight state times, and a state time is three
 	// oscillator periods on this family, so the divisor is 8 * 3 = 24.
 	virtual u32 timer_divisor() const noexcept { return 24; }
@@ -306,7 +308,9 @@ public:
 	c80c196kb_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
 
 protected:
-	// 80C196KB state time is two oscillator periods, so the divisor is 8 * 2 = 16.
+	// 80C196KB state time is two oscillator periods (CLKOUT = XTAL1 / 2).
+	virtual int state_clocks() const noexcept override { return 2; }
+	// Timer 1 increments every eight state times, so the divisor is 8 * 2 = 16.
 	virtual u32 timer_divisor() const noexcept override { return 16; }
 	// The divide-by-2 state clock also changes the baud rate formulas to
 	// XTAL1 / (16 * (BAUD_REG + 1)) and XTAL1 / (2 * (BAUD_REG + 1)).

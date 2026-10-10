@@ -81,7 +81,7 @@ std::unique_ptr<util::disasm_interface> i8x9x_device::create_disassembler()
 void i8x9x_device::device_start()
 {
 	mcs96_device::device_start();
-	cycles_scaling = 3;
+	cycles_scaling = state_clocks();
 
 	state_add(I8X9X_HSI_MODE,    "HSI_MODE",    hsi_mode);
 	state_add<u8>(I8X9X_HSI_STATUS, "HSI_STATUS",
