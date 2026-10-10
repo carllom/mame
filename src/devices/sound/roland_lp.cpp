@@ -40,8 +40,14 @@
 //  target) and writes the next segment to 06/07; decay and release are chains
 //  of segments, each one octave lower.  The MV-30 handler acts on every other
 //  event of a voice and writes the same rate/target back on the others, so a
-//  voice at its target must keep raising events.  Here the chip scans one
-//  voice every ENV_SCAN_SAMPLES samples (5 ms per voice), which gives the
+//  voice at its target must keep raising events.  A voice with rate 0 raises
+//  none: the firmware writes rate 0 at the sustain level, and the voice
+//  raises no more events until note-off writes the next segment.  Raising
+//  events for held voices as well keeps the CPU in the handler (about 200 a
+//  second per voice), which starves the sequencer and silences some
+//  sustained tones; with this rule the sustain levels match the MV-30
+//  recordings.  Here the chip scans one voice every ENV_SCAN_SAMPLES
+//  samples (5 ms per voice), which gives the
 //  hardware's release staircase of one octave about every 10 ms, with the
 //  first step after note-off 5 or 10 ms later.  The scan is a model fitted to
 //  those recordings, not a known circuit.
@@ -128,8 +134,10 @@ TIMER_CALLBACK_MEMBER(mb87419_mb87420_device::env_scan_tick)
 	const unsigned voice = m_scan_voice;
 	m_scan_voice = (m_scan_voice + 1) & (NUM_CHANNELS - 1);
 
+	// a voice with rate 0 is holding (the MV-30 firmware writes rate 0 at the
+	// sustain level) and raises no events
 	const pcm_channel &chn = m_chns[voice];
-	if (chn.enable && chn.env_level == env_target_level(chn.env_target))
+	if (chn.enable && chn.env_rate && chn.env_level == env_target_level(chn.env_target))
 	{
 		m_event_pending |= 1U << voice;
 		update_irq();
