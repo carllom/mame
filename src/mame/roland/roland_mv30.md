@@ -248,8 +248,11 @@ firmware code; the absolute scale of the coefficients is not yet known.
     0xFFFF/0xFFFF
   - 0x0A (F014) = 0x001F (number of voices − 1?)
   - 0x0B (F016) = 0x0000
-  - 0x0C (F018) = 0x0016; 0x0003 around the F034 = 0 write that kills a voice
-    (level ramp speed?)
+  - 0x0C (F018): level ramp for the following F034 writes. 0x0016 normally
+    (one-pole, about 6 ms); 0x0003 around the F034 = 0 write that cuts off a
+    stolen voice (fast, about 1.5 ms). After the cut the firmware polls the
+    level readback until it is 0 before starting the new note, so a slow cut
+    stalls the sequencer (about 60 ms per steal with the 6 ms ramp).
 - **Per voice** (after the voice select):
   - 0x00–0x01, 0x02–0x03, 0x06–0x07 (F000, F004, F00C): 32-bit, zeroed at
     key-on (filter state and the current level?)
@@ -277,6 +280,28 @@ firmware code; the absolute scale of the coefficients is not yet known.
   the only reads.
 
 ---
+
+## Audio Output Stage
+
+After the RCC, the voices are converted by the DAC and split by a BU4051
+MUX into per-output sample-and-holds. Each output channel (schematic):
+
+| Stage | Parts | Response |
+|-------|-------|----------|
+| S&H | MUX → R67 100 Ω → C69 8.2 nF, buffer IC13b | hold at 32 kHz; C69 settles only ~63 % per sample (fitted: MUX Ron + R67 ≈ 475 Ω over the MUX slot) |
+| Sallen-Key LPF | IC10b: R61/R55 10k, C39 8.2 nF ∥ C45 680 pF, C51 100 pF | f0 16.9 kHz, Q 4.7 |
+| Sallen-Key LPF | IC7b: R49/R43 10k, C27 3.3 nF, C33 560 pF | f0 11.7 kHz, Q 1.2 |
+| Low shelf | IC4b inverting: R29 47k in, R27 47k + (R28 47k ∥ 0.039 µF) feedback | +6 dB at DC, pole 87 Hz, zero 174 Hz |
+
+Measured against MV-30 recordings (unfiltered saw/square, hardware minus
+MAME without the output stage): +4.6 dB at 65 Hz, +2.8 at 131, +1.1 at 240,
+0 at 1 kHz, −0.6 at 4 kHz, −1.3 at 10 kHz. The circuit with the partial
+settling reproduces this within 0.19 dB rms. In the driver the bass shelf is
+a first-order `LOWSHELF1O` biquad built from R28/C, and the S&H plus
+Sallen-Key droop is a fitted first-order high shelf (−1.3 dB, 2060 Hz),
+since the 16.9 kHz Q 4.7 stage cannot be reproduced near Nyquist at the
+host rate. MAME's unfiltered saw then matches the hardware within about
+0.3–0.5 dB rms per harmonic (up to 12 kHz).
 
 ## Other Peripherals
 
@@ -403,7 +428,12 @@ cat mv30bios.asm
    the inherited i8x9x Timer1/Timer2/HSO timebase is slowed by one extra
    divide-by-2 on the `c80c196kb_device` path (`timer_tick_shift() == 4`).
    Keep that override local to the 80C196KB until more hardware evidence says
-   otherwise.
+   otherwise. The same divide-by-2 state clock applies to instruction timing:
+   the core used to run every 80C196KB instruction at the 8096's 3 oscillator
+   periods per state, 1.5 times too slow. With many voices the LP envelope
+   interrupt then starved the main loop (10 ms per pass with a few voices,
+   67 ms with 28 held voices before the rate-0 fix) and sequenced songs
+   drifted in tempo. `state_clocks()` is now 2 on the 80C196KB.
 
 3. **View shadowing**: Bank registers and DMA registers must be installed in
    BOTH view0[0] and view0[1], otherwise the underlying view handler shadows

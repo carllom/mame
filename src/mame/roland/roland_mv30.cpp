@@ -76,13 +76,17 @@
 #include "bus/midi/midiinport.h"
 #include "bus/midi/midioutport.h"
 #include "imagedev/floppy.h"
+#include "machine/rescap.h"
 #include "machine/upd765.h"
+#include "sound/flt_biquad.h"
 #include "sound/roland_lp.h"
 #include "video/t6963c.h"
 
 #include "emupal.h"
 #include "screen.h"
 #include "speaker.h"
+
+#include <numbers>
 
 
 #include "roland_mv30.lh"
@@ -1233,11 +1237,27 @@ void roland_mv30_state::mv30(machine_config &config)
 	// TVF: MB87424, filter and level per voice.  The voices then go to the RCC
 	// for panning and mixing, which is not emulated: they are mixed to centre.
 	MB87424(config, m_tvf);
+
+	// Output stage, after the RCC: BU4051 MUX and DAC, S&H (R67, C69, IC13b),
+	// two Sallen-Key low-pass filters (IC10b, IC7b) and an inverting low shelf
+	// (IC4b: R29 47k in, R27 47k + (R28 47k || 0.039u) feedback), which gives
+	// +6 dB below 87 Hz.  The S&H hold capacitor settles only partly while the
+	// MUX selects it; with the Sallen-Key stages this makes a gentle treble
+	// droop, which is too close to Nyquist to model stage by stage here, so it
+	// is a first-order shelf fitted to the circuit.  Together these match MV-30
+	// recordings within 0.25 dB rms from 65 Hz to 10 kHz.
+	filter_biquad_device &out_treble = FILTER_BIQUAD(config, "out_treble");
+	out_treble.setup(filter_biquad_device::biquad_type::HIGHSHELF1O, 2060, 0.707, 0.861); // -1.3 dB
+	out_treble.add_route(0, "lspeaker", 1.0);
+	out_treble.add_route(0, "rspeaker", 1.0);
+	filter_biquad_device &out_bass = FILTER_BIQUAD(config, "out_bass");
+	out_bass.setup(filter_biquad_device::biquad_type::LOWSHELF1O, 1.0 / (2 * std::numbers::pi * RES_K(47) * CAP_U(0.039)), 0.707, 2.0);
+	out_bass.add_route(0, out_treble, 1.0);
+
 	for (unsigned v = 0; v < mb87424_device::NUM_VOICES; v++)
 	{
 		m_pcm->add_route(mb87419_mb87420_device::VOICE_OUTPUT + v, m_tvf, 1.0, v);
-		m_tvf->add_route(v, "lspeaker", 1.0);
-		m_tvf->add_route(v, "rspeaker", 1.0);
+		m_tvf->add_route(v, out_bass, 1.0);
 	}
 
 	// LCD: T6963C compatible, 240x64 pixels
