@@ -81,7 +81,7 @@ void mb87419_mb87420_device::device_start()
 	m_clock = clock() / 2;
 	m_rate = m_clock / 512; // usually 32 KHz
 
-	m_stream = stream_alloc(0, 2, m_rate);
+	m_stream = stream_alloc(0, VOICE_OUTPUT + NUM_CHANNELS, m_rate);
 	m_scan_timer = timer_alloc(FUNC(mb87419_mb87420_device::env_scan_tick), this);
 
 	save_item(NAME(m_irq_state));
@@ -399,8 +399,9 @@ void mb87419_mb87420_device::write(offs_t offset, u8 data)
 
 void mb87419_mb87420_device::sound_stream_update(sound_stream &stream)
 {
-	for (auto& chn : m_chns)
+	for (unsigned voice = 0; voice < NUM_CHANNELS; voice++)
 	{
+		pcm_channel &chn = m_chns[voice];
 		if (! chn.enable || chn.play_dir == 0)
 			continue;
 
@@ -427,6 +428,7 @@ void mb87419_mb87420_device::sound_stream_update(sound_stream &stream)
 			smp_data = smp_data * s32(chn.env_level >> 10); // 26-bit level -> 16-bit multiplier
 			stream.add_int(0, smpl, smp_data, 32768 << 14); // >>14 results in a good overall volume
 			stream.add_int(1, smpl, smp_data, 32768 << 14);
+			stream.put_int(VOICE_OUTPUT + voice, smpl, smp_data, 32768 << 14);
 
 			uint32_t old_addr = chn.addr;
 			if (chn.play_dir > 0)

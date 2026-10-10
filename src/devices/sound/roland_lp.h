@@ -10,6 +10,11 @@
 class mb87419_mb87420_device : public device_t, public device_sound_interface, public device_rom_interface<22>
 {
 public:
+	static constexpr unsigned NUM_CHANNELS = 32;
+
+	// outputs 0/1 are the mix; voice v is also output alone on VOICE_OUTPUT + v
+	static constexpr unsigned VOICE_OUTPUT = 2;
+
 	mb87419_mb87420_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
 	auto int_callback() { return m_int_callback.bind(); }
@@ -36,7 +41,6 @@ protected:
 	TIMER_CALLBACK_MEMBER(env_scan_tick);
 
 private:
-	static constexpr unsigned NUM_CHANNELS = 32;
 	static constexpr unsigned ENV_SCAN_SAMPLES = 5; // samples between voices in the envelope event scan
 
 	void update_irq();
