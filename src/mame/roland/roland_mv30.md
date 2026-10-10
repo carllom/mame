@@ -15,7 +15,7 @@ Roland U-220 PCM sound engine with D-70-style TVF filters and effects.
 | IC19 | Intel 80C196KB-12     | 12 MHz  | Main CPU                      |
 | IC1  | NEC uPD72068GF-389    | 32 MHz  | Floppy disk controller        |
 |      | Roland MB87419/MB87420| 32.768 MHz | PCM sound engine (LP-1)    |
-|      | MB654419U             | TBD     | TVF (time variant filter)     |
+|      | MB87424               | TBD     | TVF (time variant filter)     |
 |      | TC23SC104AF-007       | —       | RCC (reverb/chorus/effects)   |
 |      | TC23SC060             | —       | Key scan / LED gate array     |
 |      | MN53015RRA            | —       | FSK gate array (tape sync)    |
@@ -120,7 +120,7 @@ Devices mapped 0x800 apart:
 | D800–D81F     | PCM (LP-1)     | 16-bit| `mb87419_mb87420_device::read/write` |
 | E000–E003     | FSK            | 8-bit | `fsk_r` / `fsk_w` (stub)             |
 | E800–E802     | LCD (T6963C)   | 8-bit | `t6963c_device::read/write`          |
-| F000–F0FF     | TVF (MB654419U)| 16-bit| `tvf_r` / `tvf_w` (stub)             |
+| F000–F0FF     | TVF (MB87424)  | 16-bit| `mb87424_device::read/write`         |
 
 ---
 
@@ -206,27 +206,75 @@ The FDC uses 3.5" DD floppies (720 KB, MFM, PC format).
 
 ---
 
-## TVF: MB654419U (Time Variant Filter)
+## TVF: MB87424 (Time Variant Filter)
 
-Mapped at F000–F0FF (7-bit word addresses, 16-bit data bus). Stub only —
-no filtering logic implemented.
+Mapped at F000–F0FF (7-bit word addresses, 16-bit data bus), emulated by
+`mb87424_device` (`mb87424.cpp`). Per the schematics the signal chain is
+LP-1 (MB87419) → LP-2 (MB87420, wave ROM side) → TVF (MB87424) → effects
+(TC23SC104AF-007) → 8-channel MUX/DAC. The TVF filters each voice and
+applies its level (part volume and CC7 land in the level register). Pan
+goes to the RCC at key-on, so the RCC most likely pans and mixes the
+voices. In MAME the LP outputs each voice separately (outputs 2–33), the
+TVF filters it and applies the level, and the driver mixes all voices to
+centre until the RCC is emulated.
 
-### Observed Register Usage (from firmware)
+The filter is the Chamberlin state variable filter fitted to the S-330's
+TVF, with f = cutoff / 0x4000 and q = damping / 0x1000. With the firmware's
+"filter off" values (0x4000, 0x1000) it reduces to a one-sample delay, so
+it is exactly transparent. Checked against MV-30 recordings (samplebot
+session `2026-10-10_mv30_tvf-ladder`, sawtooth at C3, 120 harmonics, as
+the change from the unfiltered sawtooth): LPF, BPF and HPF over the whole
+cutoff range and resonance 0–127 match within 0.1 dB rms on almost every
+rung and 0.5 dB on the rest, including resonance peaks of +39 dB and the
+boost near Nyquist at the top cutoffs. The level follows F034 with a
+one-pole ramp of about 6 ms, also fitted to the recordings (CC7 jumps).
 
-- **Reg 0x20**: Voice/channel select (values 0x00–0x0C = 13 voices)
-- **Regs 0x00–0x0C**: Global/control registers
-  - 0x0A = 0x001F (likely channel enable mask)
-  - 0x04 = 0x1000
-  - 0x0C = 0x0016
-- **Regs 0x10–0x1B**: Per-voice filter parameters (written after voice select)
-  - 0x18 = 0x4000
-  - Others typically 0x0000
-- **Regs 0x08–0x09**: Can be 0x0000 or 0xFFFF (bypass/enable flags?)
-- Write-only during normal operation (0 reads observed)
-- ~1,358 writes in 30 seconds of operation
+The patch "cutoff" is not the chip's cutoff step: the firmware adds its
+TVF envelope (about +76 steps for the Ladder patches) and clamps at 127,
+so patch cutoffs from about 48 up all reach the chip as 0x4C1C.
+It is not the MB654419U used by the S-330/W-30, which has a byte-wide
+address/data port.
 
-The same chip appears in Roland S-50, S-330, and W-30 drivers (commented out,
-referencing `mb654419u_device` which doesn't exist yet).
+### Register Usage (system 1.09 firmware, all code in overlay P0F)
+
+Word addresses (CPU address = F000 + 2 × reg). 32-bit values are register
+pairs, written high word first. From a write tap of one held note plus the
+firmware code; the absolute scale of the coefficients is not yet known.
+
+- **Reg 0x20** (F040): voice select, 0x00–0x1F (32 voices, one per LP voice)
+- **Global**, written at init (`TvfInitAllVoices`, ROM 0x2305) and after
+  loading from disk:
+  - 0x08/0x09 (F010/F012): 32-bit voice enable mask? 0 during init, then
+    0xFFFF/0xFFFF
+  - 0x0A (F014) = 0x001F (number of voices − 1?)
+  - 0x0B (F016) = 0x0000
+  - 0x0C (F018) = 0x0016; 0x0003 around the F034 = 0 write that kills a voice
+    (level ramp speed?)
+- **Per voice** (after the voice select):
+  - 0x00–0x01, 0x02–0x03, 0x06–0x07 (F000, F004, F00C): 32-bit, zeroed at
+    key-on (filter state and the current level?)
+  - 0x04 (F008): damping = 0x1000 − 32 × resonance (0..127); 0x1000 with the
+    filter off
+  - 0x05 (F00A): filter type, 0x0000 / 0x0400 / 0x0200 for tone filter types
+    1 / 2 / 3 (probably LPF / BPF / HPF; table at RAM 0x28C)
+  - 0x10–0x17 (F020–F02E): only ever zeroed
+  - 0x18 (F030): cutoff coefficient. The firmware computes the cutoff as an
+    8.8 note (0–127) from the tone cutoff, key follow and its own software TVF
+    envelope (updated about every 10 ms). It then maps it through an
+    exponential table (data page 0x1F, B6E8/B818) that doubles every 12 steps:
+    0x1000 at 100, 0x4000 at 124, 0x4C1C at 127. The filter off writes 0x4000.
+  - 0x1A (F034): level, 0..0x7FFF (tone level × part volume), rewritten about
+    every 12 ms (PC 0xBBF1); 0 at release and voice end. Part volume (CC7)
+    lands here linearly (CC7 0x40 → 0x4081), so until the TVF is emulated
+    channel level changes have no effect.
+  - Bit 15 of F030/F034: probably "jump to the value" as opposed to a
+    smoothed ramp. Set on the first writes at key-on, and on the periodic
+    cutoff writes while the TVF envelope is static; the periodic level writes
+    (part volume, CC7) leave it clear, and the hardware ramps those (about 6 ms)
+- **Reg 0x32** (F064): readback voice select. At key-on the firmware writes the
+  voice and polls 0x02/0x03 (F004/F006) until (value >> 4) == 0 before setting
+  the voice up, presumably waiting for the old level to ramp down. These are
+  the only reads.
 
 ---
 
@@ -339,7 +387,7 @@ cat mv30bios.asm
 
 - RCC (reverb/effects) — returns 0
 - FSK (tape sync) — returns 0
-- TVF (filter) — logs only, returns 0
+- TVF (filter) — filter and level emulated, scales unverified against hardware; panning (RCC) not emulated, all voices mixed to centre
 - FDC write path (RAM → FDC) untested
 - Live audio can stutter in DEBUG builds; `-wavwrite` output is present and song timing matches hardware closely
 - BMOV/BMOVI/CMPL/IDLPD opcodes are stubs

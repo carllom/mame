@@ -75,6 +75,8 @@ function createProjects_mame_tiny(_target, _subtarget)
 	}
 
 files{
+	MAME_DIR .. "src/mame/roland/mb87424.cpp",
+	MAME_DIR .. "src/mame/roland/mb87424.h",
 	MAME_DIR .. "src/mame/roland/roland_d70.cpp",
 	MAME_DIR .. "src/mame/roland/roland_mv30.cpp",
 	MAME_DIR .. "src/mame/roland/roland_u20.cpp",

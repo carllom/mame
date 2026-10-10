@@ -69,6 +69,9 @@
 ****************************************************************************/
 
 #include "emu.h"
+
+#include "mb87424.h"
+
 #include "cpu/mcs96/i8x9x.h"
 #include "bus/midi/midiinport.h"
 #include "bus/midi/midioutport.h"
@@ -166,6 +169,7 @@ public:
 		, m_fdc(*this, "fdc")
 		, m_floppy(*this, "fdc:0")
 		, m_pcm(*this, "pcm")
+		, m_tvf(*this, "tvf")
 		, m_lcd(*this, "lcd")
 	{
 	}
@@ -211,10 +215,6 @@ private:
 	// E000: FSK gate array
 	u8 fsk_r(offs_t offset);
 	void fsk_w(offs_t offset, u8 data);
-
-	// F000: TVF (Time Variant Filter)
-	u16 tvf_r(offs_t offset);
-	void tvf_w(offs_t offset, u16 data, u16 mem_mask = ~0);
 
 	// Gate array DMA registers (SFR 0x118-0x11D)
 	void dma_reg_w(offs_t offset, u16 data, u16 mem_mask = ~0);
@@ -267,6 +267,7 @@ private:
 	required_device<upd72068_device> m_fdc;
 	optional_device<floppy_connector> m_floppy;
 	required_device<mb87419_mb87420_device> m_pcm;
+	required_device<mb87424_device> m_tvf;
 	required_device<t6963c_device> m_lcd;
 
 	unsigned m_ram_size;   // effective RAM size in bytes (512KB or 1MB)
@@ -433,7 +434,7 @@ void roland_mv30_state::mem_map(address_map &map)
 	m_view3[1](0xd800, 0xd81f).rw(m_pcm, FUNC(mb87419_mb87420_device::read), FUNC(mb87419_mb87420_device::write));
 	m_view3[1](0xe000, 0xe003).rw(FUNC(roland_mv30_state::fsk_r), FUNC(roland_mv30_state::fsk_w));
 	m_view3[1](0xe800, 0xe802).rw(m_lcd, FUNC(t6963c_device::read), FUNC(t6963c_device::write)).umask16(0x00ff);
-	m_view3[1](0xf000, 0xf0ff).rw(FUNC(roland_mv30_state::tvf_r), FUNC(roland_mv30_state::tvf_w));
+	m_view3[1](0xf000, 0xf0ff).rw(m_tvf, FUNC(mb87424_device::read), FUNC(mb87424_device::write));
 }
 
 
@@ -972,18 +973,6 @@ void roland_mv30_state::fsk_w(offs_t offset, u8 data)
 	logerror("fsk_w: offset %x = %02x\n", offset, data);
 }
 
-// F000-F07F: TVF (Time Variant Filter) - MB654419U
-u16 roland_mv30_state::tvf_r(offs_t offset)
-{
-	logerror("tvf_r: offset %02x\n", offset);
-	return 0;
-}
-
-void roland_mv30_state::tvf_w(offs_t offset, u16 data, u16 mem_mask)
-{
-	logerror("tvf_w: offset %02x = %04x & %04x\n", offset, data, mem_mask);
-}
-
 //
 // CPU port handlers
 //
@@ -1240,8 +1229,16 @@ void roland_mv30_state::mv30(machine_config &config)
 		m_maincpu->set_input_line(i8x9x_device::EXTINT_LINE,
 			state ? ASSERT_LINE : CLEAR_LINE);
 	});
-	m_pcm->add_route(0, "lspeaker", 1.0);
-	m_pcm->add_route(1, "rspeaker", 1.0);
+
+	// TVF: MB87424, filter and level per voice.  The voices then go to the RCC
+	// for panning and mixing, which is not emulated: they are mixed to centre.
+	MB87424(config, m_tvf);
+	for (unsigned v = 0; v < mb87424_device::NUM_VOICES; v++)
+	{
+		m_pcm->add_route(mb87419_mb87420_device::VOICE_OUTPUT + v, m_tvf, 1.0, v);
+		m_tvf->add_route(v, "lspeaker", 1.0);
+		m_tvf->add_route(v, "rspeaker", 1.0);
+	}
 
 	// LCD: T6963C compatible, 240x64 pixels
 	T6963C(config, m_lcd, 0);
