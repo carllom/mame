@@ -18,8 +18,8 @@
       08/09  voice enable mask (0 during init, then ffff/ffff)
       0a     001f (number of voices - 1?)
       0b     0000
-      0c     0016; 0003 around the level write that cuts off a stolen voice
-             (level ramp speed?)
+      0c     level ramp for the following level writes: 0016 normally,
+             0003 around the level write that cuts off a stolen voice
       20     voice select for the per-voice registers
       32     readback select: latches the voice's current level for 02/03
 
@@ -34,7 +34,9 @@
       10-17  only ever zeroed
       18     cutoff, one semitone per firmware step: 000c (step 0), 1000
              (100), 4000 (124, also written with the filter off), 4c1c (127)
-      1a     level, 0 .. 7fff (tone level * part volume / CC7, linear)
+      1a     level, 0 .. 7fff (tone level * part volume / CC7, linear).
+             The current level follows it with the ramp set by 0c at the
+             time of the write.
     Bit 15 of 18 and 1a is taken to mean "jump to the new value" rather
     than ramp to it.  The firmware sets it on the first writes at key-on,
     and on cutoff writes while its TVF envelope is not moving; its level
@@ -53,8 +55,16 @@
     the filter a one-sample delay, so it is exactly transparent, and the
     boost near Nyquist at the highest cutoffs is on the hardware too.
 
+    Level ramps, from MV-30 recordings:
+    - 0c = 0016: one-pole, time constant about 6 ms (CC7 jumps).
+    - 0c = 0003: fast.  When the firmware steals a sounding voice it cuts
+      the level to 0 this way and then polls the readback until it is 0;
+      the new note starts only 2-3 ms later than an unstolen one.  Modelled
+      as a linear ramp over 1.5 ms.  With the 6 ms ramp the poll took about
+      60 ms per steal and stalled the sequencer.
+
     TODO:
-    - The meaning of 0c (it may set the level ramp speed); whether cutoff
+    - The encoding of 0c (only 0016 and 0003 are used); whether cutoff
       changes are smoothed too.
     - Registers 00/01, 06/07, 0a, 0b and 10-17, the readback format.
 
@@ -84,6 +94,11 @@ constexpr u32 LEVEL_MAX = 0x7fff << LEVEL_SHIFT;
 // MV-30 recordings of CC7 jumps between 0 and 127 (6.0 ms falling, 6.4 ms
 // rising).
 constexpr s64 LEVEL_SMOOTH = 21;
+
+// With register 0c = 0003 the level ramps linearly from full scale to 0 in
+// 48 samples (1.5 ms), fitted to the start delay of notes that steal a voice.
+constexpr u16 RAMP_FAST = 0x0003;
+constexpr u32 LEVEL_FAST_STEP = LEVEL_MAX / 48;
 
 } // anonymous namespace
 
@@ -118,6 +133,7 @@ void mb87424_device::device_start()
 	save_item(STRUCT_MEMBER(m_voice, mode));
 	save_item(STRUCT_MEMBER(m_voice, cutoff));
 	save_item(STRUCT_MEMBER(m_voice, level));
+	save_item(STRUCT_MEMBER(m_voice, ramp));
 	save_item(STRUCT_MEMBER(m_voice, cur_level));
 	save_item(STRUCT_MEMBER(m_voice, lp));
 	save_item(STRUCT_MEMBER(m_voice, bp));
@@ -137,6 +153,7 @@ void mb87424_device::device_reset()
 		voice.mode = 0;
 		voice.cutoff = 0x4000;
 		voice.level = 0;
+		voice.ramp = 0x0016;
 		voice.cur_level = 0;
 		voice.lp = voice.bp = 0.0;
 	}
@@ -209,6 +226,9 @@ void mb87424_device::voice_w(voice_t &voice, offs_t offset, u16 data)
 
 	case 0x1a:
 		voice.level = data & 0x7fff;
+		voice.ramp = m_ramp;
+		if (m_ramp != RAMP_FAST && m_ramp != 0x0016)
+			LOGUNKNOWN("voice %d: level ramp %04x\n", m_select, m_ramp);
 		if (BIT(data, 15))
 			voice.cur_level = voice.level << LEVEL_SHIFT;
 		break;
@@ -237,7 +257,11 @@ void mb87424_device::sound_stream_update(sound_stream &stream)
 			// at least one step, so that the level reaches its target exactly
 			// (the firmware waits for 0 before reusing a voice)
 			const s64 diff = s64(target) - s64(voice.cur_level);
-			if (diff)
+			if (diff && voice.ramp == RAMP_FAST)
+			{
+				voice.cur_level += std::clamp<s64>(diff, -s64(LEVEL_FAST_STEP), LEVEL_FAST_STEP);
+			}
+			else if (diff)
 			{
 				const s64 step = diff * LEVEL_SMOOTH / 4096;
 				voice.cur_level += step ? step : (diff > 0 ? 1 : -1);

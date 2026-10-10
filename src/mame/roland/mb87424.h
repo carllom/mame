@@ -39,6 +39,7 @@ private:
 		u16 mode;       // 05
 		u16 cutoff;     // 18
 		u16 level;      // 1a: target level
+		u16 ramp;       // 0c at the time of the level write
 
 		u32 cur_level;  // 02/03: current level, 15.5 fixed point
 		double lp, bp;  // 00/01 and 06/07 (assumed): filter state
@@ -52,7 +53,7 @@ private:
 	u16 m_readback;       // 32: voice whose current level reads back on 02/03
 	u32 m_readback_level; // latched by the write to 32
 	u32 m_enable;         // 08/09: voice enable mask
-	u16 m_ramp;           // 0c: 0x16 normally, 0x03 when a voice is cut off
+	u16 m_ramp;           // 0c: level ramp, 0x16 normally, 0x03 when a voice is cut off
 	u16 m_latch_hi;       // high word of a 32-bit per-voice register pair
 
 	voice_t m_voice[NUM_VOICES];
