@@ -1076,8 +1076,7 @@ void i80c196_device::fetch_196_full()
 		int level;
 		for(level = 7; level >= 0 && !(PSW & pending_irq & (1 << level)); level--);
 		if(level >= 0) {
-			if(level != 7)
-				pending_irq &= ~(1 << level);
+			pending_irq &= ~(1 << level);
 			OP1 = level;
 			standard_irq_callback(OP1, PC);
 			TMP = reg_r16(0x18);
