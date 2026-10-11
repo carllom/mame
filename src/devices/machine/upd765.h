@@ -232,6 +232,7 @@ protected:
 	static constexpr int rates[4] = { 500000, 300000, 250000, 1000000 };
 
 	bool ready_connected, ready_polled, select_connected, select_multiplexed, ts_connected, has_dor;
+	bool implied_seek_cmd; // IPS bit (bit 7 of the drive/head byte) requests an implied seek
 
 	bool external_ready;
 
@@ -345,6 +346,7 @@ protected:
 	void general_continue(floppy_info &fi);
 	virtual void index_callback(floppy_image_device *floppy, int state);
 	bool sector_matches() const;
+	bool implied_seek() const;
 
 	void live_start(floppy_info &fi, int live_state);
 	void live_abort();
