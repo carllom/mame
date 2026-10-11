@@ -209,6 +209,7 @@ upd765_family_device::upd765_family_device(const machine_config &mconfig, device
 	ts_connected(true),
 	has_dor(true),
 	has_base_mode(false),
+	implied_seek_cmd(false),
 	external_ready(false),
 	recalibrate_steps(77),
 	mode(mode_t::AT),
@@ -445,6 +446,12 @@ void upd765_family_device::tc_w(bool _tc)
 			general_continue(*cur_live.fi);
 	} else
 		tc = _tc;
+}
+
+bool upd765_family_device::implied_seek() const
+{
+	// Enabled globally by CONFIGURE EIS, or per command by the IPS bit on controllers that have one
+	return (fifocfg & FIF_EIS) || (implied_seek_cmd && (command[1] & 0x80));
 }
 
 void upd765_family_device::ready_w(bool _ready)
@@ -1992,7 +1999,7 @@ void upd765_family_device::read_data_continue(floppy_info &fi)
 			break;
 		case HEAD_LOAD_DONE:
 			LOGSTATE("HEAD_LOAD_DONE\n");
-			if(fi.pcn == command[2] || !(fifocfg & FIF_EIS)) {
+			if(fi.pcn == command[2] || !implied_seek()) {
 				fi.sub_state = SEEK_DONE;
 				break;
 			}
@@ -2378,7 +2385,7 @@ void upd765_family_device::read_track_continue(floppy_info &fi)
 			break;
 		case HEAD_LOAD_DONE:
 			LOGSTATE("HEAD_LOAD_DONE\n");
-			if(fi.pcn == command[2] || !(fifocfg & FIF_EIS)) {
+			if(fi.pcn == command[2] || !implied_seek()) {
 				fi.sub_state = SEEK_DONE;
 				break;
 			}
@@ -3336,6 +3343,7 @@ dp8473_device::dp8473_device(const machine_config &mconfig, const char *tag, dev
 	select_connected = true;
 	select_multiplexed = false;
 	recalibrate_steps = 77; // TODO: 3917 in extended track range mode
+	implied_seek_cmd = true;
 }
 
 void dp8473_device::soft_reset()

@@ -130,6 +130,7 @@ public:
 	void pm3585(machine_config &config) ATTR_COLD;
 
 private:
+	virtual void machine_start() override ATTR_COLD;
 	virtual void machine_reset() override ATTR_COLD;
 
 	void mem_map(address_map &map) ATTR_COLD;
@@ -140,6 +141,7 @@ private:
 	void vsc_irq(int state);
 	void fdc_drq_w(int state);
 	void fdc_intrq_w(int state);
+	TIMER_CALLBACK_MEMBER(fdc_dma_service);
 
 	required_device<scc68070_device> m_maincpu;
 	required_device<scc66470_device> m_vsc;
@@ -148,6 +150,9 @@ private:
 	required_device<pcf8583_device>  m_rtc;
 	required_device<tms9914_device>  m_ieee;
 	required_device<screen_device>   m_screen;
+
+	emu_timer *m_fdc_dma_timer = nullptr;
+	bool m_fdc_drq = false;
 };
 
 
@@ -155,8 +160,17 @@ private:
   Machine init
 ***************************************************************************/
 
+void pm3585_state::machine_start()
+{
+	m_fdc_dma_timer = timer_alloc(FUNC(pm3585_state::fdc_dma_service), this);
+
+	save_item(NAME(m_fdc_drq));
+}
+
 void pm3585_state::machine_reset()
 {
+	m_fdc_dma_timer->adjust(attotime::never);
+
 	// The SCC66470 maps DRAM at 0x000000. On real hardware it overlays the
 	// first four ROM words (reset SP + PC) for the initial fetch, then
 	// switches to DRAM. The emulation has no such overlay, so seed DRAM
@@ -254,7 +268,22 @@ void pm3585_state::vsc_irq(int state)
 	m_maincpu->in2_w(state);
 }
 
-// FDC DRQ handler: service the SCC68070 DMA one byte at a time.
+// FDC DRQ handler.
+//
+// The FDC raises DRQ from inside its bit-level read/write loop (live_run).
+// Touching the FIFO or pulsing TC from here re-enters that loop: tc_w()
+// calls live_sync(), which rolls the live state back and replays it while
+// the outer live_run is still executing, so a DMA read never reaches its
+// result phase. Like a real DMA controller, service the request later from
+// a timer, outside the FDC's call stack.
+void pm3585_state::fdc_drq_w(int state)
+{
+	m_fdc_drq = state;
+	if (state)
+		m_fdc_dma_timer->adjust(attotime::zero);
+}
+
+// Service the SCC68070 DMA channel 0 for as long as the FDC holds DRQ.
 //
 // When the DMA transfer counter reaches zero we:
 //   1. Set CSR_COC (DMA complete) via dma_channel_complete().
@@ -263,44 +292,42 @@ void pm3585_state::vsc_irq(int state)
 //
 // The guard on transfer_counter == 0 protects against writing past the end
 // of the programmed DMA window; excess FDC DRQ pulses (if any) are dropped.
-void pm3585_state::fdc_drq_w(int state)
+TIMER_CALLBACK_MEMBER(pm3585_state::fdc_dma_service)
 {
-	if (!state)
-		return;
-
 	auto &ch = m_maincpu->dma().channel[0];
-	if (ch.transfer_counter == 0)
-		return; // DMA already complete; discard any excess bytes from FDC
-
 	address_space &mem = m_maincpu->space(AS_PROGRAM);
 
-	if (ch.operation_control & SCC68070_OCR_D_D2M)
+	// dma_r()/dma_w() drop DRQ (and so m_fdc_drq) when the FIFO empties or fills
+	while (m_fdc_drq && ch.transfer_counter != 0)
 	{
-		// Device → Memory (FDC read): pull one byte from the FDC FIFO and
-		// store it at the DMA destination address.
-		uint8_t const data = m_fdc->dma_r();
-		mem.write_byte(ch.memory_address_counter, data);
-	}
-	else
-	{
-		// Memory → Device (FDC write): fetch one byte from the DMA source
-		// address and push it into the FDC FIFO.
-		uint8_t const data = mem.read_byte(ch.memory_address_counter);
-		m_fdc->dma_w(data);
-	}
+		if (ch.operation_control & SCC68070_OCR_D_D2M)
+		{
+			// Device → Memory (FDC read): pull one byte from the FDC FIFO and
+			// store it at the DMA destination address.
+			uint8_t const data = m_fdc->dma_r();
+			mem.write_byte(ch.memory_address_counter, data);
+		}
+		else
+		{
+			// Memory → Device (FDC write): fetch one byte from the DMA source
+			// address and push it into the FDC FIFO.
+			uint8_t const data = mem.read_byte(ch.memory_address_counter);
+			m_fdc->dma_w(data);
+		}
 
-	ch.memory_address_counter++;
-	ch.transfer_counter--;
+		ch.memory_address_counter++;
+		ch.transfer_counter--;
 
-	if (ch.transfer_counter == 0)
-	{
-		m_maincpu->dma_channel_complete(0);
-		// Pulse Terminal Count to the FDC.  This tells the FDC that the host
-		// DMA is exhausted, causing it to finish the current command and issue
-		// a proper end-of-command INTRQ (PHASE_RESULT) instead of continuing
-		// to assert per-byte INTRQs.
-		m_fdc->tc_w(true);
-		m_fdc->tc_w(false);
+		if (ch.transfer_counter == 0)
+		{
+			m_maincpu->dma_channel_complete(0);
+			// Pulse Terminal Count to the FDC.  This tells the FDC that the host
+			// DMA is exhausted, causing it to finish the current command and issue
+			// a proper end-of-command INTRQ (PHASE_RESULT) instead of continuing
+			// to assert per-byte INTRQs.
+			m_fdc->tc_w(true);
+			m_fdc->tc_w(false);
+		}
 	}
 }
 
