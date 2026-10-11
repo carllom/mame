@@ -25,7 +25,7 @@
   Static RAM (CPU):
   128KB total, accessed as 64Kx16
   4 chips D401,D402,D404,D405, 32KBx8 each
-  
+
   GAL (PLCC 20v8) chip D406 selects SRAM or EPROM chips based on address lines LDSN,UDSN, ADR16-ADR18.
   ADR01 is the first address line (16-bit bus), so ADR16=A17, ADR17=A18, ADR18=A19 (byte addresses).
   Outputs: CSRM1N (lower bank, D0-D7), CSRM2N (lower bank, D8-D15),
@@ -235,7 +235,7 @@ uint32_t pm3585_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap
 	// Exact grey levels from resistor DAC voltage divider (+5V, 3.3K series resistor):
 	//   00: 4.7K to GND → 2.9375V → 255   01: 2.61K to GND → 2.2081V → 150
 	//   10: 3.3K to GND → 2.5000V → 192   11: 1.0K  to GND → 1.1628V →   0
-	static constexpr uint32_t k_grey[4] = { 0xffffff, 0x969696, 0xc0c0c0, 0x000000 };
+	static constexpr uint32_t k_grey[4] = { 0xffffff, 0xc0c0c0, 0x969696, 0x000000 };
 
 	if (!m_vsc->display_enabled())
 		return 0;
