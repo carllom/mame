@@ -387,7 +387,7 @@ void pm3585_state::pm3585(machine_config &config)
 	// so the pixel clock for MAME's screen_device is the physical 30MHz.
 	// Visible area starts at y=32 to sit inside the SCC66470 PAL-mode scanline
 	// window used by its internal timers; lines 32–511 = 480 visible lines.
-	SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
+	SCREEN(config, m_screen);
 	m_screen->set_raw(XTAL(30'000'000), 960, 0, 768, 521, 32, 512);
 	m_screen->set_video_attributes(VIDEO_UPDATE_SCANLINE);
 	m_screen->set_screen_update(FUNC(pm3585_state::screen_update));
