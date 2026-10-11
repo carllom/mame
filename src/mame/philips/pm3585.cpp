@@ -103,6 +103,7 @@
 #include "emu.h"
 #include "machine/scc68070.h"
 #include "machine/scc66470.h"
+#include "machine/68230pit.h"
 #include "machine/mc68901.h"
 #include "machine/pcf8583.h"
 #include "machine/tms9914.h"
@@ -121,6 +122,7 @@ public:
 		, m_maincpu(*this, "maincpu")
 		, m_vsc(*this, "vsc")
 		, m_fdc(*this, "fdc")
+		, m_pit(*this, "pit")
 		, m_mfp(*this, "mfp")
 		, m_rtc(*this, "rtc")
 		, m_ieee(*this, "ieee")
@@ -138,7 +140,6 @@ private:
 
 	uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
 
-	void vsc_irq(int state);
 	void fdc_drq_w(int state);
 	void fdc_intrq_w(int state);
 	TIMER_CALLBACK_MEMBER(fdc_dma_service);
@@ -146,6 +147,7 @@ private:
 	required_device<scc68070_device> m_maincpu;
 	required_device<scc66470_device> m_vsc;
 	required_device<dp8473_device>   m_fdc;
+	required_device<pit68230_device> m_pit;
 	required_device<mc68901_device>  m_mfp;
 	required_device<pcf8583_device>  m_rtc;
 	required_device<tms9914_device>  m_ieee;
@@ -215,7 +217,13 @@ void pm3585_state::mem_map(address_map &map)
 	map(0x1ffc0a, 0x1ffc0b).rw(m_fdc, FUNC(dp8473_device::fifo_r), FUNC(dp8473_device::fifo_w)).umask16(0x00ff); // DATA
 	map(0x1ffc0e, 0x1ffc0f).rw(m_fdc, FUNC(dp8473_device::dir_r), FUNC(dp8473_device::ccr_w)).umask16(0x00ff);   // DIR (read) / RATE_CHG (write)
 
-	// TODO: IEEE-488 TMS9914 (D800) and M68230 PIT — addresses TBD within 001FFC10-001FFCBF
+	// 001FFC40-001FFC4F: IEEE-488 TMS9914 (D800), byte registers at odd addresses
+	//   INT STATUS 0/1 = 1ffc41/1ffc43, AUX CMD = 1ffc47, serial poll = 1ffc4b (from SYSTEM's GPIB interrupt handler)
+	map(0x1ffc40, 0x1ffc4f).rw(m_ieee, FUNC(tms9914_device::read), FUNC(tms9914_device::write)).umask16(0x00ff);
+
+	// 001FFC80-001FFCBF: Centronics MC68230 PI/T, byte registers at odd addresses
+	//   PGCR = 1ffc81, PADR/PBDR = 1ffc91/1ffc93, PSR = 1ffc9b (SYSTEM polls it, PIVR is never set)
+	map(0x1ffc80, 0x1ffcbf).rw(m_pit, FUNC(pit68230_device::read), FUNC(pit68230_device::write)).umask16(0x00ff);
 
 	// 001FFCC0-001FFCDF: MFP MC68901 (byte registers at odd addresses)
 	//   GPDR=1ffcc1  AER=1ffcc3  DDR=1ffcc5  IERA=1ffcc7 ...
@@ -261,11 +269,6 @@ uint32_t pm3585_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap
 		}
 	}
 	return 0;
-}
-
-void pm3585_state::vsc_irq(int state)
-{
-	m_maincpu->in2_w(state);
 }
 
 // FDC DRQ handler.
@@ -427,24 +430,31 @@ void pm3585_state::pm3585(machine_config &config)
 	SCC66470(config, m_vsc, XTAL(30'000'000));
 	m_vsc->set_addrmap(0, &pm3585_state::vsc_map);
 	m_vsc->set_screen("screen");
-	m_vsc->irq().set(FUNC(pm3585_state::vsc_irq));
+	m_vsc->irq().set(m_maincpu, FUNC(scc68070_device::int2_w)); // pin 60 INT2N; SYSTEM masks VSC interrupts (CSR DI1/DI2)
 
 	// DP8473 FDC — 1.44MB 3.5" floppy, 500Kbit/s MFM
 	DP8473(config, m_fdc, XTAL(24'000'000)); // TODO: verify clock source
+	// pin 61 INT1N: not traced in the schematic, but the BIOS and SYSTEM program INT1 (LIR) for the FDC
 	m_fdc->intrq_wr_callback().set(FUNC(pm3585_state::fdc_intrq_w));
 	m_fdc->drq_wr_callback().set(FUNC(pm3585_state::fdc_drq_w));
 	FLOPPY_CONNECTOR(config, "fdc:0", pm3585_floppies, "35hd", pm3585_floppy_formats);
 
 	// MFP MC68901 — UART, timers, GPIO, interrupt controller
 	MC68901(config, m_mfp, XTAL(19'660'800)); // TODO: verify clock source
+	m_mfp->out_irq_cb().set(m_maincpu, FUNC(scc68070_device::in4_w)); // pin 63 IN4N; vectored, VR = 0x40
+	m_maincpu->iack4_callback().set(m_mfp, FUNC(mc68901_device::get_vector));
+
+	// Centronics MC68230 PI/T, port interrupt on pin 66 IN2N
+	PIT68230(config, m_pit, XTAL(19'660'800) / 2); // TODO: verify clock source
+	m_pit->port_irq_callback().set(m_maincpu, FUNC(scc68070_device::in2_w));
 
 	// D110: PCF8583 RTC @ 32.768kHz, I2C address 0xA0
 	PCF8583(config, m_rtc, XTAL(32'768));
 	m_rtc->irq().set(m_maincpu, FUNC(scc68070_device::t1_w)); // 1 Hz /INT; SYSTEM counts T1 edges to check the RTC is running
 
 	// D800: TMS9914 IEEE-488 GPIB controller
-	// IRQ -> CPU IN5; address mapping TBD
-	TMS9914(config, m_ieee, XTAL(19'660'800)); // TODO: map registers, verify clock, connect IRQ
+	TMS9914(config, m_ieee, XTAL(19'660'800)); // TODO: verify clock
+	m_ieee->int_write_cb().set(m_maincpu, FUNC(scc68070_device::in5_w)); // pin 59 IN5N; autovector 29
 }
 
 
