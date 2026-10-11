@@ -257,6 +257,8 @@ scc68070_device::scc68070_device(const machine_config &mconfig, const char *tag,
 	, m_nmi_line(CLEAR_LINE)
 	, m_int1_line(CLEAR_LINE)
 	, m_int2_line(CLEAR_LINE)
+	, m_t1_line(CLEAR_LINE)
+	, m_t2_line(CLEAR_LINE)
 {
 	m_cpu_space_config.m_internal_map = address_map_constructor(FUNC(scc68070_device::cpu_space_map), this);
 }
@@ -278,6 +280,8 @@ void scc68070_device::device_start()
 
 	save_item(NAME(m_int1_line));
 	save_item(NAME(m_int2_line));
+	save_item(NAME(m_t1_line));
+	save_item(NAME(m_t2_line));
 	save_item(NAME(m_lir));
 
 	save_item(NAME(m_picr1));
@@ -519,6 +523,57 @@ void scc68070_device::int2_w(int state)
 		}
 
 		m_int2_line = state;
+	}
+}
+
+void scc68070_device::t1_w(int state)
+{
+	timer_input(1, state);
+}
+
+void scc68070_device::t2_w(int state)
+{
+	timer_input(2, state);
+}
+
+void scc68070_device::timer_input(int channel, int state)
+{
+	int &line = (channel == 1) ? m_t1_line : m_t2_line;
+	if (line == state)
+		return;
+	line = state;
+
+	// TCR holds E1:M1 in bits 7-4 and E2:M2 in bits 3-0; TSR holds MA1/CAP1/OV1 in bits 6-4 and MA2/CAP2/OV2 in bits 3-1
+	const uint8_t tcr = m_timers.timer_control_register >> ((channel == 1) ? 4 : 0);
+	const uint8_t edges = (tcr >> 2) & 3;
+	if (!BIT(edges, state ? 0 : 1))
+		return;
+
+	const int tsr_shift = (channel == 1) ? 4 : 1;
+	uint16_t &counter = (channel == 1) ? m_timers.timer1 : m_timers.timer2;
+	uint8_t flag = 0;
+	switch (tcr & 3)
+	{
+	case TCR_M1_CAPTURE >> 4:
+		counter = 0x10000 - (attotime_to_cycles(m_timers.timer0_timer->remaining()) / 96);
+		flag = 0x02 << tsr_shift;
+		break;
+	case TCR_M1_COUNT >> 4:
+		if (++counter == 0)
+			flag = 0x01 << tsr_shift;
+		break;
+	default: // TODO: match mode
+		break;
+	}
+
+	if (flag)
+	{
+		m_timers.timer_status_register |= flag;
+		if (!m_timer_int)
+		{
+			m_timer_int = true;
+			update_ipl();
+		}
 	}
 }
 
@@ -850,10 +905,15 @@ uint8_t scc68070_device::idr_r()
 	m_i2c_int = false;
 	update_ipl();
 
-	if (m_i2c.state != I2C_RX_COMPLETE)
+	if (m_i2c.state == I2C_CHANGED_TO_RX)
 	{
+		// dummy read after the slave address starts reception of the first byte
+		m_i2c.state = I2C_RX_IN_PROGRESS;
+		m_i2c.clock_change_state = I2C_SCL_SET_1;
+		m_i2c.clocks = 8;
+		set_i2c_timer();
 	}
-	else
+	else if (m_i2c.state == I2C_RX_COMPLETE)
 	{
 		m_i2c.sda_out_state = (m_i2c.control_register & ICR_ACK) ? false : true;
 		m_i2c_sdaw_callback(m_i2c.sda_out_state);

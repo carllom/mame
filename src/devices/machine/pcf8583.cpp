@@ -45,6 +45,7 @@ pcf8583_device::pcf8583_device(const machine_config &mconfig, const char *tag, d
 	, m_shift(0)
 	, m_devsel(0)
 	, m_register(0)
+	, m_irq(false)
 	, m_timer(nullptr)
 {
 }
@@ -85,11 +86,15 @@ void pcf8583_device::advance_hundredths()
 	{
 		hundredths = 0;
 		advance_seconds();
-		m_irq = !m_irq;
-
-		m_irq_cb(m_irq);
 	}
 	m_data[REG_HUNDREDTHS] = convert_to_bcd(hundredths);
+
+	// with the alarm disabled /INT carries a 1 Hz square wave
+	if (!BIT(m_data[REG_CONTROL], 2) && (hundredths % 50) == 0)
+	{
+		m_irq = !m_irq;
+		m_irq_cb(m_irq);
+	}
 }
 
 

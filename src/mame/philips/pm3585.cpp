@@ -407,7 +407,12 @@ void pm3585_state::pm3585(machine_config &config)
 	// D102: Motorola/Philips SCC68070 @ 19.6608MHz (9.8304MHz bus)
 	SCC68070(config, m_maincpu, XTAL(19'660'800));
 	m_maincpu->set_addrmap(AS_PROGRAM, &pm3585_state::mem_map);
-	// TODO: connect I2C callbacks to PCF8583 RTC (slave address 0xA0)
+	// I2C: PCF8583 RTC (0xA0); front panel controller to be added (AND its SDA into the read)
+	// no slave stretches SCL, so the line follows the 68070 output; it must be fed back or the controller stalls
+	m_maincpu->i2c_scl_w().set(m_rtc, FUNC(pcf8583_device::scl_w));
+	m_maincpu->i2c_scl_w().append(m_maincpu, FUNC(scc68070_device::write_scl));
+	m_maincpu->i2c_sda_w().set(m_rtc, FUNC(pcf8583_device::sda_w));
+	m_maincpu->i2c_sda_r().set([this] () -> u8 { return m_rtc->sda_r(); });
 
 	// Physical display: 30MHz pixel clock, 768×480 visible, 960/521 total (~60Hz).
 	// We render 192 DRAM bytes × 4 pixels/byte = 768 px/line directly from DRAM,
@@ -435,6 +440,7 @@ void pm3585_state::pm3585(machine_config &config)
 
 	// D110: PCF8583 RTC @ 32.768kHz, I2C address 0xA0
 	PCF8583(config, m_rtc, XTAL(32'768));
+	m_rtc->irq().set(m_maincpu, FUNC(scc68070_device::t1_w)); // 1 Hz /INT; SYSTEM counts T1 edges to check the RTC is running
 
 	// D800: TMS9914 IEEE-488 GPIB controller
 	// IRQ -> CPU IN5; address mapping TBD

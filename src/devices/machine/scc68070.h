@@ -65,6 +65,8 @@ public:
 	void nmi_w(int state);
 	void int1_w(int state);
 	void int2_w(int state);
+	void t1_w(int state);
+	void t2_w(int state);
 
 	void write_scl(int state);
 
@@ -260,6 +262,7 @@ private:
 	void check_for_tx_start();
 	void update_tx_int();
 	void set_timer_callback(int channel);
+	void timer_input(int channel, int state);
 
 	// callbacks
 	devcb_read8 m_iack2_callback;
@@ -280,6 +283,8 @@ private:
 	int m_nmi_line;
 	int m_int1_line;
 	int m_int2_line;
+	int m_t1_line;
+	int m_t2_line;
 
 	uint8_t m_lir;
 	uint8_t m_picr1;
