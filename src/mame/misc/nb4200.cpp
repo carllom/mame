@@ -15,6 +15,11 @@
  * Terminal:	cmFORTH bit-bangs RS-232 in software: X0 is TxD and X4 is RxD.
  *		After reset it measures the bit rate from the first key typed
  *		(an even letter such as B) and answers "hi".
+ *		The terminal is also the disk: cmFORTH sends 03 and a block number
+ *		to read or write a 1024 byte block over the same line.
+ *		scripts/nb4200/cmforth_host.py is a terminal and block file server:
+ *		  cmforth_host.py --blocks src.blk
+ *		  mame nb4200 -rs232 null_modem -bitb socket.127.0.0.1:4321
  *
  * Ports:	1 x 64 pin edge connector
  *
@@ -108,7 +113,7 @@
  * Serial disk control
  * disk blocks are 1024 bytes
  * disk operation header is 0x03 MSB LSB
- * block number is 15 bit. if sign bit (bit 15) is set it is a write and a keypress is expected before transmitting.
+ * block number is 15 bit. if sign bit (bit 15) is set it is a write: 1024 bytes are sent, then a keypress is expected.
  */
 #include "emu.h"
 
