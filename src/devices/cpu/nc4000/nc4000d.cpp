@@ -19,13 +19,13 @@
 namespace {
 
 // ALU result T op Y, named as the Forth word that applies it to ( Y T )
-char const *const binary_names[8] = { "", "AND", "SWAP-", "OR", "+", "XOR", "-", "" };
+constexpr char const *BINARY_NAMES[8] = { "", "AND", "SWAP-", "OR", "+", "XOR", "-", "" };
 
 // ALU result T op Y, named as the Forth word that applies it to ( T Y ),
 // used when Y is fetched or a literal ("a-" in Table 3.6)
-char const *const fetch_names[8] = { "DROP", "AND", "-", "OR", "+", "XOR", "SWAP-", "NIP" };
+constexpr char const *FETCH_NAMES[8] = { "DROP", "AND", "-", "OR", "+", "XOR", "SWAP-", "NIP" };
 
-char const *const reg_names[16] = {
+constexpr char const *REG_NAMES[16] = {
 	"JK", "I", "P", "TRUE", "MD", "MD", "SR", "SR",
 	"B", "BMASK", "BDIR", "BTRI", "X", "XMASK", "XDIR", "XTRI" };
 
@@ -40,7 +40,7 @@ std::string nc4000_disassembler::reg_name(int reg)
 {
 	if (reg == 17)
 		return "17 (#TIMES)";
-	return util::string_format("%d (%s)", reg, reg_names[reg & 0x0f]);
+	return util::string_format("%d (%s)", reg, REG_NAMES[reg & 0x0f]);
 }
 
 std::string nc4000_disassembler::alu_op(u16 op)
@@ -50,53 +50,51 @@ std::string nc4000_disassembler::alu_op(u16 op)
 	int const stack = (BIT(op, 6) << 1) | BIT(op, 4); // TN, SA
 	int const shift = BIT(op, 0, 4); // D?, %, SL, SR
 
-	// step instructions
+	// step instructions (book's octal opcodes in the comments)
 	switch (op & ~0x0020)
 	{
-	case 0104411: return "*'";
-	case 0102411: return "*-";
-	case 0102412: return "*F";
-	case 0102416: return "/'";
-	case 0102414: return "/\"";
-	case 0102616: return "S'";
-	case 0102404: return "MOD'";
+	case 0x8909: return "*'"; // 104411
+	case 0x8509: return "*-"; // 102411
+	case 0x850a: return "*F"; // 102412
+	case 0x850e: return "/'"; // 102416
+	case 0x850c: return "/\""; // 102414
+	case 0x858e: return "S'"; // 102616
+	case 0x8504: return "MOD'"; // 102404
 	}
 
 	std::string text;
 	if (ysel >= 2)
 	{
 		// MD or SR as the Y operand
-		static char const *const prefix[4] = { "", "NIP ", "NIP DUP ", "DUP " };
+		static constexpr char const *PREFIX[4] = { "", "NIP ", "NIP DUP ", "DUP " };
 		char const *const reg = (ysel == 2) ? "4 I@" : "6 I@";
-		text = prefix[stack];
-		if (func == 0)
-			;
-		else if (func == 7)
-			text += util::string_format("DROP %s", reg);
-		else
-			text += util::string_format("%s %s", reg, fetch_names[func]);
+		text = PREFIX[stack];
+		if (func == 7)
+			text = text + "DROP " + reg;
+		else if (func != 0)
+			text = text + reg + ' ' + FETCH_NAMES[func];
 	}
 	else if (func == 0)
 	{
-		static char const *const names[4] = { "", "NIP", "NIP DUP", "DUP" };
-		text = names[stack];
+		static constexpr char const *NAMES[4] = { "", "NIP", "NIP DUP", "DUP" };
+		text = NAMES[stack];
 	}
 	else if (func == 7)
 	{
-		static char const *const names[4] = { "DROP DUP", "DROP", "SWAP", "OVER" };
-		text = names[stack];
+		static constexpr char const *NAMES[4] = { "DROP DUP", "DROP", "SWAP", "OVER" };
+		text = NAMES[stack];
 	}
 	else
 	{
-		static char const *const prefix[4] = { "OVER SWAP ", "", "SWAP OVER ", "2DUP " };
-		text = prefix[stack] + with_carry(binary_names[func], ysel == 1);
+		static constexpr char const *PREFIX[4] = { "OVER SWAP ", "", "SWAP OVER ", "2DUP " };
+		text = PREFIX[stack] + with_carry(BINARY_NAMES[func], ysel == 1);
 	}
 
-	static char const *const shifts[16] = {
+	static constexpr char const *SHIFTS[16] = {
 			"", "2/", "2*", "0<", "%", "% 2/", "% 2*", "% 0<",
 			"N2*", "D2/", "D2*", "D?", "% N2*", "% D2/", "% D2*", "% D?" };
 	if (shift)
-		text += text.empty() ? shifts[shift] : std::string(" ") + shifts[shift];
+		text += text.empty() ? SHIFTS[shift] : std::string(" ") + SHIFTS[shift];
 	if (text.empty())
 		text = "NOP";
 	return text;
@@ -118,8 +116,8 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 	if (cls >= 1 && cls <= 3)
 	{
 		// branches stay within the 4K page of the following instruction
-		static char const *const names[4] = { "", "IF", "NEXT", "ELSE" };
-		util::stream_format(stream, "%s $%04X", names[cls], ((pc + 1) & 0xf000) | (op & 0x0fff));
+		static constexpr char const *BRANCH_NAMES[4] = { "", "IF", "NEXT", "ELSE" };
+		util::stream_format(stream, "%s $%04X", BRANCH_NAMES[cls], ((pc + 1) & 0xf000) | (op & 0x0fff));
 		if (cls != 3)
 			flags |= STEP_COND;
 		return length | flags;
@@ -141,14 +139,14 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 		switch (m)
 		{
 		case 0: case 2:
-			text = util::string_format("$%02X @ %s", lit, with_carry(fetch_names[func], carry));
-			if (op == 0140000)
+			text = util::string_format("$%02X @ %s", lit, with_carry(FETCH_NAMES[func], carry));
+			if (op == 0xc000) // 140000 octal
 				text = "TWO";
 			break;
 		case 1:
 			text = util::string_format("$%02X @", lit);
 			if (func != 7)
-				text = "DUP " + text + " " + fetch_names[func];
+				text = "DUP " + text + " " + FETCH_NAMES[func];
 			break;
 		case 3:
 			if (lit == 17 && func == 7)
@@ -161,14 +159,14 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 			{
 				text = util::string_format("%s I@", reg_name(lit));
 				if (func != 7)
-					text = "DUP " + text + " " + fetch_names[func];
+					text = "DUP " + text + " " + FETCH_NAMES[func];
 			}
 			break;
 		case 7:
 			if (lit == 17 && func == 0)
 				text = "R> DROP";
 			else
-				text = util::string_format("%s I@ %s", reg_name(lit), fetch_names[func]);
+				text = util::string_format("%s I@ %s", reg_name(lit), FETCH_NAMES[func]);
 			break;
 		default:
 		{
@@ -178,11 +176,11 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 			{
 				text = util::string_format("$%04X", data);
 				if (func != 7)
-					text = "DUP " + text + " " + fetch_names[func];
+					text = "DUP " + text + " " + FETCH_NAMES[func];
 			}
 			else
 			{
-				text = util::string_format("$%04X %s", data, with_carry(fetch_names[func], carry));
+				text = util::string_format("$%04X %s", data, with_carry(FETCH_NAMES[func], carry));
 			}
 			break;
 		}
@@ -195,7 +193,7 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 		case 0: case 1:
 			text = util::string_format("$%02X !", lit);
 			if (func != 7)
-				text = "DUP " + text + " " + binary_names[func];
+				text = "DUP " + text + " " + BINARY_NAMES[func];
 			break;
 		case 2:
 			if (lit == 1 && func == 7)
@@ -206,26 +204,26 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 			{
 				text = util::string_format("%s I!", reg_name(lit));
 				if (func != 7)
-					text = "DUP " + text + " " + with_carry(binary_names[func], true);
+					text = "DUP " + text + " " + with_carry(BINARY_NAMES[func], true);
 			}
 			break;
 		case 3:
 			text = (lit == 1) ? std::string("DUP >R") : util::string_format("DUP %s I!", reg_name(lit));
 			if (func != 0)
-				text += util::string_format(" %s", binary_names[func]);
+				text = text + ' ' + BINARY_NAMES[func];
 			break;
 		case 4: case 6:
-			text = util::string_format("$%02X %s", lit, with_carry(fetch_names[func], m == 6));
+			text = util::string_format("$%02X %s", lit, with_carry(FETCH_NAMES[func], m == 6));
 			break;
 		case 5:
 			text = util::string_format("$%02X", lit);
 			if (func != 7)
-				text = "DUP " + text + " " + fetch_names[func];
+				text = "DUP " + text + " " + FETCH_NAMES[func];
 			break;
 		case 7:
 			text = (lit == 1 && func == 7) ? std::string("R> SWAP >R") : util::string_format("%s I@!", reg_name(lit));
 			if (func != 7)
-				text += util::string_format(" %s", fetch_names[func]);
+				text = text + ' ' + FETCH_NAMES[func];
 			break;
 		}
 		break;
@@ -239,19 +237,19 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 			else if (func == 2)
 				text = util::string_format("$%02X @-", lit);
 			else
-				text = util::string_format("DUP @ SWAP $%02X %s", lit, fetch_names[func]);
+				text = util::string_format("DUP @ SWAP $%02X %s", lit, FETCH_NAMES[func]);
 			break;
 		case 1: case 3:
-			text = (func == 7) ? std::string("@") : util::string_format("@ (%s)", fetch_names[func]);
+			text = (func == 7) ? std::string("@") : util::string_format("@ (%s)", FETCH_NAMES[func]);
 			break;
 		case 5:
 			text = util::string_format("$%02X X@", lit);
 			break;
 		case 4: case 6:
-			text = util::string_format("$%02X X@ %s", lit, with_carry(fetch_names[func], carry));
+			text = util::string_format("$%02X X@ %s", lit, with_carry(FETCH_NAMES[func], carry));
 			break;
 		default:
-			text = util::string_format("@ %s", with_carry(fetch_names[func], carry));
+			text = util::string_format("@ %s", with_carry(FETCH_NAMES[func], carry));
 			break;
 		}
 		break;
@@ -265,7 +263,7 @@ offs_t nc4000_disassembler::disassemble(std::ostream &stream, offs_t pc, const d
 			else if (func == 2)
 				text = util::string_format("$%02X !-", lit);
 			else
-				text = util::string_format("SWAP OVER ! $%02X %s", lit, fetch_names[func]);
+				text = util::string_format("SWAP OVER ! $%02X %s", lit, FETCH_NAMES[func]);
 			break;
 		case 3:
 			text = "N!";

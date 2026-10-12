@@ -11,32 +11,32 @@
 
 #pragma once
 
-enum
-{
-	NC4000_PC = 1,
-	NC4000_T,
-	NC4000_N,
-	NC4000_I,
-	NC4000_J,
-	NC4000_K,
-	NC4000_MD,
-	NC4000_SR,
-	NC4000_CARRY,
-	NC4000_BDATA,
-	NC4000_BMASK,
-	NC4000_BDIR,
-	NC4000_BTRI,
-	NC4000_XDATA,
-	NC4000_XMASK,
-	NC4000_XDIR,
-	NC4000_XTRI
-};
-
 class nc4000_device : public cpu_device
 {
 public:
 	// INT pin, active low: the falling edge (ASSERT_LINE) sets the interrupt request flip-flop
 	static constexpr int INT_LINE = 0;
+
+	enum
+	{
+		NC4000_PC = 1,
+		NC4000_T,
+		NC4000_N,
+		NC4000_I,
+		NC4000_J,
+		NC4000_K,
+		NC4000_MD,
+		NC4000_SR,
+		NC4000_CARRY,
+		NC4000_BDATA,
+		NC4000_BMASK,
+		NC4000_BDIR,
+		NC4000_BTRI,
+		NC4000_XDATA,
+		NC4000_XMASK,
+		NC4000_XDIR,
+		NC4000_XTRI
+	};
 
 	nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
@@ -55,11 +55,13 @@ protected:
 	virtual void device_reset() override ATTR_COLD;
 
 	// device_execute_interface implementation
+	virtual u32 execute_min_cycles() const noexcept override { return 1; }
+	virtual u32 execute_max_cycles() const noexcept override { return 2; }
 	virtual void execute_run() override;
 	virtual void execute_set_input(int inputnum, int state) override;
 
 	// device_memory_interface implementation
-	virtual space_config_vector memory_space_config() const override;
+	virtual space_config_vector memory_space_config() const override ATTR_COLD;
 
 	// device_disasm_interface implementation
 	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;

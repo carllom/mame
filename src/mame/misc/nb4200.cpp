@@ -2,69 +2,75 @@
 // copyright-holders:Carl Lom
 /*
  * nb4200.cpp
- * Novix NB4200 Turbo Frame evaluation board
+ * Novix NB4200 Turbo-Frame evaluation board
  *
- * Chip:	Novix NC4016	(according to the manual. Actually, Novix NC4016P(P=prototype?) was on the card)
+ * Chip:    Novix NC4016    (according to the manual. Actually, Novix NC4016P(P=prototype?) was on the card)
  * HCMOS
  * 121 pin PGA
- * if RAM/ROM is 120-200ns -> 3-4MHz. If 50ns -> 8Mhz
- * Resets to 0x1000h
+ * if RAM/ROM is 120-200ns -> 3-4 MHz. If 50ns -> 8 MHz
+ * Resets to 0x1000
  *
- * OS:	cmFORTH
+ * OS:  cmFORTH
  *
- * Terminal:	cmFORTH bit-bangs RS-232 in software: X0 is TxD and X4 is RxD.
- *		After reset it measures the bit rate from the first key typed
- *		(an even letter such as B) and answers "hi".
- *		The terminal is also the disk: cmFORTH sends 03 and a block number
- *		to read or write a 1024 byte block over the same line.
- *		scripts/nb4200/cmforth_host.py is a terminal and block file server:
- *		  cmforth_host.py --blocks src.blk
- *		  mame nb4200 -rs232 null_modem -bitb socket.127.0.0.1:4321
+ * Terminal:    cmFORTH bit-bangs RS-232 in software: X0 is TxD and X4 is RxD.
+ *      After reset it measures the bit rate from the first key typed
+ *      (an even letter such as B) and answers "hi".
+ *      The terminal is also the disk: cmFORTH sends 03 and a block number
+ *      to read or write a 1024 byte block over the same line.
+ *      scripts/nb4200/cmforth_host.py is a terminal and block file server:
+ *        cmforth_host.py --blocks src.blk
+ *        mame nb4200 -rs232 null_modem -bitb socket.127.0.0.1:4321
  *
- * Ports:	1 x 64 pin edge connector
+ * Ports:   1 x 64 pin edge connector
  *
  * RAM:
  * 8Kword (16Kbyte) program memory (expandable to 32Kwords in steps 8/32)
  * 2kword (4Kbyte) data stack (expandable to 32Kwords in steps 2/8/32)
  * 2Kword (4Kbyte) return stack (expandable to 32Kwords in steps 2/8/32)
  * Jumpers exist to expand main and stack mem up to 32Kword each.
- * RAM is clocked @ 4.7MHz
+ * RAM is clocked @ 4.7 MHz
  *
  * ROM:
  * 8kword (16kbyte) EPROM (expandable to 32Kwords in steps 8/32)
  * Jumpers exist to expand ROM up to 32Kword.
- * ROM is clocked @ 3.5MHz
+ * ROM is clocked @ 3.5 MHz
  *
  * Memory map:
  *
  * Standard:
- * 0000-0FFF	RAM
- * 1000-2FFF	EPROM
- * 3000-3FFF	RAM
+ * 0000-0FFF    RAM
+ * 1000-2FFF    EPROM
+ * 3000-3FFF    RAM
  *
- * JP1	1-2
- * JP2	1-2
- * JP5	2-3
- * JP7	2-3
- * JP8	1-2
- * JP9	1-2,3-4
- * JP10	1-2,3-4
- * JP11	1-2,3-4
- * JP12	1-2,3-4
- * JP13	1-2,3-4
- * JP14	1-2,3-4
- * JP15	1-2,3-4
- * JP16	1-2,3-4
- * JP17	1-2,3-4
- * JP18	3-4
+ * JP1  1-2
+ * JP2  1-2
+ * JP5  2-3
+ * JP7  2-3
+ * JP8  1-2
+ * JP9  1-2,3-4
+ * JP10 1-2,3-4
+ * JP11 1-2,3-4
+ * JP12 1-2,3-4
+ * JP13 1-2,3-4
+ * JP14 1-2,3-4
+ * JP15 1-2,3-4
+ * JP16 1-2,3-4
+ * JP17 1-2,3-4
+ * JP18 3-4
+ *
+ * TODO: the memory size jumpers are not emulated:
+ * JP1, JP7  main RAM size (2x8K, 8x8K, 32x8K)
+ * JP5       data stack size (2x8K, 8x8K)
+ * JP18      return stack size (2x8K, 8x8K)
+ * JP2, JP8  EPROM size (8x8K, 32x8K)
  *
  * Other hardware:
  * board:NX4, NC4000 processor
- * 0000-0fff	4k RAM
- * 1000-2fff	8k EPROM
- * 3000-4000	4k RAM
- * 4000-7fff	RAM expansion area
- * 8000-ffff	experimental area
+ * 0000-0fff    4k RAM
+ * 1000-2fff    8k EPROM
+ * 3000-4000    4k RAM
+ * 4000-7fff    RAM expansion area
+ * 8000-ffff    experimental area
  *
  * Instructions
  *
@@ -117,8 +123,8 @@
  */
 #include "emu.h"
 
-#include "cpu/nc4000/nc4000.h"
 #include "bus/rs232/rs232.h"
+#include "cpu/nc4000/nc4000.h"
 
 
 namespace {
@@ -142,7 +148,7 @@ private:
 	required_device<nc4000_device> m_maincpu;
 	required_device<rs232_port_device> m_rs232;
 
-	int m_rxd = 1;
+	uint8_t m_rxd = 1;
 
 	uint8_t portx_r();
 	void portx_w(offs_t offset, uint8_t data, uint8_t mem_mask);
@@ -186,30 +192,6 @@ void nb4200_state::retstack_map(address_map &map)
 	map(0x00, 0xff).ram();
 }
 
-static INPUT_PORTS_START(nb4200)
-	PORT_START("jumpers")
-	PORT_DIPNAME(0x03, 0x00, "RAM size")
-	PORT_DIPLOCATION("JP:1,JP:7")
-	PORT_DIPSETTING(0x00, "2x8K")
-	PORT_DIPSETTING(0x01, "8x8K")
-	PORT_DIPSETTING(0x02, "32x8K")
-
-	PORT_DIPNAME(0x04, 0x00, "Data stack size")
-	PORT_DIPLOCATION("JP:5")
-	PORT_DIPSETTING(0x00, "2x8K")
-	PORT_DIPSETTING(0x04, "8x8K")
-
-	PORT_DIPNAME(0x08, 0x00, "Return stack size")
-	PORT_DIPLOCATION("JP:18")
-	PORT_DIPSETTING(0x00, "2x8K")
-	PORT_DIPSETTING(0x08, "8x8K")
-
-	PORT_DIPNAME(0x30, 0x00, "EPROM size")
-	PORT_DIPLOCATION("JP:2,JP:8")
-	PORT_DIPSETTING(0x00, "8x8K")
-	PORT_DIPSETTING(0x30, "32x8K")
-INPUT_PORTS_END
-
 void nb4200_state::nb4200(machine_config &config)
 {
 	NC4000(config, m_maincpu, 4'000'000);
@@ -232,4 +214,4 @@ ROM_END
 } // anonymous namespace
 
 /*    YEAR  NAME    PARENT  COMPAT  MACHINE  INPUT   CLASS         INIT        COMPANY        FULLNAME              FLAGS */
-COMP( 1987, nb4200, 0,      0,      nb4200,  nb4200, nb4200_state, empty_init, "Novix, Inc.", "NB4200 Turbo Frame", MACHINE_NO_SOUND_HW )
+COMP( 1986, nb4200, 0,      0,      nb4200,  0,      nb4200_state, empty_init, "Novix",       "NB4200 Turbo-Frame", MACHINE_NO_SOUND_HW )

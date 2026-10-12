@@ -33046,6 +33046,9 @@ musclem
 @source:misc/nabupc.cpp
 nabupc
 
+@source:misc/nb4200.cpp
+nb4200
+
 @source:misc/ncarrera.cpp
 ncarrera
 

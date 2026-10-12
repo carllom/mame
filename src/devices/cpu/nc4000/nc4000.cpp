@@ -508,8 +508,8 @@ int nc4000_device::fetch_op(uint16_t op)
 	int const m = BIT(op, 6, 3);
 	int const lit = BIT(op, 0, 5);
 	int cycles = 1;
-	uint16_t data;
-	bool push;
+	uint16_t data = 0;
+	bool push = false;
 	int cin = 0;
 
 	switch (m)
