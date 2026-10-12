@@ -4505,14 +4505,14 @@ end
 --@src/devices/cpu/nc4000/nc4000.h,CPUS["NC4000"] = true
 --------------------------------------------------
 
-if (CPUS["NC4000"]~=null) then
+if CPUS["NC4000"] then
 	files {
 		MAME_DIR .. "src/devices/cpu/nc4000/nc4000.cpp",
 		MAME_DIR .. "src/devices/cpu/nc4000/nc4000.h",
 	}
 end
 
-if (CPUS["NC4000"]~=null or _OPTIONS["with-tools"]) then
+if opt_tool(CPUS, "NC4000") then
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nc4000/nc4000d.cpp")
 	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/nc4000/nc4000d.h")
 end

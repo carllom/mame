@@ -149,7 +149,7 @@ public:
 	int m_terminal_r_bit;
 	int m_terminal_state;
 	uint8_t m_terminal_shift;
-	DECLARE_WRITE_LINE_MEMBER(terminal_serial_w);
+	void terminal_serial_w(int state);
 
   virtual void machine_start() override;
   virtual void machine_reset() override;
@@ -159,7 +159,7 @@ public:
    
 	uint8_t cpu_readx();
 	void cpu_writex(uint8_t data);
-  DECLARE_READ_LINE_MEMBER(cpu_irq);
+  int cpu_irq();
 	void kbd_put(uint8_t data);
 
 
@@ -189,7 +189,7 @@ TIMER_CALLBACK_MEMBER(nb4200_state::terminal_tick)
 	//logerror("terminal->timer: %i\n", m_terminal_r_bit);
 }
 
-WRITE_LINE_MEMBER( nb4200_state::terminal_serial_w )
+void nb4200_state::terminal_serial_w(int state)
 {
 	logerror("terminal_serial_w: %02x\n", state);
 	//m_terminal->rx_w(state);
@@ -236,7 +236,7 @@ void nb4200_state::kbd_put(uint8_t data)
 }
 
 
-READ_LINE_MEMBER(nb4200_state::cpu_irq)
+int nb4200_state::cpu_irq()
 {
 	return CLEAR_LINE;
 }

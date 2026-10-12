@@ -24,11 +24,11 @@ nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, dev
 	m_program_config("program", ENDIANNESS_BIG, 16, 16, -1),
 	m_datastack_config("datastack", ENDIANNESS_BIG, 16, 8, -1),
 	m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1),
-	m_in_portb_cb(*this),
+	m_in_portb_cb(*this, 0xffff),
 	m_out_portb_cb(*this),
-	m_in_portx_cb(*this),
+	m_in_portx_cb(*this, 0xff),
 	m_out_portx_cb(*this),
-	m_in_irq_cb(*this)
+	m_in_irq_cb(*this, 0)
 {
 
 }
@@ -106,16 +106,6 @@ void nc4000_device::device_reset()
 	timesmode = 0;
 	binput = 0;
 	xinput = 0;
-}
-
-void nc4000_device::device_resolve_objects()
-{
-	// Resolve device callbacks
-	m_in_portb_cb.resolve_safe(0xffff);
-	m_out_portb_cb.resolve_safe();
-	m_in_portx_cb.resolve_safe(0xff);
-	m_out_portx_cb.resolve_safe();
-	m_in_irq_cb.resolve_safe(0);
 }
 
 void nc4000_device::device_config_complete()
@@ -616,8 +606,8 @@ void nc4000_device::interrupt() {
 	}
 }
 
-#define XINPUT (m_in_portx_func.isnull() ? xinput : m_in_portx_func(0))
-#define BINPUT (m_in_portb_func.isnull() ? binput : m_in_portb_func(0))
+#define XINPUT (m_in_portx_func.isunset() ? xinput : m_in_portx_func(0))
+#define BINPUT (m_in_portb_func.isunset() ? binput : m_in_portb_func(0))
 
 uint16_t nc4000_device::int_read_reg(uint16_t reg)
 { //Kind of self-explanatory really...
@@ -638,7 +628,7 @@ uint16_t nc4000_device::int_read_reg(uint16_t reg)
 	case 7:
 		return m_regs.sr;
 	case 8:
-		if (!m_in_portb_cb.isnull())
+		if (!m_in_portb_cb.isunset())
 			binput = m_in_portb_cb();
 		else
 			logerror("No b reader handler defined\n");
@@ -650,7 +640,7 @@ uint16_t nc4000_device::int_read_reg(uint16_t reg)
 	case 11:
 		return m_regs.btri;
 	case 12:
-		if (!m_in_portx_cb.isnull())
+		if (!m_in_portx_cb.isunset())
 			xinput = m_in_portx_cb();
 		else
 			logerror("No x reader handler defined\n");
@@ -691,7 +681,7 @@ void nc4000_device::int_write_reg(uint16_t reg, uint16_t data)
 		break;
 	case 8:
 		m_regs.bdata = data & ~m_regs.bmask;
-		if (!m_out_portb_cb.isnull())
+		if (!m_out_portb_cb.isunset())
 			m_out_portb_cb(0, m_regs.bdata, 0xffff);
 		else
 			logerror("No b writer handler defined\n");
@@ -706,9 +696,9 @@ void nc4000_device::int_write_reg(uint16_t reg, uint16_t data)
 		m_regs.btri = data;
 		break;
 	case 12:
-//		logerror("write x %02x, %i\n", data, m_out_portx_func.isnull());
+//		logerror("write x %02x, %i\n", data, m_out_portx_func.isunset());
 		m_regs.xdata = data & ~ m_regs.xmask & 0x1F;
-		if (!m_out_portx_cb.isnull())
+		if (!m_out_portx_cb.isunset())
 			m_out_portx_cb(0, m_regs.xdata, 0xff);
 		else
 			logerror("No x writer handler defined\n");

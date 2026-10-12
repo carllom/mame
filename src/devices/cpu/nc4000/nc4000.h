@@ -120,7 +120,6 @@ protected:
 	// device_t
 	virtual void device_start() override;
 	virtual void device_reset() override;
-	virtual void device_resolve_objects() override;
 
 	// device_execute_interface
 	virtual void execute_run() override;
