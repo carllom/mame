@@ -115,7 +115,6 @@
 // Terminal emulation includes
 #include "machine/terminal.h"
 #include "machine/6850acia.h"
-#include "video/vtvideo.h"
 
 // TX and RX are from the CPU perspective here
 #define MASK_SER_TX 0x01
@@ -147,7 +146,6 @@ public:
 	required_device<generic_terminal_device> m_terminal;
 
 	emu_timer *m_terminaltimer;
-	static const device_timer_id TIMER_TERMINAL = 0;
 	int m_terminal_r_bit;
 	int m_terminal_state;
 	uint8_t m_terminal_shift;
@@ -155,7 +153,7 @@ public:
 
   virtual void machine_start() override;
   virtual void machine_reset() override;
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
+	TIMER_CALLBACK_MEMBER(terminal_tick);
 
   //DECLARE_WRITE8_MEMBER(term_kbd_out);
    
@@ -172,7 +170,7 @@ public:
 
 void nb4200_state::machine_start()
 {
-	m_terminaltimer = timer_alloc(TIMER_TERMINAL);
+	m_terminaltimer = timer_alloc(FUNC(nb4200_state::terminal_tick), this);
 	m_terminaltimer->adjust(attotime::zero, 0, attotime::from_hz(9600));
 }
 
@@ -185,15 +183,10 @@ void nb4200_state::machine_reset()
 // Keyboard + VDU
 //
 
-void nb4200_state::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(nb4200_state::terminal_tick)
 {
-	switch(id)
-	{
-		case TIMER_TERMINAL:
-			//m_terminal_r_bit = m_terminal->kbd_put(); // terminal_serial_r(m_terminal);
-//			logerror("terminal->timer: %i\n", m_terminal_r_bit);
-			break;
-	}
+	//m_terminal_r_bit = m_terminal->kbd_put(); // terminal_serial_r(m_terminal);
+	//logerror("terminal->timer: %i\n", m_terminal_r_bit);
 }
 
 WRITE_LINE_MEMBER( nb4200_state::terminal_serial_w )
