@@ -19,29 +19,43 @@
 CPUS["NC4000"] = true
 
 --------------------------------------------------
--- Specify all the sound cores necessary for the
--- drivers referenced in tiny.lst.
+-- The remaining cores are needed by the RS-232
+-- port slot devices (generated with
+-- scripts/build/makedep.py sourcesproject).
 --------------------------------------------------
 
---SOUNDS["SAMPLES"] = true
+CPUS["ADSP21XX"] = true
+CPUS["IE15"] = true
+CPUS["M6800"] = true
+CPUS["MCS48"] = true
+CPUS["MCS51"] = true
+CPUS["Z80"] = true
+
+SOUNDS["AY8910"] = true
 SOUNDS["BEEP"] = true
+SOUNDS["VOTRAX_SC01"] = true
+SOUNDS["VOTRAX_SC01A"] = true
 
---------------------------------------------------
--- specify available video cores
---------------------------------------------------
+VIDEOS["MC6845"] = true
+VIDEOS["SCN2674"] = true
 
---------------------------------------------------
--- specify available machine cores
---------------------------------------------------
+MACHINES["6821PIA"] = true
+MACHINES["ACIA6850"] = true
+MACHINES["IE15"] = true
+MACHINES["INPUT_MERGER"] = true
+MACHINES["INS8250"] = true
+MACHINES["MM5740"] = true
+MACHINES["PCF8573"] = true
+MACHINES["S97801"] = true
+MACHINES["SCN_PCI"] = true
+MACHINES["SWTPC8212"] = true
+MACHINES["VOTRAXTNT"] = true
+MACHINES["Z80DAISY"] = true
 
---MACHINES["TERMINAL"] = true
---MACHINES["KEYBOARD"] = true
+BUSES["HEATHZENITH_H19"] = true
+BUSES["RS232"] = true
+BUSES["SUNKBD"] = true
 
---------------------------------------------------
--- specify available bus cores
---------------------------------------------------
-
---BUSES["CENTRONICS"] = true
 
 --------------------------------------------------
 -- This is the list of files that are necessary

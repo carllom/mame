@@ -1,5 +1,7 @@
+// license:BSD-3-Clause
+// copyright-holders:Carl Lom
 /*
- * nb4200.c
+ * nb4200.cpp
  * Novix NB4200 Turbo Frame evaluation board
  *
  * Chip:	Novix NC4016	(according to the manual. Actually, Novix NC4016P(P=prototype?) was on the card)
@@ -9,6 +11,10 @@
  * Resets to 0x1000h
  *
  * OS:	cmFORTH
+ *
+ * Terminal:	cmFORTH bit-bangs RS-232 in software: X0 is TxD and X4 is RxD.
+ *		After reset it measures the bit rate from the first key typed
+ *		(an even letter such as B) and answers "hi".
  *
  * Ports:	1 x 64 pin edge connector
  *
@@ -87,14 +93,14 @@
  * |1 0 0 0| ALU | Y |T|;|S|D|/|SLR|
  * ---------------------------------
  *
- * ALU: 0=T 1=T&Y 2=T-Y 3=T|Y 4=T-Y 5=T^Y 6=Y-T 7=Y
+ * ALU: 0=T 1=T&Y 2=T-Y 3=T|Y 4=T+Y 5=T^Y 6=Y-T 7=Y
  * Y: 0=N 1=N with carry 2=MD 3=SR
  * T: Copy T into N
  * ;: Return from subroutine, exit
  * S: Stack active
  * D: 32 bit shift
  * /: Divide
- * SLR: 0=nothing 1=shift left 2=shift right 3=propagate sign bit
+ * SLR: 0=nothing 1=shift right 2=shift left 3=propagate sign bit
  *
  *
  * 11C5
@@ -104,237 +110,121 @@
  * disk operation header is 0x03 MSB LSB
  * block number is 15 bit. if sign bit (bit 15) is set it is a write and a keypress is expected before transmitting.
  */
-#define ADDRESS_MAP_MODERN
+#include "emu.h"
 
-#define TERMINAL_TAG "terminal"
-
-#include "emu.h" // Core emulation goodies
 #include "cpu/nc4000/nc4000.h"
-#include "ioport.h"
+#include "bus/rs232/rs232.h"
 
-// Terminal emulation includes
-#include "machine/terminal.h"
-#include "machine/6850acia.h"
 
-// TX and RX are from the CPU perspective here
-#define MASK_SER_TX 0x01
-#define MASK_SER_RX 0x10
+namespace {
 
-#define TAG_CPU "cpu"
-#define TAG_PRG_RAM "prgram"
-#define TAG_DAT_RAM "datastack"
-#define TAG_RET_RAM "retstack"
-
-enum
-{
-	START = 0,
-	STOP = 9
-};
 class nb4200_state : public driver_device
 {
 public:
-    nb4200_state(const machine_config &mconfig, device_type type, const char *tag)
-        : driver_device(mconfig, type, tag),
-    	m_cpu(*this, TAG_CPU),
-    	m_terminal(*this, TERMINAL_TAG)
-    {
-    }
+	nb4200_state(const machine_config &mconfig, device_type type, const char *tag)
+		: driver_device(mconfig, type, tag)
+		, m_maincpu(*this, "maincpu")
+		, m_rs232(*this, "rs232")
+	{
+	}
 
-	void nb4200(machine_config& config);
+	void nb4200(machine_config &config) ATTR_COLD;
 
-	required_device<nc4000_device> m_cpu;
-	required_device<generic_terminal_device> m_terminal;
+protected:
+	virtual void machine_start() override ATTR_COLD;
 
-	emu_timer *m_terminaltimer;
-	int m_terminal_r_bit;
-	int m_terminal_state;
-	uint8_t m_terminal_shift;
-	void terminal_serial_w(int state);
+private:
+	required_device<nc4000_device> m_maincpu;
+	required_device<rs232_port_device> m_rs232;
 
-  virtual void machine_start() override;
-  virtual void machine_reset() override;
-	TIMER_CALLBACK_MEMBER(terminal_tick);
+	int m_rxd = 1;
 
-  //DECLARE_WRITE8_MEMBER(term_kbd_out);
-   
-	uint8_t cpu_readx();
-	void cpu_writex(uint8_t data);
-  int cpu_irq();
-	void kbd_put(uint8_t data);
+	uint8_t portx_r();
+	void portx_w(offs_t offset, uint8_t data, uint8_t mem_mask);
 
-
-	void prg_mem_map(address_map& map);
-	void datastack_map(address_map& map);
-	void retstack_map(address_map& map);
+	void prg_mem_map(address_map &map) ATTR_COLD;
+	void datastack_map(address_map &map) ATTR_COLD;
+	void retstack_map(address_map &map) ATTR_COLD;
 };
 
 void nb4200_state::machine_start()
 {
-	m_terminaltimer = timer_alloc(FUNC(nb4200_state::terminal_tick), this);
-	m_terminaltimer->adjust(attotime::zero, 0, attotime::from_hz(9600));
+	save_item(NAME(m_rxd));
 }
 
-void nb4200_state::machine_reset()
+// X4 is the serial input; the other X pins are pulled low
+uint8_t nb4200_state::portx_r()
 {
-	m_cpu->reset();
+	return m_rxd << 4;
 }
 
-//
-// Keyboard + VDU
-//
-
-TIMER_CALLBACK_MEMBER(nb4200_state::terminal_tick)
+// X0 is the serial output; an undriven pin idles at mark
+void nb4200_state::portx_w(offs_t offset, uint8_t data, uint8_t mem_mask)
 {
-	//m_terminal_r_bit = m_terminal->kbd_put(); // terminal_serial_r(m_terminal);
-	//logerror("terminal->timer: %i\n", m_terminal_r_bit);
+	m_rs232->write_txd(BIT(mem_mask, 0) ? BIT(data, 0) : 1);
 }
 
-void nb4200_state::terminal_serial_w(int state)
-{
-	logerror("terminal_serial_w: %02x\n", state);
-	//m_terminal->rx_w(state);
-
-//	switch (m_terminal_state)
-//	{
-//	case START:
-//		if (!state) m_terminal_state++;
-//		break;
-//
-//	case STOP:
-//		terminal_write(m_terminal, 0, m_terminal_shift);
-//		m_terminal_state = START;
-//		break;
-//
-//	default:
-//		m_terminal_shift >>= 1;
-//		m_terminal_shift |= (state << 7);
-//		m_terminal_state++;
-//		break;
-//	}
-}
-
-
-uint8_t nb4200_state::cpu_readx()
-{
-	uint8_t data = (m_cpu->portx_r() & 0xEF) | ((m_terminal_r_bit<< 4) & 0x10 );
-//	logerror("terminal->cpu: %i %02x\n", m_terminal_r_bit, data);
-	return data;
-}
-
-void nb4200_state::cpu_writex(uint8_t data)
-{
-//	logerror("cpu->terminal: %02x\n", data);
-	terminal_serial_w(data & 1);
-}
-
-void nb4200_state::kbd_put(uint8_t data)
-{
-	logerror("key typed: %c, %02x\n", data, data);
-	//m_maincpu->set_input_line(MCS51_RX_LINE, ASSERT_LINE);
-	//m_maincpu->set_input_line(MCS51_RX_LINE, CLEAR_LINE);
-	//m_term_data = data;
-}
-
-
-int nb4200_state::cpu_irq()
-{
-	return CLEAR_LINE;
-}
-
-
-void nb4200_state::prg_mem_map(address_map& map)
+void nb4200_state::prg_mem_map(address_map &map)
 {
 	map(0x0000, 0x0fff).ram();
-	map(0x1000, 0x1fff).rom();
+	map(0x1000, 0x1fff).rom().region("maincpu", 0x2000);
 	map(0x2000, 0x2fff).ram();
 }
 
-void nb4200_state::datastack_map(address_map& map)
+void nb4200_state::datastack_map(address_map &map)
 {
 	map(0x00, 0xff).ram();
 }
 
-void nb4200_state::retstack_map(address_map& map)
+void nb4200_state::retstack_map(address_map &map)
 {
 	map(0x00, 0xff).ram();
 }
 
-INPUT_PORTS_START(nb4200)
-PORT_START("jumpers")
+static INPUT_PORTS_START(nb4200)
+	PORT_START("jumpers")
+	PORT_DIPNAME(0x03, 0x00, "RAM size")
+	PORT_DIPLOCATION("JP:1,JP:7")
+	PORT_DIPSETTING(0x00, "2x8K")
+	PORT_DIPSETTING(0x01, "8x8K")
+	PORT_DIPSETTING(0x02, "32x8K")
 
-PORT_DIPNAME(0x03, 0x00, "RAM size")
-PORT_DIPLOCATION("JP:1,JP:7")
-PORT_DIPSETTING(0x00, "2x8K")
-PORT_DIPSETTING(0x01, "8x8K")
-PORT_DIPSETTING(0x02, "32x8K")
+	PORT_DIPNAME(0x04, 0x00, "Data stack size")
+	PORT_DIPLOCATION("JP:5")
+	PORT_DIPSETTING(0x00, "2x8K")
+	PORT_DIPSETTING(0x04, "8x8K")
 
-PORT_DIPNAME(0x04, 0x00, "Data stack size")
-PORT_DIPLOCATION("JP:5")
-PORT_DIPSETTING(0x00, "2x8K")
-PORT_DIPSETTING(0x04, "8x8K")
+	PORT_DIPNAME(0x08, 0x00, "Return stack size")
+	PORT_DIPLOCATION("JP:18")
+	PORT_DIPSETTING(0x00, "2x8K")
+	PORT_DIPSETTING(0x08, "8x8K")
 
-PORT_DIPNAME(0x08, 0x00, "Return stack size")
-PORT_DIPLOCATION("JP:18")
-PORT_DIPSETTING(0x00, "2x8K")
-PORT_DIPSETTING(0x08, "8x8K")
-
-PORT_DIPNAME(0x30, 0x00, "EPROM size")
-PORT_DIPLOCATION("JP:2,JP:8")
-PORT_DIPSETTING(0x00, "8x8K")
-PORT_DIPSETTING(0x30, "32x8K")
+	PORT_DIPNAME(0x30, 0x00, "EPROM size")
+	PORT_DIPLOCATION("JP:2,JP:8")
+	PORT_DIPSETTING(0x00, "8x8K")
+	PORT_DIPSETTING(0x30, "32x8K")
 INPUT_PORTS_END
 
-//-------------------------------------------------
-//  GENERIC_TERMINAL_INTERFACE( terminal_intf )
-//-------------------------------------------------
-
-//WRITE8_MEMBER( nb4200_state::term_kbd_out )
-//{
-//	logerror("key typed: %c, %02x\n", data, data);
-////	if (data == 0x0D)
-////		terminal_write(m_terminal, 0, 0x0A); // Append line feed on carriage return
-////
-////	terminal_write(m_terminal, 0, data); // Echo input
-//	// this is here only so that terminal.c will initialize the keyboard scan timer
-//}
-
-//static GENERIC_TERMINAL_INTERFACE( terminal_intf )
-//{
-//	DEVCB_DRIVER_MEMBER(nb4200_state, term_kbd_out)
-//};
-
-//NC4000_INTERFACE(nb4200_cpu_config)
-//{
-//	DEVCB_NULL,  // PortB read16 cb
-//	DEVCB_NULL, // PortB write16 cb
-//	DEVCB_READ8(nb4200_state, cpu_readx),
-//	DEVCB_WRITE8(nb4200_state, cpu_writex),
-//	DEVCB_NULL // IRQ
-//};
-
-void nb4200_state::nb4200(machine_config& config)
+void nb4200_state::nb4200(machine_config &config)
 {
-	NC4000(config, m_cpu, 4000000);
-	m_cpu->set_addrmap(AS_PROGRAM, &nb4200_state::prg_mem_map);
-	m_cpu->set_addrmap(AS_DATA, &nb4200_state::datastack_map);
-	m_cpu->set_addrmap(AS_IO, &nb4200_state::retstack_map);
-	m_cpu->in_portx_callback().set(FUNC(nb4200_state::cpu_readx));
-	m_cpu->out_portx_callback().set(FUNC(nb4200_state::cpu_writex));
+	NC4000(config, m_maincpu, 4'000'000);
+	m_maincpu->set_addrmap(AS_PROGRAM, &nb4200_state::prg_mem_map);
+	m_maincpu->set_addrmap(AS_DATA, &nb4200_state::datastack_map);
+	m_maincpu->set_addrmap(AS_IO, &nb4200_state::retstack_map);
+	m_maincpu->in_portx_callback().set(FUNC(nb4200_state::portx_r));
+	m_maincpu->out_portx_callback().set(FUNC(nb4200_state::portx_w));
 
-	GENERIC_TERMINAL(config, m_terminal, 0);
-	m_terminal->set_keyboard_callback(FUNC(nb4200_state::kbd_put));
+	RS232_PORT(config, m_rs232, default_rs232_devices, "terminal");
+	m_rs232->rxd_handler().set([this] (int state) { m_rxd = state; });
 }
 
 ROM_START(nb4200)
-	ROM_REGION16_BE(0x20000, TAG_CPU, ROMREGION_ERASEFF)
-	ROM_LOAD16_BYTE( "2764_h.bin", 0x0000, 0x2000, CRC(42bdb30f) )
-	/*ROM_LOAD16_BYTE( "2764_l.bin", 0x0001, 0x2000, CRC(26a5728c) )*/
-	ROM_LOAD16_BYTE( "lo.bin", 0x0001, 0x2000, CRC(386ea113) )
-
-
-	ROM_REGION16_BE( 0x1000, TAG_DAT_RAM, ROMREGION_ERASEFF)
-	ROM_REGION16_BE( 0x1000, TAG_RET_RAM, ROMREGION_ERASEFF)
+	ROM_REGION16_BE(0x4000, "maincpu", 0)
+	ROM_LOAD16_BYTE("2764_h.bin", 0x0000, 0x2000, CRC(42bdb30f) SHA1(d80b098911c786abaf899fffa1beb616e382b24d))
+	ROM_LOAD16_BYTE("2764_l.bin", 0x0001, 0x2000, CRC(26a5728c) SHA1(48e4e67a49ec75102b9aa818dac1352dc96dc40e))
 ROM_END
 
-/*    YEAR  NAME    PARENT  COMPAT   MACHINE    INPUT  CLASS   INIT    COMPANY   FULLNAME       FLAGS */
-COMP( 1987, nb4200, 0, 0, nb4200, nb4200, nb4200_state, empty_init, "Novix, Inc.", "NB4200 Turbo Frame", MACHINE_NO_SOUND )
+} // anonymous namespace
+
+/*    YEAR  NAME    PARENT  COMPAT  MACHINE  INPUT   CLASS         INIT        COMPANY        FULLNAME              FLAGS */
+COMP( 1987, nb4200, 0,      0,      nb4200,  nb4200, nb4200_state, empty_init, "Novix, Inc.", "NB4200 Turbo Frame", MACHINE_NO_SOUND_HW )

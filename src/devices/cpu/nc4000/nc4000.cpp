@@ -1,245 +1,71 @@
+// license:BSD-3-Clause
+// copyright-holders:Carl Lom
 /*****************************************************************************
- *
- *   nc4000.c
- *   NC4000 and derivates
- *
- *   Chips in the family:
- *   Novix Inc.: NC4000, NC4016
- *   Harris Semiconductor: RTX2000
- *   	RTX2000 is NC4000 with on-chip assets: 256 element return stack, 256 element data stack,
- *   	16 x 16 bit single cycle hardware multiplier, three counter/timers and a prioritized vectored interrupt controller
- *
- *****************************************************************************/
+
+    Novix NC4000 / NC4016
+
+    Chips in the family:
+    Novix Inc.: NC4000, NC4016
+    Harris Semiconductor: RTX2000
+        RTX2000 is NC4000 with on-chip assets: 256 element return stack,
+        256 element data stack, 16 x 16 bit single cycle hardware multiplier,
+        three counter/timers and a prioritized vectored interrupt controller
+
+    Reference: C. H. Ting, "Footsteps in an Empty Valley" (3rd ed.), which
+    also contains the cmFORTH source listing used to verify the details below.
+
+    Instruction classes (bits 15-12):
+    0xxx  call to the 15-bit address (P pushed on the return stack, carry in bit 15)
+    1000  ALU: | ALU(3) | Y(2) | TN | ; | SA | D? | % | SL | SR |
+    1001  IF: drop T, branch within the 4K page if T was zero
+    1010  NEXT: branch and decrement I if I is non-zero, else pop the return stack
+    1011  ELSE: unconditional branch within the 4K page
+    1100  fetch from local memory, literal or internal register
+    1101  store to local memory or internal register, short literal
+    1110  fetch from memory addressed by T
+    1111  store to memory addressed by T
+    The I/O and memory classes are | ALU(3) | m(3) | ; | literal(5) |, where m
+    selects the variant (Table 3.6 in the book).
+
+    Notes:
+    - The carry after a subtraction is a borrow. 2/ and D2/ combined with
+      an arithmetic operation shift its carry into bit 15, which is how
+      cmFORTH's U< works ( - 2/ 0< ); otherwise they keep the sign, which is
+      why the 1987 cmFORTH clears the carry with 0 + before 2/ in 2/MOD.
+    - Logic and pass operations leave the carry alone.
+    - TIMES repeats the following instruction for I+2 cycles: I+2 times for a
+      single cycle instruction, I+1 times for a memory instruction since its
+      first pass takes two cycles (cmFORTH relies on both).
+    - The return address on the return stack holds the carry in bit 15;
+      a return restores it.
+
+    TODO:
+    - X@ and X! (extended memory) do not work on the prototype chip and
+      are executed as their plain memory counterparts
+    - tristate registers do not affect the port outputs
+
+*****************************************************************************/
 
 #include "emu.h"
-#include "debugger.h"
 #include "nc4000.h"
 #include "nc4000d.h"
 
 DEFINE_DEVICE_TYPE(NC4000, nc4000_device, "nc4000", "Novix NC4000")
 
 nc4000_device::nc4000_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: cpu_device(mconfig, NC4000, tag, owner, clock),
-	m_icount(0),
-	m_program_config("program", ENDIANNESS_BIG, 16, 16, -1),
-	m_datastack_config("datastack", ENDIANNESS_BIG, 16, 8, -1),
-	m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1),
-	m_in_portb_cb(*this, 0xffff),
-	m_out_portb_cb(*this),
-	m_in_portx_cb(*this, 0xff),
-	m_out_portx_cb(*this),
-	m_in_irq_cb(*this, 0)
+	: cpu_device(mconfig, NC4000, tag, owner, clock)
+	, m_program_config("program", ENDIANNESS_BIG, 16, 16, -1)
+	, m_datastack_config("datastack", ENDIANNESS_BIG, 16, 8, -1)
+	, m_retstack_config("retstack", ENDIANNESS_BIG, 16, 8, -1)
+	, m_in_portb_cb(*this, 0xffff)
+	, m_out_portb_cb(*this)
+	, m_in_portx_cb(*this, 0x1f)
+	, m_out_portx_cb(*this)
+	, m_multiply_bug(true)
+	, m_icount(0)
 {
-
 }
 
-nc4000_device::~nc4000_device() {}
-
-void nc4000_device::device_start()
-{
-	m_program = &space(AS_PROGRAM);
-	m_datastack = &space(AS_DATA);
-	m_retstack = &space(AS_IO);
-
-	set_icountptr(m_icount);
-
-	save_item(NAME(m_regs.pc));
-	save_item(NAME(m_regs.t));
-	save_item(NAME(m_regs.n));
-	save_item(NAME(m_regs.i));
-	save_item(NAME(m_regs.j));
-	save_item(NAME(m_regs.k));
-	save_item(NAME(m_regs.md));
-	save_item(NAME(m_regs.sr));
-	save_item(NAME(m_regs.bdata));
-	save_item(NAME(m_regs.bdir));
-	save_item(NAME(m_regs.bmask));
-	save_item(NAME(m_regs.btri));
-	save_item(NAME(m_regs.xdata));
-	save_item(NAME(m_regs.xdir));
-	save_item(NAME(m_regs.xmask));
-	save_item(NAME(m_regs.xtri));
-	save_item(NAME(carry));
-
-	state_add(NC4000_PC,       "PC",        m_regs.pc);
-	state_add(STATE_GENPC,     "GENPC",     m_regs.pc).noshow();
-	state_add(STATE_GENPCBASE, "GENPCBASE", m_ppc).noshow();
-
-	state_add(NC4000_T,  "T",  m_regs.t);
-	state_add(NC4000_N,  "N",  m_regs.n);
-	state_add(NC4000_I,  "I",  m_regs.i);
-//	state_add(NC4000_JK, "JK", m_regs.jk.w);
-	state_add(NC4000_J,  "J",  m_regs.j);
-	state_add(NC4000_K,  "K",  m_regs.k);
-	state_add(NC4000_MD, "MD", m_regs.md);
-	state_add(NC4000_SR, "SR", m_regs.sr);
-	state_add(NC4000_carry, "carry", carry).mask(1);
-
-	state_add(NC4000_Bdata, "Bdata", m_regs.bdata);
-	state_add(NC4000_Bdir,  "Bdir",  m_regs.bdir);
-	state_add(NC4000_Bmask, "Bmask",  m_regs.bmask);
-	state_add(NC4000_Btri,  "Btri",  m_regs.btri);
-	state_add(NC4000_Xdata, "Xdata", m_regs.xdata).mask(0x1f);
-	state_add(NC4000_Xdir,  "Xdir",  m_regs.xdir).mask(0x1f);
-	state_add(NC4000_Xmask, "Xmask", m_regs.xmask).mask(0x1f);
-	state_add(NC4000_Xtri,  "Xtri",  m_regs.xtri).mask(0x1f);
-}
-
-void nc4000_device::device_reset()
-{
-	m_regs.pc = 0x1000; // TODO: can't we have word offset?
-	m_regs.t = m_regs.n = m_regs.i = m_regs.md = m_regs.sr = 0;
-	m_regs.j = m_regs.k = 0;
-
-	// TODO: Init port registers?
-	m_regs.bdata = m_regs.bdir = m_regs.btri = m_regs.bmask = 0;
-	m_regs.xdata = m_regs.xdir = m_regs.xtri = m_regs.xmask = 0;
-
-	m_irq_state = m_irq_latch = CLEAR_LINE;
-	m_icount = 0;
-
-	//
-	// Old impl
-	//
-	intreq = 0;
-	carry = 0;
-	timesmode = 0;
-	binput = 0;
-	xinput = 0;
-}
-
-void nc4000_device::device_config_complete()
-{
-	// inherit a copy of the static data
-	//const nc4000_interface *intf = reinterpret_cast<const nc4000_interface *>(static_config());
-	//if (intf != NULL)
-	//{
-	//	*static_cast<nc4000_interface *>(this) = *intf;
-	//}
-	//// or initialize to defaults if none provided
-	//else
-	//{
-	//	memset(&m_in_portb_func, 0, sizeof(m_in_portb_func));
-	//	memset(&m_out_portb_func, 0, sizeof(m_out_portb_func));
-	//	memset(&m_in_portx_func, 0, sizeof(m_in_portx_func));
-	//	memset(&m_out_portx_func, 0, sizeof(m_out_portx_func));
-	//	memset(&m_in_irq_func, 0, sizeof(m_in_irq_func));
-	//}
-}
-
-#define PUSH_R { m_retstack->write_word(m_regs.j << 1, m_regs.i); m_regs.j--; }
-#define PUSH_TO_R(x) { PUSH_R; m_regs.i = x; }
-#define POP_R { m_regs.j++; m_regs.i = m_retstack->read_word(m_regs.j << 1); }
-#define POP_R_TO(x) { x = m_regs.i; POP_R }
-#define PUSH_S { m_datastack->write_word(m_regs.k << 1, m_regs.n); m_regs.k--; }
-#define POP_S { m_regs.k++; m_regs.n = m_datastack->read_word(m_regs.k << 1); }
-#define READ_M(x) m_program->read_word(x << 1)
-#define WRITE_M(x,d) m_program->write_word(x << 1, d)
-
-// device_execute_interface
-void nc4000_device::execute_run()
-{
-	bool check_debugger = ((device_t::machine().debug_flags & DEBUG_FLAG_ENABLED) != 0);
-
-	if (intreq && (m_regs.xtri & MASK_INTREQ)) { //Check for pending interrupt
-		interrupt();
-	}
-
-	do {
-		m_ppc = m_regs.pc;
-		if (check_debugger)
-			debugger_instruction_hook(m_regs.pc);
-
-		uint16_t op;
-
-		op = READ_M(m_regs.pc);
-
-		if (timesmode) {
-			m_regs.i--;
-			if (m_regs.i == 0)
-			{
-				POP_R;
-				timesmode = false;
-			}
-		}
-
-		if (timesmode == false)
-		{
-			m_regs.pc++;
-		}
-
-//		if (timesmode) { // TIMES instruction handling
-//			op = READ_M(m_regs.pc);
-//			if (m_regs.i != 0xFFFF)
-//				m_regs.i--;
-//			else
-//			{
-//				POP_R;
-//				m_regs.pc++;
-//				timesmode = false;
-//			}
-//		}
-//		if (!timesmode)
-//		{
-//			op = READ_M(m_regs.pc);// Instruction increment
-//			m_regs.pc++;
-//		}
-
-		switch (op & 0xF000) { //Mask and shift instruction type field
-			case 0x8000: 		// *** ALU instruction: 1000b ***
-				ALU_Op(op);
-				m_icount--;
-				break;
-			case 0x9000: 		// *** IF(conditional branch): 1001b ***
-
-				if (m_regs.t == 0)
-					m_regs.pc = BADDR(m_ppc); // P gets masked value from instruction
-
-				m_regs.t = m_regs.n; //Pop value from data stack
-				POP_S;
-				// Observe: One cannot branch across 4K page boundary
-				m_icount--;
-				break;
-			case 0xA000:		// *** LOOP: 1010b ***
-				if (m_regs.i)
-				{
-					m_regs.pc = BADDR(m_ppc); // P gets masked value from instruction
-					m_regs.i--;				// Decrement loop
-				}
-				else
-					POP_R;
-				// Observe: One cannot branch across 4K page boundary
-				m_icount--;
-				break;
-			case 0xB000:		// *** ELSE(unconditional branch): 1011b ***
-				m_regs.pc = BADDR(m_ppc);
-				// Observe: One cannot branch across 4K page boundary
-				m_icount--;
-				break;
-			case 0xC000:		// *** Literal/Local/Internal fetch: 1100b ***
-				m_icount -= IO_LLI(op, 0);
-				break;
-			case 0xD000:		// *** Literal/Local/Internal store: 1101b ***
-				m_icount -= IO_LLI(op, 1);
-				break;
-			case 0xE000:		// *** Memory fetch: 1110b ***
-				IO_Mem(op, 0);
-				m_icount -= 2; //# cycles for memory instruction execution
-				break;
-			case 0xF000:		// *** Memory store: 1111b ***
-				IO_Mem(op, 1);
-				m_icount -= 2; //# cycles for memory instruction execution
-				break;
-			default:		// *** Call instruction: 0111b or lower ***
-				PUSH_TO_R(m_regs.pc | (carry<<15)); // Save carry and P
-				m_regs.pc = op; //call address -> P
-				m_icount--;
-				break;
-		}
-	} while (m_icount > 0);
-}
-
-// device_memory_interface
 device_memory_interface::space_config_vector nc4000_device::memory_space_config() const
 {
 	return space_config_vector{
@@ -249,519 +75,687 @@ device_memory_interface::space_config_vector nc4000_device::memory_space_config(
 	};
 }
 
-// device_disasm_interface
 std::unique_ptr<util::disasm_interface> nc4000_device::create_disassembler()
 {
 	return std::make_unique<nc4000_disassembler>();
 }
 
-void nc4000_device::ALU_Op(uint16_t op) {
-	uint16_t op2=0, result, carry_in;
-
-	//
-	// 1. Get operand 2
-	//
-
-	switch (OP_YSRC) {		// get operand 2
-	case YSRC_N:
-	case YSRC_NC:
-		op2 = m_regs.n;
-		break;
-	case YSRC_MD:
-		op2= m_regs.md;
-		break;
-	case YSRC_SR:
-		op2 = m_regs.sr;
-		break;
-	}
-
-	// manage Tn & Sa bits
-	if (OP_TN) {	// Tn bit set..
-		if (OP_SA)	{// ..and Sa bit set
-			PUSH_S;
-		}
-		m_regs.n = m_regs.t;
-	} else {			// Tn bit not set..
-		if (OP_SA)	{// ..but Sa bit set
-			POP_S;
-		}
-	}
-
-	//
-	// 2. Do arithmetic operation
-	//
-
-	// check if N with carry. If so move carry to carry_in
-	if (OP_YSRC == YSRC_NC)
-		carry_in=carry;
-	else
-		carry_in=0;
-
-	// Perform ALU function
-	result=DoALU(op2, carry_in, OP_ALUOP);
-
-	//
-	// 3. Write results to T (if allowed by step instructions)
-	//
-//	if (!( (OP_DIV && !carry) || (OP_YSRC == YSRC_NC && (m_regs.n & 0x0001))))
-//		m_regs.t = result; //also check extra div cond (/").
-
-	if (!OP_STEP)
-	{
-		m_regs.t = result;
-	}
-	else
-	{
-		if (OP_DIV) // Division or Sqrt
-		{
-			if (OP_CFLAG) // Sqrt
-			{
-				logerror("Square root step - unimplemented\n");
-				// TODO
-			}
-			else // Division
-			{
-				logerror("Division step: carry=%i, result=%04x, t=%04x\n", carry, result, m_regs.t);
-				if (carry)
-					m_regs.t = result;
-			}
-		}
-		else if (!OP_CFLAG) // Multiplication
-		{
-			logerror("Multiplication step: carry=%i, result=%04x, t=%04x, n=%04x\n", carry, result, m_regs.t, m_regs.n);
-			if (m_regs.n & 0x0001)
-				m_regs.t = result;
-		}
-	}
-
-//	if (OP_STEP && ((OP_DIV && !OP_CFLAG && !carry) || (!OP_DIV && !OP_CFLAG && !(m_regs.n & 0x0001))))
-//	{
-//
-//	}
-//	else
-//	{
-//		m_regs.t = result; //also check extra div cond (/").
-//	}
-
-	//
-	// 4. Do shift operation
-	//
-	if (OP_SH32)
-	{
-		switch (OP_SHDIR)
-		{
-		case SHDIR_NONE:			// Special case: left shift N only
-			m_regs.n = (m_regs.n<<1) | carry; // carry into N
-			break;
-		case SHDIR_LSR:			// 32-bit shift right (T as most sign. word)
-			m_regs.n = (m_regs.n>>1) | ((m_regs.t<<15) & 0x8000);
-			m_regs.t >>= 1;
-			break;
-		case SHDIR_SHL:			// 32-bit shift left (T as most sign. word)
-			m_regs.t = (m_regs.t<<1) | ((m_regs.n>>15) & 0x0001); // 0x0001 is just to make sure unsigned
-			m_regs.n = (m_regs.n<<1) | carry; // carry into N
-			break;
-		default:		// SHDIR_ASR & OP_SH32 not valid combination
-			break;
-		}
-	}
-	else
-	{
-		if (op==0x8C11)
-		{
-			logerror("wtf!!\n");
-		}
-		switch (OP_SHDIR)
-		{
-		case SHDIR_NONE:			// No shift
-			break;
-		case SHDIR_LSR:			// Shift result right
-			logerror("lsr: t=%x, msbcar=%x, reslt=%x\n",m_regs.t, carry<<15, m_regs.t | carry << 15);
-			m_regs.t >>= 1;
-			m_regs.t |= carry << 15;
-			break;
-		case SHDIR_SHL:			// Shift result left
-			m_regs.t <<= 1;
-			m_regs.t |= carry;
-			break;
-		case SHDIR_ASR:			// Propagate msb (used as '0<')
-			m_regs.t = (m_regs.t & 0x8000) ? 0xFFFF : 0;
-			break;
-		}
-	}
-
-	//
-	// 5. Return bit (;) handling
-	//
-	if (IS_RET && !timesmode) {
-		m_regs.pc = m_regs.i & 0x7FFF;
-		carry = m_regs.i & 0x8000 ? 1 : 0; // restore P and carry
-		POP_R;
-	}
-}
-
-uint16_t nc4000_device::DoALU(uint16_t Op_Y, uint16_t carry_in, uint16_t ALU_func) {
-	uint16_t result;
-	uint32_t c_check;
-
-	result=carry_in;	// Get carry in (if any)
-	carry=0;	//Reset carry now and correct it in ALU operation
-
-	// Perform ALU function
-	switch (ALU_func) {
-	case ALUOP_T:		//Pass T
-		result = m_regs.t; // D-uh!
-		break;
-	case ALUOP_AND:		//Bitwise AND
-		result = m_regs.t & Op_Y;
-		break;
-	case ALUOP_SUB:		//T-Op_Y
-		c_check = (uint32_t)m_regs.t + (~Op_Y) + 1 + result;
-//		c_check = m_regs.t + ((-Op_Y)&0xFFFF)  + result;
-		result = c_check & 0xFFFF;	//mask out unit size
-		logerror("alu sub(%x): cin=%x, c_check=%x, t=%x, y=%x(%x), result = %x\n", m_regs.pc, carry_in, c_check, m_regs.t, Op_Y, ~Op_Y, result);
-		if (c_check & 0x10000)
-		{
-			logerror("alu sub generated carry c_check=%x, car=%x\n",c_check, c_check& 0x10000);
-			carry=1;	//overflow/carry?
-		}
-		else
-		{
-			carry=0;
-		}
-		break;
-	case ALUOP_OR:		//Bitwise OR
-		result = m_regs.t | Op_Y;
-		break;
-	case ALUOP_ADD:		//T+Op_Y
-		c_check = (uint32_t)m_regs.t + Op_Y + result;
-		result = c_check & 0xFFFF;	//mask out unit size
-		if (c_check & 0x10000)
-			carry=1;	//overflow/carry?
-		else
-			carry=0;
-		break;
-	case ALUOP_XOR:		//Bitwise XOR
-		result = m_regs.t ^ Op_Y;
-		break;
-	case ALUOP_SUBY:		//Op_Y-T	(Real stack subtraction)
-		c_check = (uint32_t)Op_Y + (~m_regs.t) + 1 + result;
-//		c_check = (uint32_t)Op_Y + ((-m_regs.t)&0xFFFF) + result;
-		result=c_check & 0xFFFF;	//mask out unit size
-		if (c_check & 0x10000)
-			carry=1;	//overflow/carry?
-		else
-			carry=0;
-		break;
-	case ALUOP_Y:		//Pass Opy
-		result = Op_Y;
-		break;
-	default:
-		break;
-	}
-	return result;
-}
-
-// C    B   C   6
-// 14   5  7  0  6
-// 1100 101111000110
-// LLIr
-// ALU  101--------- XOR
-// IOS  ---111------ Internal fetch (reg is op2)
-// CIN  ----1------- use carry in
-// TN   -----1------ copy t to n
-// ;    ------0----- no ret
-// SA   -------0---- stack not active
-// 4BIT --------0110 SR
-
-// 14   7  3  0  0
-// 1100 111011000000
-// LLIr
-// ALU  111--------- Y
-// IOS  ---011------ Internal fetch (reg is op2)
-// CIN  ----1------- use carry in
-// TN   -----1------ copy t to n
-// ;    ------0----- no ret
-// SA   -------0---- stack not active
-// 4BIT --------0000 SR
-
-
-// 1100 111 111 001100
-
-int nc4000_device::IO_LLI(uint16_t op, int store)
+void nc4000_device::device_start()
 {
-	int cycles =1;
-	uint16_t swap, M;
+	space(AS_PROGRAM).cache(m_cache);
+	space(AS_PROGRAM).specific(m_program);
+	space(AS_DATA).specific(m_datastack);
+	space(AS_IO).specific(m_retstack);
 
-	if (store==0) {				// Fetch type
-		switch (OP_IOS>>6) { // Y,C,SA
-			case 0:
-			case 1:
-			case 2:	// Local fetch
-				if (OP_TN) { PUSH_S; m_regs.n = m_regs.t; }	// Tn bit active
-				M = READ_M(OP_5BIT);
-				m_regs.t = DoALU(M, CIN, OP_ALUOP);
-				cycles=2;
-				break;
-			case 3:
-			case 7:	// Internal fetch
-				if (!(op & 0x0100)) { PUSH_S; m_regs.n = m_regs.t; }	// Tn bit active
-//				logerror("%04x @ %04x SA=%i, m=%i\n", op, m_regs.pc, OP_SA>0, OP_IOS>>6);
-				m_regs.t = DoALU(int_read_reg(OP_4BIT), 0, OP_ALUOP);
-				if (OP_SA)
-					POP_R;
-				break;
-			default: // 4,5,6.  16-bit literal fetch
-				if (OP_TN) { PUSH_S; m_regs.n = m_regs.t; }	// Tn bit active
-				M = READ_M(m_regs.pc); m_regs.pc++;
-				m_regs.t = DoALU(M, CIN, OP_ALUOP);
-				cycles=2;
-				break;
-		}
-	} else {					// Store type
-		switch (OP_IOS>>6) {
-			case 0:
-			case 1: // Local store
-				M = OP_5BIT;
-				WRITE_M(M, m_regs.t);
-				m_regs.t = DoALU(m_regs.n, CIN, OP_ALUOP);
-				if (!OP_TN)
-					POP_S; // Tn bit for stores
-				cycles=2;
-				break;
-			case 2:
-			case 3:	// Internal store
-				if (OP_SA)
-				{
-					PUSH_R;
-					timesmode=true;
-				}
-				else if (OP_4BIT == 1)
-					PUSH_R;
+	set_icountptr(m_icount);
 
-				int_write_reg(OP_4BIT, m_regs.t);
-				m_regs.t = DoALU(m_regs.n, CIN, OP_ALUOP);
-				if (!OP_TN)
-					POP_S; // Tn bit for stores
-				break;
-			case 7: // Internal swap
-				if (OP_SA)
-				{
-					PUSH_R;
-					timesmode=true;
-				}
-				swap = int_read_reg(OP_4BIT);
-				int_write_reg(OP_4BIT, m_regs.t);
-				m_regs.t = DoALU(swap, CIN, OP_ALUOP);
-				break;
-			default: // Short literal fetch
-				if (OP_TN) { PUSH_S; m_regs.n = m_regs.t;}	// Tn bit active
-				m_regs.t = DoALU(OP_5BIT, CIN, OP_ALUOP);
-				break;
-		}
+	m_pc = m_ppc = 0;
+	m_t = m_n = m_i = 0;
+	m_j = m_k = 0;
+	m_md = m_sr = 0;
+	m_carry = 0;
+	m_bdata = m_bmask = m_bdir = m_btri = 0;
+	m_xdata = m_xmask = m_xdir = 0;
+	m_xtri = 0;
+	m_times_op = 0;
+	m_times = m_times_first = m_times_last = false;
+	m_int_line = m_int_request = m_int_active = false;
+	m_int_j = 0;
 
+	state_add(NC4000_PC,    "PC",    m_pc);
+	state_add(STATE_GENPC,     "GENPC",     m_pc).noshow();
+	state_add(STATE_GENPCBASE, "CURPC",     m_ppc).noshow();
+	state_add(NC4000_T,     "T",     m_t);
+	state_add(NC4000_N,     "N",     m_n);
+	state_add(NC4000_I,     "I",     m_i);
+	state_add(NC4000_J,     "J",     m_j);
+	state_add(NC4000_K,     "K",     m_k);
+	state_add(NC4000_MD,    "MD",    m_md);
+	state_add(NC4000_SR,    "SR",    m_sr);
+	state_add(NC4000_CARRY, "carry", m_carry).mask(1);
+	state_add(NC4000_BDATA, "Bdata", m_bdata);
+	state_add(NC4000_BMASK, "Bmask", m_bmask);
+	state_add(NC4000_BDIR,  "Bdir",  m_bdir);
+	state_add(NC4000_BTRI,  "Btri",  m_btri);
+	state_add(NC4000_XDATA, "Xdata", m_xdata).mask(0x1f);
+	state_add(NC4000_XMASK, "Xmask", m_xmask).mask(0x1f);
+	state_add(NC4000_XDIR,  "Xdir",  m_xdir).mask(0x1f);
+	state_add(NC4000_XTRI,  "Xtri",  m_xtri).mask(0x11f);
+
+	save_item(NAME(m_pc));
+	save_item(NAME(m_ppc));
+	save_item(NAME(m_t));
+	save_item(NAME(m_n));
+	save_item(NAME(m_i));
+	save_item(NAME(m_j));
+	save_item(NAME(m_k));
+	save_item(NAME(m_md));
+	save_item(NAME(m_sr));
+	save_item(NAME(m_carry));
+	save_item(NAME(m_bdata));
+	save_item(NAME(m_bmask));
+	save_item(NAME(m_bdir));
+	save_item(NAME(m_btri));
+	save_item(NAME(m_xdata));
+	save_item(NAME(m_xmask));
+	save_item(NAME(m_xdir));
+	save_item(NAME(m_xtri));
+	save_item(NAME(m_times_op));
+	save_item(NAME(m_times));
+	save_item(NAME(m_times_first));
+	save_item(NAME(m_times_last));
+	save_item(NAME(m_int_line));
+	save_item(NAME(m_int_request));
+	save_item(NAME(m_int_active));
+	save_item(NAME(m_int_j));
+}
+
+void nc4000_device::device_reset()
+{
+	m_pc = 0x1000;
+	m_carry = 0;
+
+	// ports come up as inputs with interrupts disabled
+	m_bdata = m_bmask = m_bdir = m_btri = 0;
+	m_xdata = m_xmask = m_xdir = 0;
+	m_xtri = 0;
+
+	m_times = m_times_first = m_times_last = false;
+	m_int_request = m_int_active = false;
+}
+
+void nc4000_device::execute_set_input(int inputnum, int state)
+{
+	if (inputnum != INT_LINE)
+		return;
+
+	// a high to low edge on INT sets the request flip-flop, even with interrupts disabled
+	bool const line = state == ASSERT_LINE;
+	if (line && !m_int_line)
+		m_int_request = true;
+	m_int_line = line;
+}
+
+
+//**************************************************************************
+//  STACKS
+//**************************************************************************
+
+// the stack pointers are pre-decremented on push and post-incremented on pop
+
+void nc4000_device::push_s()
+{
+	m_k--;
+	m_datastack.write_word(m_k, m_n);
+}
+
+void nc4000_device::pop_s()
+{
+	m_n = m_datastack.read_word(m_k);
+	m_k++;
+}
+
+void nc4000_device::push_r(uint16_t data)
+{
+	m_j--;
+	m_retstack.write_word(m_j, m_i);
+	m_i = data;
+}
+
+uint16_t nc4000_device::pop_r()
+{
+	uint16_t const data = m_i;
+	m_i = m_retstack.read_word(m_j);
+	m_j++;
+	return data;
+}
+
+void nc4000_device::do_return()
+{
+	uint16_t const ret = pop_r();
+	m_pc = ret & 0x7fff;
+	m_carry = BIT(ret, 15);
+
+	// returning past the interrupt call resets the request flip-flop
+	if (m_int_active && int8_t(m_j - m_int_j) > 0)
+	{
+		m_int_active = false;
+		m_int_request = false;
 	}
-	// Handle return bit (Illegal results in some cases)
-	// OBS!!! a times instruction cannot return as well in this implementation!
-	// On the other hand this would be improbable since the return stack would be disturbed
-	if (IS_RET && !timesmode) {
-		m_regs.pc = m_regs.i & 0x7FFF;
-		carry = m_regs.i & 0x8000 ? 1 : 0; // restore P and carry
-		POP_R;
+}
+
+
+//**************************************************************************
+//  EXECUTION
+//**************************************************************************
+
+void nc4000_device::execute_run()
+{
+	do
+	{
+		uint16_t op;
+		bool latched = false;
+		bool repeat = false;
+
+		if (m_times)
+		{
+			// the latched instruction repeats without being fetched; its return only
+			// happens on the last pass, after the count has been popped
+			m_ppc = m_pc;
+			debugger_instruction_hook(m_pc);
+			op = m_times_op;
+			latched = true;
+			if (m_i == 0 && m_times_last)
+			{
+				m_times = false;
+				pop_r();
+				m_pc++;
+			}
+			else
+			{
+				repeat = true;
+				op &= ~0x0020;
+			}
+		}
+		else if (m_int_request && !m_int_active && BIT(m_xtri, 8))
+		{
+			m_int_active = true;
+			push_r(m_pc | (m_carry << 15));
+			m_int_j = m_j;
+			m_pc = 0x0020;
+			m_icount--;
+			continue;
+		}
+		else
+		{
+			m_ppc = m_pc;
+			debugger_instruction_hook(m_pc);
+			op = m_cache.read_word(m_pc++);
+		}
+
+		int cycles = 1;
+		if (!BIT(op, 15))
+		{
+			// call: P (with the carry in bit 15) is pushed on the return stack
+			push_r(m_pc | (m_carry << 15));
+			m_pc = op;
+		}
+		else
+		{
+			switch (BIT(op, 12, 3))
+			{
+			case 0: // ALU
+				alu_op(op);
+				break;
+
+			case 1: // IF: branch if T is zero, drop T either way
+			{
+				bool const zero = m_t == 0;
+				m_t = m_n;
+				pop_s();
+				if (zero)
+					m_pc = (m_pc & 0xf000) | (op & 0x0fff);
+				break;
+			}
+
+			case 2: // NEXT
+				if (m_i != 0)
+				{
+					m_i--;
+					m_pc = (m_pc & 0xf000) | (op & 0x0fff);
+				}
+				else
+				{
+					pop_r();
+				}
+				break;
+
+			case 3: // ELSE
+				m_pc = (m_pc & 0xf000) | (op & 0x0fff);
+				break;
+
+			case 4:
+				cycles = fetch_op(op);
+				break;
+
+			case 5:
+				cycles = store_op(op);
+				break;
+
+			case 6:
+				cycles = memory_fetch_op(op);
+				break;
+
+			case 7:
+				cycles = memory_store_op(op);
+				break;
+			}
+		}
+
+		if (latched)
+		{
+			// TIMES counts cycles: the first pass of a two cycle instruction uses up two,
+			// after that the latched instruction needs no fetch and takes one cycle
+			if (!m_times_first)
+				cycles = 1;
+			m_times_first = false;
+			if (repeat)
+			{
+				for (int i = 0; i < cycles && m_times; i++)
+				{
+					if (m_i != 0)
+						m_i--;
+					else if (!m_times_last)
+						m_times_last = true;
+					else
+					{
+						m_times = false;
+						pop_r();
+						m_pc++;
+					}
+				}
+			}
+		}
+		m_icount -= cycles;
 	}
+	while (m_icount > 0);
+}
+
+uint16_t nc4000_device::alu(int func, uint16_t t, uint16_t y, int cin, bool update_carry)
+{
+	uint32_t result;
+
+	switch (func)
+	{
+	case 0: return t;
+	case 1: return t & y;
+	case 3: return t | y;
+	case 5: return t ^ y;
+	case 7: return y;
+	case 2: result = uint32_t(t) - y - cin; break;
+	case 4: result = uint32_t(t) + y + cin; break;
+	case 6: default: result = uint32_t(y) - t - cin; break;
+	}
+
+	// carry out of an addition, borrow out of a subtraction
+	if (update_carry)
+		m_carry = BIT(result, 16);
+	return uint16_t(result);
+}
+
+void nc4000_device::alu_op(uint16_t op)
+{
+	int const func = BIT(op, 9, 3);
+	int const ysel = BIT(op, 7, 2);
+	bool const tn = BIT(op, 6);
+	bool const sa = BIT(op, 4);
+	bool const dbl = BIT(op, 3);
+	bool const div = BIT(op, 2);
+	int const shift = BIT(op, 0, 2);
+
+	uint16_t const y = (ysel < 2) ? m_n : (ysel == 2) ? m_md : m_sr;
+	uint16_t t = m_t;
+
+	if (div)
+	{
+		// conditional subtraction: /' and /" (Y=MD), S' (Y=MD|SR) and MOD' (no shift)
+		uint16_t const test = (ysel == 3) ? (m_md | m_sr) : y;
+		uint16_t const diff = alu(func, t, test, 0, true);
+		int const q = m_carry ^ 1;
+		if (q)
+		{
+			t = diff;
+			if (ysel == 3)
+				m_md |= m_sr << 1;
+		}
+		if (ysel == 3)
+			m_sr >>= 1;
+
+		if (dbl && shift == 2)
+		{
+			m_t = (t << 1) | BIT(m_n, 15);
+			m_n = (m_n << 1) | q;
+		}
+		else
+		{
+			m_t = t;
+			if (dbl)
+				m_n = (m_n << 1) | q;
+		}
+	}
+	else if (ysel == 2 && dbl && (shift == 1 || shift == 2) && func != 0 && func != 7)
+	{
+		// multiply steps *' *- (shift right) and *F (shift left): MD is added or
+		// subtracted if bit 0 of N is set, and the carry or borrow is shifted into T
+		uint16_t const md = m_multiply_bug ? (m_md & ~1) : m_md;
+		if (BIT(m_n, 0))
+			t = alu(func, t, md, 0, true);
+		else
+			m_carry = 0;
+
+		if (shift == 1)
+		{
+			m_n = (m_n >> 1) | (t << 15);
+			m_t = (t >> 1) | (m_carry << 15);
+		}
+		else
+		{
+			m_t = (t << 1) | BIT(m_n, 15);
+			m_n <<= 1;
+		}
+	}
+	else
+	{
+		uint16_t result = alu(func, t, y, (ysel == 1) ? m_carry : 0, true);
+
+		// right shifts take the carry of an arithmetic operation, otherwise they keep the sign
+		bool const arith = func == 2 || func == 4 || func == 6;
+		int const shift_in = arith ? m_carry : BIT(result, 15);
+
+		if (tn)
+		{
+			if (sa)
+				push_s();
+			m_n = t;
+		}
+		else if (sa)
+		{
+			pop_s();
+		}
+
+		if (!dbl)
+		{
+			switch (shift)
+			{
+			case 1: result = (result >> 1) | (shift_in << 15); break; // 2/
+			case 2: result <<= 1; break; // 2*
+			case 3: result = BIT(result, 15) ? 0xffff : 0; break; // 0<
+			}
+		}
+		else
+		{
+			switch (shift)
+			{
+			case 0: // designed to shift N left; unreliable on the prototype
+				m_n <<= 1;
+				break;
+			case 1: // D2/
+			{
+				int const lsb = BIT(result, 0);
+				result = (result >> 1) | (shift_in << 15);
+				m_n = (m_n >> 1) | (lsb << 15);
+				break;
+			}
+			case 2: // D2*
+				result = (result << 1) | BIT(m_n, 15);
+				m_n <<= 1;
+				break;
+			case 3: // designed to shift N right into T; unreliable on the prototype
+				break;
+			}
+		}
+		m_t = result;
+	}
+
+	if (BIT(op, 5))
+		do_return();
+}
+
+// 1100: local memory fetch (m=0-2), internal register fetch (m=3, 7) and long literal (m=4-6)
+int nc4000_device::fetch_op(uint16_t op)
+{
+	int const func = BIT(op, 9, 3);
+	int const m = BIT(op, 6, 3);
+	int const lit = BIT(op, 0, 5);
+	int cycles = 1;
+	uint16_t data;
+	bool push;
+	int cin = 0;
+
+	switch (m)
+	{
+	case 0: case 1: case 2:
+		data = m_program.read_word(lit);
+		push = m == 1;
+		cin = (m == 2) ? m_carry : 0;
+		cycles = 2;
+		break;
+
+	case 3: case 7:
+		data = read_reg(lit);
+		if (lit == 17)
+			pop_r(); // R> and R> DROP
+		push = m == 3;
+		break;
+
+	default:
+		data = m_cache.read_word(m_pc++);
+		push = m == 5;
+		cin = (m == 6) ? m_carry : 0;
+		cycles = 2;
+		break;
+	}
+
+	if (push)
+	{
+		push_s();
+		m_n = m_t;
+	}
+	m_t = alu(func, m_t, data, cin, true);
+
+	if (BIT(op, 5))
+		do_return();
 	return cycles;
 }
-void nc4000_device::IO_Mem(uint16_t op, int store)
-{
-	if (store==0) {
-    	if (OP_IOS == OPMASK_IOS) { // All bits set
-			PUSH_S;
-            m_regs.n = READ_M(m_regs.t);
-            m_regs.t = DoALU(OP_5BIT, 0, OP_ALUOP);
-        } else {
-			// Extended memory read is ignored
-	        m_regs.t = READ_M(m_regs.t); // Cheating...
-			if (!OP_TN) { m_regs.t = DoALU(m_regs.n, 0, OP_ALUOP); POP_S; }	// Tn bit active
-        }
 
-        // DUP @ SWAP nn + (1647nn) ignored
-	} else {
-       	WRITE_M(m_regs.t, m_regs.n); POP_S;
-    	if  (OP_IOS == OPMASK_IOS) { // All bits set
-            m_regs.t = DoALU(OP_5BIT, 0, OP_ALUOP);
-        } else {
-	        // Extended memory write is ignored
-            if (!OP_TN) {m_regs.t = DoALU(m_regs.n, 0, OP_ALUOP); POP_S; }
-        }
-    }
+// 1101: local memory store (m=0-1), internal register store (m=2-3), short literal (m=4-6)
+// and register exchange (m=7)
+int nc4000_device::store_op(uint16_t op)
+{
+	int const func = BIT(op, 9, 3);
+	int const m = BIT(op, 6, 3);
+	int const lit = BIT(op, 0, 5);
+	int cycles = 1;
+
+	switch (m)
+	{
+	case 0: case 1:
+		m_program.write_word(lit, m_t);
+		m_t = alu(func, m_t, m_n, 0, true);
+		pop_s();
+		cycles = 2;
+		break;
+
+	case 2: case 3:
+	{
+		uint16_t const data = m_t;
+		m_t = alu(func, m_t, m_n, (m == 2) ? m_carry : 0, true);
+		if (m == 2)
+			pop_s();
+
+		if (lit == 1 || lit == 17)
+		{
+			// >R pushes the return stack; TIMES also latches the next instruction
+			push_r(data);
+			if (lit == 17)
+			{
+				m_times = true;
+				m_times_first = true;
+				m_times_last = false;
+				m_times_op = m_cache.read_word(m_pc);
+			}
+		}
+		else
+		{
+			write_reg(lit, data);
+		}
+		break;
+	}
+
+	case 4: case 5: case 6:
+		if (m == 5)
+		{
+			push_s();
+			m_n = m_t;
+		}
+		m_t = alu(func, m_t, lit, (m == 6) ? m_carry : 0, true);
+		break;
+
+	case 7:
+	{
+		int const reg = (lit == 17) ? 1 : lit;
+		uint16_t const data = read_reg(reg);
+		write_reg(reg, m_t);
+		m_t = alu(func, m_t, data, 0, true);
+		break;
+	}
+	}
+
+	if (BIT(op, 5))
+		do_return();
+	return cycles;
 }
 
-void nc4000_device::interrupt() {
-	if (m_regs.xtri & MASK_INTREQ) {	// Bit 8 in Xtri set? (interrupt enable)
-		PUSH_TO_R(m_regs.pc);
-		m_regs.pc = 0x0020;	//0x0020 = Interrupt vector
-		intreq = false;
-	} else {
-		intreq = true;
+// 1110: fetch from the address in T
+int nc4000_device::memory_fetch_op(uint16_t op)
+{
+	int const func = BIT(op, 9, 3);
+	int const m = BIT(op, 6, 3);
+	int const lit = BIT(op, 0, 5);
+
+	if (m == 4 || m == 5 || m == 6)
+		logerror("%04x: X@ executed as @\n", m_ppc);
+
+	uint16_t const data = m_program.read_word(m_t);
+	switch (m)
+	{
+	case 7: // @+ @-: ( a - n a+lit )
+		push_s();
+		m_n = data;
+		m_t = alu(func, m_t, lit, 0, true);
+		break;
+
+	case 1: case 3: case 5: // @: ( a - n )
+		m_t = alu(func, m_t, data, 0, true);
+		break;
+
+	default: // @ op: ( n a - n op data )
+		m_t = alu(func, m_n, data, BIT(m, 1) ? m_carry : 0, true);
+		pop_s();
+		break;
+	}
+
+	if (BIT(op, 5))
+		do_return();
+	return 2;
+}
+
+// 1111: store N to the address in T
+int nc4000_device::memory_store_op(uint16_t op)
+{
+	int const func = BIT(op, 9, 3);
+	int const m = BIT(op, 6, 3);
+	int const lit = BIT(op, 0, 5);
+
+	if (m == 4 || m == 5)
+		logerror("%04x: X! executed as !\n", m_ppc);
+
+	m_program.write_word(m_t, m_n);
+	switch (m)
+	{
+	case 7: // !+ !-: ( n a - a+lit )
+		m_t = alu(func, m_t, lit, 0, true);
+		pop_s();
+		break;
+
+	case 3: case 5: // N!: ( n a - n )
+		m_t = m_n;
+		pop_s();
+		break;
+
+	default: // !: ( n a - )
+		pop_s();
+		m_t = m_n;
+		pop_s();
+		break;
+	}
+
+	if (BIT(op, 5))
+		do_return();
+	return 2;
+}
+
+
+//**************************************************************************
+//  INTERNAL REGISTERS AND PORTS
+//**************************************************************************
+
+uint16_t nc4000_device::read_reg(int reg)
+{
+	switch (reg)
+	{
+	case 0: return (m_k << 8) | m_j;
+	case 1: case 17: return m_i;
+	case 2: return m_pc;
+	case 3: return 0xffff;
+	case 4: case 5: return m_md;
+	case 6: case 7: return m_sr;
+	case 8: return portb_r();
+	case 9: return m_bmask;
+	case 10: return m_bdir;
+	case 11: return m_btri;
+	case 12: return portx_r();
+	case 13: return m_xmask;
+	case 14: return m_xdir;
+	case 15: return m_xtri;
+	default: return read_reg(reg & 0x0f);
 	}
 }
 
-#define XINPUT (m_in_portx_func.isunset() ? xinput : m_in_portx_func(0))
-#define BINPUT (m_in_portb_func.isunset() ? binput : m_in_portb_func(0))
-
-uint16_t nc4000_device::int_read_reg(uint16_t reg)
-{ //Kind of self-explanatory really...
-	switch (reg)
-	{
-	case 0:	// JK register
-		return m_regs.k<<8 | m_regs.j;
-	case 1:
-		return m_regs.i;
-	case 2:
-		return m_regs.pc;
-	case 3:
-		return 0xFFFF; // Logical true (-1)
-	case 4:
-	case 5:
-		return m_regs.md;
-	case 6:
-	case 7:
-		return m_regs.sr;
-	case 8:
-		if (!m_in_portb_cb.isunset())
-			binput = m_in_portb_cb();
-		else
-			logerror("No b reader handler defined\n");
-		return ((binput ^ m_regs.bdata) & ~m_regs.bdir) | (m_regs.bdata & m_regs.bdir); // (XOR'ed) Xdata
-	case 9:
-		return m_regs.bmask;
-	case 10:
-		return m_regs.bdir;
-	case 11:
-		return m_regs.btri;
-	case 12:
-		if (!m_in_portx_cb.isunset())
-			xinput = m_in_portx_cb();
-		else
-			logerror("No x reader handler defined\n");
-		return (((xinput ^ m_regs.xdata) & ~m_regs.xdir) | (m_regs.xdata & m_regs.xdir)) & 0x1F; // (XOR'ed) Xdata
-	case 13:
-		return m_regs.xmask & 0x1F;
-	case 14:
-		return m_regs.xdir & 0x1F;
-	case 15:
-		return m_regs.xtri & 0x1F;
-	default:
-		return 0;
-	}
-}
-
-
-void nc4000_device::int_write_reg(uint16_t reg, uint16_t data)
+void nc4000_device::write_reg(int reg, uint16_t data)
 {
 	switch (reg)
 	{
-	case 0: // JK register
-		m_regs.k = 0xFF & data>>8;
-		m_regs.j = 0xFF & data;
-		break;
-	case 1:
-		m_regs.i = data;
-		break;
-	case 2:
-		m_regs.pc = data;
-		break;
-	case 4:
-	case 5:
-		m_regs.md = data;
-		break;
-	case 6:
-	case 7:
-		m_regs.sr = data;
-		break;
-	case 8:
-		m_regs.bdata = data & ~m_regs.bmask;
-		if (!m_out_portb_cb.isunset())
-			m_out_portb_cb(0, m_regs.bdata, 0xffff);
-		else
-			logerror("No b writer handler defined\n");
-		break;
-	case 9:
-		m_regs.bmask = data;
-		break;
-	case 10:
-		m_regs.bdir = data;
-		break;
-	case 11:
-		m_regs.btri = data;
-		break;
-	case 12:
-//		logerror("write x %02x, %i\n", data, m_out_portx_func.isunset());
-		m_regs.xdata = data & ~ m_regs.xmask & 0x1F;
-		if (!m_out_portx_cb.isunset())
-			m_out_portx_cb(0, m_regs.xdata, 0xff);
-		else
-			logerror("No x writer handler defined\n");
-		break;
-	case 13:
-		m_regs.xmask = data & 0x1F;
-		break;
-	case 14:
-		m_regs.xdir = data & 0x1F;
-		break;
-	case 15:
-		m_regs.xtri = data & 0x1F;
-		break;
-	default:
-		break;
-	};
-	return;
+	case 0: m_j = data & 0xff; m_k = data >> 8; break;
+	case 1: case 17: m_i = data; break;
+	case 2: m_pc = data; break;
+	case 3: break;
+	case 4: case 5: m_md = data; break;
+	case 6: case 7: m_sr = data; break;
+	case 8: portb_w(data); break;
+	case 9: m_bmask = data; break;
+	case 10: m_bdir = data; m_out_portb_cb(0, m_bdata, m_bdir); break;
+	case 11: m_btri = data; break;
+	case 12: portx_w(data); break;
+	case 13: m_xmask = data & 0x1f; break;
+	case 14: m_xdir = data & 0x1f; m_out_portx_cb(0, m_xdata, m_xdir); break;
+	case 15: m_xtri = data & 0x11f; break;
+	default: write_reg(reg & 0x0f, data); break;
+	}
 }
 
-
-/* =====================
- * TODO Verify old code:
- * =====================
- *
- * TIMES instruction handling had a probable if-else bug
- * *** Bug
- *
- * Conditional branch(IF) branches on T!=0 despite Koopman saying T==0?
- * *** Ting p24 says instruction is DROP if T=0, implying branch on T!=0
- *
- * LOOP is code A and unconditional branch(ELSE) is code B. Koopman says other way around (LOOP=A,ELSE=B)
- * *** Newimpl had error. Ting p22 says LOOP=A, ELSE=B
- *
- * When CALLing, carry is preserved in top bit. Where does it say this? It is restored/masked on ret...
- *
- * When fetching Y we do not take N with carry into account. Verify that we do that when performing ALU work
- * *** OK. Passed through carry_in (always 0 if no carry)
- *
- * Read/Write registers has J as high byte and K as low byte. Koopman says that JK has K as high byte.
- * *** Error, Ting p12 says datastack is highbyte.
- *
- * On IO/Mem instructions, CIN (bit7) is *not* the actual carry in, it indicates usage of carry
- * *** Oldimpl bug. Ting p31 explains this. Fixed through change in CIN macro
- *
- */
+// input pins read through the XOR comparison latch; output pins read back the latch
+uint16_t nc4000_device::portb_r()
+{
+	uint16_t const pins = m_in_portb_cb();
+	return ((pins ^ m_bdata) & ~m_bdir) | (m_bdata & m_bdir);
+}
 
 uint8_t nc4000_device::portx_r()
 {
-	//logerror("read port x = %02x (data=%02x, dir=%02x, tri=%02x)", m_regs.xdata & m_regs.xdir & ~m_regs.xtri & 0x1F, m_regs.xdata, m_regs.xdir, m_regs.xtri);
-	return m_regs.xdata & m_regs.xdir & ~m_regs.xtri & 0x1F;
+	uint8_t const pins = m_in_portx_cb() & 0x1f;
+	return ((pins ^ m_xdata) & ~m_xdir) | (m_xdata & m_xdir);
+}
+
+// bits set in the mask register are protected from writes
+void nc4000_device::portb_w(uint16_t data)
+{
+	m_bdata = (m_bdata & m_bmask) | (data & ~m_bmask);
+	m_out_portb_cb(0, m_bdata, m_bdir);
 }
 
 void nc4000_device::portx_w(uint8_t data)
 {
-	xinput = data & 0x1F;
-}
-
-uint16_t nc4000_device::portb_r()
-{
-	//logerror("read port b = %02x (data=%02x, dir=%02x, tri=%02x)", m_regs.bdata & m_regs.bdir & ~m_regs.btri, m_regs.bdata, m_regs.bdir, m_regs.btri);
-	return m_regs.bdata & m_regs.bdir & ~m_regs.btri;
-}
-void nc4000_device::portb_w(uint16_t data)
-{
-	binput = data;
+	m_xdata = ((m_xdata & m_xmask) | (data & ~m_xmask)) & 0x1f;
+	m_out_portx_cb(0, m_xdata, m_xdir);
 }
