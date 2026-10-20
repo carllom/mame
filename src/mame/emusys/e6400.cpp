@@ -42,8 +42,8 @@
     414000-417FFF:  CSAESRX — CS8411 AES/EBU digital audio receiver
 
     Decoder #2 (A20=0, A17..A19 select):
-    420000-43FFFF:  CSG1CHIP — G-chip 1 sound engine (polyphony board)
-    440000-45FFFF:  CSG2CHIP — G-chip 2 sound engine (polyphony board)
+    420000-43FFFF:  CSG1CHIP — G-chip 1 sound engine (128-voice expansion only; "Polyphony" config)
+    440000-45FFFF:  CSG2CHIP — G-chip 2 sound engine (polyphony board; the 64-voice unit's only G-chip)
     460000-47FFFF:  CSHCHIP — H-chip digital filter IC413 (+ polyphony connector)
     480000-49FFFF:  CSHDC — AM85C80 SCSI controller (NCR5380-compatible)
     4A0000-4BFFFF:  CSHDD — SCSI DMA data port (via memory PAL IP822)
@@ -52,7 +52,7 @@
 
     Decoder #1 (A20=1, A17..A19 select):
     500000-51FFFF:  CSKCHIP — K-chip key scanner IT433 (A0-A3 addr, D[15:8] data)
-    520000-53FFFF:  CSDSP — DSP daughter card (effects processor)
+    520000-53FFFF:  CSDSP — effects card (G0.5, EMU8000; slot "fx", e6400_fx.cpp)
     540000-55FFFF:  CSEXP — expansion daughter card (effects DSP RAM at +0x400)
     560000-57FFFF:  CSFDC — 82078 FDC (confirmed)
     580000-59FFFF:  CSLCD — LM24014H LCD / T6963C (confirmed)
@@ -76,6 +76,7 @@
 
 #include "emu.h"
 
+#include "e6400_fx.h"
 #include "emu_gchip.h"
 #include "emu_hchip.h"
 
@@ -112,10 +113,13 @@ public:
 		, m_scsi(*this, "ncr5380")
 		, m_gchip(*this, "gchip%u", 1U)
 		, m_hchip(*this, "hchip%u", 1U)
+		, m_fx(*this, "fx")
+		, m_g1_view(*this, "g1_view")
 		, m_leds(*this, "led%u", 0U)
 		, m_keys(*this, "SC%u", 0U)
 		, m_encoder(*this, "ENCODER")
 		, m_volume(*this, "VOLUME")
+		, m_config(*this, "CONFIG")
 	{
 	}
 
@@ -131,10 +135,13 @@ private:
 	required_device<ncr5380_device> m_scsi;
 	required_device_array<emu_gchip_device, 2> m_gchip;
 	required_device_array<emu_hchip_device, 4> m_hchip;
+	required_device<e6400_fx_slot_device> m_fx;
+	memory_view m_g1_view;
 	output_finder<12> m_leds;
 	required_ioport_array<6> m_keys;
 	required_ioport m_encoder;
 	required_ioport m_volume;
+	required_ioport m_config;
 
 	u16 m_cr1 = 0;
 	u16 m_cr2 = 0;
@@ -202,6 +209,12 @@ void e6400_state::machine_reset()
 {
 	m_cr1 = 0;
 	m_cr2 = 0;
+
+	// The 64-voice unit has its G-chip on CSG2CHIP; the 128-voice expansion fits the one on CSG1CHIP
+	if (BIT(m_config->read(), 0))
+		m_g1_view.select(0);
+	else
+		m_g1_view.disable();
 
 	// Reset IT433 K-chip state
 	m_kchip_status = 0;
@@ -427,7 +440,11 @@ void e6400_state::mem_map(address_map &map)
 	// 0x414000: CSAESRX — CS8411 AES/EBU receiver
 
 	// Decoder #2 (A20=0, A17..A19 select) — 0x420000-0x4FFFFF
-	map(0x420000, 0x43ffff).rw(m_gchip[0], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG1CHIP — G-chip 1
+	// CSG1CHIP — G-chip 1, fitted only with the 128-voice expansion. EOS tells the two apart by writing test
+	// patterns to its voice registers at 0x43F000 and reading them back (detect_dual_gchip, 0x23FB6); it then
+	// runs the 128 voices as one array from 0x43F000 across into CSG2CHIP, or the 64 from 0x440000
+	map(0x420000, 0x43ffff).view(m_g1_view);
+	m_g1_view[0](0x420000, 0x43ffff).rw(m_gchip[0], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write));
 	map(0x440000, 0x45ffff).rw(m_gchip[1], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG2CHIP — G-chip 2
 	// CSHCHIP — H-chips (IC413 and the polyphony board's), 0x2000 bytes each: A14 = G-chip, A13 = 0 odd / 1 even voices
 	map(0x460000, 0x461fff).mirror(0x18000).rw(m_hchip[0], FUNC(emu_hchip_device::read), FUNC(emu_hchip_device::write));
@@ -446,7 +463,7 @@ void e6400_state::mem_map(address_map &map)
 
 	// Decoder #1 (A20=1, A17..A19 select) — 0x500000-0x5FFFFF
 	map(0x500000, 0x50001f).rw(FUNC(e6400_state::kchip_r), FUNC(e6400_state::kchip_w)).umask16(0xff00); // CSKCHIP — IT433 key scanner
-	// 0x520000: CSDSP — DSP daughter card (effects processor)
+	map(0x520000, 0x53ffff).rw(m_fx, FUNC(e6400_fx_slot_device::read), FUNC(e6400_fx_slot_device::write)); // CSDSP — effects card
 	// 0x540000: CSEXP — expansion daughter card
 	map(0x560000, 0x560007).m(m_fdc, FUNC(n82077aa_device::map)); // CSFDC
 	map(0x580000, 0x580003).rw(FUNC(e6400_state::lcd_r), FUNC(e6400_state::lcd_w)); // CSLCD
@@ -539,6 +556,9 @@ void e6400_state::e6400(machine_config &config)
 	for (int g = 0; g < 2; g++)
 		for (int v = 0; v < emu_gchip_device::NUM_VOICES; v++)
 			m_gchip[g]->add_route(v, m_hchip[(g << 1) | (~v & 1)], 1.0, (((v >> 1) & 1) << 4) | (((v >> 2) - 1) & 15));
+
+	// Effects card (G0.5, EMU8000) on CSDSP — not fitted to the reference unit
+	E6400_FX_SLOT(config, m_fx, e6400_fx_cards, nullptr);
 
 	// AM85C80 SCC (Z85C30) — MIDI on channel A, AT keyboard on channel B
 	// PCLK = 8 MHz (AM85C80 pin 28, directly from 16 MHz XTAL ÷2 with HC393 Q0 on SK524)
@@ -648,6 +668,11 @@ static INPUT_PORTS_START( e6400 )
 	// Volume pot (read via IT433 ADC; Panel Test shows range 0-255)
 	PORT_START("VOLUME")
 	PORT_ADJUSTER(100, "Volume")
+
+	PORT_START("CONFIG")
+	PORT_CONFNAME(0x01, 0x00, "Polyphony")
+	PORT_CONFSETTING(0x00, "64 voices")
+	PORT_CONFSETTING(0x01, "128 voices (expansion)")
 INPUT_PORTS_END
 
 ROM_START( e6400 )

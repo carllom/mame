@@ -111,6 +111,8 @@ function createProjects_mame_tiny(_target, _subtarget)
 files{
 	-- e6400
 	MAME_DIR .. "src/mame/emusys/e6400.cpp",
+	MAME_DIR .. "src/mame/emusys/e6400_fx.cpp",
+	MAME_DIR .. "src/mame/emusys/e6400_fx.h",
 	MAME_DIR .. "src/mame/emusys/emu_gchip.cpp",
 	MAME_DIR .. "src/mame/emusys/emu_gchip.h",
 	MAME_DIR .. "src/mame/emusys/emu_hchip.cpp",

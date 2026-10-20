@@ -438,6 +438,15 @@ If all 4 patterns match on readback, the routine returns true → 128 channels (
 Before the test, the routine also programs SIMM config registers on both G-chips:
 - Both chips: +$C3E = 0x0400, +$43E = 0x0000, config B = 0x012F
 
+**What the test detects:** the four addresses are voice registers in the top 4 KB of CSG1CHIP: voice 0 +$14, voice 12 +$14, voice 5 +$08, voice 23 +$0C, with the window starting at 0x43F000. In 128-voice mode EOS runs all 128 voices as one 0x40-byte-stride array starting there: voices 0–63 on the CSG1CHIP chip and voices 64–127 on the CSG2CHIP chip at 0x440000 (`gchip_select_voice_bus` 0x240AE; config at +$C3E and +$1C3E). A **64-voice unit has its only G-chip on CSG2CHIP** and CSG1CHIP empty, so the readback fails. Then:
+
+| | 128 voices | 64 voices |
+|---|---|---|
+| `gchip_reg_base` | 0x43F000 (2 chips) | 0x440000 (1 chip) |
+| H-chip base (`hchip_select_bus`) | 0x460000 | 0x464000 (`HCHIP_BUS` + $2000 words) |
+
+Voice → H-chip address is `base + WORD_ARRAY_0005082C[v]` either way. So the 64-voice unit's chip uses the H-chips at 0x464000/0x466000, the same ones the CSG2 chip's voices 64–127 use in 128-voice mode. The H-chip decode is the same in both configurations. Checked in MAME: with CSG1CHIP reading 0, EOS reports 64 channels and writes exactly these addresses.
+
 ### MAME Emulation Status
 
 The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interface`) in `src/mame/emusys/emu_gchip.h/.cpp`. Two instances (`gchip1`, `gchip2`) are mapped at CSG1CHIP and CSG2CHIP respectively. Each has:
@@ -445,7 +454,7 @@ The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interf
 - A 128 MB sample memory address space (27-bit byte address, 16-bit data, big-endian)
 - Side-effect handling for sample read/write registers and SIMM config registers
 
-Both SIMM detection and channel detection pass. Boot displays "128mb of Sound Memory Installed" and "128 Channel Card Installed".
+SIMM detection passes ("128mb of Sound Memory Installed"). The "Polyphony" configuration setting picks the voice count. The default, 64 voices, matches the reference unit: G-chip 1 at CSG1CHIP is behind a `memory_view` that stays disabled, so the socket reads as empty and boot shows "64 Channel Card Installed". "128 voices (expansion)" maps it. A test note renders identically in both modes. Before 2026-10-20 the driver always ran as 128 voices.
 
 Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output into its H-chip channel, which applies the filter and the left/right volume (0.375 dB steps, glided as measured) and mixes to the stereo output (see [H-chip](#h-chip--voice-filter-and-volume)). The filter is emulated generically from the words EOS writes (see [Word format](#h-chip--voice-filter-and-volume)), for all 21 types. Rendering the hardware ladders in MAME, the shape (gain removed) matches to:
 - 0.2–0.7 dB rms for the 2-pole types, high-pass, band-pass, swept EQs, EQ morphs, Peak/Shelf, flanger and Bat-Phaser
@@ -845,9 +854,43 @@ Checked against the 2-pole low-pass fits by converting each fitted section to B1
 
 **Not yet known:** the coefficient format, i.e. how the words produce these F, D and output choices (needed for types 7–20); Q for the high- and band-pass (only Q 0 is measured); the fall rates for latch values other than 1; the output setup words and the submix outputs.
 
-**Not the H-chip:** `hchip_init` (0x0636C2) and its tables probe a bus at CSDSP (0x520000/0x530000) and CSEXP (0x540000): `DSP_BUS[0x3E] = 1`, channel select at +$0E, data ports at +$28/+$2A/+$38/+$3A, presence read of `$181E` = 0x50. On this unit those reads return 0 (no daughter card). The names in the developer guide's H-chip section come from that code; it is most likely the effects/expansion card interface.
+**Not the H-chip:** the code the developer guide's H-chip section calls `hchip_init` (0x0636C2) and its tables drive the effects card at CSDSP. See [Effects card](#effects-card-g05--e-64-fx--emu8000-register-map) below. The Ghidra names are now `fx_*`.
 
-**CTRLREG1 (0x400000):** bit 7 clear = G/H-chip reset, bit 10 = clock control used by the same init (unverified on the hardware).
+**CTRLREG1 (0x400000):** bit 7 clear = G/H-chip reset, bit 10 = clock control used by the same init (unverified on the hardware). Doubtful: EOS's effects bypass (`fx_set_bypass` 0x63A88) also clears bit 7, and the effects probe pulses bit 10 as a card reset (`fx_card_reset_assert`/`_release`). Bit 7 is more likely the effects-return enable.
+
+### Effects card (G0.5 / E-64 FX) — EMU8000 register map
+
+Not fitted to the test unit; known from EOS 3.00 (Ghidra, `fx_*` names) and a MAME trace with a fake register file. The parts lists put an EMU8000 (IC405) and the "G0.5 FX PAL" on the G0.5 effects card (SK507/SK518). The Identity Reply table also has an "E64FX" model (03h,05h).
+
+**Bus:** CSDSP 0x520000 (0x530000 on hardware variant 4). Each EMU8000 register has its own bus address, and the channel (0–31) goes to +$0E first. Bus offset = `reg << 4 | port`, with DATA0 at +4, DATA1 at +8, DATA2 at +A and DATA3 at +C. So +$04 CPF, +$14 PTRX, +$24 CVCF, +$34 VTFT, +$64 PSST, +$74 CSL, +$08 CCCA, +$18 HWCF/SMA* (DATA1 r1), +$28/+$2A/+$38/+$3A INIT1/INIT2/INIT3/INIT4, +$1C IFATN, +$58 DCYSUSV, and so on.
+
+**Probe** (`fx_probe_and_init`): writes HWCF1/2/3 (+$18, ch 29/30/31) = $88/$10/$06 and needs HWCF2 to read back $50. Then it runs the EMU8000 audio init that the Linux `snd_emu8000` driver also uses: DCYSUSV $80, IFATN $FF00 and the rest 0 on all 32 channels, and SMALR/SMARR/SMALW/SMARW = 0.
+
+**Program (INIT arrays): one fixed program, loaded at boot.** `fx_load_program` follows Linux's `init_arrays` order: write `fx_init1_table` (0x63F64, byte-identical to Linux init1), wait 150 ms, write it again with bit 15 set on the odd words, then write the target table with bit 15 set on the odd words, then the target as is. 128 words go to INIT1..4 × 32 channels.
+
+- `fx_program_idle` (0x648EC, mode 1, during the probe): $3ECA/$0474 pairs.
+- `fx_program_main` (0x64140, mode 2): the only runtime program. Compared with the full Linux init3 table:
+  - INIT1/INIT2 half (words 0–63): the odd words equal Linux's except for bit 15 (often set in Linux, clear here) and word 1 (8480 vs 8470). All even words (probably delay-line addresses) differ.
+  - INIT3/INIT4 half: rearranged. Linux's chorus words sit at other channels here (feedback E610 at INIT3 ch 9 becomes 6610 at ch 15; delay offset 031A at ch 12 becomes ch 18).
+- `fx_program_diag` (0x649EC): self-test, used only by the unreferenced `fx_run_diag_program`.
+
+No other program is ever loaded. The trace stepped all 45 FX A and 33 FX B types plus every master parameter, and none of it reloads the INIT arrays.
+
+**Effect types are parameter sets.** These are traced with remote edit params 228–244. A type change crossfades the changed words over 64 steps (`fx_param_ramp_tick`, about 0.27 s for FX A and 0.53 s for FX B).
+
+- **FX A** (`fx_a_apply_params`, 21-byte blocks in `reverb_effects[45]`): about 15–25 words in INIT1 ch 3, 5, 7, 9, 11, 15, 17, 19, 23, 25, 27, 31, INIT2 ch 1, 3, 7, 9, 11, 15, 17, 19, 23, 29, 31, INIT3 ch 1/3 and INIT4 ch 27/29. These are the same INIT1/INIT2/INIT3 positions as Linux's `reverb_cmds`. Linux's INIT4 $1F is at INIT4 ch 29 here. Type 2 (Room 2) equals Linux "room 2" word for word. Type 1 (Room 1) matches "room 1" except INIT2 ch 7/15/23 (7244 vs 7204). Types 0 and 1 are identical.
+  - Decay → INIT1 ch 5 and INIT4 ch 29 low byte (= 2 × value).
+  - HF damping → INIT2 ch 29/31 and INIT3 ch 1/3.
+  - FxB→FxA → INIT4 ch 27 low byte.
+- **FX B** (`fx_b_apply_params`, `effects[33]`): words at INIT3 ch 15 (feedback, Linux INIT3 9), INIT3 ch 18 (delay offset, Linux INIT3 $0C), INIT4 ch 3 (LFO depth), HWCF4 = +$18 ch 9 (delay) and HWCF5 = ch 10 (LFO rate = 32 × value). Types 2/3/4/5 = Linux chorus 2/3/4/"feedback" (feedback bit 15 clear: E608 → 6608). Type 7 (Slapback) = Linux "short delay" (HWCF4 $0006E000, $0B06). Types 0 and 1 are identical.
+  - Feedback → INIT3 ch 15 low byte.
+  - LFO rate → HWCF5.
+  - Delay time writes only for the delay types (`fx_b` mode 1–4).
+- **Sends**: the G-chip mix enters through the EMU8000 channels 0/2 (main), 8/10 (sub1)… as PTRX (FX A send), PSST and CSL high byte (FX B send). These are ramped by the main/sub send params.
+- **Bypass** (244) writes nothing to the card; see CTRLREG1 bit 7.
+
+**In MAME:** the driver has an `fx` slot ([e6400_fx.cpp](../src/mame/emusys/e6400_fx.cpp)), empty by default like the reference unit. `-fx g05fx` fits a register-file stub that passes the probe. EOS then enables its effects pages and writes the card, but no audio is processed. A real model needs an EMU8000 effects-engine model: reverb and chorus as defined by the INIT arrays and parameter words. That engine is undocumented, and MAME has no EMU8000 device. Without hardware, references could be AWE32 recordings of the shared modes (Room 1–3, Hall 1–2, Plate, Delay, Panning Delay; Chorus 1–4, feedback, flanger, short delay). Trace tooling: [measurements/fx/](measurements/fx/) (`fxgen.py` stimulus, `fxtrace.lua` fake card and logger, `fxdiff.py` per-edit diff, `fxdiff.txt` result).
+
 ---
 
 *MIDI note processing, voice state machine, and audition key documentation moved to [EOS_developer_guide.md](EOS_developer_guide.md#midi-note-processing).*
