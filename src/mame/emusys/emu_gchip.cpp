@@ -67,10 +67,6 @@
       skips the loop-end word reads that word from before the loop.
 
     TODO:
-    - Volume, pan and filtering are the H-chip's, which isn't emulated. As a
-      stand-in, a voice is muted while +$10 bits 31-16 are 0, i.e. after EOS
-      has freed it at the end of its release; on the hardware it keeps
-      running, silenced by the H-chip.
     - Which tap the fetch pointer is (the lead tap is assumed), and the exact
       position of the first output sample after a start.
     - Registers +$04 bits 15-0, +$10 bits 15-0, and the +$20–$2E words.
@@ -243,7 +239,6 @@ void emu_gchip_device::device_start()
 	save_item(NAME(m_simm_type));
 	save_item(NAME(m_ctrl));
 	save_item(NAME(m_rate));
-	save_item(NAME(m_in_use));
 	save_item(NAME(m_kernel));
 	save_item(NAME(m_loop_end));
 	save_item(NAME(m_loop_start));
@@ -270,7 +265,6 @@ void emu_gchip_device::device_reset()
 	{
 		m_ctrl[v] = 0;
 		m_rate[v] = 0;
-		m_in_use[v] = false;
 		m_kernel[v] = 0;
 		m_loop_end[v][0] = m_loop_end[v][1] = 0;
 		m_loop_start[v] = 0;
@@ -452,9 +446,6 @@ void emu_gchip_device::voice_reg_written(int voice, offs_t offset)
 	case 0x04:
 		m_rate[voice] = value >> 16;
 		break;
-	case 0x10:
-		m_in_use[voice] = (value >> 16) != 0;
-		break;
 	case 0x14:
 		m_loop_start[voice] = value & ADDR_MASK;
 		m_next_b[voice] = BIT(value, 26);
@@ -480,7 +471,7 @@ void emu_gchip_device::sound_stream_update(sound_stream &stream)
 {
 	for (int v = 0; v < NUM_VOICES; v++)
 	{
-		if (!BIT(m_ctrl[v], 11) || !m_in_use[v])
+		if (!BIT(m_ctrl[v], 11))
 			continue;
 
 		const u32 rate = m_rate[v];

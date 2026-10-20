@@ -334,6 +334,8 @@ The parameter ID namespace is partitioned:
 
 ## H-Chip (IC413) — Digital Filter Subsystem
 
+> **Correction (2026-10-20, traced in MAME):** the voice H-chips are at CSHCHIP **0x460000**, not on the DSP bus. The per-voice pointers ("voice base" below) are `0x460000 + WORD_ARRAY_0005082C[voice]`, and the volume (+$46, +$71/+$73), level readback (+$34/+$36) and filter (+$7B/+$7C, +$00–$24) writes in "Voice runtime H-chip registers" go there. `hchip_init` and the bus, presence, coefficient-table and global-register material below probe CSDSP/CSEXP (0x520000–0x54FFFF), which read 0 on an e6400 without a daughter card; it is most likely the effects/expansion card interface. The +$46 "subcommand" is a latch for the next level write (1 = volume, 4 = mute, 0 = filter cutoff). See [e6400_hardware.md — H-chip](e6400_hardware.md#h-chip--voice-filter-and-volume) for the verified map and the measured 0.375 dB volume step.
+
 The **H-chip** (IC413) is E-mu's proprietary digital filter IC, responsible for per-voice filtering (lowpass, highpass, bandpass, etc.), volume/pan attenuation, and output mixing. The H-chip sits between the G-chip sample oscillators and the DAC outputs on the polyphony board (AP503).
 
 ### Physical topology

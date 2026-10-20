@@ -447,7 +447,7 @@ The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interf
 
 Both SIMM detection and channel detection pass. Boot displays "128mb of Sound Memory Installed" and "128 Channel Card Installed".
 
-Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output. The H-chip (filter, volume, pan) isn't emulated, so the driver mixes all voices at a fixed gain and the device mutes a voice once EOS has freed it (+$10 bits 31–16 = 0). The output rate follows CSWCR2 SCLKSEL (45.1584 MHz for 44.1 kHz, 49.152 MHz for 48 kHz, ÷ 1024).
+Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output into its H-chip channel, which applies the left/right volume (0.375 dB steps, glided as measured) and mixes to the stereo output; the H-chip filters are passed through (see [H-chip](#h-chip--voice-filter-and-volume)). The output rate follows CSWCR2 SCLKSEL (45.1584 MHz for 44.1 kHz, 49.152 MHz for 48 kHz, ÷ 1024).
 
 Checked against the hardware recordings (2026-10-20) by loading the same test samples into MAME over MIDI (SDS dump, then remote edit: New Voice in preset 0, sample, original key 69, MASTER_OUTPUT_CLOCK = 48 kHz):
 - The SDS upload lands in sample memory bit-exact, one word in, as on the hardware; the voice registers EOS writes match the hardware analysis (loop start 999, loop end 3998 relative to the sample).
@@ -710,41 +710,45 @@ Functions in the 0x22xxx ROM area handle G-chip sample memory transfers:
 
 All sample memory access helpers convert byte addresses to word addresses (`asr.l #1`) and write via `move.l` to +$30 or +$34 (which splits into two 16-bit writes on the M68K bus).
 
-### H-chip (IC413) — Digital Filter Hardware Interface
+### H-chip — Voice Filter and Volume
 
-The H-chip (IC413) is a custom digital filter IC on the polyphony board (AP503). Two H-chips per G-chip (even/odd channels), for a total of 4 in a 128-channel system. The H-chip processes G-chip audio output through per-voice digital filters and volume/pan attenuation before the DAC.
+Each G-chip voice goes through an H-chip channel: filter, left/right volume, and the mix to the outputs. A G-chip feeds two H-chips, one for its odd voices and one for its even ones, 32 channels each. The four H-chips share CSHCHIP at **0x460000**, 0x2000 bytes per chip (traced in MAME 2026-10-20, EOS 3.00):
 
-**Bus access:** The H-chip is NOT accessed at CSHCHIP (0x460000). Instead, the CPU reaches it via a DSP bus:
+| Address bits | Meaning |
+|---|---|
+| A14 | G-chip (0 = G-chip 1) |
+| A13 | 0 = odd voices, 1 = even voices |
+| A12, A10–A7 | channel: A12 = bit 1 of the voice, A10–A7 = (voice >> 2) − 1, mod 16 |
+| A6–A0 | register in the channel's 0x80-byte window |
 
-| Address | Name | Description |
-|---------|------|-------------|
-| 0x520000 | DSP_BUS | Primary H-chip bus (default) |
-| 0x530000 | DSP_BUS (alt) | Alternate bus (E6400 variant, `hw_variant_code == 4`) |
-| 0x540000 | EXP_BUS | Expansion polyphony board |
+EOS keeps the base in `F3DD34` (= 0x460000) and adds `WORD_ARRAY_0005082C[voice]` (`hchip_get_channel_addr`, 0x05092C); voices 0–63 are G-chip 1's, 64–127 G-chip 2's. A G-chip 1 voice v therefore lands on chip `~v & 1`, e.g. voice 4 at 0x462000, voice 5 at 0x460000, voice 0 at 0x462780. The per-voice pointer at descriptor +$08 is this H-chip address, not the G-chip's.
 
-Key bus offsets from `hchip_bus_base`:
+**Per-channel registers** (offsets in the channel's window):
 
-| Offset | Width | Function |
-|--------|-------|----------|
-| +$0E | 16-bit | Channel select (0–31) |
-| +$18 | 16/32-bit | Global config/control registers |
-| +$28 | 16-bit | H-chip 0 data port (G1 even channels) |
-| +$2A | 16-bit | H-chip 1 data port (G1 odd channels) |
-| +$38 | 16-bit | H-chip 2 data port (G2 even channels) |
-| +$3A | 16-bit | H-chip 3 data port (G2 odd channels) |
-| +$3E | 16-bit | Bus enable (write 1 to activate) |
+| Offset | R/W | Function |
+|---|---|---|
+| +$00–$24 | W | Long words at note start from the filter code (0x07C0xx): 0xFFCFFFCF pairs at +$00/$04, +$10/$14, +$20/$24 (also how `FUN_000509C8` clears a channel), 0x8408FFCF at +$00/$10 and 0x00F200F2 at +$24 for filter type 1. Probably filter state and coefficients |
+| +$34 / +$36 | R | Current left / right level, 8.8 fixed point in volume steps. `FUN_00050A44` returns the larger high byte; it feeds a voice level readout (`FUN_0008712A`) and an "all channels silent" check (`FUN_000871AC`) that gates a jack-sense read |
+| +$34 / +$36 | W | Set the current level (EOS writes 0 at init) |
+| +$3B | R | Reads back +$7B (`hchip_write_filter_coeff` merges into it) |
+| +$46 | W | Latch for the next level write: 1 before volume updates, 4 before a mute (`hchip_mute_channel`), 0 before a filter cutoff write |
+| +$71 / +$73 | W | Left / right volume target: 0.375 dB per step, 255 = 0 dB, 0 = off |
+| +$7B | W | Filter mode byte (`BYTE_ARRAY_00050D7E[type] \| Q bits`; 0x77 for the default voice); its bit 7 goes to the previous channel's +$7B |
+| +$7C | W | Filter cutoff (0xFF for the default voice), written in the **previous** channel's window (−0x80, wrapping 0x000 → 0x780) after +$46 = 0 there |
 
-**CTRLREG1 (0x400000) H-chip bits:**
+Per chip, +$40/+$42 of channels 0 and 16 take output setup words (`FUN_00050010`: 0x0808/0x003B and 0x2B2B/0x0038 in normal running, 0x3B3B/0x3333 during channel init) and +$44/+$46 of channel 0 are written 4 at boot.
 
-| Bit | Set | Clear |
-|-----|-----|-------|
-| 7 | Normal operation | Assert G/H-chip reset |
-| 10 | H-chip clock running | H-chip clock stopped |
+**Volume.** EOS computes the left/right bytes in software (`voice_update_volume_init` 0x08393C, `voice_update_volume` 0x083678) as master + pan curve (`WORD_ARRAY_00082CD2[pan] >> 4`, −256 = off, −20 at centre) and steps them for the amplitude envelope about every 10 ms. Default voice, note 69: velocity 127 → 0xE9 left / 0xE8 right, 100 → 0xDC, 64 → 0xCB, 32 → 0xBC, 16 → 0xB5, 8 → 0xB1; the release ramps 0xE9 → 0 in about 170 ms, 13 steps a tick.
 
-**Presence detection:** Write `0x10` to config register `$181E`, read back. Result `0x50` = H-chip present.
+Measured on the hardware (samplebot session `2026-10-20_e6400_velocity`: preset 127, sample 902 sine, note 69 at those velocities, 1 s each):
+- Steady levels fall 16.12 dB over the 43 steps from velocity 100 to 8: **0.375 dB per step** (E-mu's usual 96 dB / 256). Velocity 127 sits 0.6 dB below that line (open).
+- The level glides down towards a lower target at about 7/256 step per output sample (≈ 490 dB/s at 48 kHz) with the latch at 1: the release of session `2026-10-20_e6400_note-2` fits a slew of 0.028 step/sample to 0.32 dB rms, against 0.58 dB for a one-pole in dB. Rising to the note-on target takes about 1 ms.
 
-For complete register maps, coefficient tables, voice runtime registers, addressing format, and firmware function reference, see [EOS_developer_guide.md — H-chip section](EOS_developer_guide.md#h-chip-ic413--digital-filter-subsystem).
+**Not yet known:** the filter (types, coefficient format, the role of +$00–$2C), the fall rates for latch values other than 1, the output setup words and the submix outputs.
 
+**Not the H-chip:** `hchip_init` (0x0636C2) and its tables probe a bus at CSDSP (0x520000/0x530000) and CSEXP (0x540000): `DSP_BUS[0x3E] = 1`, channel select at +$0E, data ports at +$28/+$2A/+$38/+$3A, presence read of `$181E` = 0x50. On this unit those reads return 0 (no daughter card). The names in the developer guide's H-chip section come from that code; it is most likely the effects/expansion card interface.
+
+**CTRLREG1 (0x400000):** bit 7 clear = G/H-chip reset, bit 10 = clock control used by the same init (unverified on the hardware).
 ---
 
 *MIDI note processing, voice state machine, and audition key documentation moved to [EOS_developer_guide.md](EOS_developer_guide.md#midi-note-processing).*

@@ -87,7 +87,6 @@ private:
 	// Voice registers as last written (decoded from the 32-bit register pairs)
 	u32 m_ctrl[NUM_VOICES];        // +$00: bit 11 = running, bit 12 = loop-end buffer in use (reads back the current one)
 	u16 m_rate[NUM_VOICES];        // +$04 bits 31-16: step = rate / 4096 source words per output sample
-	bool m_in_use[NUM_VOICES];     // +$10 bits 31-16 nonzero: EOS has the voice in use (stand-in for the H-chip's volume)
 	u8 m_kernel[NUM_VOICES];       // +$08 bits 26-28
 	u32 m_loop_end[NUM_VOICES][2]; // +$08 (A) and +$0C (B) bits 25-0, ones'-complemented in the registers
 	u32 m_loop_start[NUM_VOICES];  // +$14 bits 25-0

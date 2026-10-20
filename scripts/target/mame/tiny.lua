@@ -113,6 +113,8 @@ files{
 	MAME_DIR .. "src/mame/emusys/e6400.cpp",
 	MAME_DIR .. "src/mame/emusys/emu_gchip.cpp",
 	MAME_DIR .. "src/mame/emusys/emu_gchip.h",
+	MAME_DIR .. "src/mame/emusys/emu_hchip.cpp",
+	MAME_DIR .. "src/mame/emusys/emu_hchip.h",
 	-- eiii
 	-- MAME_DIR .. "src/mame/drivers/emuiii.cpp",	
 	MAME_DIR .. "src/mame/emusys/emu3.cpp",

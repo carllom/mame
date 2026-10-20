@@ -77,6 +77,7 @@
 #include "emu.h"
 
 #include "emu_gchip.h"
+#include "emu_hchip.h"
 
 #include "cpu/m68000/m68020.h"
 #include "machine/eepromser.h"
@@ -110,6 +111,7 @@ public:
 		, m_fdc(*this, "fdc")
 		, m_scsi(*this, "ncr5380")
 		, m_gchip(*this, "gchip%u", 1U)
+		, m_hchip(*this, "hchip%u", 1U)
 		, m_leds(*this, "led%u", 0U)
 		, m_keys(*this, "SC%u", 0U)
 		, m_encoder(*this, "ENCODER")
@@ -128,6 +130,7 @@ private:
 	required_device<n82077aa_device> m_fdc;
 	required_device<ncr5380_device> m_scsi;
 	required_device_array<emu_gchip_device, 2> m_gchip;
+	required_device_array<emu_hchip_device, 4> m_hchip;
 	output_finder<12> m_leds;
 	required_ioport_array<6> m_keys;
 	required_ioport m_encoder;
@@ -240,6 +243,8 @@ void e6400_state::cr2_w(u16 data)
 		const XTAL clock = ((data & 0x0c00) == 0x0800) ? 49.152_MHz_XTAL : 45.1584_MHz_XTAL;
 		for (auto &gchip : m_gchip)
 			gchip->set_unscaled_clock(clock);
+		for (auto &hchip : m_hchip)
+			hchip->set_unscaled_clock(clock);
 	}
 	m_cr2 = data;
 }
@@ -424,7 +429,11 @@ void e6400_state::mem_map(address_map &map)
 	// Decoder #2 (A20=0, A17..A19 select) — 0x420000-0x4FFFFF
 	map(0x420000, 0x43ffff).rw(m_gchip[0], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG1CHIP — G-chip 1
 	map(0x440000, 0x45ffff).rw(m_gchip[1], FUNC(emu_gchip_device::read), FUNC(emu_gchip_device::write)); // CSG2CHIP — G-chip 2
-	// 0x460000: CSHCHIP — H-chip digital filter IC413
+	// CSHCHIP — H-chips (IC413 and the polyphony board's), 0x2000 bytes each: A14 = G-chip, A13 = 0 odd / 1 even voices
+	map(0x460000, 0x461fff).mirror(0x18000).rw(m_hchip[0], FUNC(emu_hchip_device::read), FUNC(emu_hchip_device::write));
+	map(0x462000, 0x463fff).mirror(0x18000).rw(m_hchip[1], FUNC(emu_hchip_device::read), FUNC(emu_hchip_device::write));
+	map(0x464000, 0x465fff).mirror(0x18000).rw(m_hchip[2], FUNC(emu_hchip_device::read), FUNC(emu_hchip_device::write));
+	map(0x466000, 0x467fff).mirror(0x18000).rw(m_hchip[3], FUNC(emu_hchip_device::read), FUNC(emu_hchip_device::write));
 	map(0x480000, 0x48000f).rw(m_scsi, FUNC(ncr5380_device::read), FUNC(ncr5380_device::write)).umask16(0xff00); // CSHDC — AM85C80 SCSI (NCR5380)
 	map(0x4a0000, 0x4a0001).rw(m_scsi, FUNC(ncr5380_device::dma_r), FUNC(ncr5380_device::dma_w)).umask16(0xff00); // CSHDD — SCSI pseudo-DMA data port
 	// CSSCC — AM85C80 SCC (Z85C30); register order: B ctrl, B data, A ctrl, A data
@@ -514,13 +523,17 @@ void e6400_state::e6400(machine_config &config)
 	EMU_GCHIP(config, m_gchip[1], 45.1584_MHz_XTAL);
 	m_gchip[1]->set_addrmap(0, &e6400_state::gchip_sample_map);
 
-	// Each voice goes through the H-chip (filter, volume, pan) on the way to the DACs; it isn't
-	// emulated yet, so every voice is mixed to both sides at a fixed gain
-	for (auto &gchip : m_gchip)
+	// H-chips — voice filter and volume; each G-chip feeds one for its odd voices and one for its even
+	// voices, channel ((v >> 1) & 1) << 4 | ((v >> 2) - 1) & 15 as EOS addresses them (table at 0x05082C)
+	for (int h = 0; h < 4; h++)
 	{
-		gchip->add_route(ALL_OUTPUTS, "speaker", 0.25, 0);
-		gchip->add_route(ALL_OUTPUTS, "speaker", 0.25, 1);
+		EMU_HCHIP(config, m_hchip[h], 45.1584_MHz_XTAL);
+		m_hchip[h]->add_route(0, "speaker", 1.0, 0);
+		m_hchip[h]->add_route(1, "speaker", 1.0, 1);
 	}
+	for (int g = 0; g < 2; g++)
+		for (int v = 0; v < emu_gchip_device::NUM_VOICES; v++)
+			m_gchip[g]->add_route(v, m_hchip[(g << 1) | (~v & 1)], 1.0, (((v >> 1) & 1) << 4) | (((v >> 2) - 1) & 15));
 
 	// AM85C80 SCC (Z85C30) — MIDI on channel A, AT keyboard on channel B
 	// PCLK = 8 MHz (AM85C80 pin 28, directly from 16 MHz XTAL ÷2 with HC393 Q0 on SK524)
