@@ -21,6 +21,10 @@ public:
 	static constexpr feature_type imperfect_features() { return feature::SOUND; }
 
 	static constexpr unsigned NUM_CHANNELS = 32;
+	static constexpr unsigned CASCADE_INPUT = NUM_CHANNELS;  // left, then right: the previous chip's mix (CSCDI)
+
+	// The mix saturates at this level, in units of one full-scale voice at volume 255
+	static constexpr double MIX_FULL_SCALE = 3.55;
 
 	emu_hchip_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock = 0);
 

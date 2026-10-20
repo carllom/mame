@@ -52,7 +52,12 @@
       patent's DC mode); those at +$10 and +$20 are too when bit 7 of the
       coefficient byte is 0 (the low-pass and vocal types).
     - The second byte of +$24 is a gain, 0.75 dB per step below 0xF2 (the
-      low-pass Q compensation).
+      low-pass Q compensation). The steps are smaller at high cutoff and
+      larger at low cutoff: -0.75 + 0.224 (x - 0.78) dB each, fitted to the
+      passband of the 2-pole Q ladders at cutoff 64-240 and the 4-pole ones
+      at cutoff 32-192 (0.46 dB rms; session 2026-10-20_e6400_rung). The
+      hardware level follows the Q word rather than this byte: Q 120 and 127
+      share Q 112's word and measure the same despite one more step.
     With only the two code constants this predicts the measured shapes to
     0.25-0.6 dB rms for the 2-pole low-pass and 0.4-0.7 dB for high-pass,
     band-pass, swept EQ and the EQ morphs; 0.5-1.4 dB for the flanger and
@@ -61,9 +66,21 @@
 
     Volume, measured (samplebot sessions 2026-10-20_e6400_velocity and
     2026-10-20_e6400_note-2): 0.375 dB per step (16.12 dB over the 43 steps
-    between velocities 100 and 8). The level glides down to a lower target
+    between velocities 100 and 8) up to about 219. Above that the amplitude
+    is proportional to (level - 196), which joins with the same slope and
+    gives 0.28, 0.22 and 0.17 dB per step at 227, 235 and 247; 255 is 5.3 dB
+    below the 0.375 dB line (session 2026-10-20_e6400_rung, voice volume
+    ladders at centre and hard pan). The level glides down to a lower target
     at about 7/256 step per sample with the latch at 1 (0.32 dB rms on the
     release), and rises within about 1 ms at note start.
+
+    Mix: the chips are chained, each adding its channels to the previous
+    chip's mix (CSCDI in, CSCDO out; the last one's DACD feeds the DACs).
+    The mix saturates symmetrically (flat tops) at 3.55 times one full-scale
+    voice at volume 255 (samplebot session 2026-10-20_e6400_rung: up to four
+    unison voices on a 750 Hz sine, master volume at maximum). The filter
+    itself stayed linear on a resonant 4-pole low-pass with its output 11 dB
+    above a full-scale input.
 
     TODO:
     - Band-pass (2nd/4th order) and both phasers measure 7 and 14 dB quieter
@@ -98,6 +115,7 @@
 namespace {
 
 constexpr double DB_PER_STEP = 0.375;
+constexpr double LEVEL_LINEAR_ZERO = 196.0;   // above the knee (about 219) the amplitude is proportional to level - this
 constexpr u16 RISE_RATE = 5 << 8;   // 8.8 steps per sample: 255 steps in about 1 ms
 
 constexpr u16 fall_rate(u16 latch)
@@ -115,6 +133,8 @@ constexpr double CODES_PER_OCTAVE = 16.0;
 
 constexpr u8 GAIN_UNITY = 0xf2;                 // +$24 second byte
 constexpr double GAIN_DB_PER_STEP = 0.75;
+constexpr double GAIN_CUTOFF_SLOPE = 0.224;     // dB per step per unit of cutoff, from the pivot below
+constexpr double GAIN_CUTOFF_PIVOT = 0.78;
 
 struct polynomial { double b1, b2, v; };
 
@@ -142,7 +162,7 @@ emu_hchip_device::emu_hchip_device(const machine_config &mconfig, const char *ta
 
 void emu_hchip_device::device_start()
 {
-	m_stream = stream_alloc(NUM_CHANNELS, 2, clock() / 1024);
+	m_stream = stream_alloc(NUM_CHANNELS + 2, 2, clock() / 1024);
 	build_gain_table();
 
 	save_item(NAME(m_regs));
@@ -184,13 +204,19 @@ void emu_hchip_device::device_post_load()
 
 void emu_hchip_device::build_gain_table()
 {
-	// level 0 is off; above it, 0.375 dB per step below 0 dB at 255
+	// level 0 is off; up to LEVEL_KNEE, 0.375 dB per step; above it the amplitude is linear in
+	// (level - LEVEL_LINEAR_ZERO), joining with the same slope; 1.0 at 255
+	const double knee = LEVEL_LINEAR_ZERO + 20.0 / (DB_PER_STEP * std::log(10.0));
+	const auto curve = [knee] (double steps)
+	{
+		if (steps >= knee)
+			return (steps - LEVEL_LINEAR_ZERO) / (knee - LEVEL_LINEAR_ZERO);
+		return std::pow(10.0, (steps - knee) * DB_PER_STEP / 20.0);
+	};
+	const double top = curve(255.0);
 	m_gain[0] = 0.0f;
 	for (int i = 1; i < (1 << GAIN_BITS); i++)
-	{
-		const double steps = double(i) / (1 << (GAIN_BITS - 8));
-		m_gain[i] = float(std::pow(10.0, (steps - 255.0) * DB_PER_STEP / 20.0));
-	}
+		m_gain[i] = float(curve(double(i) / (1 << (GAIN_BITS - 8))) / top);
 }
 
 void emu_hchip_device::update_filter(int ch)
@@ -238,7 +264,9 @@ void emu_hchip_device::update_filter(int ch)
 
 	const u32 gain_word = reg32(ch, 0x24);
 	const int gain_code = (gain_word == WORD_UNUSED) ? GAIN_UNITY : int((gain_word >> 16) & 0xff);
-	m_filter_gain[ch] = float(std::pow(10.0, (gain_code - GAIN_UNITY) * GAIN_DB_PER_STEP / 20.0));
+	const int gain_steps = GAIN_UNITY - gain_code;
+	const double gain_db = -gain_steps * (GAIN_DB_PER_STEP - GAIN_CUTOFF_SLOPE * (x - GAIN_CUTOFF_PIVOT));
+	m_filter_gain[ch] = float(std::pow(10.0, gain_db / 20.0));
 
 	LOGFILTER("ch%02d cutoff %d%s gain %d: %08x %08x %08x %08x %08x %08x\n", ch, cutoff, normalise_all ? " (DC all)" : "", gain_code - GAIN_UNITY,
 			reg32(ch, 0x00), reg32(ch, 0x04), reg32(ch, 0x10), reg32(ch, 0x14), reg32(ch, 0x20), gain_word);
@@ -307,6 +335,9 @@ void emu_hchip_device::write(offs_t offset, u16 data, u16 mem_mask)
 
 void emu_hchip_device::sound_stream_update(sound_stream &stream)
 {
+	stream.copy(0, CASCADE_INPUT);
+	stream.copy(1, CASCADE_INPUT + 1);
+
 	for (int ch = 0; ch < NUM_CHANNELS; ch++)
 	{
 		u16 level[2] = { m_level[ch][0], m_level[ch][1] };
@@ -343,4 +374,8 @@ void emu_hchip_device::sound_stream_update(sound_stream &stream)
 		m_level[ch][0] = level[0];
 		m_level[ch][1] = level[1];
 	}
+
+	for (int s = 0; s < 2; s++)
+		for (int i = 0; i < stream.samples(); i++)
+			stream.put(s, i, std::clamp<sound_stream::sample_t>(stream.get_output(s, i), -MIX_FULL_SCALE, MIX_FULL_SCALE));
 }

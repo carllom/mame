@@ -460,10 +460,10 @@ void e6400_state::mem_map(address_map &map)
 void e6400_state::cpuspace_map(address_map &map)
 {
 	// MC68EC020 CPU space: 24-bit address bus → mask to 0xFFFFFF
-	// Autovectors for all levels, MFP gets level-6 IACK slot
-	// Level N IACK address = 0xfffff1 + N*2; level 6 → 0xfffffd
+	// Autovectors for all levels, MFP gets level-3 IACK slot
+	// Level N IACK address = 0xfffff1 + N*2; level 3 → 0xfffff7
 	map(0xfffff0, 0xffffff).m(m_maincpu, FUNC(m68ec020_device::autovectors_map));
-	map(0xfffffd, 0xfffffd).r(m_mfp, FUNC(mc68901_device::get_vector));
+	map(0xfffff7, 0xfffff7).r(m_mfp, FUNC(mc68901_device::get_vector));
 }
 
 void e6400_state::gchip_sample_map(address_map &map)
@@ -525,12 +525,17 @@ void e6400_state::e6400(machine_config &config)
 
 	// H-chips — voice filter and volume; each G-chip feeds one for its odd voices and one for its even
 	// voices, channel ((v >> 1) & 1) << 4 | ((v >> 2) - 1) & 15 as EOS addresses them (table at 0x05082C)
+	// The H-chips are chained (CSCDI/CSCDO) and the last one's DACD feeds the DACs; the speaker's
+	// full scale is the mix's saturation level
 	for (int h = 0; h < 4; h++)
-	{
 		EMU_HCHIP(config, m_hchip[h], 45.1584_MHz_XTAL);
-		m_hchip[h]->add_route(0, "speaker", 1.0, 0);
-		m_hchip[h]->add_route(1, "speaker", 1.0, 1);
+	for (int h = 0; h < 3; h++)
+	{
+		m_hchip[h]->add_route(0, m_hchip[h + 1], 1.0, emu_hchip_device::CASCADE_INPUT);
+		m_hchip[h]->add_route(1, m_hchip[h + 1], 1.0, emu_hchip_device::CASCADE_INPUT + 1);
 	}
+	m_hchip[3]->add_route(0, "speaker", 1.0 / emu_hchip_device::MIX_FULL_SCALE, 0);
+	m_hchip[3]->add_route(1, "speaker", 1.0 / emu_hchip_device::MIX_FULL_SCALE, 1);
 	for (int g = 0; g < 2; g++)
 		for (int v = 0; v < emu_gchip_device::NUM_VOICES; v++)
 			m_gchip[g]->add_route(v, m_hchip[(g << 1) | (~v & 1)], 1.0, (((v >> 1) & 1) << 4) | (((v >> 2) - 1) & 15));
@@ -564,7 +569,9 @@ void e6400_state::e6400(machine_config &config)
 	//   GP7 = SCCINT (SCC Z85C30, active falling edge)
 	MC68901(config, m_mfp, 16_MHz_XTAL / 4); // 4 MHz — 16 MHz XTAL ÷4 via HC393 Q1
 	m_mfp->set_timer_clock(16_MHz_XTAL / 4);
-	m_mfp->out_irq_cb().set_inputline(m_maincpu, M68K_IRQ_6); // IPL6 (assumed; IACK at 0xfffffffd)
+	// MFP IRQN drives IPL1N and IPL0N (SK524 sheet 3), so it interrupts at level 3; EOS's MIDI transmit
+	// queue (0x3F03E) relies on that, masking to IPL 3 between its first SCC write and setting its busy flag
+	m_mfp->out_irq_cb().set_inputline(m_maincpu, M68K_IRQ_3);
 
 	LM24014H(config, m_lcd, 0);
 	m_lcd->set_fs(0); // font size 6x8
