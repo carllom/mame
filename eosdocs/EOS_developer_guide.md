@@ -658,7 +658,7 @@ Each voice occupies 0x40 bytes (32 word registers). Voice N starts at G-chip bas
 
 | Offset | Size | R/W | Init | Name | Description |
 |--------|------|-----|------|------|-------------|
-| +$00 | 32-bit | R/W | 0 | VOICE_CTRL | Voice control/status. Bit 12 = oscillator phase flag (determines register write order in `gchip_write_voice`). Value 0x1800 = enabled+running; 0x1000 = disabled. |
+| +$00 | 32-bit | R/W | 0 | VOICE_CTRL | Voice control/status. Bit 12 = oscillator phase flag (determines register write order in `gchip_write_voice_loop_regs`). Value 0x1800 = enabled+running; 0x1000 = disabled. |
 | +$04 | 32-bit | R/W | 0 | VOICE_RATE_LO | Sample rate low portion. Written by `gchip_compute_sample_rate`. Cleared (0x80000) on silence. Set to 0 on voice start. |
 | +$08 | 32-bit | R/W | — | VOICE_OSC_ACC | Oscillator accumulator / sample address. Bits[25:0] = 26-bit value. Written **ones'-complemented** (`not.l`). Upper 6 bits (31:26) preserved via read-modify-write. Written by `gchip_compute_sample_rate` as rate mid-portion. |
 | +$0C | 32-bit | W | — | VOICE_END_ADDR | Oscillator end address / loop length. Written **ones'-complemented** (`not.l`). In one-shot mode: end sample address. In loop mode: loop length. |
@@ -735,9 +735,9 @@ Iterates all voices (64 or 128 based on `channel_count`), writing per voice:
 
 #### Voice Update — `voice_update_hardware` (0x08318E)
 
-Called per-tick from the voice state machine. Computes pitch, calls `gchip_compute_sample_rate` for rate register programming, then calls `gchip_write_voice` for the oscillator address/trigger update. Handles voice release states (0, -1, -2).
+Called per-tick from the voice state machine. Computes pitch, calls `gchip_compute_sample_rate` for rate register programming, then calls `gchip_write_voice_loop_regs` for the oscillator address/trigger update. Handles voice release states (0, -1, -2).
 
-#### Voice Hardware Write — `gchip_write_voice` (0x022EC0)
+#### Voice Hardware Write — `gchip_write_voice_loop_regs` (0x022EC0)
 
 The critical audio-path function. Disables interrupts, then:
 
@@ -860,7 +860,7 @@ For each configuration, writes test patterns (voice_N × 0x7531) to sample memor
 | `gchip_get_voice_base` | 0x022E18 | Returns gchip_reg_base + N × 0x40 |
 | `gchip_voice_set_oneshot` | 0x022E64 | Sets +$10 low byte to 0x98 (one-shot trigger) |
 | `gchip_set_sample_params` | 0x022EA0 | Computes gchip_sample_addr_hi/lo from parameter |
-| `gchip_write_voice` | 0x022EC0 | Main voice hardware write (oscillator address/trigger) |
+| `gchip_write_voice_loop_regs` | 0x022EC0 | Main voice hardware write (oscillator address/trigger) |
 | `gchip_voice_start_osc` | 0x0230AE | Voice oscillator start (full register setup) |
 | `gchip_compute_sample_rate` | 0x0231A8 | Pitch → rate register conversion via LUT |
 | `gchip_read_dac_counter` | 0x023336 | Read DAC counter from +$BC |

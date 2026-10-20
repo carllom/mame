@@ -399,9 +399,9 @@ Key registers (offsets from G-chip base):
 
 | Offset | R/W | Function |
 |---|---|---|
-| +$1C | R | **Sample data read** — reads 16-bit word from address set by +$30. Read twice to flush G-chip pipeline. |
-| +$1E | W | **Sample data write** — writes 16-bit word to address set by +$34. Auto-increments. |
-| +$30/+$32 | W | **Read address** — 32-bit word address written via `move.l`. High word to +$30, low word to +$32 (M68K 16-bit bus splits 32-bit writes). Low word write triggers pipeline prime. |
+| +$1C | R | **Sample data read** through a one-word pipeline: each read returns the latch, then loads the word at the read address and increments the address. The first read after setting the address is stale, so EOS reads twice for one word (`wmem_readword`) and discards one before a block copy (0x223C2). |
+| +$1E | W | **Sample data write** — writes 16-bit word to address set by +$34, which increments: EOS sets the address once and then writes a whole block (0x223C2, used by the SDS receive). |
+| +$30/+$32 | W | **Read address** — 32-bit word address written via `move.l`. High word to +$30, low word to +$32 (M68K 16-bit bus splits 32-bit writes). Bit 29 is set by EOS's sound-memory pointer convention (bit 30 of the byte pointer) and isn't part of the address. |
 | +$34/+$36 | W | **Write address** — 32-bit word address written via `move.l`. High word to +$34, low word to +$36. |
 | +$3E | R/W | **Global control / DMA mode** — write: 0x39=forward DMA (normal), 0x09=reverse DMA, 0x33/0x3C=other modes. Read: bit 11 and bit 12 are status flags. |
 | +$BC | R | **DAC counter** — 32-bit timer/counter for measuring DAC output frequency. |
@@ -445,7 +445,18 @@ The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interf
 - A 128 MB sample memory address space (27-bit byte address, 16-bit data, big-endian)
 - Side-effect handling for sample read/write registers and SIMM config registers
 
-Both SIMM detection and channel detection pass. Boot displays "128mb of Sound Memory Installed" and "128 Channel Card Installed". Sound generation is not yet implemented.
+Both SIMM detection and channel detection pass. Boot displays "128mb of Sound Memory Installed" and "128 Channel Card Installed".
+
+Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output. The H-chip (filter, volume, pan) isn't emulated, so the driver mixes all voices at a fixed gain and the device mutes a voice once EOS has freed it (+$10 bits 31–16 = 0). The output rate follows CSWCR2 SCLKSEL (45.1584 MHz for 44.1 kHz, 49.152 MHz for 48 kHz, ÷ 1024).
+
+Checked against the hardware recordings (2026-10-20) by loading the same test samples into MAME over MIDI (SDS dump, then remote edit: New Voice in preset 0, sample, original key 69, MASTER_OUTPUT_CLOCK = 48 kHz):
+- The SDS upload lands in sample memory bit-exact, one word in, as on the hardware; the voice registers EOS writes match the hardware analysis (loop start 999, loop end 3998 relative to the sample).
+- The rates match the hardware sessions (3766 at note 69, 7532 at note 81), and pass lengths equal 3000/step to 0.1 ppm.
+- The seam test gives −2.000 at step 0.92 (hardware −1.98) and the binary wrap-fetch glitch at steps 1.16 and 1.30, with the same phase window as the hardware.
+- A single word's area against phase (the timing impulse's spread) matches the hardware for selects 1–3: 0.9/0.8 % at step 1.30, 16.0/15.7 % at 1.84, 51/48 % at 2.19, 43/43 % at 2.60. This needed select 1 to be select 0 stretched 1.08×; the fast-impulse extraction of select 1 gave 5.3 % at step 1.30.
+- Open: at steps 1.84–3.09 the seam excess against phase differs from the hardware by 0.4–0.6 rms (same range and shape class), which points at the exact glitch timing (which tap is the fetch pointer).
+
+MIDI in needed two driver fixes: the SCC registers are B ctrl, B data, A ctrl, A data at 0x4C0000/2/4/6 (EOS writes its WRn sequences to +4), and SCCINT (/INT, open drain) must be inverted into MFP GP7 and idle high.
 
 ### Sound Memory Detection (`sub_24210`, called from `bootSystem`)
 
@@ -490,12 +501,12 @@ Each G-chip manages 64 voices. Per-voice registers are mapped at a stride of **0
 | Offset | Size | R/W | Init | Function |
 |--------|------|-----|------|----------|
 | +$00 | 32-bit | R/W | 0 | **VOICE_CTRL** — Voice control/status. Bit 12 = oscillator phase flag (determines write order). 0x1800 = enabled+running, 0x1000 = disabled. |
-| +$04 | 32-bit | R/W | 0 | **VOICE_RATE_LO** — Sample rate low portion. Written by `gchip_compute_sample_rate`. 0x80000 = silence. |
-| +$08 | 32-bit | R/W | — | **VOICE_OSC_ACC** — Oscillator accumulator / sample address. Bits[25:0] = 26-bit value (written ones'-complemented). Upper 6 bits preserved via read-modify-write. Also written as rate mid by `gchip_compute_sample_rate`. |
-| +$0C | 32-bit | W | — | **VOICE_END_ADDR** — Oscillator end address / loop length. Ones'-complemented before write. |
-| +$10 | 32-bit | R/W | 0 | **VOICE_MODE** — Oscillator mode/control. Written by `gchip_compute_sample_rate` as rate high/mode. Value 8 = one-shot. Low byte 0x98 = one-shot trigger. 0x80000 = silence. |
-| +$14 | 32-bit | W | — | **VOICE_TRIGGER** — Oscillator trigger / start address. Bit 26 (0x4000000) = start/enable flag. Written directly (not inverted). |
-| +$18 | 32-bit | W | — | **VOICE_PARAM** — Mode parameter. Written during voice start. Read for DAC frequency computation. |
+| +$04 | 32-bit | R/W | 0 | **VOICE_RATE** — bits 31–16 = rate (step = rate/4096), written by `gchip_compute_sample_rate`; 0 at voice start. EOS reads it back and sums it over all voices as a load estimate (0x8677C). When it frees a voice it writes bits 9–0 (0x200; meaning unknown, `FUN_000226a0`). 0x80000 = silence. |
+| +$08 | 32-bit | R/W | — | **Loop/end address, buffer A**. Bits[25:0] hold a word address, written ones'-complemented. Bits[31:26] are preserved by read-modify-write; bits 26–28 are the **interpolation kernel select**, written by `gchip_compute_sample_rate` (see Voice Interpolation). |
+| +$0C | 32-bit | W | — | **Loop/end address, buffer B**, ones'-complemented. At voice start it gets ~(loop end), or ~(end) for a one-shot. `gchip_write_voice_loop_regs` (0x22EC0) writes a new loop end to +$08 or +$0C depending on +$00 bit 12, so the two are double-buffered (see Voice Loop Playback). |
+| +$10 | 32-bit | R/W | 0 | **VOICE_MODE** — bits 31–16 get the rate too while the voice is in use (`gchip_compute_sample_rate`); EOS clears them when it frees the voice after the release (0x000000A8, `FUN_000226a0`). Bits 15–0: mode; low byte 0x98 = one-shot (`gchip_voice_set_oneshot`). 0x80000 = silence. |
+| +$14 | 32-bit | W | — | **Loop start** word address, not inverted: the first word played after a wrap (EOS writes the sample's loop start − 1 for bit-3 samples). 8 means park: a one-shot voice continues into the silent loop at words 8–0x1C. Bit 26 (0x4000000) is set at voice start and toggled together with the +$08/+$0C buffer choice, so it appears to select the active loop-end buffer. |
+| +$18 | 32-bit | W | — | **Start** word address (sample start + start offset), written at voice start. |
 | +$1C | 16-bit | R | — | Sample data read (chip-wide — overlaps voice 0's register space). |
 | +$1E | 16-bit | W | — | Sample data write (chip-wide). |
 | +$20–$2E | 16-bit ×8 | W | 0 | **VOICE_FILT0–7** — Filter/volume registers. Cleared by `gchip_clear_voice_filter_regs` during init and voice start. |
@@ -507,15 +518,15 @@ Each G-chip manages 64 voices. Per-voice registers are mapped at a stride of **0
 - Registers +$1C/+$1E/+$30-$36 are chip-wide sample memory access registers that overlap voice 0's register space. Voice 0 may be reserved or these registers may be dual-function.
 - For stereo playback, two consecutive voices (N and N+1) are paired. The second voice is at offset +$40 from the first: writes to +$48/+$4C/+$54 correspond to the second voice's +$08/+$0C/+$14.
 
-### Voice Oscillator Write — `gchip_write_voice`
+### Voice Oscillator Write — `gchip_write_voice_loop_regs`
 
-This is the critical function that writes computed voice parameters to the G-chip hardware. It is called from `sub_8318E` (pitch/volume update) during each voice tick.
+Writes the voice's loop registers (loop start +$14, and the inactive loop-end buffer +$08/+$0C) from the staging struct; formerly named `gchip_write_voice`. It is called from `sub_8318E` (pitch/volume update) during each voice tick.
 
 **Input:** Pointer to a voice oscillator state structure (offset $32 within voice register block):
 - +$00: G-chip voice A hardware pointer (address: CSG1CHIP + voice_N × 0x40)
 - +$04: G-chip voice B hardware pointer (for stereo pair)
-- +$10: Oscillator mode value (compared to 8 for mode selection)
-- +$14: Oscillator accumulator/address value
+- +$10: Loop start word address (8 = park, i.e. one-shot); from `gchip_prepare_oscillator`
+- +$14: Loop end word address (written complemented to +$08 or +$0C)
 - +$18: Voice mode: 0=inactive, 1/2=active stereo modes, 3=disabled
 - +$19: Secondary flag
 - +$1A: Dirty flag (cleared after hardware write)
@@ -537,6 +548,144 @@ The **write order** depends on bit 12 of the voice status register at +$00. When
 - `gchip_sample_addr_lo` (at $F00A5C): Initialized to 0x1C by `gchip_set_sample_params`. Used as the +$0C base value.
 - `gchip_set_sample_params` computes: `gchip_sample_addr_hi = (offset >> 1) + 8`, `gchip_sample_addr_lo = gchip_sample_addr_hi + 0x14`.
 
+### Voice Pitch — Measured on Hardware
+
+Measured 2026-10-20 on a real e6400 (EOS 3.00) at both MASTER_OUTPUT_CLOCK settings, 48 kHz and 44.1 kHz. Both match the firmware's `gchip_compute_sample_rate` (0x0231A8) to within 0.16 cents on every rung.
+
+**What the G-chip does:** a voice steps through its sample at **rate / 4096 source samples per output sample**, where `rate` is the 16-bit value EOS writes to the upper half of +$04 and +$10. At 48 kHz output, a 44.1 kHz sample needs rate 0.91875 × 4096 = 3763.2 to play at its own pitch. The largest rate, just under 0x10000, is a 16× step.
+
+**What EOS computes** (`gchip_compute_sample_rate`):
+
+- The pitch word has 768 units per octave (64 per semitone). `u = pitch − 0x17F` at 44.1 kHz output, or `pitch − 0x1DD` at 48 kHz. The difference, 94 units, is 1200·log2(48000/44100) = 146.7 cents.
+- `rate = PITCH_RATE_LUT[u mod 768]` (0x022818, 768 words from 0x1000 to 0x1FF8, i.e. 4096·2^(i/768)). It is shifted **right** by the number of octaves `u` lies below 0, and **left** by the octaves above, **capped at 3**.
+- A 44.1 kHz sample at its original key has pitch word 0x180. At 48 kHz that gives u = −93, so rate = LUT[675] >> 1 = 0x1D6C >> 1 = **3766**.
+- The same function also writes `table[rate >> 10] << 13` into bits 26–31 of +$08. This is the **interpolation kernel select** (see [Voice Interpolation](#voice-interpolation--measured-on-hardware)). The table is in DRAM at $F009F8, copied at boot from ROM 0x0F99F8 with the rest of `.data` (ROM 0x0F9000 → $F00000). Its entries for `rate >> 10` = 0…4 are 0, then 0x2000 for 5–6, 0x4000 for 7–8, 0x6000 for 9–10, 0x8000 for 11–12, 0xA000 for 13–14 and 0xC000 from 15 up. That puts the values 0–6 in bits 26–28.
+
+**Consequences, all reproduced by EOS itself.** A G-chip model only needs rate/4096; it must not correct any of these:
+
+At **48 kHz output** (session `2026-10-20_e6400_note-2`):
+
+| Transposition (semitones) | rate | Measured (cents vs ideal) | Model (cents) | Cause |
+| --- | --- | --- | --- | --- |
+| −69 | 69 | −22.9 | −23.1 | `>> 6` truncation |
+| −60 | 117 | −8.7 | −8.9 | `>> 5` truncation |
+| −48 | 235 | −1.4 | −1.5 | `>> 4` truncation |
+| −36 | 470 | −1.5 | −1.5 | `>> 3` truncation |
+| −24 | 941 | +0.4 | +0.4 | `>> 2` truncation |
+| −12 … +48 | 1883 … 60256 | +1.29 | +1.29 | LUT rounding: 3766 vs 3763.2 |
+| +49 | 63840 | +1.32 | +1.31 | |
+| +50 and up | 33816 … | −1200 | −1200 | left-shift cap of 3: the pitch drops an octave |
+
+At **44.1 kHz output** (session `2026-10-20_e6400_note-3`), the original key falls at u = 1, so rate = LUT[1] = 0x1003 = 4099 against the ideal 4096. 0x1003 has only its two lowest bits set, so the right shifts truncate to exact powers of two, and the low notes come out *more* accurate than at 48 kHz. 16× of a 44.1 kHz sample needs rate 65536, so the wrap moves down two semitones:
+
+| Transposition (semitones) | rate | Measured (cents vs ideal) | Model (cents) | Cause |
+| --- | --- | --- | --- | --- |
+| −69 | 76 | −2.3 | −2.5 | `>> 6` truncation |
+| −60 … −24 | 128 … 1024 | 0.00 … +0.12 | 0.00 | truncation lands on exact powers of two |
+| −12 | 2049 | +0.85 | +0.85 | `>> 1` truncation of 4099 |
+| 0 … +36 | 4099 … 32792 | +1.27 | +1.27 | LUT rounding: 4099 vs 4096 |
+| +47 | 61912 | +1.52 | +1.52 | |
+| +48 and up | 32792 … | −1199 | −1199 | left-shift cap of 3: the pitch drops an octave |
+
+At both clocks the mid-range rungs agree with the model to 0.01 cents, so the e6400's audio clock and the recording interface's agree to within about 6 ppm.
+
+**How it was measured:**
+
+- The tool was samplebot (`sds_send`, `probe`), recording the main outputs at 48 kHz/24 bit; the data is in session `2026-10-20_e6400_note-2`.
+- The test sample was a −6 dBFS 441 Hz sine (100 words per period, 4400 words, 44.1 kHz) uploaded by MIDI Sample Dump. Its forward loop ran over words 1000–3999 (30 whole periods).
+- It was played from a one-voice scratch preset: original key 69, filter type 1 with cutoff 255 and Q 0, all tuning 0, velocity 127.
+- Pitch was taken from zero-crossings over 2.5 s of each note.
+
+### Voice Interpolation — Measured on Hardware
+
+Measured 2026-10-20 at 48 kHz output (sessions `2026-10-20_e6400_note-4` and `…note-6`) and checked at 44.1 kHz (`…note-5`). The full method, validation, error sources and reproduction steps are in [e6400_interpolation_measurement.md](e6400_interpolation_measurement.md). Scripts and data are in [measurements/](measurements/).
+
+**The interpolator is a 6-tap low-pass FIR**, not linear interpolation. It uses **one of seven kernels, selected by the step**, through bits 26–28 of +$08.
+
+- **Shape:** each output sample is a weighted sum of the source words within ±3 words of the read position. The kernels are symmetric. The select-0 kernel is windowed-sinc-like, with zero-crossings at ±0.86, ±1.73 and ±3.05 words; higher selects widen the main lobe.
+- **Not interpolating:** because the zero-crossings are not at ±1, ±2, the output does not reproduce the source words even at integer positions. With select 0 the taps there are 1.000, −0.11, +0.07, 0, which sum to 0.92.
+- **Phase resolution:** a slow impulse trace (59 output samples per source word) shows no phase stair-steps. The fractional position is resolved to at least about 64 phases, or the coefficients are interpolated.
+- **Output clock:** the select-0 kernel is the same at 44.1 kHz output (max difference 0.006).
+
+**Kernel select.** EOS sets the select from `rate >> 10` (see [Voice Pitch](#voice-pitch--measured-on-hardware)), on a fixed grid of 0.5 in step. Each kernel was measured with fast-impulse recordings (method in the measurement record, section 14):
+
+| Select | rate | Step | Width vs select 0 | First zero-crossing (words) | DC gain vs select 0 | Measured at steps |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | < 5120 | < 1.25 | 1.00 | 0.86 | 1.000 | 0.017, 0.034, 0.92 |
+| 1 | 5120–7167 | 1.25–1.75 | 1.08 | 0.93 | 1.026 | 1.30, 1.55 |
+| 2 | 7168–9215 | 1.75–2.25 | 1.26 | 1.20 | 0.925 | 1.84, 2.19 |
+| 3 | 9216–11263 | 2.25–2.75 | 1.51 | 1.48 | 0.962 | 2.32, 2.45, 2.60 |
+| 4 | 11264–13311 | 2.75–3.25 | 1.79 | 2.28 | 1.037 | 2.75, 2.92, 3.09 |
+| 5 | 13312–15359 | 3.25–3.75 | 2.07 | 3.07 | 1.037 | 3.28, 3.47, 3.68 |
+| 6 | ≥ 15360 | ≥ 3.75 | 2.40 | 3.55 | 1.035 | 4.13, 5.51, 7.36 |
+
+- "Width" is the factor S for which H(ν·S) best fits the select's response, where H is the select-0 response. The fit is only a 1.5–5.5 dB-rms approximation, so use the measured kernels: `measurements/g_chip_kernel.csv` for select 0 and `measurements/g_chip_kernel_fast_sel1.csv` … `sel6.csv` for the others.
+- Every kernel stays within about ±3.2 words, so all seven are 6-tap. Each is normalised to about the same DC gain.
+- Within a select the kernel doesn't change with the step: notes sharing a select agree to 0.002–0.027 (selects 1–6, two or three steps each).
+- Steps below 1.25 use select 0 and alias when above 1. Each higher kernel cuts off around 0.6–0.7 × the source-rate Nyquist of its step range, so pitched-up voices still alias somewhat. Select 6 is the widest kernel, so steps above about 4.9 alias more and more.
+
+**Frequency response of select 0** (× source sample rate). The passband and transition band come from the impulse trace; the stopband comes from the images of a 1/8-rate sine played at 9 transpositions (notes 33–87), which reach a −110 dBc noise floor:
+
+| 0.25 | 0.375 | 0.5 | 0.625 | 0.75 | 0.875 | 1.125 | 1.875 | 3.125 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| −0.7 dB | −0.1 | −2.6 | −10.8 | −27.6 | −63 … −68 | −76 … −90 | −78 … −89 | −70 … −77 |
+
+For comparison, linear interpolation would put the first image pair at −34 / −38 dBc and no interpolation at −17 / −19 dBc.
+
+**Select-0 kernel h(t)** (t in source words, normalised to h(0) = 1, mean of h(±t), zero beyond |t| ≈ 3.2; full resolution in `measurements/g_chip_kernel.csv`):
+
+| t | +0 | +1/8 | +2/8 | +3/8 | +4/8 | +5/8 | +6/8 | +7/8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | +1.0000 | +0.9630 | +0.8593 | +0.7010 | +0.5115 | +0.3140 | +0.1323 | −0.0140 |
+| 1 | −0.1125 | −0.1646 | −0.1717 | −0.1449 | −0.0992 | −0.0440 | +0.0068 | +0.0458 |
+| 2 | +0.0690 | +0.0766 | +0.0719 | +0.0595 | +0.0432 | +0.0279 | +0.0154 | +0.0065 |
+| 3 | +0.0015 | −0.0010 | −0.0014 | −0.0011 | −0.0005 | +0.0002 | +0.0002 | +0.0002 |
+
+**How it was measured** (in brief):
+
+- A sample of isolated +16384 impulses, 500 words apart, was played at note 0 with original key 69 (rate 69, step 69/4096). That traces the kernel at 59.4 output samples per source word.
+- Six traces were averaged. The analog output's AC-coupling offset was removed as a baseline that follows the kernel's cumulative area.
+- The result was cross-checked with a second trace at note 12 and with the images of a −6 dBFS sine of exactly 8 words per period.
+
+**Measurement pitfalls:**
+
+- EOS pulls SDS loop points that lie within about 6 words of the sample's ends inwards (0–4399 became 6–4394). That breaks a whole-period loop: it clicks, adds loop-rate sidebands, and here added +4.3 cents. Keep loops inside the sample.
+- Using the front panel changes the current preset and overrides MIDI Program Changes (the e6400 transmits `B0 00 00`, `B0 20 00`, `Cn pp` when it does). Leave the panel alone during a ladder.
+
+### Voice Loop Playback — Measured on Hardware
+
+Measured 2026-10-20 at 48 kHz output (session `2026-10-20_e6400_note-5`), with a test sample whose loop body is silent apart from one timing impulse, and with ±16384 markers in the six words on either side of the loop. Details are in [e6400_interpolation_measurement.md](e6400_interpolation_measurement.md), section 15.
+
+- **The interpolator wraps cleanly.** At the loop point the six taps read across the seam as if the loop were one continuous, repeating stream of words. The words after the loop end are never read, and no tap reads raw memory before the loop start after the wrap. A deconvolution of the seam (note 12) fits a single periodic word stream to the noise level.
+- **The fractional position carries over** across the wrap. Pass lengths are non-integer and average exactly loop length / step output samples (to within 1.8 ppm, the clock offset between the e6400 and the recorder). The phase isn't reset at the loop start.
+- **SDS loop points play 2 words early.** A loop sent by MIDI Sample Dump as 1000–3999 (forward, length 3000) plays words 998–3997 of the data as sent. Steps of 0.034, 0.92 and 0.97 agree. The firmware accounts for both words (see below); the chip itself adds no offset.
+- **Wrap-fetch glitch at steps above 1.** When an output sample's step crosses the loop end, the chip subtracts the loop length from *every* word it fetches in that step. With a 2-word advance that skips the loop-end word, that word is read from one loop length earlier (sent 997 instead of 3997). That happens in a fraction 1 − 1/step of the wraps, and only for one pass at a time; the loop length is unaffected. It was identified with two marker samples whose values differ: each glitched pass is off by exactly the difference of those two words (+1.00 and −1.24 timing-impulse units), and nothing else fits both. Above step 2, two words can be affected. Details: measurement record, section 15.
+- EOS writes no guard copies of the loop start after the loop end.
+
+**Where the 2 words come from (EOS 3.00 firmware).** A sample of N words received by SDS with loop LS–LE:
+
+1. **`rcv_dumpheader` (0x13C64) builds the sample header** from a 0x5C-byte template at ROM 0x01EAB8 ("Untitled Sample", 44100 Hz, flag byte +0x3A = 0x0E: bit 3 and both channel bits set):
+   - start (+0x14) = 0 and end (+0x1C) = 2N − 2 (byte offsets);
+   - loopStart (+0x24) = 2·LS and loopEnd (+0x2C) = 2·LE;
+   - loop mode in +0x3A bits 30–31 = SDS loop type + 1, channel bits 25–26 = left only;
+   - +0x3A byte bit 4 set; byte bit 3 stays set from the template.
+   - The rate (+0x34) is 1e9 / period rounded down: SDS's 22676 ns gives 44099 Hz, which the front panel shows.
+2. **The data lands one word in.** It's written from byte +2 of the channel's memory (+0x3C), so sent word k is stored word k + 1, and stored word 0 is the zero the SDS readback shows. The loop pointers don't allow for this, so they point at **sent words LS − 1 and LE − 1**. That's one word of the shift. The last sent word falls past `end`.
+3. **After the last packet,** `sds_rcv_zero_sample_ends` (0x13FD6) zeroes stored words 0–1 and the last two stored words. `sample_clamp_loop_channel` (0x1F05A, called per channel by `sample_clamp_loops`) clamps loopStart to ≥ start + 6 words (and < end − 2) and loopEnd to ≤ end − 5 words (and > start + 2), and zeroes guard words around the sample. That's the earlier "0–4399 → 6–4394".
+4. **At voice start, `gchip_prepare_oscillator` (0x1E94E, called from `voice_update_pitch`) converts the pointers into register values**, and `gchip_voice_start_osc` (0x230AE) writes them (word addresses, (pointer + $F0095A + channel offset) >> 1):
+   - start → +$18;
+   - loopStart → +$14, minus 1 if +0x3A byte bit 3 is set (it is for SDS samples; that's the other word);
+   - loopEnd − 1 → +$0C (complemented).
+   - A non-looping sample gets 8 in +$14 and `end` in +$0C. 8 is the "park" sentinel: the voice then loops a silent region at sound-memory words 8–0x1C ($F00A58/$F00A5C).
+5. **For the SDS loop 1000/3999** that gives +$14 = stored word 999 and loop end = stored word 3998. The measured loop is stored 999–3998.
+
+So **the chip plays from +$14 through the loop-end register inclusive** and then wraps back to +$14: (loop end) − (+$14) + 1 words.
+
+- **For MAME:** EOS produces both words of the shift itself. The G-chip model loops from the +$14 word through the loop-end register's word inclusive, with no offset of its own.
+- **Caveat:** this assumes the chip's word address W reads the word the CPU wrote at byte 2W. A constant offset there would also move the start address, and these measurements can't see it.
+- **Bit 3 (+0x3A byte, 0x08)** means "loop start register = loop start − 1". New samples get it from the template (SDS receive, `get_new_sample_header_template`), and recording (`sampling_build_sample_header` 0x32374), the importers (0x414D0, 0x6EC02, 0xF314E, 0xF5D24), the Sample Edit Loop tool (`dsp_loop_exec` 0x14B26, and its page `ui_dsp_range_page__ctor` 0xBE4B2) all set it; `read_sample_header` takes it from disk. Nothing in EOS 3.00 clears it, so only a sample loaded from disk without it loops one word later. Measured 2026-10-20 (session `2026-10-20_e6400_note-8`): running the Loop tool on an SDS sample changed nothing, because the bit was already set; moving its loop start by one word on the panel moved the played loop by exactly one word.
+- **Loop tool display:** the Sample Edit Loop page shows start = stored loop start − 4 words (996 for SDS 1000) and end exclusive (start + length, 3996); executing it writes the loop pointers back from those values (`dsp_loop_exec`). Only start and length are editable; the wheel moves start in large steps, the keypad sets it exactly.
+
 ### G-chip Helper Functions (Sample Memory Access)
 
 Functions in the 0x22xxx ROM area handle G-chip sample memory transfers:
@@ -555,7 +704,7 @@ Functions in the 0x22xxx ROM area handle G-chip sample memory transfers:
 | `gchip_set_forward_dma` | 0x0226EC | Silence voices + set +$3E=0x39 (forward DMA) |
 | `gchip_set_reverse_dma` | 0x022704 | Silence voices + set +$3E=0x09 (reverse DMA) |
 | `gchip_set_sample_params` | 0x022EA0 | Configure sample addressing parameters |
-| `gchip_write_voice` | 0x022EC0 | Voice oscillator hardware write (main audio path) |
+| `gchip_write_voice_loop_regs` | 0x022EC0 | Voice oscillator hardware write (main audio path) |
 | `gchip_voice_start_osc` | 0x0230AE | Voice oscillator start (full register setup) |
 | `gchip_compute_sample_rate` | 0x0231A8 | Pitch → rate register conversion via LUT |
 
@@ -792,7 +941,7 @@ All pins configured as inputs (DDR=0x00). Active-edge register AER=0x0B selects 
 | GP4 | KCHPINT | PAL IT433 (K-chip) | Key scanner interrupt |
 | GP5 | EXPINT2 | Expansion bus | Expansion interrupt #2 |
 | GP6 | EXPINT1 | Expansion bus | Expansion interrupt #1 |
-| GP7 | SCCINT | AM85C80 SCC (Z85C30) | Serial controller interrupt |
+| GP7 | SCCINT | AM85C80 SCC (Z85C30) | Serial controller interrupt (/INT, active low, idles high; falling edge per AER) |
 
 Interrupt vector assignments (VR=0x48, vectors at 0x120+):
 - The ISR at CPU vector-table offset **0x120** (`ISR_User9_Timer`) is MFP vector 0 → system tick.

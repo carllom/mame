@@ -92,6 +92,8 @@
 #include "formats/pc_dsk.h"
 #include "imagedev/floppy.h"
 
+#include "speaker.h"
+
 
 namespace {
 
@@ -213,6 +215,10 @@ void e6400_state::machine_reset()
 
 	// Start K-chip scan timer at 200 Hz (5ms period)
 	m_kchip_scan_timer->adjust(attotime::from_hz(200), 0, attotime::from_hz(200));
+
+	// SCCINT (open-drain /INT) idles high; the SCC only reports changes, so the MFP's GP7 must start high
+	// or the first falling edge is never seen
+	m_mfp->i7_w(1);
 }
 
 void e6400_state::cr1_w(u16 data)
@@ -227,6 +233,14 @@ void e6400_state::cr1_w(u16 data)
 
 void e6400_state::cr2_w(u16 data)
 {
+	// SCLKSEL1/0 (bits 11/10) pick the audio clock: 0b11 = 45.1584 MHz (44.1 kHz output),
+	// 0b10 = 49.152 MHz (48 kHz), 0b01 = external (digital input, not emulated: kept at 44.1 kHz)
+	if ((data ^ m_cr2) & 0x0c00)
+	{
+		const XTAL clock = ((data & 0x0c00) == 0x0800) ? 49.152_MHz_XTAL : 45.1584_MHz_XTAL;
+		for (auto &gchip : m_gchip)
+			gchip->set_unscaled_clock(clock);
+	}
 	m_cr2 = data;
 }
 
@@ -413,11 +427,12 @@ void e6400_state::mem_map(address_map &map)
 	// 0x460000: CSHCHIP — H-chip digital filter IC413
 	map(0x480000, 0x48000f).rw(m_scsi, FUNC(ncr5380_device::read), FUNC(ncr5380_device::write)).umask16(0xff00); // CSHDC — AM85C80 SCSI (NCR5380)
 	map(0x4a0000, 0x4a0001).rw(m_scsi, FUNC(ncr5380_device::dma_r), FUNC(ncr5380_device::dma_w)).umask16(0xff00); // CSHDD — SCSI pseudo-DMA data port
-	// CSSCC — AM85C80 SCC (Z85C30); register order: B data, B ctrl, A data, A ctrl
-	map(0x4c0000, 0x4c0001).rw(m_scc, FUNC(scc85c30_device::db_r), FUNC(scc85c30_device::db_w)).umask16(0xff00);
-	map(0x4c0002, 0x4c0003).rw(m_scc, FUNC(scc85c30_device::cb_r), FUNC(scc85c30_device::cb_w)).umask16(0xff00);
-	map(0x4c0004, 0x4c0005).rw(m_scc, FUNC(scc85c30_device::da_r), FUNC(scc85c30_device::da_w)).umask16(0xff00);
-	map(0x4c0006, 0x4c0007).rw(m_scc, FUNC(scc85c30_device::ca_r), FUNC(scc85c30_device::ca_w)).umask16(0xff00);
+	// CSSCC — AM85C80 SCC (Z85C30); register order: B ctrl, B data, A ctrl, A data
+	// (EOS writes its WRn setup sequences to +4 and the data byte to +6, e.g. the MIDI loopback test at 0x21056)
+	map(0x4c0000, 0x4c0001).rw(m_scc, FUNC(scc85c30_device::cb_r), FUNC(scc85c30_device::cb_w)).umask16(0xff00);
+	map(0x4c0002, 0x4c0003).rw(m_scc, FUNC(scc85c30_device::db_r), FUNC(scc85c30_device::db_w)).umask16(0xff00);
+	map(0x4c0004, 0x4c0005).rw(m_scc, FUNC(scc85c30_device::ca_r), FUNC(scc85c30_device::ca_w)).umask16(0xff00);
+	map(0x4c0006, 0x4c0007).rw(m_scc, FUNC(scc85c30_device::da_r), FUNC(scc85c30_device::da_w)).umask16(0xff00);
 	// 0x4E0000: CSRFIFO — IDT7202 sampling FIFO
 
 	// Decoder #1 (A20=1, A17..A19 select) — 0x500000-0x5FFFFF
@@ -490,18 +505,28 @@ void e6400_state::e6400(machine_config &config)
 	m_scsi->irq_handler().set(m_mfp, FUNC(mc68901_device::i3_w)); // HDCINT → MFP GP3
 
 	// G-chip 1 — polyphony board sound engine (64 voices, up to 128 MB sample RAM)
-	EMU_GCHIP(config, m_gchip[0]);
+	// Audio clock: 45.1584 MHz or 49.152 MHz, selected by CSWCR2 (cr2_w); output rate = clock / 1024
+	SPEAKER(config, "speaker", 2).front();
+	EMU_GCHIP(config, m_gchip[0], 45.1584_MHz_XTAL);
 	m_gchip[0]->set_addrmap(0, &e6400_state::gchip_sample_map);
 
 	// G-chip 2 — second polyphony board sound engine (64 voices, up to 128 MB sample RAM)
-	EMU_GCHIP(config, m_gchip[1]);
+	EMU_GCHIP(config, m_gchip[1], 45.1584_MHz_XTAL);
 	m_gchip[1]->set_addrmap(0, &e6400_state::gchip_sample_map);
+
+	// Each voice goes through the H-chip (filter, volume, pan) on the way to the DACs; it isn't
+	// emulated yet, so every voice is mixed to both sides at a fixed gain
+	for (auto &gchip : m_gchip)
+	{
+		gchip->add_route(ALL_OUTPUTS, "speaker", 0.25, 0);
+		gchip->add_route(ALL_OUTPUTS, "speaker", 0.25, 1);
+	}
 
 	// AM85C80 SCC (Z85C30) — MIDI on channel A, AT keyboard on channel B
 	// PCLK = 8 MHz (AM85C80 pin 28, directly from 16 MHz XTAL ÷2 with HC393 Q0 on SK524)
 	// SCCINT → MFP GP7 (active falling edge)
 	SCC85C30(config, m_scc, 16_MHz_XTAL / 2); // 8 MHz PCLK
-	m_scc->out_int_callback().set(m_mfp, FUNC(mc68901_device::i7_w));
+	m_scc->out_int_callback().set(m_mfp, FUNC(mc68901_device::i7_w)).invert(); // /INT is active low
 
 	// MIDI OUT: SCC channel A TX → MIDI out port
 	m_scc->out_txda_callback().set("mdout", FUNC(midi_port_device::write_txd));
@@ -614,4 +639,4 @@ ROM_END
 
 
 //    YEAR  NAME   PARENT  COMPAT  MACHINE  INPUT  CLASS        INIT        COMPANY  FULLNAME               FLAGS
-SYST( 1996, e6400, 0,      0,      e6400,   e6400, e6400_state, empty_init, "E-mu",  "E-6400 Sampler", MACHINE_NOT_WORKING | MACHINE_NO_SOUND )
+SYST( 1996, e6400, 0,      0,      e6400,   e6400, e6400_state, empty_init, "E-mu",  "E-6400 Sampler", MACHINE_NOT_WORKING )
