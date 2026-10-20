@@ -447,7 +447,7 @@ The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interf
 
 Both SIMM detection and channel detection pass. Boot displays "128mb of Sound Memory Installed" and "128 Channel Card Installed".
 
-Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output into its H-chip channel, which applies the left/right volume (0.375 dB steps, glided as measured) and mixes to the stereo output; the H-chip filters are passed through (see [H-chip](#h-chip--voice-filter-and-volume)). The output rate follows CSWCR2 SCLKSEL (45.1584 MHz for 44.1 kHz, 49.152 MHz for 48 kHz, ÷ 1024).
+Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output into its H-chip channel, which applies the filter and the left/right volume (0.375 dB steps, glided as measured) and mixes to the stereo output (see [H-chip](#h-chip--voice-filter-and-volume)). The filter is modelled for the low-, high- and band-pass types (0–6) from the hardware measurements: state-variable sections with tabulated F and D against cutoff and Q. Rendering the measurement ladders in MAME matches the hardware to 0.2–0.8 dB rms for the 2-pole types and the 4-pole cutoff sweep. The 6-pole is within 2.3 dB, and the 4-pole at high Q up to 3 dB, worst in a narrow band at the resonance. Types 7–20 pass through. Both G-chips share the sample RAM (EOS writes a sample once, through G-chip 1). The output rate follows CSWCR2 SCLKSEL (45.1584 MHz for 44.1 kHz, 49.152 MHz for 48 kHz, ÷ 1024).
 
 Checked against the hardware recordings (2026-10-20) by loading the same test samples into MAME over MIDI (SDS dump, then remote edit: New Voice in preset 0, sample, original key 69, MASTER_OUTPUT_CLOCK = 48 kHz):
 - The SDS upload lands in sample memory bit-exact, one word in, as on the hardware; the voice registers EOS writes match the hardware analysis (loop start 999, loop end 3998 relative to the sample).
@@ -727,14 +727,14 @@ EOS keeps the base in `F3DD34` (= 0x460000) and adds `WORD_ARRAY_0005082C[voice]
 
 | Offset | R/W | Function |
 |---|---|---|
-| +$00–$24 | W | Long words at note start from the filter code (0x07C0xx): 0xFFCFFFCF pairs at +$00/$04, +$10/$14, +$20/$24 (also how `FUN_000509C8` clears a channel), 0x8408FFCF at +$00/$10 and 0x00F200F2 at +$24 for filter type 1. Probably filter state and coefficients |
+| +$00–$24 | W | Filter program: long words at +$00/$04, +$10/$14, +$20/$24 written at note start by the filter type's setup (0xFFCFFFCF = unused; `hchip_clear_filter_regs` 0x0509C8 writes it everywhere). The high byte of +$24 is a gain, 0xF2 = unity, about 0.75 dB per step. +$08/$0C, +$18/$1C, +$28/$2C are never written (probably the filter state). See **Filter** below |
 | +$34 / +$36 | R | Current left / right level, 8.8 fixed point in volume steps. `FUN_00050A44` returns the larger high byte; it feeds a voice level readout (`FUN_0008712A`) and an "all channels silent" check (`FUN_000871AC`) that gates a jack-sense read |
 | +$34 / +$36 | W | Set the current level (EOS writes 0 at init) |
 | +$3B | R | Reads back +$7B (`hchip_write_filter_coeff` merges into it) |
 | +$46 | W | Latch for the next level write: 1 before volume updates, 4 before a mute (`hchip_mute_channel`), 0 before a filter cutoff write |
 | +$71 / +$73 | W | Left / right volume target: 0.375 dB per step, 255 = 0 dB, 0 = off |
 | +$7B | W | Filter mode byte (`BYTE_ARRAY_00050D7E[type] \| Q bits`; 0x77 for the default voice); its bit 7 goes to the previous channel's +$7B |
-| +$7C | W | Filter cutoff (0xFF for the default voice), written in the **previous** channel's window (−0x80, wrapping 0x000 → 0x780) after +$46 = 0 there |
+| +$7C | W | Filter cutoff 0–255 = the voice's FMORPH (remote-edit id 83) plus modulation, written every tick in the **previous** channel's window (−0x80, wrapping 0x000 → 0x780) after +$46 = 0 there |
 
 Per chip, +$40/+$42 of channels 0 and 16 take output setup words (`FUN_00050010`: 0x0808/0x003B and 0x2B2B/0x0038 in normal running, 0x3B3B/0x3333 during channel init) and +$44/+$46 of channel 0 are written 4 at boot.
 
@@ -744,7 +744,68 @@ Measured on the hardware (samplebot session `2026-10-20_e6400_velocity`: preset 
 - Steady levels fall 16.12 dB over the 43 steps from velocity 100 to 8: **0.375 dB per step** (E-mu's usual 96 dB / 256). Velocity 127 sits 0.6 dB below that line (open).
 - The level glides down towards a lower target at about 7/256 step per output sample (≈ 490 dB/s at 48 kHz) with the latch at 1: the release of session `2026-10-20_e6400_note-2` fits a slew of 0.028 step/sample to 0.32 dB rms, against 0.58 dB for a one-pole in dB. Rising to the note-on target takes about 1 ms.
 
-**Not yet known:** the filter (types, coefficient format, the role of +$00–$2C), the fall rates for latch values other than 1, the output setup words and the submix outputs.
+**Filter.** The remote-edit filter parameters are FTYPE (id 82) = index into the descriptor table at 0x07B776 (0 = 2-pole low-pass, 1 = 4-pole low-pass (the default voice), 2 = 6-pole low-pass, 3/4 = 2nd/4th-order high-pass, 5/6 = 2nd/4th-order band-pass, 7 = contrary band-pass, 8–10 = swept EQ, 11–14 = phasers and flanger, 15/16 = vocal, 17–20 = morph EQs), FMORPH (id 83) = cutoff, written as is to +$7C, and FKEY_XFORM (id 84) = Q, which picks one of 16 section words (Q >> 3; ¾ of Q for the 6-pole). Words EOS writes (MAME trace of all 21 types at Q 0/64/127):
+
+| Type | Words |
+|---|---|
+| Low-pass 2/4/6-pole | the Q word in 1/2/3 sections at +$00/+$10/+$20 (`DWORD_ARRAY_0007BEE8`: 0x8408FFCF at Q 0 … 0x5205D4F3), +$24 high byte 0xF2 − sections × (Q >> 3) |
+| High-pass 2nd/4th | +$04 = 0x80048004, Q word at +$10 (and +$20 with +$14 = 0x80048004 for the 4th order): 0x8004FFCF, 0x7004EFCF, 0x6104E0CF at Q 0/64/127 |
+| Band-pass 2nd | +$00 = +$04 = 0xFF68FFCF, +$14 = 0xFF04FF90, Q word at +$20: 0x8808F8C8, 0x6808D8C8, 0x4908B9C8 |
+| Band-pass 4th | +$04 = +$14 = 0xFF04FF90, the Q word at +$00 and +$20 |
+| Types 7–20 | their own word sets (byte-structured; not decoded) |
+
+In every type the Q word's high byte falls with Q.
+
+Measured on the hardware (samplebot session `2026-10-20_e6400_filter`): sample 909 = looped white noise (`noise.wav` from `make_test_samples.py`), note 69, the filter set by remote edit before each 0.7 s note. The transfer function is the hardware spectrum over MAME's render of the same notes with the filter bypassed (the G-chip output is identical), Welch-averaged (`measurements/hchip_filter_tf.py`). Ladders: low-pass 2/4/6-pole cutoff 0, 16, …, 255 at Q 0; 2-pole cutoff every 4 steps; 2-pole Q 0, 8, …, 127 at cutoffs 64, 128, 192, 240; 4-pole Q at 128; high-pass and band-pass 2nd order cutoff at Q 0.
+- Each section is a **state-variable filter** in Chamberlin form, L += F·B, H = x − L − D·B, B += F·H. Its low-pass, high-pass and band-pass outputs fit the 2-pole types to 0.2–0.8 dB rms at every cutoff (`measurements/hchip_svf_fit.py`). The 4- and 6-pole low-passes are 2 and 3 identical sections: at Q 0 the hardware 4-pole equals two 2-poles within ±0.1 dB, and the 6-pole three.
+- **F** roughly doubles every 40.6 cutoff steps: 0.0119 at cutoff 0 (pole at 91 Hz), 0.119 at 128 (950 Hz), 1.04 at 255 (essentially flat to 20 kHz).
+- **D at Q 0 depends on the cutoff:** 0.76–0.92 below cutoff 60, rising to 1.64 near 170, and back to 0.92 at 255. So the pole Q runs from 1.14 at the bottom to 0.52 at cutoff 192 and 0.72 at 255.
+- **Q** lowers D by about 2^(−1/16) per step of the Q word's high byte (×0.09–0.13 at Q 127). It also raises the pole frequency, by ×1.15 at cutoff 64 and up to ×1.9 at 240. The low-pass passband drops with Q: −12 dB for the 2-pole at Q 127, −23 dB for the 4-pole.
+- **High-pass and band-pass** use the same F within 2%. The high-pass output is 0.5 dB louder. The band-pass F is 0.8–0.95 times the low-pass F, with D higher at low cutoffs.
+
+**Architecture (published sources, checked against the measurements).** The H-chip sections follow Dave Rossum's E-mu designs:
+
+- **US 5,170,369** (Rossum, E-mu, filed 1990, priority September 1989; [Google Patents](https://patents.google.com/patent/US5170369A/en)). Later documents cite it as "5,170,639". It describes a canonical second-order section, y = x − b1·y₋₁ − b2·y₋₂, remapped to unsigned coefficients B1′ = b1 + 2 and B2′ = 1 − b2, with optional FIR zeros (A1′, A2′) and a mode that forces DC gain to unity.
+  - The datapath runs 8 cycles per sample on 4 multipliers, with the delayed outputs truncated at the multiplier input. Up to 128th order fits on one chip.
+  - Coefficients are log-coded: B2′ directly, B1′ as a difference from B2′, the top 4 bits driving a barrel shifter.
+  - Each coefficient is interpolated linearly in the coded domain, C(x) = Ca + x(Cb − Ca). The interpolator takes an 8-bit destination, expanded to 16 bits by duplication (5a → 5a5a), and one of 8 approach times, 32·2ⁿ samples (0.6–80 ms in its Table II). It computes its own 8-bit increment: sign, 3 shift bits, 4 data bits.
+- **Rossum, "The 'ARMAdillo' Coefficient Encoding Scheme for Digital Audio Filters"**, IEEE ASSP Workshop 1991 ([copy](http://www.rossbencina.com/static/junk/00634131.pdf)). It defines b2 ≈ 1 − e^(−k2) and b1 ≈ −2 + e^(−k2) + 4e^(−k1), with k1 and k2 running from 0 to 11.
+  - So B2′ = e^(−k2) gives a resonance height of about 8.68·k2 + 6.02 dB, and B1′ − B2′ = 4e^(−k1) gives a frequency of about −k1/1.38 + 9.31 octaves.
+  - The hardware uses an "octave shift" approximation of the exponential (within about 1 dB), with 8-bit codes.
+- **Kyma list post** (Ben Phenix, 2005, relaying Joe Grisso; [archive](https://archive.symbolicsound.com/cgi-bin/bin/view/How/CreateEMUZ.html)), secondhand. It says Z-plane is seven two-pole sections in series and that the ARMAdillo coefficients are per two-pole section. It also says 64 two-pole filters fit a 20,000-gate ASIC in 1989, and that an "H2.0" with 384 filters on 250K gates was planned. **US 10,514,883** (Rossum, 2019) names Morpheus and UltraProteus as prior art but gives no H-chip detail.
+
+Checked against the 2-pole low-pass fits by converting each fitted section to B1′ − B2′ = |1 − p|² (= F² in Chamberlin terms) and B2′ = 1 − R²:
+- **Frequency coefficient:** log₂(B1′ − B2′) = −12.41 + b·(0.0493 + 0.000247·(byte₄ − 0xCF)). This fits all 115 cutoff and Q rungs to 0.035 octave rms (worst 0.15), where b is the cutoff and byte₄ is the Q word's low byte. Byte₃ has no effect. So the code is the 16-bit product cutoff × byte₄ (0xCF/4096 = 0.0505 octave per step), read as an octave-shift exponent with 4096 codes per octave. The 12.9-octave span over cutoff 0–255 sits inside ARMAdillo's 16-octave k1 range.
+- **Radius coefficient:** across Q, log₂ B2′ changes by 1/16 octave per step of the Q word's high byte. That is a 4.4 octave-shift code, about 0.376 dB of resonance per code, the same step as the volume. Against cutoff, log₂(−ln R) is close to linear (0.07 octave rms) but B2′ itself is not. The part of the radius code that depends on cutoff is still unidentified.
+- **Interpolator:** the duplicated-byte words (`00F200F2`, `80048004`, `57075707`) match the destination expansion. The +$46 latch (0, 1 or 4 before cutoff, volume and mute writes) is probably the approach-time select. A 512-sample approach (about 10.7 ms) reproduces the smooth release (EOS writes 13 steps every ~10 ms, 0.025 step per sample, against the fitted 0.028). It does not explain the ~1 ms attack.
+- **Why Chamberlin fitted:** a Chamberlin SVF and the patent's direct form have the same second-order responses. The fitted F and D are therefore just another parametrisation of the ARMAdillo coefficients, which is why D looked irregular against cutoff.
+
+**Word format (decoded 2026-10-20).** Traced in MAME across all 21 types (Q 0–127 and cutoff 0–255) and the morph types' extra parameters (ids 87–92). Checked against the hardware with ladder `survey_types` in session `2026-10-20_e6400_filter`: types 3–20 at cutoffs 48, 128 and 208, each at Q 0, 64 and 127.
+- **Interpolation:** EOS writes the six words once per note. Cutoff reaches the chip only through +$7C, as the interpolation variable x = cutoff/255. Each 32-bit word is one coefficient set at two morph endpoints: the high half at x = 0, the low half at x = 1. Each half is two 8-bit ARMAdillo codes, [radius][frequency]. The chip interpolates each code linearly, code(x) = code₀ + x·(code₁ − code₀). In the Dual EQ Morph type, EQ1 Low (id 87) moves only the high halves of +$04/+$10 and EQ1 High (id 88) only the low halves.
+- **Decoding**, 16 codes per octave for both:
+  - radius: 1 − R = 2^((code_r − 252)/16)
+  - frequency: V = |1 − p|² = 1 + b1 + b2 = 2^((code_f − 206.5)/16)
+  - then b2 = R² and b1 = (1 − R²) + V − 2
+
+  Radius code 0xFF gives R = 0, so b2 = 0 and the polynomial reduces to a first-order 1 + (V − 1)z⁻¹. With frequency 0xCF the root sits near 0, so `FFCFFFCF` passes signal through unchanged.
+- **Layout:** +$00, +$10 and +$20 are pole polynomials (denominators); +$04 and +$14 are zero polynomials (numerators). All are cascaded. +$24 is not a zero pair; it acts as a gain word (`00F200F2`, never interpolated with cutoff). In the vocal types +$24 is unused.
+  - Low-pass: poles only.
+  - High-pass: zero pair at +$04 (`80048004`, just inside z = 1).
+  - BP2: a first-order pole and zero that cancel (+$00/+$04), a first-order zero near DC (+$14) and the Q-word pole pair (+$20).
+  - Swept EQ: zeros at +$14 and poles at +$20 with the same frequency codes, radii swapped for boost or cut.
+  - Phasers: zeros on the unit circle (radius 0x30) with poles at radius 0xC0 to 0x81.
+- **Gain:** the pole section at +$00 is always DC-normalised (numerator V, the patent's DC mode). Those at +$10/+$20 are DC-normalised only when bit 7 of the filter coefficient byte is 0. EOS writes that bit to the previous channel's +$7B; it is 0 for the low-pass and vocal types.
+- **Accuracy:** with only the two code constants, the cascade predicts the measured shape (gain fitted per rung, dB rms) for:
+  - 0.4–0.7: HP2/HP4, BP2, all three swept EQs, Dual EQ Morph, Peak/Shelf Morph
+  - 0.5–1.0: Flanger
+  - 0.6–1.4: Phaser 1 below cutoff 208, Bat-Phaser
+  - 0.25–0.6: every 2-pole low-pass rung
+  - worse: Phaser 2 at cutoff 208 (4 dB); the vocal types, 4-pole and contrary band-pass at high Q, 2EQ+LP at low cutoff and 2EQ Morph+Expression at Q 0 (1–3 dB)
+
+  The phasers' large single-bin maxima are notch depths.
+- **Open:** BP2, BP4 and both phasers lose about 7 and 14 dB at Q 64 and 127. This is a flat gain (twice as much for BP4) that keeps the band-pass peak near 0 dB. Bat-Phaser, HP and contrary BP keep their level for the same or larger radius changes. It isn't EOS (the volume stays E9) and isn't in any other word, so what selects it is unknown. The role of +$24's bytes is also open.
+
+**Not yet known:** the coefficient format, i.e. how the words produce these F, D and output choices (needed for types 7–20); Q for the high- and band-pass (only Q 0 is measured); the fall rates for latch values other than 1; the output setup words and the submix outputs.
 
 **Not the H-chip:** `hchip_init` (0x0636C2) and its tables probe a bus at CSDSP (0x520000/0x530000) and CSEXP (0x540000): `DSP_BUS[0x3E] = 1`, channel select at +$0E, data ports at +$28/+$2A/+$38/+$3A, presence read of `$181E` = 0x50. On this unit those reads return 0 (no daughter card). The names in the developer guide's H-chip section come from that code; it is most likely the effects/expansion card interface.
 

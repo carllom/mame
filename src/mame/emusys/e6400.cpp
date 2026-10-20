@@ -468,9 +468,9 @@ void e6400_state::cpuspace_map(address_map &map)
 
 void e6400_state::gchip_sample_map(address_map &map)
 {
-	// Each G-chip has up to 128 MB of sample RAM (two 72-pin SIMMs)
-	// 27-bit byte address space = 128 MB; 16-bit data width (64M words)
-	map(0x0000000, 0x7ffffff).ram();
+	// Up to 128 MB of sample RAM (two 72-pin SIMMs), 27-bit byte address space, 16-bit data (64M words).
+	// Shared by both G-chips: EOS writes each sample once, through G-chip 1, and plays it on voices of either.
+	map(0x0000000, 0x7ffffff).ram().share("sample_ram");
 }
 
 static void e6400_floppies(device_slot_interface &device)

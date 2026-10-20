@@ -36,6 +36,7 @@ protected:
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
 	virtual void device_clock_changed() override;
+	virtual void device_post_load() override;
 
 	// device_sound_interface implementation
 	virtual void sound_stream_update(sound_stream &stream) override;
@@ -43,8 +44,26 @@ protected:
 private:
 	static constexpr int NUM_REGS = 0x1000;  // 0x2000 bytes / 2
 	static constexpr int GAIN_BITS = 12;     // gain table index = level >> (16 - GAIN_BITS)
+	static constexpr int MAX_SECTIONS = 3;
+
+	// Filter programs recognised from the words EOS writes (see the .cpp)
+	enum filter_program : u8 { PROGRAM_BYPASS, PROGRAM_LOWPASS, PROGRAM_HIGHPASS, PROGRAM_BANDPASS };
+
+	// Filter coefficients, derived from the registers (recomputed after a state load)
+	struct filter_coefs
+	{
+		u8 program = PROGRAM_BYPASS;
+		u8 sections = 0;
+		float f = 0.0f;     // frequency coefficient
+		float d = 0.0f;     // damping
+		float gain = 1.0f;
+	};
+
+	static constexpr offs_t window(int ch) { return ((ch & 0x10) << 7) | ((ch & 0x0f) << 6); } // word offset
+	u32 reg32(int ch, offs_t byte) const { return (u32(m_regs[window(ch) | (byte >> 1)]) << 16) | m_regs[window(ch) | (byte >> 1) | 1]; }
 
 	void build_gain_table() ATTR_COLD;
+	void update_filter(int ch);
 
 	sound_stream *m_stream;
 
@@ -55,6 +74,11 @@ private:
 	u16 m_level[NUM_CHANNELS][2];  // current level, 8.8 fixed point; reads back at +$34 / +$36
 	u8 m_target[NUM_CHANNELS][2];  // +$71 / +$73
 	u16 m_fall[NUM_CHANNELS][2];   // fall rate towards the target, 8.8 steps per sample, from the +$46 latch
+
+	filter_coefs m_filter[NUM_CHANNELS];
+	float m_low[NUM_CHANNELS][MAX_SECTIONS];   // state-variable filter integrators, per section
+	float m_band[NUM_CHANNELS][MAX_SECTIONS];
+	u32 m_unknown_logged;          // channels whose unrecognised filter program has been logged
 
 	float m_gain[1 << GAIN_BITS];
 };
