@@ -44,23 +44,22 @@ protected:
 private:
 	static constexpr int NUM_REGS = 0x1000;  // 0x2000 bytes / 2
 	static constexpr int GAIN_BITS = 12;     // gain table index = level >> (16 - GAIN_BITS)
-	static constexpr int MAX_SECTIONS = 3;
+	static constexpr int SECTIONS = 3;
 
-	// Filter programs recognised from the words EOS writes (see the .cpp)
-	enum filter_program : u8 { PROGRAM_BYPASS, PROGRAM_LOWPASS, PROGRAM_HIGHPASS, PROGRAM_BANDPASS };
-
-	// Filter coefficients, derived from the registers (recomputed after a state load)
-	struct filter_coefs
+	// Filter section coefficients, decoded from the registers (recomputed after a state load):
+	// (n0 + n1 z^-1 + n2 z^-2) / (1 + b1 z^-1 + b2 z^-2)
+	struct section_coefs
 	{
-		u8 program = PROGRAM_BYPASS;
-		u8 sections = 0;
-		float f = 0.0f;     // frequency coefficient
-		float d = 0.0f;     // damping
-		float gain = 1.0f;
+		bool active = false;
+		double n0 = 1.0, n1 = 0.0, n2 = 0.0;
+		double b1 = 0.0, b2 = 0.0;
 	};
 
 	static constexpr offs_t window(int ch) { return ((ch & 0x10) << 7) | ((ch & 0x0f) << 6); } // word offset
+	static constexpr int prev_channel(int ch) { return (ch & 0x10) | ((ch - 1) & 0x0f); }
+	static constexpr int next_channel(int ch) { return (ch & 0x10) | ((ch + 1) & 0x0f); }
 	u32 reg32(int ch, offs_t byte) const { return (u32(m_regs[window(ch) | (byte >> 1)]) << 16) | m_regs[window(ch) | (byte >> 1) | 1]; }
+	u8 reg8(int ch, offs_t byte) const { return BIT(byte, 0) ? (m_regs[window(ch) | (byte >> 1)] & 0xff) : (m_regs[window(ch) | (byte >> 1)] >> 8); }
 
 	void build_gain_table() ATTR_COLD;
 	void update_filter(int ch);
@@ -75,10 +74,9 @@ private:
 	u8 m_target[NUM_CHANNELS][2];  // +$71 / +$73
 	u16 m_fall[NUM_CHANNELS][2];   // fall rate towards the target, 8.8 steps per sample, from the +$46 latch
 
-	filter_coefs m_filter[NUM_CHANNELS];
-	float m_low[NUM_CHANNELS][MAX_SECTIONS];   // state-variable filter integrators, per section
-	float m_band[NUM_CHANNELS][MAX_SECTIONS];
-	u32 m_unknown_logged;          // channels whose unrecognised filter program has been logged
+	section_coefs m_section[NUM_CHANNELS][SECTIONS];
+	float m_filter_gain[NUM_CHANNELS];
+	double m_state[NUM_CHANNELS][SECTIONS * 2];  // transposed direct form II, two per section
 
 	float m_gain[1 << GAIN_BITS];
 };

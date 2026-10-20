@@ -447,7 +447,17 @@ The G-chip is emulated as `emu_gchip_device` (`device_t` + `device_memory_interf
 
 Both SIMM detection and channel detection pass. Boot displays "128mb of Sound Memory Installed" and "128 Channel Card Installed".
 
-Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output into its H-chip channel, which applies the filter and the left/right volume (0.375 dB steps, glided as measured) and mixes to the stereo output (see [H-chip](#h-chip--voice-filter-and-volume)). The filter is modelled for the low-, high- and band-pass types (0–6) from the hardware measurements: state-variable sections with tabulated F and D against cutoff and Q. Rendering the measurement ladders in MAME matches the hardware to 0.2–0.8 dB rms for the 2-pole types and the 4-pole cutoff sweep. The 6-pole is within 2.3 dB, and the 4-pole at high Q up to 3 dB, worst in a narrow band at the resonance. Types 7–20 pass through. Both G-chips share the sample RAM (EOS writes a sample once, through G-chip 1). The output rate follows CSWCR2 SCLKSEL (45.1584 MHz for 44.1 kHz, 49.152 MHz for 48 kHz, ÷ 1024).
+Voice playback is emulated from the measurements below: rate/4096 per output sample, the seven interpolation kernels, the loop convention with the double-buffered loop end, and the wrap-fetch glitch. Each voice is a separate stream output into its H-chip channel, which applies the filter and the left/right volume (0.375 dB steps, glided as measured) and mixes to the stereo output (see [H-chip](#h-chip--voice-filter-and-volume)). The filter is emulated generically from the words EOS writes (see [Word format](#h-chip--voice-filter-and-volume)), for all 21 types. Rendering the hardware ladders in MAME, the shape (gain removed) matches to:
+- 0.2–0.7 dB rms for the 2-pole types, high-pass, band-pass, swept EQs, EQ morphs, Peak/Shelf, flanger and Bat-Phaser
+- 0.3–1.0 dB for the 4- and 6-pole low-pass, except at cutoff 0 (2–4 dB, mostly below the noise floor)
+- up to 3.7 dB for the vocal types and Phaser 2 at cutoff 208
+
+The level matches within about 1 dB, except for these flat offsets the decoding doesn't explain yet (hardware − MAME):
+- −3 dB for the swept EQs and EQ morphs
+- −10 dB for the vocal types
+- −7/−14 dB at Q 64/127 for the 2nd-order band-pass and both phasers (twice that for the 4th order)
+
+Both G-chips share the sample RAM (EOS writes a sample once, through G-chip 1). The output rate follows CSWCR2 SCLKSEL (45.1584 MHz for 44.1 kHz, 49.152 MHz for 48 kHz, ÷ 1024).
 
 Checked against the hardware recordings (2026-10-20) by loading the same test samples into MAME over MIDI (SDS dump, then remote edit: New Voice in preset 0, sample, original key 69, MASTER_OUTPUT_CLOCK = 48 kHz):
 - The SDS upload lands in sample memory bit-exact, one word in, as on the hardware; the voice registers EOS writes match the hardware analysis (loop start 999, loop end 3998 relative to the sample).
