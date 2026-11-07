@@ -36,9 +36,17 @@
                  address is anchor - counter (anchor + counter in reverse
                  mode, where the anchor is start + 4).
       env reg 3  [rate:target]; rate is signed, logarithmic (8 steps per
-                 doubling of speed). Reads give the current level.
-      env reg 7  read: current envelope level (firmware waits for 0)
-      env reg 8  write: set the envelope level immediately
+                 doubling of speed). The sign is the direction (0 counts
+                 as rising); a level already past the target in that
+                 direction jumps to it. Reads give the current level / 2.
+      env reg 7  read: current envelope level / 2 (firmware waits for 0,
+                 and doubles the value); write: set the level to the low
+                 byte * 2
+      env reg 8  written by the firmware (with reg 7 to silence a voice,
+                 and after a rate-0 reg 3 write); doesn't change the level
+
+    The envelope behaviour (rate law, direction, readback, regs 7 and 8)
+    was measured on an S-330 with the s330-hacking diagnostics disk.
 
     Key-on is the 16-bit mask in ports 0/1 (bit per voice).
 
@@ -332,23 +340,35 @@ void sa16_base_device::sound_stream_update(sound_stream &stream)
 			voice_t &voice = m_voice[v];
 
 			// --- Envelope ---
-			// [rate:target] in env reg 3. The rate is signed (negative while falling);
-			// its magnitude is logarithmic: 3-bit mantissa, 4-bit exponent.
+			// [rate:target] in env reg 3. The rate is signed; its sign is the ramp
+			// direction (0 counts as rising) and its magnitude is logarithmic:
+			// 3-bit mantissa, 4-bit exponent.
 			const u16 r3 = m_regs800[env_reg(v, 3)];
 			const u8 target = r3 & 0xff;
+			const bool rising = !BIT(r3, 15);
 			const u8 mag = std::abs(s8(r3 >> 8)) & 0x7f;
 
-			if (voice.m_env_level != target && mag != 0)
+			if (voice.m_env_level != target)
 			{
-				// Rate law checked against an S-330
-				// Attack and release timings match: rising and falling ramps use the same law.
-				voice.m_env_frac += u32(8 | (mag & 7)) << (mag >> 3);
-				u32 steps = voice.m_env_frac >> ENV_RATE_SHIFT;
-				voice.m_env_frac &= (1 << ENV_RATE_SHIFT) - 1;
-				if (voice.m_env_level < target)
-					voice.m_env_level = std::min<u32>(target, voice.m_env_level + steps);
-				else
-					voice.m_env_level = std::max<s32>(target, s32(voice.m_env_level) - s32(steps));
+				if (rising ? (voice.m_env_level > target) : (voice.m_env_level < target))
+				{
+					// Already past the target in the ramp direction: the level jumps to
+					// the target. Measured on an S-330 (rate 0, 40, c0 and both directions).
+					voice.m_env_level = target;
+					voice.m_env_frac = 0;
+				}
+				else if (mag != 0)
+				{
+					// Rate law checked against an S-330: rising and falling ramps use
+					// the same law (rate 40 takes 270 ms from 0 to ff, 60 takes 17 ms).
+					voice.m_env_frac += u32(8 | (mag & 7)) << (mag >> 3);
+					u32 steps = voice.m_env_frac >> ENV_RATE_SHIFT;
+					voice.m_env_frac &= (1 << ENV_RATE_SHIFT) - 1;
+					if (rising)
+						voice.m_env_level = std::min<u32>(target, voice.m_env_level + steps);
+					else
+						voice.m_env_level = std::max<s32>(target, s32(voice.m_env_level) - s32(steps));
+				}
 			}
 			if (voice.m_env_armed && voice.m_env_level == target)
 				raise_env_event(v);
@@ -465,10 +485,14 @@ u8 sa16_base_device::read(offs_t offset)
 
 			if (block >= 1 && block <= NUM_VOICES && (reg == 0x03 || reg == 0x07))
 			{
-				// Envelope reg 3 (low byte) and reg 7 read back the current level.
+				// Envelope reg 3 (low byte) and reg 7 read back the current level,
+				// halved: on an S-330, a ramp to target 0xff reads 0x7f at the end,
+				// and partial ramps read half the level of the (verified) rate law.
+				// The S-330 system doubles the value it reads (shlb after reading reg 7).
+				// Reg 3 is assumed to read the same as reg 7.
 				// The firmware waits for reg 7 == 0 before reusing a voice and uses
 				// it as the loudness when stealing voices.
-				value = m_voice[block - 1].m_env_level;
+				value = m_voice[block - 1].m_env_level >> 1;
 			}
 			else
 			{
@@ -562,8 +586,12 @@ void sa16_base_device::write(offs_t offset, u8 data)
 					voice.m_env_armed = true; // new target: raise an event when it is reached
 				else
 					voice.m_env_armed = false; // level set directly, no ramp to report
-				if (reg == 0x08)
-					env_level_write(v, m_regs800[m_reg800_woffset] & 0xff);
+				// Reg 7 sets the level, in the same halved units it reads back in
+				// (0x40 -> level 0x80, measured on an S-330 with 4040). Reg 8 writes
+				// don't change the level on an S-330 (eight values tried); their
+				// function is unknown.
+				if (reg == 0x07)
+					env_level_write(v, (m_regs800[m_reg800_woffset] & 0x7f) << 1);
 				if (BIT(m_env_pending, v))
 				{
 					m_env_pending &= ~(1 << v);
