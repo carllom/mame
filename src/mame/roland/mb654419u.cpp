@@ -26,11 +26,16 @@
     exponentially (tvfwrite and tvfsmooth probes: tau 3.3-3.8 ms for the
     level in either direction and any step size, about 2.9 ms for the
     cutoff). Parameters 3 and 4 set the rate of the cutoff and level glide
-    (tvfparam probe): a one-pole glide in which the distance left is
-    multiplied by k = parameter / 0x4000 every 0.44 ms (0x3800, as the
-    firmware sets both, gives tau 3.3 ms; 0x2000 0.64 ms; 0 and 0xffff jump;
-    0x3fff stops the glide). Parameter 6 sets where the cutoff glide is now:
-    a write makes the filter jump to that cutoff and glide on from there.
+    (tvfparam and tvfglide probes): a one-pole glide, linear in the
+    coefficient, in which the distance left is multiplied by
+    k = parameter / 0x4000 every 0.44 ms for the level and every 0.55 ms
+    for the cutoff. With 0x3800, as the firmware sets both, that is tau
+    3.3 ms for the level and 4.1 ms for the cutoff; the level's tau matches
+    within about 10 % from 0x2000 to 0x3f00, the cutoff's 50 % times within
+    about 15 % from 0x3800 to 0x3f00 (a glide in the log domain would be
+    1.5x slower than measured). 0 and 0xffff jump, 0x3fff and 0x4000 stop
+    the glide. Parameter 6 sets where the cutoff glide is now: a write makes
+    the filter jump to that cutoff and glide on from there.
     Resonance changes take effect at once.
     The meaning of most setup registers and the internal table are unknown.
 
@@ -73,10 +78,13 @@
 
     TODO:
     - The setup registers and the internal table.
-    - Glide coefficients were measured at 0, 0x2000, 0x3800, 0x3fff and
-      0xffff only; 0x4000-0x7fff are assumed to freeze the glide. Whether
-      the chip steps the glide every 0.44 ms (modeled per sample here), and
-      whether it is linear in the coefficients or in some other domain.
+    - Glide coefficients outside 0..0x4000: on an S-330, 0x6000 and 0x7fff
+      make the cutoff and level run away (the cutoff to about 3 times the
+      normal output, the level to 2.3 times or to 0), 0x8000 and 0xc000 are
+      erratic and 0xffff jumps. Modeled as a freeze above 0x4000 and a jump
+      below 0. The firmware only uses 0 and 0x3800.
+    - Whether the chip steps the glides every 0.44 / 0.55 ms (modeled per
+      sample here).
     - Whether the level glide has a current-value register like parameter 6
       (parameters 5 and 7 are untested).
 
@@ -97,10 +105,11 @@ DEFINE_DEVICE_TYPE(MB654419U, mb654419u_device, "mb654419u", "Fujitsu MB654419U 
 
 namespace {
 
-// the cutoff and level glides move by (1 - k) of the remaining distance once
-// per this period, in seconds (fitted to an S-330: k = 0x3800 gives tau 3.3 ms,
-// k = 0x2000 0.64 ms); modeled per sample at the same rate
-constexpr double GLIDE_PERIOD = 0.00044;
+// the level and cutoff glides keep k of the remaining distance once per these
+// periods, in seconds (fitted to an S-330: k = 0x3800 gives a level tau of
+// 3.3 ms); modeled per sample at the same rate
+constexpr double LEVEL_GLIDE_PERIOD = 0.00044;
+constexpr double CUTOFF_GLIDE_PERIOD = 0.00055;
 
 } // anonymous namespace
 
@@ -237,14 +246,16 @@ double mb654419u_device::glide_keep(int param, int channel, double sample_rate) 
 {
 	// The glide coefficient k (2.14, 0x3800 as the firmware sets it) is the
 	// fraction of the distance to the target that remains after one glide
-	// period; returned per sample. 0 and negative values (0xffff measured)
-	// jump at once, 0x3fff hardly moves; 0x4000-0x7fff are assumed to freeze.
+	// period; returned per sample. 0 and 0xffff jump at once, 0x3fff hardly
+	// moves, 0x4000 freezes. Larger and other negative values misbehave on
+	// the S-330 (see the notes at the top); here they freeze or jump.
 	const s16 k = s16(m_regs[param][channel]);
 	if (k <= 0)
 		return 0.0;
 	if (k >= 0x4000)
 		return 1.0;
-	return std::pow(double(k) / 0x4000, 1.0 / (sample_rate * GLIDE_PERIOD));
+	const double period = (param == PARAM_CUTOFF_GLIDE) ? CUTOFF_GLIDE_PERIOD : LEVEL_GLIDE_PERIOD;
+	return std::pow(double(k) / 0x4000, 1.0 / (sample_rate * period));
 }
 
 void mb654419u_device::sound_stream_update(sound_stream &stream)
