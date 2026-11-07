@@ -43,6 +43,9 @@ private:
 		PARAM_CUTOFF = 0,
 		PARAM_LEVEL = 1,
 		PARAM_RESONANCE = 2,
+		PARAM_CUTOFF_GLIDE = 3,
+		PARAM_LEVEL_GLIDE = 4,
+		PARAM_CUTOFF_NOW = 6,
 		NUM_PARAMS = 8
 	};
 
@@ -60,6 +63,7 @@ private:
 	void regs_map(address_map &map) ATTR_COLD;
 	void register_w(u16 address, u16 data);
 	void update_coefficients(int channel);
+	double glide_keep(int param, int channel, double sample_rate) const;
 
 	// debugger view of the registers: word address = parameter * 0x10 + channel
 	const address_space_config m_regs_config;

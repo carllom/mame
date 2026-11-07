@@ -25,8 +25,13 @@
     Cutoff and level changes glide: the output follows a new value
     exponentially (tvfwrite and tvfsmooth probes: tau 3.3-3.8 ms for the
     level in either direction and any step size, about 2.9 ms for the
-    cutoff), modeled here as a one-pole glide of both coefficients with
-    tau = 3.3 ms. Resonance changes take effect at once.
+    cutoff). Parameters 3 and 4 set the rate of the cutoff and level glide
+    (tvfparam probe): a one-pole glide in which the distance left is
+    multiplied by k = parameter / 0x4000 every 0.44 ms (0x3800, as the
+    firmware sets both, gives tau 3.3 ms; 0x2000 0.64 ms; 0 and 0xffff jump;
+    0x3fff stops the glide). Parameter 6 sets where the cutoff glide is now:
+    a write makes the filter jump to that cutoff and glide on from there.
+    Resonance changes take effect at once.
     The meaning of most setup registers and the internal table are unknown.
 
     Host interface (even bytes):
@@ -52,10 +57,14 @@
       2 (+0x20) resonance: SVF damping coefficient q (2.14), 0x4000 for
                 resonance 0 (Q 1), halving every 24 steps of the tone
                 parameter down to 0x196 (resonance 127)
-      3 (+0x30) unknown, 0x3800 at init
-      4 (+0x40) unknown, 0 while a voice is set up, 0x3800 after key-on
-      6 (+0x60) unknown, written with the cutoff at voice start
-                (perhaps the initial value of an interpolated cutoff)
+      3 (+0x30) cutoff glide coefficient (2.14, signed), 0x3800 at init
+      4 (+0x40) level glide coefficient (2.14, signed), 0x3800 at init; the
+                firmware writes 0 when it starts setting up a voice (the new
+                level takes effect at once) and 0x3800 again at key-on
+      6 (+0x60) the gliding cutoff's current value; the firmware writes the
+                cutoff here right after the cutoff register at voice start,
+                so a new note doesn't glide from the previous note's cutoff
+      5, 7      never written by the firmware
 
     Debugger: the "regs" address space of this device shows the current
     registers as 16-bit words at parameter * 0x10 + channel (chip address
@@ -63,12 +72,13 @@
     Writes from the debugger take effect immediately.
 
     TODO:
-    - Parameters 3, 4 and 6, the setup registers and the internal table.
-      Parameters 4 (+0x40, 0 during voice setup, 0x3800 after key-on) and
-      6 (+0x60, the cutoff at voice start) may control the glide, e.g. to
-      start a voice at its cutoff without gliding.
-    - Whether the glide is linear in the coefficients, as modeled, or in
-      some other domain.
+    - The setup registers and the internal table.
+    - Glide coefficients were measured at 0, 0x2000, 0x3800, 0x3fff and
+      0xffff only; 0x4000-0x7fff are assumed to freeze the glide. Whether
+      the chip steps the glide every 0.44 ms (modeled per sample here), and
+      whether it is linear in the coefficients or in some other domain.
+    - Whether the level glide has a current-value register like parameter 6
+      (parameters 5 and 7 are untested).
 
 ***************************************************************************/
 
@@ -87,8 +97,10 @@ DEFINE_DEVICE_TYPE(MB654419U, mb654419u_device, "mb654419u", "Fujitsu MB654419U 
 
 namespace {
 
-// time constant of the cutoff and level glide, in seconds (measured on an S-330)
-constexpr double GLIDE_TAU = 0.0033;
+// the cutoff and level glides move by (1 - k) of the remaining distance once
+// per this period, in seconds (fitted to an S-330: k = 0x3800 gives tau 3.3 ms,
+// k = 0x2000 0.64 ms); modeled per sample at the same rate
+constexpr double GLIDE_PERIOD = 0.00044;
 
 } // anonymous namespace
 
@@ -205,6 +217,8 @@ void mb654419u_device::register_w(u16 address, u16 data)
 	m_regs[param][channel] = data;
 	if (param == PARAM_CUTOFF || param == PARAM_LEVEL || param == PARAM_RESONANCE)
 		m_channel[channel].dirty = true;
+	else if (param == PARAM_CUTOFF_NOW)
+		m_channel[channel].f_cur = double(data) / 0x4000; // the glide goes on from here
 	LOG("%.4f param %d channel %2d <= %04x\n", machine().time().as_double(), param, channel, data);
 }
 
@@ -219,6 +233,20 @@ void mb654419u_device::update_coefficients(int channel)
 	ch.level = double(m_regs[PARAM_LEVEL][channel]) / 0x4000;
 }
 
+double mb654419u_device::glide_keep(int param, int channel, double sample_rate) const
+{
+	// The glide coefficient k (2.14, 0x3800 as the firmware sets it) is the
+	// fraction of the distance to the target that remains after one glide
+	// period; returned per sample. 0 and negative values (0xffff measured)
+	// jump at once, 0x3fff hardly moves; 0x4000-0x7fff are assumed to freeze.
+	const s16 k = s16(m_regs[param][channel]);
+	if (k <= 0)
+		return 0.0;
+	if (k >= 0x4000)
+		return 1.0;
+	return std::pow(double(k) / 0x4000, 1.0 / (sample_rate * GLIDE_PERIOD));
+}
+
 void mb654419u_device::sound_stream_update(sound_stream &stream)
 {
 	// The coefficients are per sample: the stream must run at the SA-16 voice
@@ -227,8 +255,14 @@ void mb654419u_device::sound_stream_update(sound_stream &stream)
 		if (m_channel[c].dirty)
 			update_coefficients(c);
 
-	// one-pole glide of the cutoff and level coefficients, per sample
-	const double glide = -std::expm1(-1.0 / (stream.sample_rate() * GLIDE_TAU));
+	// one-pole glide of the cutoff and level coefficients, per sample, at the
+	// rates set by parameters 3 and 4
+	double f_keep[NUM_CHANNELS], level_keep[NUM_CHANNELS];
+	for (int c = 0; c < NUM_CHANNELS; c++)
+	{
+		f_keep[c] = glide_keep(PARAM_CUTOFF_GLIDE, c, stream.sample_rate());
+		level_keep[c] = glide_keep(PARAM_LEVEL_GLIDE, c, stream.sample_rate());
+	}
 
 	for (int i = 0; i < stream.samples(); i++)
 	{
@@ -240,10 +274,10 @@ void mb654419u_device::sound_stream_update(sound_stream &stream)
 			channel_t &ch = m_channel[c];
 			double out = stream.get(v, i);
 
-			ch.f_cur += (ch.f - ch.f_cur) * glide;
+			ch.f_cur = ch.f + (ch.f_cur - ch.f) * f_keep[c];
 			if (std::abs(ch.f - ch.f_cur) < 1e-6)
 				ch.f_cur = ch.f;
-			ch.level_cur += (ch.level - ch.level_cur) * glide;
+			ch.level_cur = ch.level + (ch.level_cur - ch.level) * level_keep[c];
 			if (std::abs(ch.level - ch.level_cur) < 1e-6)
 				ch.level_cur = ch.level;
 
