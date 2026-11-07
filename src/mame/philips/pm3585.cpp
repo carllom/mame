@@ -94,13 +94,14 @@
   PCF8583 Slave address 0xA0
 
   ### Panel keyboard module ###
-  Controlled by Philips 84C01 (MAB8400 family, no visible markings) @ 6MHz
-  The panel keyboard communicates with the main CPU via a custom protocol with keycodes and dial values.
-  It is possible to emulate, but omit it from driver to start with. Use regular inputs and a handler function dealing with the protocol specifics.
-  Button keycode chart in Service Manual, page 3-18.
+  Controlled by Philips MAB8401B (per the BOM; no visible markings) @ 6MHz, ROM 4292 in an external EPROM
+  The panel keyboard is an I2C master that writes key codes and dial values to the 68070 (slave address 0x26).
+  See pm3585_kbd.cpp. Key positions in the Workshop Manual, page 3-18.
 */
 
 #include "emu.h"
+#include "pm3585_kbd.h"
+
 #include "machine/scc68070.h"
 #include "machine/scc66470.h"
 #include "machine/68230pit.h"
@@ -125,6 +126,7 @@ public:
 		, m_pit(*this, "pit")
 		, m_mfp(*this, "mfp")
 		, m_rtc(*this, "rtc")
+		, m_kbd(*this, "kbd")
 		, m_ieee(*this, "ieee")
 		, m_screen(*this, "screen")
 	{ }
@@ -144,17 +146,34 @@ private:
 	void fdc_intrq_w(int state);
 	TIMER_CALLBACK_MEMBER(fdc_dma_service);
 
-	required_device<scc68070_device> m_maincpu;
-	required_device<scc66470_device> m_vsc;
-	required_device<dp8473_device>   m_fdc;
-	required_device<pit68230_device> m_pit;
-	required_device<mc68901_device>  m_mfp;
-	required_device<pcf8583_device>  m_rtc;
-	required_device<tms9914_device>  m_ieee;
-	required_device<screen_device>   m_screen;
+	void i2c_scl_cpu_w(int state) { m_i2c_scl_cpu = state; i2c_update(); }
+	void i2c_sda_cpu_w(int state) { m_i2c_sda_cpu = state; i2c_update(); }
+	void i2c_scl_kbd_w(int state) { m_i2c_scl_kbd = state; i2c_update(); }
+	void i2c_sda_kbd_w(int state) { m_i2c_sda_kbd = state; i2c_update(); }
+	u8 i2c_sda_r() { return m_i2c_sda_cpu & m_i2c_sda_kbd & m_rtc->sda_r(); }
+	void i2c_update();
+
+	required_device<scc68070_device>    m_maincpu;
+	required_device<scc66470_device>    m_vsc;
+	required_device<dp8473_device>      m_fdc;
+	required_device<pit68230_device>    m_pit;
+	required_device<mc68901_device>     m_mfp;
+	required_device<pcf8583_device>     m_rtc;
+	required_device<pm3585_kbd_device>  m_kbd;
+	required_device<tms9914_device>     m_ieee;
+	required_device<screen_device>      m_screen;
 
 	emu_timer *m_fdc_dma_timer = nullptr;
 	bool m_fdc_drq = false;
+
+	// open-drain I2C outputs and the wired-AND bus levels
+	u8 m_i2c_scl_cpu = 1;
+	u8 m_i2c_sda_cpu = 1;
+	u8 m_i2c_scl_kbd = 1;
+	u8 m_i2c_sda_kbd = 1;
+	u8 m_i2c_scl = 1;
+	u8 m_i2c_sda = 1;
+	bool m_i2c_updating = false;
 };
 
 
@@ -167,6 +186,12 @@ void pm3585_state::machine_start()
 	m_fdc_dma_timer = timer_alloc(FUNC(pm3585_state::fdc_dma_service), this);
 
 	save_item(NAME(m_fdc_drq));
+	save_item(NAME(m_i2c_scl_cpu));
+	save_item(NAME(m_i2c_sda_cpu));
+	save_item(NAME(m_i2c_scl_kbd));
+	save_item(NAME(m_i2c_sda_kbd));
+	save_item(NAME(m_i2c_scl));
+	save_item(NAME(m_i2c_sda));
 }
 
 void pm3585_state::machine_reset()
@@ -376,14 +401,51 @@ void pm3585_state::fdc_intrq_w(int state)
 	m_maincpu->int1_w(state);
 }
 
+// The I2C bus is wired-AND: the 68070, the RTC and the keyboard drive it
+// open-drain, and both the 68070 and the keyboard can be master. A device
+// may change a line while it is told about an edge; that change is picked
+// up by the next pass of the loop, so every device sees an edge with the
+// levels from before it.
+void pm3585_state::i2c_update()
+{
+	if (m_i2c_updating)
+		return;
+	m_i2c_updating = true;
 
-/***************************************************************************
-  Input ports
-***************************************************************************/
+	while (true)
+	{
+		int const scl = m_i2c_scl_cpu & m_i2c_scl_kbd;
+		int const sda = m_i2c_sda_cpu & m_i2c_sda_kbd & m_rtc->sda_r();
+		bool const scl_changed = scl != m_i2c_scl;
+		bool const sda_changed = sda != m_i2c_sda;
+		if (!scl_changed && !sda_changed)
+			break;
+		m_i2c_scl = scl;
+		m_i2c_sda = sda;
 
-static INPUT_PORTS_START(pm3585)
-	// TODO: panel keyboard inputs (84C01 MCU, custom keycode protocol)
-INPUT_PORTS_END
+		// SDA changes while SCL is low: a falling clock goes out first, a rising one last
+		if (scl_changed && !scl)
+		{
+			m_rtc->scl_w(scl);
+			m_maincpu->write_scl(scl);
+			m_kbd->scl_w(scl);
+		}
+		if (sda_changed)
+		{
+			m_rtc->sda_w(sda);
+			m_maincpu->write_sda(sda);
+			m_kbd->sda_w(sda);
+		}
+		if (scl_changed && scl)
+		{
+			m_rtc->scl_w(scl);
+			m_maincpu->write_scl(scl);
+			m_kbd->scl_w(scl);
+		}
+	}
+
+	m_i2c_updating = false;
+}
 
 
 /***************************************************************************
@@ -410,12 +472,10 @@ void pm3585_state::pm3585(machine_config &config)
 	// D102: Motorola/Philips SCC68070 @ 19.6608MHz (9.8304MHz bus)
 	SCC68070(config, m_maincpu, XTAL(19'660'800));
 	m_maincpu->set_addrmap(AS_PROGRAM, &pm3585_state::mem_map);
-	// I2C: PCF8583 RTC (0xA0); front panel controller to be added (AND its SDA into the read)
-	// no slave stretches SCL, so the line follows the 68070 output; it must be fed back or the controller stalls
-	m_maincpu->i2c_scl_w().set(m_rtc, FUNC(pcf8583_device::scl_w));
-	m_maincpu->i2c_scl_w().append(m_maincpu, FUNC(scc68070_device::write_scl));
-	m_maincpu->i2c_sda_w().set(m_rtc, FUNC(pcf8583_device::sda_w));
-	m_maincpu->i2c_sda_r().set([this] () -> u8 { return m_rtc->sda_r(); });
+	// I2C: PCF8583 RTC (0xA0), and the panel keyboard, which is a master writing to the 68070 at 0x26
+	m_maincpu->i2c_scl_w().set(FUNC(pm3585_state::i2c_scl_cpu_w));
+	m_maincpu->i2c_sda_w().set(FUNC(pm3585_state::i2c_sda_cpu_w));
+	m_maincpu->i2c_sda_r().set(FUNC(pm3585_state::i2c_sda_r));
 
 	// Physical display: 30MHz pixel clock, 768×480 visible, 960/521 total (~60Hz).
 	// We render 192 DRAM bytes × 4 pixels/byte = 768 px/line directly from DRAM,
@@ -452,6 +512,11 @@ void pm3585_state::pm3585(machine_config &config)
 	PCF8583(config, m_rtc, XTAL(32'768));
 	m_rtc->irq().set(m_maincpu, FUNC(scc68070_device::t1_w)); // 1 Hz /INT; SYSTEM counts T1 edges to check the RTC is running
 
+	// Front panel keyboard, MAB8401B @ 6MHz
+	PM3585_KBD(config, m_kbd, 6_MHz_XTAL);
+	m_kbd->scl_callback().set(FUNC(pm3585_state::i2c_scl_kbd_w));
+	m_kbd->sda_callback().set(FUNC(pm3585_state::i2c_sda_kbd_w));
+
 	// D800: TMS9914 IEEE-488 GPIB controller
 	TMS9914(config, m_ieee, XTAL(19'660'800)); // TODO: verify clock
 	m_ieee->int_write_cb().set(m_maincpu, FUNC(scc68070_device::in5_w)); // pin 59 IN5N; autovector 29
@@ -472,4 +537,4 @@ ROM_END
 } // anonymous namespace
 
 
-SYST( 1989, pm3585, 0, 0, pm3585, pm3585, pm3585_state, empty_init, "Philips", "PM 3585 Logic Analyzer", MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )
+SYST( 1989, pm3585, 0, 0, pm3585, 0, pm3585_state, empty_init, "Philips", "PM 3585 Logic Analyzer", MACHINE_NOT_WORKING | MACHINE_NO_SOUND_HW )

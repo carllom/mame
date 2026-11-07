@@ -173,6 +173,8 @@ files{
 	MAME_DIR .. "src/mame/gaelco/gaelco_ds5002fp.h",
 	MAME_DIR .. "src/mame/misc/goldnpkr.cpp",
 	MAME_DIR .. "src/mame/philips/pm3585.cpp",
+	MAME_DIR .. "src/mame/philips/pm3585_kbd.cpp",
+	MAME_DIR .. "src/mame/philips/pm3585_kbd.h",
 	MAME_DIR .. "src/mame/videogames/looping.cpp",
 	MAME_DIR .. "src/mame/videogames/supertnk.cpp",
 	MAME_DIR .. "src/mame/shared/williamssound.cpp",
