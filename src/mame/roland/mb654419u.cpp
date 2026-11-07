@@ -22,6 +22,11 @@
     from 0x4000 down to 0x196. They also show the low-pass saturating at
     full scale: a full-level step's overshoot is cut off flat, while the
     level register can still take the output to twice full scale.
+    Cutoff and level changes glide: the output follows a new value
+    exponentially (tvfwrite and tvfsmooth probes: tau 3.3-3.8 ms for the
+    level in either direction and any step size, about 2.9 ms for the
+    cutoff), modeled here as a one-pole glide of both coefficients with
+    tau = 3.3 ms. Resonance changes take effect at once.
     The meaning of most setup registers and the internal table are unknown.
 
     Host interface (even bytes):
@@ -59,13 +64,11 @@
 
     TODO:
     - Parameters 3, 4 and 6, the setup registers and the internal table.
-    - Cutoff and level changes are applied instantly, so the firmware's
-      updates (about every 10 ms) show up as 100 Hz stepping in the harmonic
-      levels during a filter sweep. On S-330 recordings of a sawtooth sweep
-      that stepping is absent where MAME shows it (C4, C5), which suggests the
-      chip smooths cutoff changes.
       Parameters 4 (+0x40, 0 during voice setup, 0x3800 after key-on) and
-      6 (+0x60, the cutoff at voice start) may be related.
+      6 (+0x60, the cutoff at voice start) may control the glide, e.g. to
+      start a voice at its cutoff without gliding.
+    - Whether the glide is linear in the coefficients, as modeled, or in
+      some other domain.
 
 ***************************************************************************/
 
@@ -73,6 +76,7 @@
 #include "mb654419u.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 
 
@@ -80,6 +84,13 @@
 #include "logmacro.h"
 
 DEFINE_DEVICE_TYPE(MB654419U, mb654419u_device, "mb654419u", "Fujitsu MB654419U TVF")
+
+namespace {
+
+// time constant of the cutoff and level glide, in seconds (measured on an S-330)
+constexpr double GLIDE_TAU = 0.0033;
+
+} // anonymous namespace
 
 mb654419u_device::mb654419u_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock)
 	: device_t(mconfig, MB654419U, tag, owner, clock)
@@ -118,6 +129,8 @@ void mb654419u_device::device_start()
 	save_item(NAME(m_regs));
 	save_item(STRUCT_MEMBER(m_channel, lp));
 	save_item(STRUCT_MEMBER(m_channel, bp));
+	save_item(STRUCT_MEMBER(m_channel, f_cur));
+	save_item(STRUCT_MEMBER(m_channel, level_cur));
 	save_item(NAME(m_output_level));
 }
 
@@ -141,6 +154,8 @@ void mb654419u_device::device_reset()
 		m_regs[PARAM_CUTOFF][c] = 0x4000;
 		m_regs[PARAM_RESONANCE][c] = 0x4000;
 		m_channel[c].lp = m_channel[c].bp = 0.0;
+		m_channel[c].f_cur = 1.0;   // at the reset values, no glide
+		m_channel[c].level_cur = 0.0;
 		m_channel[c].dirty = true;
 	}
 }
@@ -188,7 +203,7 @@ void mb654419u_device::register_w(u16 address, u16 data)
 
 	m_stream->update();
 	m_regs[param][channel] = data;
-	if (param == PARAM_CUTOFF || param == PARAM_RESONANCE)
+	if (param == PARAM_CUTOFF || param == PARAM_LEVEL || param == PARAM_RESONANCE)
 		m_channel[channel].dirty = true;
 	LOG("%.4f param %d channel %2d <= %04x\n", machine().time().as_double(), param, channel, data);
 }
@@ -196,17 +211,12 @@ void mb654419u_device::register_w(u16 address, u16 data)
 void mb654419u_device::update_coefficients(int channel)
 {
 	channel_t &ch = m_channel[channel];
-	const u16 cutoff = m_regs[PARAM_CUTOFF][channel];
-	const u16 resonance = m_regs[PARAM_RESONANCE][channel];
-
 	ch.dirty = false;
-	// 0x4000 is what the firmware writes for a tone with the filter switched
-	// off; passing through differs from running the SVF by < 0.5 dB.
-	ch.bypass = cutoff >= 0x4000;
-
-	// 2.14 fixed-point coefficients of the Chamberlin SVF
-	ch.f = double(cutoff) / 0x4000;
-	ch.q = double(resonance) / 0x4000;
+	// 2.14 fixed-point coefficients of the Chamberlin SVF, and the level
+	// (0x4000 = unity); the stream update glides towards f and level
+	ch.f = double(m_regs[PARAM_CUTOFF][channel]) / 0x4000;
+	ch.q = double(m_regs[PARAM_RESONANCE][channel]) / 0x4000;
+	ch.level = double(m_regs[PARAM_LEVEL][channel]) / 0x4000;
 }
 
 void mb654419u_device::sound_stream_update(sound_stream &stream)
@@ -216,6 +226,9 @@ void mb654419u_device::sound_stream_update(sound_stream &stream)
 	for (int c = 0; c < NUM_CHANNELS; c++)
 		if (m_channel[c].dirty)
 			update_coefficients(c);
+
+	// one-pole glide of the cutoff and level coefficients, per sample
+	const double glide = -std::expm1(-1.0 / (stream.sample_rate() * GLIDE_TAU));
 
 	for (int i = 0; i < stream.samples(); i++)
 	{
@@ -227,17 +240,33 @@ void mb654419u_device::sound_stream_update(sound_stream &stream)
 			channel_t &ch = m_channel[c];
 			double out = stream.get(v, i);
 
-			if (!ch.bypass)
+			ch.f_cur += (ch.f - ch.f_cur) * glide;
+			if (std::abs(ch.f - ch.f_cur) < 1e-6)
+				ch.f_cur = ch.f;
+			ch.level_cur += (ch.level - ch.level_cur) * glide;
+			if (std::abs(ch.level - ch.level_cur) < 1e-6)
+				ch.level_cur = ch.level;
+
+			// 0x4000 is what the firmware writes for a tone with the filter
+			// switched off; passing through differs from running the SVF by
+			// < 0.5 dB. While passing through, the state follows the input, so
+			// that a glide down from 0x4000 starts without a jump.
+			if (ch.f_cur >= 1.0)
+			{
+				ch.lp = out;
+				ch.bp = 0.0;
+			}
+			else
 			{
 				// The low-pass state saturates at full scale: an overshoot past it
 				// comes out flat, the undershoot that follows doesn't
-				ch.lp = std::clamp(ch.lp + ch.f * ch.bp, -1.0, 1.0);
+				ch.lp = std::clamp(ch.lp + ch.f_cur * ch.bp, -1.0, 1.0);
 				const double hp = out - ch.lp - ch.q * ch.bp;
-				ch.bp += ch.f * hp;
+				ch.bp += ch.f_cur * hp;
 				out = ch.lp;
 			}
 
-			mix += out * (double(m_regs[PARAM_LEVEL][c]) / 0x4000);
+			mix += out * ch.level_cur;
 		}
 		stream.put(0, i, mix);
 		m_output_level = mix;

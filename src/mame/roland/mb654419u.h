@@ -50,9 +50,10 @@ private:
 	{
 		// Chamberlin state variable filter state
 		double lp, bp;
-		// coefficients: frequency and damping (registers / 0x4000)
-		double f, q;
-		bool bypass;
+		// from the registers (/ 0x4000): frequency, damping and level
+		double f, q, level;
+		// frequency and level as they glide towards f and level
+		double f_cur, level_cur;
 		bool dirty;
 	};
 
