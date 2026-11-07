@@ -505,3 +505,58 @@ offs_t mcs48_disassembler::disassemble(std::ostream &stream, offs_t pc, const da
 
 	return (cpc - pc) | flags | SUPPORTED;
 }
+
+
+/***************************************************************************
+
+    Philips MAB84X1 family: the MAB8048 instruction set without the
+    external bus, the 8243 expander and the F0/F1 flags, plus serial I/O,
+    port 0, two more memory banks and indirect DEC/DJNZ.
+
+***************************************************************************/
+
+mab84x1_disassembler::mab84x1_disassembler() : mcs48_disassembler(false, false)
+{
+}
+
+offs_t mab84x1_disassembler::disassemble(std::ostream &stream, offs_t pc, const data_buffer &opcodes, const data_buffer &params)
+{
+	offs_t cpc = pc;
+	offs_t flags = 0;
+
+	switch (opcodes.r8(cpc++))
+	{
+		case 0x06:      util::stream_format(stream, "jntf $%03X", ((pc + 1) & 0x700) | params.r8(cpc++)); flags = STEP_COND; break;
+		case 0x08:      util::stream_format(stream, "in   a,p0");                                           break;
+		case 0x0c:      util::stream_format(stream, "mov  a,s0");                                           break;
+		case 0x0d:      util::stream_format(stream, "mov  a,s1");                                           break;
+		case 0x38:
+		case 0x90:      util::stream_format(stream, "outl p0,a");                                           break;
+		case 0x3c:      util::stream_format(stream, "mov  s0,a");                                           break;
+		case 0x3d:      util::stream_format(stream, "mov  s1,a");                                           break;
+		case 0x3e:      util::stream_format(stream, "mov  s2,a");                                           break;
+		case 0x85:      util::stream_format(stream, "en   si");                                             break;
+		case 0x88:      util::stream_format(stream, "orl  p0,#$%02X", params.r8(cpc++));                    break;
+		case 0x95:      util::stream_format(stream, "dis  si");                                             break;
+		case 0x98:      util::stream_format(stream, "anl  p0,#$%02X", params.r8(cpc++));                    break;
+		case 0x9c:      util::stream_format(stream, "mov  s0,#$%02X", params.r8(cpc++));                    break;
+		case 0x9d:      util::stream_format(stream, "mov  s1,#$%02X", params.r8(cpc++));                    break;
+		case 0x9e:      util::stream_format(stream, "mov  s2,#$%02X", params.r8(cpc++));                    break;
+		case 0xa5:      util::stream_format(stream, "sel  mb2");                                            break;
+		case 0xb5:      util::stream_format(stream, "sel  mb3");                                            break;
+		case 0xc0:      util::stream_format(stream, "dec  @r0");                                            break;
+		case 0xc1:      util::stream_format(stream, "dec  @r1");                                            break;
+		case 0xe0:      util::stream_format(stream, "djnz @r0,$%03X", ((pc + 1) & 0x700) | params.r8(cpc++)); flags = STEP_COND; break;
+		case 0xe1:      util::stream_format(stream, "djnz @r1,$%03X", ((pc + 1) & 0x700) | params.r8(cpc++)); flags = STEP_COND; break;
+
+		case 0x01: case 0x02: case 0x0e: case 0x0f: case 0x3f: case 0x75: case 0x76: case 0x80:
+		case 0x81: case 0x86: case 0x8c: case 0x8d: case 0x8e: case 0x8f: case 0x91: case 0x9f:
+		case 0xb6: case 0xe3:
+						util::stream_format(stream, "illegal");                                             break;
+
+		default:
+			return mcs48_disassembler::disassemble(stream, pc, opcodes, params);
+	}
+
+	return (cpc - pc) | flags | SUPPORTED;
+}

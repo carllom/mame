@@ -44,7 +44,10 @@ enum
 	MCS48_EA,
 	MCS48_STS,  // UPI-41 only
 	MCS48_DBBO, // UPI-41 only
-	MCS48_DBBI  // UPI-41 only
+	MCS48_DBBI, // UPI-41 only
+	MCS48_S0,   // MAB84X1 only
+	MCS48_S1,   // MAB84X1 only
+	MCS48_S2    // MAB84X1 only
 };
 
 
@@ -99,6 +102,9 @@ DECLARE_DEVICE_TYPE(MB8884,  mb8884_device)   // 8035 clone
 DECLARE_DEVICE_TYPE(UPD7751, upd7751_device)  // 8048 clone
 DECLARE_DEVICE_TYPE(MB8881,  mb8881_device)   // 8039 clone
 DECLARE_DEVICE_TYPE(M58715,  m58715_device)   // 8049 clone
+
+// Philips MAB84X1 family (8048 derivative with I2C serial I/O)
+DECLARE_DEVICE_TYPE(MAB8401, mab8401_device)  // external ROM,         128 bytes internal RAM
 
 
 class mcs48_cpu_device : public cpu_device
@@ -186,7 +192,7 @@ protected:
 	u8 *m_regptr;           // pointer to r0-r7
 	u8 m_psw;               // 8-bit PSW
 	bool m_f1;              // F1 flag (F0 is in PSW)
-	u16 m_a11;              // A11 value, either 0x000 or 0x800
+	u16 m_a11;              // memory bank (A11 and on MAB84X1 A12), applied by JMP and CALL
 	u8 m_p1;                // 8-bit latched port 1
 	u8 m_p2;                // 8-bit latched port 2
 	u8 m_ea;                // 1-bit latched ea input
@@ -198,6 +204,9 @@ protected:
 	u8 m_dbbo;              // 8-bit output data buffer (UPI-41 only)
 
 	bool m_irq_state;       // true if the IRQ line is active
+	bool m_xirq_pending;    // true on a falling edge of INT (MAB84X1 only); cleared by taking interrupt
+	bool m_sirq_pending;    // true while the serial I/O has an interrupt pending (MAB84X1 only)
+	bool m_sirq_enabled;    // true if the serial I/O IRQ is enabled (MAB84X1 only)
 	bool m_irq_polled;      // true if last instruction was JNI (and not taken)
 	bool m_irq_in_progress; // true if an IRQ is in progress
 	bool m_timer_overflow;  // true on a timer overflow; cleared by taking interrupt
@@ -220,6 +229,7 @@ protected:
 	u8 m_feature_mask;      // processor feature flags
 	u16 m_rom_size;         // internal rom size
 	u16 m_ram_size;         // internal ram size
+	u16 m_pc_mask;          // program counter width
 
 	u8 m_rtemp;             // temporary for import/export
 
@@ -255,6 +265,7 @@ protected:
 	void update_ea();
 	void push_pc_psw();
 	void pull_pc_psw();
+	void pull_pc_high(u8 high);
 	void pull_pc();
 	void execute_add(u8 dat);
 	void execute_addc(u8 dat);
@@ -625,6 +636,125 @@ class m58715_device : public mcs48_cpu_device
 public:
 	// construction/destruction
 	m58715_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
+};
+
+
+class mab84x1_cpu_device : public mcs48_cpu_device
+{
+public:
+	// configuration
+	auto p0_in_cb() { return bus_in_cb(); }
+	auto p0_out_cb() { return bus_out_cb(); }
+
+	// open-drain serial I/O outputs: SDA (shared with P2.3) and SCLK; 1 = released
+	auto sda_out_cb() { return m_sda_out_cb.bind(); }
+	auto scl_out_cb() { return m_scl_out_cb.bind(); }
+
+	// serial bus levels
+	void sda_w(int state);
+	void scl_w(int state);
+
+protected:
+	// construction/destruction
+	mab84x1_cpu_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int rom_size, int ram_size);
+
+	// device_t implementation
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+
+	// device_execute_interface implementation
+	virtual u64 execute_clocks_to_cycles(u64 clocks) const noexcept override { return (clocks + 30 - 1) / 30; }
+	virtual u64 execute_cycles_to_clocks(u64 cycles) const noexcept override { return (cycles * 30); }
+	virtual void execute_set_input(int inputnum, int state) override;
+
+	// device_disasm_interface implementation
+	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
+
+	virtual u8 port_r(offs_t a) override;
+	virtual void port_w(offs_t a, u8 v) override;
+
+private:
+	enum : u8
+	{
+		SIO_IDLE = 0,
+		SIO_START,      // START sent, SCL still high
+		SIO_CLOCK_HIGH, // SCL low with the data bit on SDA
+		SIO_CLOCK_WAIT, // SCL released, another device is holding it low
+		SIO_SAMPLE,     // SCL high
+		SIO_HOLD,       // byte done, SCL held low until S0 or S1 is written
+		SIO_STOP_HIGH,  // SCL low with SDA low
+		SIO_STOP_WAIT,  // SCL released, another device is holding it low
+		SIO_STOP_END    // SCL high, SDA about to rise
+	};
+
+	static const mcs48_ophandler s_mab84x1_opcodes[256];
+
+	devcb_write_line m_sda_out_cb;
+	devcb_write_line m_scl_out_cb;
+
+	emu_timer *m_sio_timer;
+
+	u8 m_s0;            // data shift register
+	u8 m_s0_addr;       // address register S0' (own address and ALS)
+	u8 m_s1;            // status: MST, TRX, BB, PIN, AL, AAS, AD0, LRB
+	u8 m_s1_ctrl;       // control: ESO, BC2-BC0
+	u8 m_s2;            // clock control: ACK, ASC, clock rate
+	u8 m_sio_state;
+	u8 m_sio_bit;
+	bool m_sio_sda;     // serial I/O drive of SDA
+	bool m_sio_scl;     // serial I/O drive of SCLK
+	bool m_sda_pin;     // SDA output as last sent
+	bool m_scl_pin;     // SCLK output as last sent
+	bool m_sda_in;
+	bool m_scl_in;
+
+	TIMER_CALLBACK_MEMBER(sio_tick);
+
+	attotime sio_half_period(bool high) const;
+	void sio_update_outputs();
+	void sio_set_sda(bool state);
+	void sio_set_scl(bool state);
+	void sio_set_pin(bool pin);
+	void sio_clock_low();
+	void sio_finish_byte();
+	void sio_stop();
+	void sio_release();
+
+	// MAB84X1-specific opcodes
+	void anl_p0_n();
+	void orl_p0_n();
+	void in_a_p2_mab();
+	void dec_xr0();
+	void dec_xr1();
+	void djnz_xr0();
+	void djnz_xr1();
+	void jntf();
+	void jt_int();
+	void jnt_int();
+	void mov_a_psw_mab();
+	void mov_psw_a_mab();
+	void sel_mb2();
+	void sel_mb3();
+	void en_si();
+	void dis_si();
+	void mov_a_s0();
+	void mov_a_s1();
+	void mov_s0_a();
+	void mov_s1_a();
+	void mov_s2_a();
+	void mov_s0_n();
+	void mov_s1_n();
+	void mov_s2_n();
+	void s0_w(u8 data);
+	void s1_w(u8 data);
+	void s2_w(u8 data);
+};
+
+class mab8401_device : public mab84x1_cpu_device
+{
+public:
+	// construction/destruction
+	mab8401_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock);
 };
 
 

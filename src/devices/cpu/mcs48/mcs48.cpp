@@ -77,6 +77,8 @@
     8749   128   2k   27  (EPROM)
     M58715 128   2k   27  (8049 clone)
 
+    MAB8401 128   0   23  (external ROM, I2C serial I/O)
+
     8040   256    0   27  (external ROM)
     8050   256   4k   27  (ROM)
 
@@ -157,6 +159,7 @@
 #define EXT_BUS_FEATURE 0x02
 #define UPI41_FEATURE   0x04
 #define I802X_FEATURE   0x08
+#define MAB84_FEATURE   0x10
 #define I8048_FEATURE   (MB_FEATURE | EXT_BUS_FEATURE)
 
 
@@ -205,6 +208,8 @@ DEFINE_DEVICE_TYPE(UPD7751, upd7751_device, "upd7751", "NEC uPD7751")
 DEFINE_DEVICE_TYPE(MB8881,  mb8881_device,  "mb8881",  "Fujitsu MB8881")
 DEFINE_DEVICE_TYPE(M58715,  m58715_device,  "m58715",  "Mitsubishi M58715")
 
+DEFINE_DEVICE_TYPE(MAB8401, mab8401_device, "mab8401", "Philips MAB8401")
+
 
 /*******************************************************************************
     CONSTRUCTOR
@@ -212,7 +217,7 @@ DEFINE_DEVICE_TYPE(M58715,  m58715_device,  "m58715",  "Mitsubishi M58715")
 
 mcs48_cpu_device::mcs48_cpu_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int rom_size, int ram_size, u8 feature_mask, const mcs48_cpu_device::mcs48_ophandler *opcode_table)
 	: cpu_device(mconfig, type, tag, owner, clock)
-	, m_program_config("program", ENDIANNESS_LITTLE, 8, (feature_mask & MB_FEATURE) != 0 ? 12 : 11, 0,
+	, m_program_config("program", ENDIANNESS_LITTLE, 8, (feature_mask & MAB84_FEATURE) ? 13 : (feature_mask & MB_FEATURE) ? 12 : 11, 0,
 			rom_size ? address_map_constructor(FUNC(mcs48_cpu_device::program_map), this) : address_map_constructor())
 	, m_data_config("data", ENDIANNESS_LITTLE, 8, ((ram_size == 64) ? 6 : ((ram_size == 128) ? 7 : 8)), 0,
 			address_map_constructor(FUNC(mcs48_cpu_device::data_map), this))
@@ -230,6 +235,7 @@ mcs48_cpu_device::mcs48_cpu_device(const machine_config &mconfig, device_type ty
 	, m_feature_mask(feature_mask)
 	, m_rom_size(rom_size)
 	, m_ram_size(ram_size)
+	, m_pc_mask(make_bitmask<u16>(m_program_config.addr_width()))
 	, m_opcode_table(opcode_table)
 {
 	// Sanity checks
@@ -316,6 +322,32 @@ mb8881_device::mb8881_device(const machine_config &mconfig, const char *tag, dev
 
 m58715_device::m58715_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock)
 	: mcs48_cpu_device(mconfig, M58715, tag, owner, clock, 2048, 128, I8048_FEATURE, s_mcs48_opcodes)
+{
+}
+
+mab84x1_cpu_device::mab84x1_cpu_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, u32 clock, int rom_size, int ram_size)
+	: mcs48_cpu_device(mconfig, type, tag, owner, clock, rom_size, ram_size, MB_FEATURE | MAB84_FEATURE, s_mab84x1_opcodes)
+	, m_sda_out_cb(*this)
+	, m_scl_out_cb(*this)
+	, m_sio_timer(nullptr)
+	, m_s0(0)
+	, m_s0_addr(0)
+	, m_s1(0)
+	, m_s1_ctrl(0)
+	, m_s2(0)
+	, m_sio_state(SIO_IDLE)
+	, m_sio_bit(0)
+	, m_sio_sda(true)
+	, m_sio_scl(true)
+	, m_sda_pin(true)
+	, m_scl_pin(true)
+	, m_sda_in(true)
+	, m_scl_in(true)
+{
+}
+
+mab8401_device::mab8401_device(const machine_config &mconfig, const char *tag, device_t *owner, u32 clock)
+	: mab84x1_cpu_device(mconfig, MAB8401, tag, owner, clock, 0, 128)
 {
 }
 
@@ -420,7 +452,7 @@ void mcs48_cpu_device::data_map(address_map &map)
 u8 mcs48_cpu_device::opcode_fetch()
 {
 	u16 address = m_pc;
-	m_pc = ((m_pc + 1) & 0x7ff) | (m_pc & 0x800);
+	m_pc = ((m_pc + 1) & 0x7ff) | (m_pc & ~0x7ff);
 	return m_program.read_byte(address);
 }
 
@@ -433,7 +465,7 @@ u8 mcs48_cpu_device::opcode_fetch()
 u8 mcs48_cpu_device::argument_fetch()
 {
 	u16 address = m_pc;
-	m_pc = ((m_pc + 1) & 0x7ff) | (m_pc & 0x800);
+	m_pc = ((m_pc + 1) & 0x7ff) | (m_pc & ~0x7ff);
 	return m_program.read_byte(address);
 }
 
@@ -474,9 +506,29 @@ void mcs48_cpu_device::update_ea()
 void mcs48_cpu_device::push_pc_psw()
 {
 	u8 sp = m_psw & 0x07;
+	u8 high = ((m_pc >> 8) & 0x0f) | (m_psw & 0xf0);
+
+	// MAB84X1 has no F0; assume its slot holds PC12 (FIXME: not documented)
+	if (m_feature_mask & MAB84_FEATURE)
+		high = (high & ~F_FLAG) | ((m_pc >> 7) & F_FLAG);
+
 	ram_w(8 + 2*sp, m_pc);
-	ram_w(9 + 2*sp, ((m_pc >> 8) & 0x0f) | (m_psw & 0xf0));
-	m_psw = (m_psw & 0xf0) | ((sp + 1) & 0x07);
+	ram_w(9 + 2*sp, high);
+	m_psw = (m_psw & 0xf8) | ((sp + 1) & 0x07);
+}
+
+
+/*-------------------------------------------------
+    pull_pc_high - restore the upper PC bits from
+    the high byte of a stack entry
+-------------------------------------------------*/
+
+void mcs48_cpu_device::pull_pc_high(u8 high)
+{
+	m_pc |= (high & 0x0f) << 8;
+	if (m_feature_mask & MAB84_FEATURE)
+		m_pc |= (high & F_FLAG) << 7;
+	m_pc &= (m_irq_in_progress) ? 0x7ff : m_pc_mask;
 }
 
 
@@ -488,10 +540,15 @@ void mcs48_cpu_device::push_pc_psw()
 void mcs48_cpu_device::pull_pc_psw()
 {
 	u8 sp = (m_psw - 1) & 0x07;
+	u8 high = ram_r(9 + 2*sp);
 	m_pc = ram_r(8 + 2*sp);
-	m_pc |= ram_r(9 + 2*sp) << 8;
-	m_psw = ((m_pc >> 8) & 0xf0) | sp;
-	m_pc &= (m_irq_in_progress) ? 0x7ff : 0xfff;
+	pull_pc_high(high);
+
+	// MAB84X1 restores CY, AC and BS only, and keeps the prescaler select
+	if (m_feature_mask & MAB84_FEATURE)
+		m_psw = (high & (C_FLAG | A_FLAG | B_FLAG)) | (m_psw & 0x08) | sp;
+	else
+		m_psw = (high & 0xf0) | sp;
 	update_regptr();
 }
 
@@ -505,9 +562,8 @@ void mcs48_cpu_device::pull_pc()
 {
 	u8 sp = (m_psw - 1) & 0x07;
 	m_pc = ram_r(8 + 2*sp);
-	m_pc |= ram_r(9 + 2*sp) << 8;
-	m_pc &= (m_irq_in_progress) ? 0x7ff : 0xfff;
-	m_psw = (m_psw & 0xf0) | sp;
+	pull_pc_high(ram_r(9 + 2*sp));
+	m_psw = (m_psw & 0xf8) | sp;
 }
 
 
@@ -577,7 +633,7 @@ void mcs48_cpu_device::execute_call(u16 address)
 
 void mcs48_cpu_device::execute_jcc(bool result)
 {
-	u16 pch = m_pc & 0xf00;
+	u16 pch = m_pc & ~0xff;
 	u8 offset = argument_fetch();
 	if (result)
 		m_pc = pch | offset;
@@ -820,7 +876,7 @@ OPHANDLER( jmp_4 )          { burn_cycles(2); execute_jmp(argument_fetch() | 0x4
 OPHANDLER( jmp_5 )          { burn_cycles(2); execute_jmp(argument_fetch() | 0x500); }
 OPHANDLER( jmp_6 )          { burn_cycles(2); execute_jmp(argument_fetch() | 0x600); }
 OPHANDLER( jmp_7 )          { burn_cycles(2); execute_jmp(argument_fetch() | 0x700); }
-OPHANDLER( jmpp_xa )        { burn_cycles(2); m_pc &= 0xf00; m_pc |= program_r(m_pc | m_a); }
+OPHANDLER( jmpp_xa )        { burn_cycles(2); m_pc &= ~0xff; m_pc |= program_r(m_pc | m_a); }
 
 OPHANDLER( mov_a_n )        { burn_cycles(2); m_a = argument_fetch(); }
 OPHANDLER( mov_a_psw )      { burn_cycles(1); m_a = m_psw | 0x08; }
@@ -869,7 +925,7 @@ OPHANDLER( movd_p5_a )      { burn_cycles(2); expander_operation(EXPANDER_OP_WRI
 OPHANDLER( movd_p6_a )      { burn_cycles(2); expander_operation(EXPANDER_OP_WRITE, 6); }
 OPHANDLER( movd_p7_a )      { burn_cycles(2); expander_operation(EXPANDER_OP_WRITE, 7); }
 
-OPHANDLER( movp_a_xa )      { burn_cycles(2); m_a = program_r((m_pc & 0xf00) | m_a); }
+OPHANDLER( movp_a_xa )      { burn_cycles(2); m_a = program_r((m_pc & ~0xff) | m_a); }
 OPHANDLER( movp3_a_xa )     { burn_cycles(2); m_a = program_r(0x300 | m_a); }
 
 OPHANDLER( movx_a_xr0 )     { burn_cycles(2); m_a = ext_r(R0); }
@@ -1165,6 +1221,9 @@ void mcs48_cpu_device::device_start()
 	m_dbbo = 0;
 
 	m_irq_state = false;
+	m_xirq_pending = false;
+	m_sirq_pending = false;
+	m_sirq_enabled = false;
 	m_irq_polled = false;
 	m_irq_in_progress = false;
 	m_timer_overflow = false;
@@ -1188,16 +1247,16 @@ void mcs48_cpu_device::device_start()
 	update_regptr();
 
 	// set up the state table
-	state_add(MCS48_PC,        "PC",        m_pc).mask(0xfff);
-	state_add(STATE_GENPC,     "GENPC",     m_pc).mask(0xfff).noshow();
-	state_add(STATE_GENPCBASE, "CURPC",     m_prevpc).mask(0xfff).noshow();
+	state_add(MCS48_PC,        "PC",        m_pc).mask(m_pc_mask);
+	state_add(STATE_GENPC,     "GENPC",     m_pc).mask(m_pc_mask).noshow();
+	state_add(STATE_GENPCBASE, "CURPC",     m_prevpc).mask(m_pc_mask).noshow();
 	state_add(MCS48_SP,        "SP",        m_psw).mask(0x7).noshow();
 	state_add(STATE_GENFLAGS,  "GENFLAGS",  m_psw).noshow().formatstr("%12s");
 	state_add(MCS48_A,         "A",         m_a);
 	state_add(MCS48_TC,        "TC",        m_timer);
 	state_add(MCS48_TPRE,      "TPRE",      m_prescaler).mask(0x1f);
 
-	if (m_feature_mask & I802X_FEATURE)
+	if (m_feature_mask & (I802X_FEATURE | MAB84_FEATURE))
 		state_add(MCS48_P0,    "P0",        m_dbbo);
 	state_add(MCS48_P1,        "P1",        m_p1);
 	state_add(MCS48_P2,        "P2",        m_p2);
@@ -1205,7 +1264,7 @@ void mcs48_cpu_device::device_start()
 	for (int regnum = 0; regnum < 8; regnum++)
 		state_add(MCS48_R0 + regnum, string_format("R%d", regnum), m_rtemp).callimport().callexport();
 
-	if (!(m_feature_mask & I802X_FEATURE))
+	if (!(m_feature_mask & (I802X_FEATURE | MAB84_FEATURE)))
 		state_add(MCS48_EA,    "EA",        m_ea).mask(0x1);
 
 	if (m_feature_mask & UPI41_FEATURE)
@@ -1234,6 +1293,9 @@ void mcs48_cpu_device::device_start()
 	save_item(NAME(m_dbbo));
 
 	save_item(NAME(m_irq_state));
+	save_item(NAME(m_xirq_pending));
+	save_item(NAME(m_sirq_pending));
+	save_item(NAME(m_sirq_enabled));
 	save_item(NAME(m_irq_polled));
 	save_item(NAME(m_irq_in_progress));
 	save_item(NAME(m_timer_overflow));
@@ -1259,6 +1321,8 @@ void mcs48_cpu_device::device_reset()
 
 	m_tirq_enabled = false;
 	m_xirq_enabled = false;
+	m_xirq_pending = false;
+	m_sirq_enabled = false;
 	m_timecount_enabled = 0;
 	m_timer_flag = false;
 	m_sts = 0;
@@ -1300,24 +1364,38 @@ void mcs48_cpu_device::check_irqs()
 	if (m_irq_in_progress)
 		return;
 
-	// external interrupts take priority
-	else if ((m_irq_state || (m_sts & STS_IBF) != 0) && m_xirq_enabled)
+	// external interrupts take priority (MAB84X1 INT is edge triggered)
+	bool const xirq = (m_feature_mask & MAB84_FEATURE) ? m_xirq_pending : (m_irq_state || (m_sts & STS_IBF) != 0);
+	if (xirq && m_xirq_enabled)
 	{
 		// indicate we took the external IRQ
 		standard_irq_callback(0, m_pc);
 
 		burn_cycles(2);
 		m_irq_in_progress = true;
+		m_xirq_pending = false;
 
 		// force JNI to be taken (hack)
 		if (m_irq_polled)
 		{
-			m_pc = ((m_prevpc + 1) & 0x7ff) | (m_prevpc & 0x800);
+			m_pc = ((m_prevpc + 1) & 0x7ff) | (m_prevpc & ~0x7ff);
 			execute_jcc(true);
 		}
 
 		// transfer to location 0x03
 		execute_call(0x03);
+	}
+
+	// serial I/O interrupts are next (MAB84X1 only)
+	else if (m_sirq_pending && m_sirq_enabled)
+	{
+		standard_irq_callback(2, m_pc);
+
+		burn_cycles(2);
+		m_irq_in_progress = true;
+
+		// transfer to location 0x05; the request stays until the serial I/O is serviced
+		execute_call(0x05);
 	}
 
 	// timer overflow interrupts follow
@@ -1352,9 +1430,17 @@ void mcs48_cpu_device::burn_cycles(int count)
 		if (m_timecount_enabled & TIMER_ENABLED)
 		{
 			u8 oldtimer = m_timer;
-			m_prescaler += count;
-			m_timer += m_prescaler >> 5;
-			m_prescaler &= 0x1f;
+			if ((m_feature_mask & MAB84_FEATURE) && (m_psw & 0x08))
+			{
+				// MAB84X1 with PS set: no prescaler
+				m_timer += count;
+			}
+			else
+			{
+				m_prescaler += count;
+				m_timer += m_prescaler >> 5;
+				m_prescaler &= 0x1f;
+			}
 			timerover = m_timer < oldtimer;
 		}
 
@@ -1499,6 +1585,522 @@ void upi41_cpu_device::upi41_master_w(offs_t offset, u8 data)
 {
 	machine().scheduler().synchronize(timer_expired_delegate(FUNC(upi41_cpu_device::master_callback), this), (offset << 8) | data);
 }
+
+
+
+/*******************************************************************************
+    MAB84X1 FAMILY
+
+    Philips MAB8048 derivative. Differences from the 8048 that the shared
+    code handles through MAB84_FEATURE:
+    - 13-bit program counter, banks MB0-MB3 (SEL MB2/MB3 replace CLR F1/
+      CPL F1)
+    - no F0/F1; PSW bit 3 selects the timer prescaler (0 = /32, 1 = none)
+      and is the only bit MOV PSW,A writes; RETR restores CY, AC and BS
+    - INT (shared with T0) is edge triggered: ROM 4292 (PM 3585 keyboard)
+      keeps INT low for over a millisecond per event and only works if
+      the interrupt is taken once
+    - serial I/O interrupt (vector 5) between external and timer
+
+    The serial I/O is an I2C interface, like the one in the SCC68070.
+    Only master transmitter mode is implemented.
+
+    TODO:
+    - serial I/O slave and master receiver modes, BC2-BC0 bit counts,
+      repeated START, arbitration loss during the address
+    - S2 rate table is inferred (see below)
+    - MAB8421/41/61 (internal ROM), MAB8422/42 (20-pin)
+*******************************************************************************/
+
+namespace {
+
+// S1 status (read) bits
+constexpr u8 S1_MST = 0x80;
+constexpr u8 S1_TRX = 0x40;
+constexpr u8 S1_BB  = 0x20;
+constexpr u8 S1_PIN = 0x10;
+constexpr u8 S1_AL  = 0x08;
+constexpr u8 S1_AAS = 0x04;
+constexpr u8 S1_AD0 = 0x02;
+constexpr u8 S1_LRB = 0x01;
+
+// S1 control (write-only) bits
+constexpr u8 S1_ESO = 0x08;
+constexpr u8 S1_BC  = 0x07;
+
+// S2 bits
+constexpr u8 S2_ACK = 0x40;
+constexpr u8 S2_ASC = 0x20;
+
+// SCL period in oscillator clocks for each S2 rate. The data sheet only
+// gives the range: 100 kHz to 720 Hz with a 4.43 MHz crystal. These are
+// the SCC68070 I2C dividers halved, which fits both ends.
+constexpr u16 SIO_PERIOD[32] = {
+		39,   39,   45,   51,   63,   75,   87,   99,
+		123,  147,  171,  195,  243,  291,  339,  387,
+		498,  579,  675,  771,  963, 1155, 1347, 1539,
+		1923, 2307, 2691, 3075, 3843, 4611, 5379, 6147 };
+
+} // anonymous namespace
+
+
+void mab84x1_cpu_device::device_start()
+{
+	mcs48_cpu_device::device_start();
+
+	m_sio_timer = timer_alloc(FUNC(mab84x1_cpu_device::sio_tick), this);
+
+	state_add(MCS48_S0, "S0", m_s0);
+	state_add(MCS48_S1, "S1", m_s1);
+	state_add(MCS48_S2, "S2", m_s2).mask(0x7f);
+
+	save_item(NAME(m_s0));
+	save_item(NAME(m_s0_addr));
+	save_item(NAME(m_s1));
+	save_item(NAME(m_s1_ctrl));
+	save_item(NAME(m_s2));
+	save_item(NAME(m_sio_state));
+	save_item(NAME(m_sio_bit));
+	save_item(NAME(m_sio_sda));
+	save_item(NAME(m_sio_scl));
+	save_item(NAME(m_sda_pin));
+	save_item(NAME(m_scl_pin));
+	save_item(NAME(m_sda_in));
+	save_item(NAME(m_scl_in));
+}
+
+void mab84x1_cpu_device::device_reset()
+{
+	// serial I/O to slave receiver, disabled
+	m_sio_timer->adjust(attotime::never);
+	m_sio_state = SIO_IDLE;
+	m_s1 = S1_PIN;
+	m_s1_ctrl = 0;
+	m_sirq_pending = false;
+	m_sio_sda = true;
+	m_sio_scl = true;
+
+	// sets the ports, which updates the serial outputs
+	mcs48_cpu_device::device_reset();
+	sio_update_outputs();
+}
+
+std::unique_ptr<util::disasm_interface> mab84x1_cpu_device::create_disassembler()
+{
+	return std::make_unique<mab84x1_disassembler>();
+}
+
+void mab84x1_cpu_device::execute_set_input(int inputnum, int state)
+{
+	if (inputnum == MCS48_INPUT_IRQ)
+	{
+		bool const asserted = (state != CLEAR_LINE);
+		if (asserted && !m_irq_state)
+			m_xirq_pending = true;
+		m_irq_state = asserted;
+	}
+	else
+	{
+		mcs48_cpu_device::execute_set_input(inputnum, state);
+	}
+}
+
+
+/*-------------------------------------------------
+    ports: P2 is 4 bits, and P2.3 is also SDA
+-------------------------------------------------*/
+
+u8 mab84x1_cpu_device::port_r(offs_t a)
+{
+	u8 const data = mcs48_cpu_device::port_r(a);
+	return (a == 2) ? ((data & 0x07) | (m_sda_in ? 0x08 : 0x00) | 0xf0) : data;
+}
+
+void mab84x1_cpu_device::port_w(offs_t a, u8 v)
+{
+	if (a == 2)
+	{
+		mcs48_cpu_device::port_w(a, v | 0xf0);
+		sio_update_outputs();
+	}
+	else
+	{
+		mcs48_cpu_device::port_w(a, v);
+	}
+}
+
+
+/*-------------------------------------------------
+    opcode handlers
+-------------------------------------------------*/
+
+void mab84x1_cpu_device::anl_p0_n()      { burn_cycles(2); bus_w(m_dbbo &= argument_fetch()); }
+void mab84x1_cpu_device::orl_p0_n()      { burn_cycles(2); bus_w(m_dbbo |= argument_fetch()); }
+void mab84x1_cpu_device::in_a_p2_mab()   { burn_cycles(2); m_a = 0xf0 | (port_r(2) & m_p2 & 0x0f); }
+
+void mab84x1_cpu_device::dec_xr0()       { burn_cycles(1); ram_w(R0, ram_r(R0) - 1); }
+void mab84x1_cpu_device::dec_xr1()       { burn_cycles(1); ram_w(R1, ram_r(R1) - 1); }
+void mab84x1_cpu_device::djnz_xr0()      { burn_cycles(2); u8 const v = ram_r(R0) - 1; ram_w(R0, v); execute_jcc(v != 0); }
+void mab84x1_cpu_device::djnz_xr1()      { burn_cycles(2); u8 const v = ram_r(R1) - 1; ram_w(R1, v); execute_jcc(v != 0); }
+
+void mab84x1_cpu_device::jntf()          { burn_cycles(2); execute_jcc(!m_timer_flag); m_timer_flag = false; }
+void mab84x1_cpu_device::jt_int()        { burn_cycles(2); execute_jcc(!m_irq_state); }
+void mab84x1_cpu_device::jnt_int()       { burn_cycles(2); execute_jcc(m_irq_state); }
+
+void mab84x1_cpu_device::mov_a_psw_mab() { burn_cycles(1); m_a = m_psw | 0x20; }
+void mab84x1_cpu_device::mov_psw_a_mab() { burn_cycles(1); m_psw = (m_psw & ~0x08) | (m_a & 0x08); }
+
+void mab84x1_cpu_device::sel_mb2()       { burn_cycles(1); m_a11 = 0x1000; }
+void mab84x1_cpu_device::sel_mb3()       { burn_cycles(1); m_a11 = 0x1800; }
+
+void mab84x1_cpu_device::en_si()         { burn_cycles(1); m_sirq_enabled = true; }
+void mab84x1_cpu_device::dis_si()        { burn_cycles(1); m_sirq_enabled = false; }
+
+void mab84x1_cpu_device::mov_a_s0()
+{
+	burn_cycles(2);
+	m_a = m_s0;
+
+	// any S0 access services a pending interrupt
+	m_s1 &= ~(S1_AL | S1_AAS | S1_AD0);
+	sio_set_pin(true);
+}
+
+void mab84x1_cpu_device::mov_a_s1()      { burn_cycles(2); m_a = m_s1; }
+void mab84x1_cpu_device::mov_s0_a()      { burn_cycles(2); s0_w(m_a); }
+void mab84x1_cpu_device::mov_s1_a()      { burn_cycles(2); s1_w(m_a); }
+void mab84x1_cpu_device::mov_s2_a()      { burn_cycles(2); s2_w(m_a); }
+void mab84x1_cpu_device::mov_s0_n()      { burn_cycles(2); s0_w(argument_fetch()); }
+void mab84x1_cpu_device::mov_s1_n()      { burn_cycles(2); s1_w(argument_fetch()); }
+void mab84x1_cpu_device::mov_s2_n()      { burn_cycles(2); s2_w(argument_fetch()); }
+
+
+/*-------------------------------------------------
+    serial I/O registers
+-------------------------------------------------*/
+
+void mab84x1_cpu_device::s0_w(u8 data)
+{
+	// with the interface disabled, S0 writes go to the address register
+	if (!(m_s1_ctrl & S1_ESO))
+	{
+		m_s0_addr = data;
+		return;
+	}
+
+	m_s0 = data;
+	m_s1 &= ~(S1_AL | S1_AAS | S1_AD0);
+	sio_set_pin(true);
+
+	// master: the next byte goes out
+	if ((m_sio_state == SIO_HOLD) && (m_s1 & S1_MST))
+	{
+		if (m_s1 & S1_TRX)
+		{
+			m_sio_bit = 0;
+			sio_clock_low();
+		}
+		else
+		{
+			logerror("serial I/O: master receiver not supported\n");
+		}
+	}
+}
+
+void mab84x1_cpu_device::s1_w(u8 data)
+{
+	m_s1_ctrl = data & (S1_ESO | S1_BC);
+	if (data & S1_PIN)
+		sio_set_pin(true);
+
+	if (!(m_s1_ctrl & S1_ESO))
+	{
+		// interface disabled: abandon any transfer
+		m_s1 = (m_s1 & (S1_BB | S1_PIN)) | (data & (S1_MST | S1_TRX));
+		sio_release();
+		return;
+	}
+
+	if (m_s1_ctrl & S1_BC)
+		logerror("serial I/O: bit count %u not supported\n", m_s1_ctrl & S1_BC);
+
+	bool const mst = data & S1_MST;
+	bool const bb = data & S1_BB;
+	if (mst && bb && !(m_s1 & S1_MST) && (m_sio_state == SIO_IDLE))
+	{
+		if (m_s1 & S1_BB)
+		{
+			// the bus is in use by another master
+			m_s1 = (m_s1 & ~(S1_MST | S1_TRX)) | S1_AL;
+			sio_set_pin(false);
+			return;
+		}
+
+		// START, then send S0
+		m_s1 = (m_s1 & S1_PIN) | S1_MST | (data & S1_TRX) | S1_BB;
+		m_sio_bit = 0;
+		sio_set_sda(false);
+		m_sio_state = SIO_START;
+		m_sio_timer->adjust(sio_half_period(true));
+	}
+	else if (mst && !bb && (m_s1 & S1_MST))
+	{
+		// STOP after the current byte
+		m_s1 = (m_s1 & ~S1_TRX) | (data & S1_TRX);
+		if (m_sio_state == SIO_HOLD)
+			sio_stop();
+		else
+			logerror("serial I/O: STOP requested during a byte\n");
+	}
+	else
+	{
+		// mode change; giving up the master role releases the bus
+		bool const was_master = m_s1 & S1_MST;
+		m_s1 = (m_s1 & ~(S1_MST | S1_TRX)) | (data & (S1_MST | S1_TRX));
+		if (was_master && !mst)
+			sio_release();
+	}
+}
+
+void mab84x1_cpu_device::s2_w(u8 data)
+{
+	m_s2 = data & 0x7f;
+}
+
+
+/*-------------------------------------------------
+    serial I/O bus master
+-------------------------------------------------*/
+
+attotime mab84x1_cpu_device::sio_half_period(bool high) const
+{
+	u32 const period = SIO_PERIOD[m_s2 & 0x1f];
+	u32 clocks;
+	if (m_s2 & S2_ASC)
+		clocks = high ? (period * 3 / 4) : (period / 4);
+	else
+		clocks = period / 2;
+	return clocks_to_attotime(clocks);
+}
+
+void mab84x1_cpu_device::sio_update_outputs()
+{
+	// SDA is P2.3: open drain, and also pulled low by the latch
+	bool const eso = m_s1_ctrl & S1_ESO;
+	bool const sda = BIT(m_p2, 3) && (!eso || m_sio_sda);
+	bool const scl = !eso || m_sio_scl;
+
+	if (sda != m_sda_pin)
+	{
+		m_sda_pin = sda;
+		m_sda_out_cb(sda ? 1 : 0);
+	}
+	if (scl != m_scl_pin)
+	{
+		m_scl_pin = scl;
+		m_scl_out_cb(scl ? 1 : 0);
+	}
+}
+
+void mab84x1_cpu_device::sio_set_sda(bool state)
+{
+	m_sio_sda = state;
+	sio_update_outputs();
+}
+
+void mab84x1_cpu_device::sio_set_scl(bool state)
+{
+	m_sio_scl = state;
+	sio_update_outputs();
+}
+
+void mab84x1_cpu_device::sio_set_pin(bool pin)
+{
+	m_s1 = (m_s1 & ~S1_PIN) | (pin ? S1_PIN : 0);
+	m_sirq_pending = !pin;
+}
+
+void mab84x1_cpu_device::sio_clock_low()
+{
+	// SCL low, then the next data bit (or a released SDA for the acknowledge)
+	sio_set_scl(false);
+	sio_set_sda((m_sio_bit < 8) ? BIT(m_s0, 7 - m_sio_bit) : true);
+	m_sio_state = SIO_CLOCK_HIGH;
+	m_sio_timer->adjust(sio_half_period(false));
+}
+
+void mab84x1_cpu_device::sio_finish_byte()
+{
+	// hold SCL low until the CPU writes S0 or S1
+	sio_set_scl(false);
+	sio_set_sda(true);
+	m_sio_state = SIO_HOLD;
+	sio_set_pin(false);
+}
+
+void mab84x1_cpu_device::sio_stop()
+{
+	// SCL is low: take SDA low, then release SCL and SDA in turn
+	sio_set_sda(false);
+	m_sio_state = SIO_STOP_HIGH;
+	m_sio_timer->adjust(sio_half_period(false));
+}
+
+void mab84x1_cpu_device::sio_release()
+{
+	m_sio_timer->adjust(attotime::never);
+	m_sio_state = SIO_IDLE;
+	sio_set_sda(true);
+	sio_set_scl(true);
+}
+
+TIMER_CALLBACK_MEMBER(mab84x1_cpu_device::sio_tick)
+{
+	switch (m_sio_state)
+	{
+	case SIO_START:
+		sio_clock_low();
+		break;
+
+	case SIO_CLOCK_HIGH:
+		sio_set_scl(true);
+		if (m_scl_in)
+		{
+			m_sio_state = SIO_SAMPLE;
+			m_sio_timer->adjust(sio_half_period(true));
+		}
+		else
+		{
+			// a slave is stretching the clock; scl_w resumes
+			m_sio_state = SIO_CLOCK_WAIT;
+		}
+		break;
+
+	case SIO_SAMPLE:
+		if (m_sio_bit < 8)
+		{
+			if (BIT(m_s0, 7 - m_sio_bit) && !m_sda_in)
+			{
+				// another master drove SDA low: back off to slave mode
+				m_s1 = (m_s1 & ~(S1_MST | S1_TRX)) | S1_AL;
+				sio_release();
+				sio_set_pin(false);
+				break;
+			}
+			m_sio_bit++;
+			if ((m_sio_bit < 8) || (m_s2 & S2_ACK))
+				sio_clock_low();
+			else
+				sio_finish_byte();
+		}
+		else
+		{
+			// acknowledge from the receiver
+			m_s1 = (m_s1 & ~S1_LRB) | (m_sda_in ? S1_LRB : 0);
+			sio_finish_byte();
+		}
+		break;
+
+	case SIO_STOP_HIGH:
+		sio_set_scl(true);
+		if (m_scl_in)
+		{
+			m_sio_state = SIO_STOP_END;
+			m_sio_timer->adjust(sio_half_period(true));
+		}
+		else
+		{
+			m_sio_state = SIO_STOP_WAIT;
+		}
+		break;
+
+	case SIO_STOP_END:
+		// STOP; back to slave receiver
+		m_s1 &= ~(S1_MST | S1_TRX);
+		m_sio_state = SIO_IDLE;
+		sio_set_sda(true);
+		break;
+	}
+}
+
+void mab84x1_cpu_device::scl_w(int state)
+{
+	if (m_scl_in == bool(state))
+		return;
+	m_scl_in = state;
+
+	if (state && (m_sio_state == SIO_CLOCK_WAIT))
+	{
+		m_sio_state = SIO_SAMPLE;
+		m_sio_timer->adjust(sio_half_period(true));
+	}
+	else if (state && (m_sio_state == SIO_STOP_WAIT))
+	{
+		m_sio_state = SIO_STOP_END;
+		m_sio_timer->adjust(sio_half_period(true));
+	}
+}
+
+void mab84x1_cpu_device::sda_w(int state)
+{
+	if (m_sda_in == bool(state))
+		return;
+	m_sda_in = state;
+
+	// SDA changing while SCL is high is a START (falling) or STOP (rising)
+	if (m_scl_in && (m_s1_ctrl & S1_ESO))
+	{
+		if (state)
+			m_s1 &= ~S1_BB;
+		else
+			m_s1 |= S1_BB;
+	}
+}
+
+
+/*-------------------------------------------------
+    opcode table
+-------------------------------------------------*/
+
+#define MOP(_a) static_cast<mcs48_cpu_device::mcs48_ophandler>(&mab84x1_cpu_device::_a)
+
+const mcs48_cpu_device::mcs48_ophandler mab84x1_cpu_device::s_mab84x1_opcodes[256] =
+{
+	MOP(nop),        MOP(illegal),    MOP(illegal),    MOP(add_a_n),    MOP(jmp_0),      MOP(en_i),       MOP(jntf),       MOP(dec_a),          // 00
+	MOP(in_a_p0),    MOP(in_a_p1),    MOP(in_a_p2_mab),MOP(illegal),    MOP(mov_a_s0),   MOP(mov_a_s1),   MOP(illegal),    MOP(illegal),
+	MOP(inc_xr0),    MOP(inc_xr1),    MOP(jb_0),       MOP(adc_a_n),    MOP(call_0),     MOP(dis_i),      MOP(jtf),        MOP(inc_a),          // 10
+	MOP(inc_r0),     MOP(inc_r1),     MOP(inc_r2),     MOP(inc_r3),     MOP(inc_r4),     MOP(inc_r5),     MOP(inc_r6),     MOP(inc_r7),
+	MOP(xch_a_xr0),  MOP(xch_a_xr1),  MOP(illegal),    MOP(mov_a_n),    MOP(jmp_1),      MOP(en_tcnti),   MOP(jnt_int),    MOP(clr_a),          // 20
+	MOP(xch_a_r0),   MOP(xch_a_r1),   MOP(xch_a_r2),   MOP(xch_a_r3),   MOP(xch_a_r4),   MOP(xch_a_r5),   MOP(xch_a_r6),   MOP(xch_a_r7),
+	MOP(xchd_a_xr0), MOP(xchd_a_xr1), MOP(jb_1),       MOP(illegal),    MOP(call_1),     MOP(dis_tcnti),  MOP(jt_int),     MOP(cpl_a),          // 30
+	MOP(outl_p0_a),  MOP(outl_p1_a),  MOP(outl_p2_a),  MOP(illegal),    MOP(mov_s0_a),   MOP(mov_s1_a),   MOP(mov_s2_a),   MOP(illegal),
+	MOP(orl_a_xr0),  MOP(orl_a_xr1),  MOP(mov_a_t),    MOP(orl_a_n),    MOP(jmp_2),      MOP(strt_cnt),   MOP(jnt_1),      MOP(swap_a),         // 40
+	MOP(orl_a_r0),   MOP(orl_a_r1),   MOP(orl_a_r2),   MOP(orl_a_r3),   MOP(orl_a_r4),   MOP(orl_a_r5),   MOP(orl_a_r6),   MOP(orl_a_r7),
+	MOP(anl_a_xr0),  MOP(anl_a_xr1),  MOP(jb_2),       MOP(anl_a_n),    MOP(call_2),     MOP(strt_t),     MOP(jt_1),       MOP(da_a),           // 50
+	MOP(anl_a_r0),   MOP(anl_a_r1),   MOP(anl_a_r2),   MOP(anl_a_r3),   MOP(anl_a_r4),   MOP(anl_a_r5),   MOP(anl_a_r6),   MOP(anl_a_r7),
+	MOP(add_a_xr0),  MOP(add_a_xr1),  MOP(mov_t_a),    MOP(illegal),    MOP(jmp_3),      MOP(stop_tcnt),  MOP(illegal),    MOP(rrc_a),          // 60
+	MOP(add_a_r0),   MOP(add_a_r1),   MOP(add_a_r2),   MOP(add_a_r3),   MOP(add_a_r4),   MOP(add_a_r5),   MOP(add_a_r6),   MOP(add_a_r7),
+	MOP(adc_a_xr0),  MOP(adc_a_xr1),  MOP(jb_3),       MOP(illegal),    MOP(call_3),     MOP(illegal),    MOP(illegal),    MOP(rr_a),           // 70
+	MOP(adc_a_r0),   MOP(adc_a_r1),   MOP(adc_a_r2),   MOP(adc_a_r3),   MOP(adc_a_r4),   MOP(adc_a_r5),   MOP(adc_a_r6),   MOP(adc_a_r7),
+	MOP(illegal),    MOP(illegal),    MOP(illegal),    MOP(ret),        MOP(jmp_4),      MOP(en_si),      MOP(illegal),    MOP(illegal),        // 80
+	MOP(orl_p0_n),   MOP(orl_p1_n),   MOP(orl_p2_n),   MOP(illegal),    MOP(illegal),    MOP(illegal),    MOP(illegal),    MOP(illegal),
+	MOP(outl_p0_a),  MOP(illegal),    MOP(jb_4),       MOP(retr),       MOP(call_4),     MOP(dis_si),     MOP(jnz),        MOP(clr_c),          // 90
+	MOP(anl_p0_n),   MOP(anl_p1_n),   MOP(anl_p2_n),   MOP(illegal),    MOP(mov_s0_n),   MOP(mov_s1_n),   MOP(mov_s2_n),   MOP(illegal),
+	MOP(mov_xr0_a),  MOP(mov_xr1_a),  MOP(illegal),    MOP(movp_a_xa),  MOP(jmp_5),      MOP(sel_mb2),    MOP(illegal),    MOP(cpl_c),          // A0
+	MOP(mov_r0_a),   MOP(mov_r1_a),   MOP(mov_r2_a),   MOP(mov_r3_a),   MOP(mov_r4_a),   MOP(mov_r5_a),   MOP(mov_r6_a),   MOP(mov_r7_a),
+	MOP(mov_xr0_n),  MOP(mov_xr1_n),  MOP(jb_5),       MOP(jmpp_xa),    MOP(call_5),     MOP(sel_mb3),    MOP(illegal),    MOP(illegal),        // B0
+	MOP(mov_r0_n),   MOP(mov_r1_n),   MOP(mov_r2_n),   MOP(mov_r3_n),   MOP(mov_r4_n),   MOP(mov_r5_n),   MOP(mov_r6_n),   MOP(mov_r7_n),
+	MOP(dec_xr0),    MOP(dec_xr1),    MOP(illegal),    MOP(illegal),    MOP(jmp_6),      MOP(sel_rb0),    MOP(jz),         MOP(mov_a_psw_mab),  // C0
+	MOP(dec_r0),     MOP(dec_r1),     MOP(dec_r2),     MOP(dec_r3),     MOP(dec_r4),     MOP(dec_r5),     MOP(dec_r6),     MOP(dec_r7),
+	MOP(xrl_a_xr0),  MOP(xrl_a_xr1),  MOP(jb_6),       MOP(xrl_a_n),    MOP(call_6),     MOP(sel_rb1),    MOP(illegal),    MOP(mov_psw_a_mab),  // D0
+	MOP(xrl_a_r0),   MOP(xrl_a_r1),   MOP(xrl_a_r2),   MOP(xrl_a_r3),   MOP(xrl_a_r4),   MOP(xrl_a_r5),   MOP(xrl_a_r6),   MOP(xrl_a_r7),
+	MOP(djnz_xr0),   MOP(djnz_xr1),   MOP(illegal),    MOP(illegal),    MOP(jmp_7),      MOP(sel_mb0),    MOP(jnc),        MOP(rl_a),           // E0
+	MOP(djnz_r0),    MOP(djnz_r1),    MOP(djnz_r2),    MOP(djnz_r3),    MOP(djnz_r4),    MOP(djnz_r5),    MOP(djnz_r6),    MOP(djnz_r7),
+	MOP(mov_a_xr0),  MOP(mov_a_xr1),  MOP(jb_7),       MOP(illegal),    MOP(call_7),     MOP(sel_mb1),    MOP(jc),         MOP(rlc_a),          // F0
+	MOP(mov_a_r0),   MOP(mov_a_r1),   MOP(mov_a_r2),   MOP(mov_a_r3),   MOP(mov_a_r4),   MOP(mov_a_r5),   MOP(mov_a_r6),   MOP(mov_a_r7)
+};
+
+#undef MOP
 
 
 /*******************************************************************************

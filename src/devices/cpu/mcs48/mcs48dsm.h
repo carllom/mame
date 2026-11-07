@@ -28,4 +28,12 @@ private:
 	bool m_i802x;
 };
 
+class mab84x1_disassembler : public mcs48_disassembler
+{
+public:
+	mab84x1_disassembler();
+
+	virtual offs_t disassemble(std::ostream &stream, offs_t pc, const data_buffer &opcodes, const data_buffer &params) override;
+};
+
 #endif // MAME_CPU_MCS48_MCS48DSM_H
