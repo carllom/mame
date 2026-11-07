@@ -63,7 +63,6 @@ private:
 	void regs_map(address_map &map) ATTR_COLD;
 	void register_w(u16 address, u16 data);
 	void update_coefficients(int channel);
-	double glide_keep(int param, int channel, double sample_rate) const;
 
 	// debugger view of the registers: word address = parameter * 0x10 + channel
 	const address_space_config m_regs_config;
@@ -77,6 +76,8 @@ private:
 	u16 m_regs[NUM_PARAMS][NUM_CHANNELS];
 
 	channel_t m_channel[NUM_CHANNELS];
+	double m_level_phase;  // fraction of a level glide period gone by
+	double m_cutoff_phase; // fraction of a cutoff glide period gone by
 	double m_output_level; // mixed output of the latest sample
 };
 

@@ -33,9 +33,16 @@
     3.3 ms for the level and 4.1 ms for the cutoff; the level's tau matches
     within about 10 % from 0x2000 to 0x3f00, the cutoff's 50 % times within
     about 15 % from 0x3800 to 0x3f00 (a glide in the log domain would be
-    1.5x slower than measured). 0 and 0xffff jump, 0x3fff and 0x4000 stop
-    the glide. Parameter 6 sets where the cutoff glide is now: a write makes
-    the filter jump to that cutoff and glide on from there.
+    1.5x slower than measured). The glides advance in these steps: a jump
+    (k = 0) waits for the next update, so averaged over many writes it
+    spreads over 0.46 ms for the level and about 0.6 ms for the cutoff,
+    while a change at the TVF's input shows up at once (tvftick probe).
+    One step multiplies the distance by the signed k, which also explains
+    the other values: 0xffff jumps, 0x3fff and 0x4000 stop the glide,
+    0x6000 and 0x7fff make it run away, 0xc000 (-1) flips between two
+    values and 0x8000 (-2) does so diverging. Parameter 6 sets where the
+    cutoff glide is now: a write makes the filter jump to that cutoff and
+    glide on from there.
     Resonance changes take effect at once.
     The meaning of most setup registers and the internal table are unknown.
 
@@ -78,13 +85,13 @@
 
     TODO:
     - The setup registers and the internal table.
-    - Glide coefficients outside 0..0x4000: on an S-330, 0x6000 and 0x7fff
-      make the cutoff and level run away (the cutoff to about 3 times the
-      normal output, the level to 2.3 times or to 0), 0x8000 and 0xc000 are
-      erratic and 0xffff jumps. Modeled as a freeze above 0x4000 and a jump
-      below 0. The firmware only uses 0 and 0x3800.
-    - Whether the chip steps the glides every 0.44 / 0.55 ms (modeled per
-      sample here).
+    - Glide coefficients outside 0..0x4000 (the firmware only uses 0 and
+      0x3800): here a runaway value is clamped to 0..0xffff, and a cutoff
+      of 0x4000 or more passes the signal through. On an S-330 a runaway
+      cutoff makes the output about 3 times louder (the filter oscillating?)
+      and a level run away with 0x7fff ends at 0 (wrapping?).
+    - Whether all channels step at the same time; the exact periods (0.44
+      and 0.55 ms are 13.2 and 16.5 samples at 30 kHz).
     - Whether the level glide has a current-value register like parameter 6
       (parameters 5 and 7 are untested).
 
@@ -107,9 +114,19 @@ namespace {
 
 // the level and cutoff glides keep k of the remaining distance once per these
 // periods, in seconds (fitted to an S-330: k = 0x3800 gives a level tau of
-// 3.3 ms); modeled per sample at the same rate
+// 3.3 ms; a jump with k = 0 is spread over the same period)
 constexpr double LEVEL_GLIDE_PERIOD = 0.00044;
 constexpr double CUTOFF_GLIDE_PERIOD = 0.00055;
+
+// largest value of a gliding coefficient (a 16-bit register in 2.14)
+constexpr double GLIDE_MAX = double(0xffff) / 0x4000;
+
+// one glide update: keep k (2.14, signed) of the distance to the target
+double glide_step(double target, double now, u16 k)
+{
+	const double next = target + (now - target) * (double(s16(k)) / 0x4000);
+	return (std::abs(next - target) < 1e-6) ? target : std::clamp(next, 0.0, GLIDE_MAX);
+}
 
 } // anonymous namespace
 
@@ -122,6 +139,8 @@ mb654419u_device::mb654419u_device(const machine_config &mconfig, const char *ta
 	, m_address(0)
 	, m_data(0)
 	, m_address_set(false)
+	, m_level_phase(0.0)
+	, m_cutoff_phase(0.0)
 	, m_output_level(0.0)
 {
 }
@@ -152,6 +171,8 @@ void mb654419u_device::device_start()
 	save_item(STRUCT_MEMBER(m_channel, bp));
 	save_item(STRUCT_MEMBER(m_channel, f_cur));
 	save_item(STRUCT_MEMBER(m_channel, level_cur));
+	save_item(NAME(m_level_phase));
+	save_item(NAME(m_cutoff_phase));
 	save_item(NAME(m_output_level));
 }
 
@@ -168,6 +189,7 @@ void mb654419u_device::device_reset()
 	m_data = 0;
 	m_address_set = false;
 	std::fill(std::begin(m_setup), std::end(m_setup), 0);
+	m_level_phase = m_cutoff_phase = 0.0;
 	for (auto &param : m_regs)
 		std::fill(std::begin(param), std::end(param), 0);
 	for (int c = 0; c < NUM_CHANNELS; c++)
@@ -242,22 +264,6 @@ void mb654419u_device::update_coefficients(int channel)
 	ch.level = double(m_regs[PARAM_LEVEL][channel]) / 0x4000;
 }
 
-double mb654419u_device::glide_keep(int param, int channel, double sample_rate) const
-{
-	// The glide coefficient k (2.14, 0x3800 as the firmware sets it) is the
-	// fraction of the distance to the target that remains after one glide
-	// period; returned per sample. 0 and 0xffff jump at once, 0x3fff hardly
-	// moves, 0x4000 freezes. Larger and other negative values misbehave on
-	// the S-330 (see the notes at the top); here they freeze or jump.
-	const s16 k = s16(m_regs[param][channel]);
-	if (k <= 0)
-		return 0.0;
-	if (k >= 0x4000)
-		return 1.0;
-	const double period = (param == PARAM_CUTOFF_GLIDE) ? CUTOFF_GLIDE_PERIOD : LEVEL_GLIDE_PERIOD;
-	return std::pow(double(k) / 0x4000, 1.0 / (sample_rate * period));
-}
-
 void mb654419u_device::sound_stream_update(sound_stream &stream)
 {
 	// The coefficients are per sample: the stream must run at the SA-16 voice
@@ -266,17 +272,22 @@ void mb654419u_device::sound_stream_update(sound_stream &stream)
 		if (m_channel[c].dirty)
 			update_coefficients(c);
 
-	// one-pole glide of the cutoff and level coefficients, per sample, at the
-	// rates set by parameters 3 and 4
-	double f_keep[NUM_CHANNELS], level_keep[NUM_CHANNELS];
-	for (int c = 0; c < NUM_CHANNELS; c++)
-	{
-		f_keep[c] = glide_keep(PARAM_CUTOFF_GLIDE, c, stream.sample_rate());
-		level_keep[c] = glide_keep(PARAM_LEVEL_GLIDE, c, stream.sample_rate());
-	}
+	// The cutoff and level glides advance in steps, once per glide period,
+	// by the coefficients in parameters 3 and 4
+	const double level_rate = 1.0 / (stream.sample_rate() * LEVEL_GLIDE_PERIOD);
+	const double cutoff_rate = 1.0 / (stream.sample_rate() * CUTOFF_GLIDE_PERIOD);
 
 	for (int i = 0; i < stream.samples(); i++)
 	{
+		m_level_phase += level_rate;
+		const bool level_step = m_level_phase >= 1.0;
+		if (level_step)
+			m_level_phase -= 1.0;
+		m_cutoff_phase += cutoff_rate;
+		const bool cutoff_step = m_cutoff_phase >= 1.0;
+		if (cutoff_step)
+			m_cutoff_phase -= 1.0;
+
 		double mix = 0.0;
 		for (int v = 0; v < NUM_CHANNELS; v++)
 		{
@@ -285,12 +296,10 @@ void mb654419u_device::sound_stream_update(sound_stream &stream)
 			channel_t &ch = m_channel[c];
 			double out = stream.get(v, i);
 
-			ch.f_cur = ch.f + (ch.f_cur - ch.f) * f_keep[c];
-			if (std::abs(ch.f - ch.f_cur) < 1e-6)
-				ch.f_cur = ch.f;
-			ch.level_cur = ch.level + (ch.level_cur - ch.level) * level_keep[c];
-			if (std::abs(ch.level - ch.level_cur) < 1e-6)
-				ch.level_cur = ch.level;
+			if (cutoff_step)
+				ch.f_cur = glide_step(ch.f, ch.f_cur, m_regs[PARAM_CUTOFF_GLIDE][c]);
+			if (level_step)
+				ch.level_cur = glide_step(ch.level, ch.level_cur, m_regs[PARAM_LEVEL_GLIDE][c]);
 
 			// 0x4000 is what the firmware writes for a tone with the filter
 			// switched off; passing through differs from running the SVF by
