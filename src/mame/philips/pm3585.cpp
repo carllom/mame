@@ -94,7 +94,7 @@
   PCF8583 Slave address 0xA0
 
   ### Panel keyboard module ###
-  Controlled by 84C01 @ 4MHz
+  Controlled by Philips 84C01 (MAB8400 family, no visible markings) @ 6MHz
   The panel keyboard communicates with the main CPU via a custom protocol with keycodes and dial values.
   It is possible to emulate, but omit it from driver to start with. Use regular inputs and a handler function dealing with the protocol specifics.
   Button keycode chart in Service Manual, page 3-18.
