@@ -42,7 +42,8 @@
     0x6000 and 0x7fff make it run away, 0xc000 (-1) flips between two
     values and 0x8000 (-2) does so diverging. Parameter 6 sets where the
     cutoff glide is now: a write makes the filter jump to that cutoff and
-    glide on from there.
+    glide on from there; parameter 7 does the same for the level (with the
+    level glide frozen, the level stays at the value written).
     Resonance changes take effect at once.
     The meaning of most setup registers and the internal table are unknown.
 
@@ -76,7 +77,10 @@
       6 (+0x60) the gliding cutoff's current value; the firmware writes the
                 cutoff here right after the cutoff register at voice start,
                 so a new note doesn't glide from the previous note's cutoff
-      5, 7      never written by the firmware
+      7 (+0x70) the gliding level's current value, like parameter 6 for the
+                cutoff (tvfp57 probe); never written by the firmware
+      5 (+0x50) never written by the firmware; writing it alone changed
+                neither the level nor the cutoff
 
     Debugger: the "regs" address space of this device shows the current
     registers as 16-bit words at parameter * 0x10 + channel (chip address
@@ -92,8 +96,7 @@
       and a level run away with 0x7fff ends at 0 (wrapping?).
     - Whether all channels step at the same time; the exact periods (0.44
       and 0.55 ms are 13.2 and 16.5 samples at 30 kHz).
-    - Whether the level glide has a current-value register like parameter 6
-      (parameters 5 and 7 are untested).
+    - Parameter 5, and the power-on values of the registers (they read 0).
 
 ***************************************************************************/
 
@@ -250,6 +253,8 @@ void mb654419u_device::register_w(u16 address, u16 data)
 		m_channel[channel].dirty = true;
 	else if (param == PARAM_CUTOFF_NOW)
 		m_channel[channel].f_cur = double(data) / 0x4000; // the glide goes on from here
+	else if (param == PARAM_LEVEL_NOW)
+		m_channel[channel].level_cur = double(data) / 0x4000;
 	LOG("%.4f param %d channel %2d <= %04x\n", machine().time().as_double(), param, channel, data);
 }
 
