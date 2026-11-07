@@ -19,6 +19,7 @@
   ### Main CPU (D102) ###
   Motorola M68070 @ 19.6MHz divided by 2 for 9.8MHz bus operation
   Built-in DMA, MMU, I2C, Timer and RS232
+  The on-chip UART drives the RS-232-C connector (TXD, RXD, RTSN, CTSN), where a serial mouse can be attached
   24-bit address bus, 16-bit data bus
   I2C communicates with keyboard and real-time clock chip
 
@@ -102,6 +103,8 @@
 #include "emu.h"
 #include "pm3585_kbd.h"
 
+#include "bus/rs232/hlemouse.h"
+#include "bus/rs232/rs232.h"
 #include "machine/scc68070.h"
 #include "machine/scc66470.h"
 #include "machine/68230pit.h"
@@ -511,6 +514,16 @@ void pm3585_state::pm3585(machine_config &config)
 	// D110: PCF8583 RTC @ 32.768kHz, I2C address 0xA0
 	PCF8583(config, m_rtc, XTAL(32'768));
 	m_rtc->irq().set(m_maincpu, FUNC(scc68070_device::t1_w)); // 1 Hz /INT; SYSTEM counts T1 edges to check the RTC is running
+
+	// RS-232-C connector, driven by the 68070 on-chip UART; SYSTEM supports a serial mouse here.
+	// Added before the panel keyboard so an attached mouse is player 1 and gets the host mouse ahead of the panel dial.
+	rs232_port_device &rs232(RS232_PORT(config, "rs232", default_rs232_devices, nullptr));
+	rs232.option_add("microsoft_mouse", MSFT_HLE_SERIAL_MOUSE);
+	rs232.option_add("logitech_mouse", LOGITECH_HLE_SERIAL_MOUSE);
+	rs232.rxd_handler().set(m_maincpu, FUNC(scc68070_device::rx_w));
+	rs232.cts_handler().set(m_maincpu, FUNC(scc68070_device::uart_ctsn));
+	m_maincpu->out_txd_cb().set(rs232, FUNC(rs232_port_device::write_txd));
+	m_maincpu->uart_rtsn_callback().set(rs232, FUNC(rs232_port_device::write_rts));
 
 	// Front panel keyboard, MAB8401B @ 6MHz
 	PM3585_KBD(config, m_kbd, 6_MHz_XTAL);

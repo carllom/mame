@@ -96,6 +96,23 @@ MACHINES["Z80PIO"] = true
 --------------------------------------------------
 
 BUSES["CENTRONICS"] = true
+BUSES["RS232"] = true
+-- dependencies of the default RS232 slot device list (pm3585 serial port)
+BUSES["HEATHZENITH_H19"] = true
+BUSES["SUNKBD"] = true
+CPUS["ADSP21XX"] = true
+MACHINES["ACIA6850"] = true
+MACHINES["IE15"] = true
+MACHINES["PCF8573"] = true
+MACHINES["S97801"] = true
+MACHINES["SWTPC8212"] = true
+MACHINES["VOTRAXTNT"] = true
+SOUNDS["BEEP"] = true
+CPUS["IE15"] = true
+MACHINES["INS8250"] = true
+MACHINES["MM5740"] = true
+MACHINES["SCN_PCI"] = true
+VIDEOS["SCN2674"] = true
 
 
 --------------------------------------------------
