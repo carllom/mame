@@ -540,13 +540,19 @@ void roland_w30_state::leds_w(offs_t offset, u8 data)
 // then to 0x4e, and requires 1022 consecutive readings to be <= 0x1ff and then
 // >= 0x204. If the check keeps failing, the firmware gives up and reboots (an
 // endless splash screen loop).
-// The reference and gain of the analog path aren't known. They are modeled as
-// mid-scale at an output of two full-scale voices and 128 A/D steps per voice:
-// the two test levels (0.5 and 4.87 voices) then read 0x140 and 0x36f.
+// Measured on an S-330 (s330-hacking tvf probe): the input is unipolar, silence
+// and negative signals read 0, and one full-scale voice (DC sample at envelope
+// level 0xfe, TVF level unity) reads about 119; env level, TVF level and voice
+// count scale it about linearly (above about 120 the readings run somewhat
+// high: two full voices read 270, not 240, which isn't modeled). The two test
+// levels (0.5 and 4.87 voices) then read about 0x03c and 0x248.
+// Single conversions on the S-330 scatter widely around the mean even for a DC
+// input (the A/D samples a signal that changes within each 30 kHz frame); the
+// firmware's check doesn't depend on that, so only the mean is modeled.
 u16 roland_w30_state::analog_dac_value()
 {
 	const double level = m_tvf->output_level();
-	return std::clamp<s32>(0x200 + s32((level - 2.0) * 128.0), 0, 0x3ff);
+	return std::clamp<s32>(s32(level * 120.0 + 0.5), 0, 0x3ff);
 }
 
 // S-330 boot controller selection override.

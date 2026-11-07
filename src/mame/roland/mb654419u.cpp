@@ -16,6 +16,12 @@
                                where resonance peaks; with low resonance the
                                top cutoff is nearly flat, -1.6 dB at 10 kHz)
         q = resonance / 0x4000 (Q = 1/q; 0x4000 -> Q 1, 0x196 -> Q ~40)
+    Step responses measured on an S-330 through its A/D input ACH7 (the
+    s330-hacking tvfstep and tvfres probes) agree: the cutoff within about
+    5 % for 0x400-0x2000, and the fitted q within 9 % of resonance / 0x4000
+    from 0x4000 down to 0x196. They also show the low-pass saturating at
+    full scale: a full-level step's overshoot is cut off flat, while the
+    level register can still take the output to twice full scale.
     The meaning of most setup registers and the internal table are unknown.
 
     Host interface (even bytes):
@@ -223,7 +229,9 @@ void mb654419u_device::sound_stream_update(sound_stream &stream)
 
 			if (!ch.bypass)
 			{
-				ch.lp += ch.f * ch.bp;
+				// The low-pass state saturates at full scale: an overshoot past it
+				// comes out flat, the undershoot that follows doesn't
+				ch.lp = std::clamp(ch.lp + ch.f * ch.bp, -1.0, 1.0);
 				const double hp = out - ch.lp - ch.q * ch.bp;
 				ch.bp += ch.f * hp;
 				out = ch.lp;

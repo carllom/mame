@@ -48,7 +48,11 @@
     The envelope behaviour (rate law, direction, readback, regs 7 and 8)
     was measured on an S-330 with the s330-hacking diagnostics disk.
 
-    Key-on is the 16-bit mask in ports 0/1 (bit per voice).
+    Key-on is the 16-bit mask in ports 0/1 (bit per voice). It runs or stops
+    the voice's counter; key-on doesn't reload it, and a keyed-off voice still
+    outputs the word at its counter at its envelope level (measured on an
+    S-330: a voice keyed off at a non-zero level reads the same at the A/D
+    input ACH7 as keyed on). The firmware silences voices with level 0.
 
     Envelope events: when a ramp reaches its target the voice is flagged
     and ENVINT (HSI.0 on the host) goes low while any voice is flagged.
@@ -373,13 +377,7 @@ void sa16_base_device::sound_stream_update(sound_stream &stream)
 			if (voice.m_env_armed && voice.m_env_level == target)
 				raise_env_event(v);
 
-			// --- Wave playback (key-on mask) ---
-			if (!BIT(m_active_channels, v))
-			{
-				stream.put(v, i, 0);
-				continue;
-			}
-
+			// --- Wave playback ---
 			const u16 mode   = m_regs800[voice_reg(v, 4)];
 			const u32 pitch  = m_regs800[voice_reg(v, 0)];
 			const u32 anchor = u32(m_regs800[voice_reg(v, 6)]) | (u32(BIT(mode, 2, 2)) << 16);
@@ -397,6 +395,11 @@ void sa16_base_device::sound_stream_update(sound_stream &stream)
 			const s16 sample = s16(m_wram_cache.read_word(word << 1) << 4) >> 4;
 			// 12-bit sample x 8-bit level -> 16 bits per voice
 			stream.put_int(v, i, (s32(sample) * voice.m_env_level) >> 4, 32768);
+
+			// The key-on mask only runs the counter: a keyed-off voice keeps
+			// sounding the word it stopped on, at its envelope level
+			if (!BIT(m_active_channels, v))
+				continue;
 
 			// Advance: the counter runs down to the end, then loops back
 			if (voice.m_alt_back)
