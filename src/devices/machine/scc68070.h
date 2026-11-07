@@ -69,6 +69,7 @@ public:
 	void t2_w(int state);
 
 	void write_scl(int state);
+	void write_sda(int state);
 
 	TIMER_CALLBACK_MEMBER(timer0_callback);
 	TIMER_CALLBACK_MEMBER(i2c_callback);
@@ -100,6 +101,9 @@ public:
 		uint8_t counter;
 		bool first_byte;
 		bool ack_or_nak_sent;
+		uint8_t slave_state;
+		uint8_t slave_counter;
+		bool slave_bus_busy;
 	};
 
 	struct uart_regs_t
@@ -232,6 +236,12 @@ private:
 	void i2c_process_falling_scl();
 	void i2c_process_rising_scl();
 	void i2c_next_state();
+	void i2c_slave_start();
+	void i2c_slave_stop();
+	void i2c_slave_process_rising_scl();
+	void i2c_slave_process_falling_scl();
+	void i2c_slave_set_sda(bool state);
+	void i2c_slave_release_scl();
 
 	// UART interface
 	uint8_t umr_r();

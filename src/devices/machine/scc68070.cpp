@@ -19,6 +19,8 @@ TODO:
 
 - Proper handling of the 68070's internal devices (UART, DMA, Timers, etc.)
 - I2C could do with re-visiting.
+- I2C slave transmitter mode, and arbitration against another master
+  during a transfer (only a START on a busy bus is detected).
 
 *******************************************************************************/
 
@@ -200,6 +202,15 @@ enum i2c_clock_states
 	I2C_SCL_WAIT_1,
 };
 
+enum i2c_slave_states
+{
+	I2C_SLAVE_IDLE = 0, // not addressed: ignore the bus until the next START
+	I2C_SLAVE_ADDRESS,  // shifting in the first byte after a START
+	I2C_SLAVE_RX,       // shifting in a data byte
+	I2C_SLAVE_ACK,      // driving the acknowledge bit
+	I2C_SLAVE_WAIT      // interrupt pending: SCL held low until IDR is accessed
+};
+
 
 // device type definition
 DEFINE_DEVICE_TYPE(SCC68070, scc68070_device, "scc68070", "Philips SCC68070")
@@ -306,6 +317,9 @@ void scc68070_device::device_start()
 	save_item(NAME(m_i2c.clocks));
 	save_item(NAME(m_i2c.first_byte));
 	save_item(NAME(m_i2c.ack_or_nak_sent));
+	save_item(NAME(m_i2c.slave_state));
+	save_item(NAME(m_i2c.slave_counter));
+	save_item(NAME(m_i2c.slave_bus_busy));
 
 	save_item(NAME(m_uart.mode_register));
 	save_item(NAME(m_uart.status_register));
@@ -345,6 +359,10 @@ void scc68070_device::device_start()
 
 	m_i2c.timer = timer_alloc(FUNC(scc68070_device::i2c_callback), this);
 	m_i2c.timer->adjust(attotime::never);
+
+	// bus levels as seen through the pull-ups; reset doesn't change them
+	m_i2c.scl_in_state = true;
+	m_i2c.sda_in_state = true;
 }
 
 //-------------------------------------------------
@@ -368,12 +386,18 @@ void scc68070_device::reset_peripheral_state()
 	m_i2c.status_register = ISR_PIN;
 	m_i2c.control_register = 0;
 	m_i2c.clock_control_register = 0;
+	if (!m_i2c.scl_out_state)
+		m_i2c_scl_callback(1);
+	if (!m_i2c.sda_out_state)
+		m_i2c_sdaw_callback(1);
 	m_i2c.scl_out_state = true;
-	m_i2c.scl_in_state = true;
 	m_i2c.sda_out_state = true;
 	m_i2c.state = I2C_IDLE;
 	m_i2c.clock_change_state = I2C_SCL_IDLE;
 	m_i2c.clocks = 0;
+	m_i2c.slave_state = I2C_SLAVE_IDLE;
+	m_i2c.slave_counter = 0;
+	m_i2c.slave_bus_busy = false;
 
 	m_uart.mode_register = 0;
 	m_uart.status_register = USR_TXRDY | USR_TXEMT;
@@ -897,15 +921,25 @@ void scc68070_device::picr2_w(uint8_t data)
 uint8_t scc68070_device::idr_r()
 {
 	// I2C data register: 80002001
-	if (!machine().side_effects_disabled())
-		LOGMASKED(LOG_I2C, "%s: I2C Data Register Read: %02x\n", machine().describe_context(), m_i2c.data_register);
+	uint8_t const data = m_i2c.data_register;
+	if (machine().side_effects_disabled())
+		return data;
 
+	LOGMASKED(LOG_I2C, "%s: I2C Data Register Read: %02x\n", machine().describe_context(), data);
+
+	// any IDR access sets PIN and clears AAS and AL
 	m_i2c.counter = 0;
 	m_i2c.status_register |= ISR_PIN;
+	m_i2c.status_register &= ~(ISR_AAS | ISR_AL);
 	m_i2c_int = false;
 	update_ipl();
 
-	if (m_i2c.state == I2C_CHANGED_TO_RX)
+	if (m_i2c.slave_state == I2C_SLAVE_WAIT)
+	{
+		// releasing SCL lets the master clock in the next byte, which shifts into IDR
+		i2c_slave_release_scl();
+	}
+	else if (m_i2c.state == I2C_CHANGED_TO_RX)
 	{
 		// dummy read after the slave address starts reception of the first byte
 		m_i2c.state = I2C_RX_IN_PROGRESS;
@@ -933,14 +967,22 @@ uint8_t scc68070_device::idr_r()
 		set_i2c_timer();
 
 	}
-	return m_i2c.data_register;
+	return data;
 }
 
 void scc68070_device::idr_w(uint8_t data)
 {
 	LOGMASKED(LOG_I2C, "%s: I2C Data Register Write: %02x\n", machine().describe_context(), data);
 	m_i2c.data_register = data;
-	if (m_i2c.status_register & ISR_MST && m_i2c.status_register & ISR_TRX && m_i2c.status_register & ISR_BB)
+	m_i2c.status_register &= ~(ISR_AAS | ISR_AL);
+	if (m_i2c.slave_state == I2C_SLAVE_WAIT)
+	{
+		m_i2c.status_register |= ISR_PIN;
+		m_i2c_int = false;
+		update_ipl();
+		i2c_slave_release_scl();
+	}
+	else if (m_i2c.status_register & ISR_MST && m_i2c.status_register & ISR_TRX && m_i2c.status_register & ISR_BB)
 	{
 		m_i2c.status_register |= ISR_PIN;
 		m_i2c_int = false;
@@ -983,10 +1025,20 @@ void scc68070_device::isr_w(uint8_t data)
 	{
 		if ((data & ISR_SSR_MASK) == ISR_START)
 		{
-			if ((m_i2c.status_register & ISR_SSR_MASK) == ISR_STOP || (m_i2c.status_register & ISR_SSR_MASK) == 0)
+			if (!(m_i2c.status_register & ISR_MST) && m_i2c.slave_bus_busy)
+			{
+				// another master owns the bus
+				LOGMASKED(LOG_I2C, "%s: I2C START while bus busy, arbitration lost\n", machine().describe_context());
+				m_i2c.status_register |= ISR_AL;
+				m_i2c.status_register &= ~ISR_PIN;
+				m_i2c_int = true;
+				update_ipl();
+			}
+			else if ((m_i2c.status_register & ISR_SSR_MASK) == ISR_STOP || (m_i2c.status_register & ISR_SSR_MASK) == 0)
 			{
 				if (m_i2c_sdar_callback() && m_i2c.state == I2C_IDLE)
 				{
+					m_i2c.slave_state = I2C_SLAVE_IDLE;
 					m_i2c.status_register = data;
 					if (data & ISR_PIN)
 					{
@@ -1110,16 +1162,33 @@ void scc68070_device::isr_w(uint8_t data)
 	}
 	else
 	{
-		m_i2c.status_register = data;
+		// slave mode: BB follows the bus, it can't be written
+		m_i2c.status_register = (data & ~ISR_BB) | (m_i2c.slave_bus_busy ? ISR_BB : 0);
 		m_i2c_int = false;
 		update_ipl();
 		m_i2c.timer->adjust(attotime::never);
-		m_i2c_scl_callback(1);
-		m_i2c_sdaw_callback(1);
-		m_i2c.scl_out_state = true;
-		m_i2c.scl_in_state = true;
-		m_i2c.sda_out_state = true;
+		if (m_i2c.state == I2C_SEND_STOP || m_i2c.state == I2C_SEND_ACK_AND_STOP)
+		{
+			// software may return to slave mode before the STOP has been clocked out; finish it so other masters see a free bus
+			if (!m_i2c.scl_out_state || m_i2c.sda_out_state)
+			{
+				// get to SCL high with SDA low, without an extra clock pulse if SCL is already low
+				if (m_i2c.scl_out_state)
+					m_i2c_scl_callback(0);
+				m_i2c_sdaw_callback(0);
+				m_i2c_scl_callback(1);
+			}
+			m_i2c_sdaw_callback(1);
+		}
 		m_i2c.state = I2C_IDLE;
+		if (m_i2c.slave_state == I2C_SLAVE_IDLE)
+		{
+			// leave the lines alone while another master is talking to this slave
+			m_i2c_scl_callback(1);
+			m_i2c_sdaw_callback(1);
+			m_i2c.scl_out_state = true;
+			m_i2c.sda_out_state = true;
+		}
 	}
 }
 
@@ -1134,15 +1203,21 @@ uint8_t scc68070_device::icr_r()
 void scc68070_device::icr_w(uint8_t data)
 {
 	LOGMASKED(LOG_I2C, "%s: I2C Control Register Write: %02x\n", machine().describe_context(), data);
-	m_i2c.control_register = data;
+	// SEL is set and cleared by the slave logic only
+	m_i2c.control_register = (data & ~ICR_SEL) | (m_i2c.control_register & ICR_SEL);
 
 	if (!(data & ICR_ESO))
 	{
+		m_i2c.control_register &= ~ICR_SEL;
+		m_i2c.status_register &= ~(ISR_AAS | ISR_AD0);
+		if (m_i2c.slave_bus_busy)
+			m_i2c.status_register &= ~ISR_BB;
+		m_i2c.slave_bus_busy = false;
+		m_i2c.slave_state = I2C_SLAVE_IDLE;
 		m_i2c.timer->adjust(attotime::never);
 		m_i2c_scl_callback(1);
 		m_i2c_sdaw_callback(1);
 		m_i2c.scl_out_state = true;
-		m_i2c.scl_in_state = true;
 		m_i2c.sda_out_state = true;
 		m_i2c.state = I2C_IDLE;
 	}
@@ -1266,15 +1341,142 @@ void scc68070_device::i2c_process_rising_scl()
 
 void scc68070_device::write_scl(int state)
 {
+	if (m_i2c.scl_in_state == bool(state))
+		return;
+	m_i2c.scl_in_state = state;
+
 	if (m_i2c.status_register & ISR_MST)
 	{
-		if (m_i2c.scl_in_state != state && state)
+		if (state)
 		{
 			i2c_process_rising_scl();
 			i2c_next_state();
 		}
 	}
-	m_i2c.scl_in_state = state;
+	else if (m_i2c.slave_state != I2C_SLAVE_IDLE)
+	{
+		if (state)
+			i2c_slave_process_rising_scl();
+		else
+			i2c_slave_process_falling_scl();
+	}
+}
+
+void scc68070_device::write_sda(int state)
+{
+	if (m_i2c.sda_in_state == bool(state))
+		return;
+	m_i2c.sda_in_state = state;
+
+	// SDA changing while SCL is high is a START (falling) or STOP (rising) from another master
+	if (!m_i2c.scl_in_state || (m_i2c.status_register & ISR_MST) || !(m_i2c.control_register & ICR_ESO))
+		return;
+
+	if (state)
+		i2c_slave_stop();
+	else
+		i2c_slave_start();
+}
+
+void scc68070_device::i2c_slave_start()
+{
+	LOGMASKED(LOG_I2C, "I2C slave: START\n");
+	m_i2c.slave_bus_busy = true;
+	m_i2c.status_register |= ISR_BB;
+	m_i2c.status_register &= ~ISR_AD0;
+	m_i2c.control_register &= ~ICR_SEL;
+	i2c_slave_set_sda(true);
+	m_i2c.slave_state = I2C_SLAVE_ADDRESS;
+	m_i2c.slave_counter = 0;
+}
+
+void scc68070_device::i2c_slave_stop()
+{
+	LOGMASKED(LOG_I2C, "I2C slave: STOP\n");
+	m_i2c.slave_bus_busy = false;
+	m_i2c.status_register &= ~(ISR_BB | ISR_AD0);
+	m_i2c.control_register &= ~ICR_SEL;
+	i2c_slave_set_sda(true);
+	m_i2c.slave_state = I2C_SLAVE_IDLE;
+}
+
+void scc68070_device::i2c_slave_process_rising_scl()
+{
+	if ((m_i2c.slave_state == I2C_SLAVE_ADDRESS || m_i2c.slave_state == I2C_SLAVE_RX) && m_i2c.slave_counter < 8)
+	{
+		m_i2c.data_register = (m_i2c.data_register << 1) | (m_i2c.sda_in_state ? 1 : 0);
+		m_i2c.slave_counter++;
+	}
+}
+
+void scc68070_device::i2c_slave_process_falling_scl()
+{
+	switch (m_i2c.slave_state)
+	{
+	case I2C_SLAVE_ADDRESS:
+		if (m_i2c.slave_counter == 8)
+		{
+			// with ALS set every first byte is accepted as data (free data format)
+			uint8_t const address = m_i2c.data_register;
+			bool const als = BIT(m_i2c.address_register, 0);
+			bool const general_call = !als && (address == 0);
+			if (!als && !general_call && ((address >> 1) != (m_i2c.address_register >> 1)))
+			{
+				m_i2c.slave_state = I2C_SLAVE_IDLE;
+				break;
+			}
+			if (!als && BIT(address, 0))
+			{
+				LOGMASKED(LOG_UNKNOWN, "I2C slave: read from address %02x, slave transmitter not supported\n", address);
+				m_i2c.slave_state = I2C_SLAVE_IDLE;
+				break;
+			}
+			LOGMASKED(LOG_I2C, "I2C slave: addressed with %02x\n", address);
+			m_i2c.status_register &= ~ISR_TRX;
+			m_i2c.status_register |= ISR_AAS | (general_call ? ISR_AD0 : 0);
+			m_i2c.control_register |= ICR_SEL;
+			i2c_slave_set_sda(!(m_i2c.control_register & ICR_ACK));
+			m_i2c.slave_state = I2C_SLAVE_ACK;
+		}
+		break;
+
+	case I2C_SLAVE_RX:
+		if (m_i2c.slave_counter == 8)
+		{
+			LOGMASKED(LOG_I2C, "I2C slave: received %02x\n", m_i2c.data_register);
+			i2c_slave_set_sda(!(m_i2c.control_register & ICR_ACK));
+			m_i2c.slave_state = I2C_SLAVE_ACK;
+		}
+		break;
+
+	case I2C_SLAVE_ACK:
+		// the acknowledge clock is over: interrupt, and stretch SCL until the CPU accesses IDR
+		i2c_slave_set_sda(true);
+		m_i2c.slave_state = I2C_SLAVE_WAIT;
+		m_i2c.scl_out_state = false;
+		m_i2c_scl_callback(0);
+		m_i2c.status_register &= ~ISR_PIN;
+		m_i2c_int = true;
+		update_ipl();
+		break;
+	}
+}
+
+void scc68070_device::i2c_slave_set_sda(bool state)
+{
+	if (m_i2c.sda_out_state != state)
+	{
+		m_i2c.sda_out_state = state;
+		m_i2c_sdaw_callback(state);
+	}
+}
+
+void scc68070_device::i2c_slave_release_scl()
+{
+	m_i2c.slave_state = I2C_SLAVE_RX;
+	m_i2c.slave_counter = 0;
+	m_i2c.scl_out_state = true;
+	m_i2c_scl_callback(1);
 }
 
 TIMER_CALLBACK_MEMBER(scc68070_device::i2c_callback)
