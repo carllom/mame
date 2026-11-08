@@ -116,6 +116,8 @@
 #include "formats/pc_dsk.h"
 #include "screen.h"
 
+#include "pm3585.lh"
+
 namespace {
 
 class pm3585_state : public driver_device
@@ -489,6 +491,7 @@ void pm3585_state::pm3585(machine_config &config)
 	m_screen->set_raw(XTAL(30'000'000), 960, 0, 768, 521, 32, 512);
 	m_screen->set_video_attributes(VIDEO_UPDATE_SCANLINE);
 	m_screen->set_screen_update(FUNC(pm3585_state::screen_update));
+	config.set_default_layout(layout_pm3585);
 
 	SCC66470(config, m_vsc, XTAL(30'000'000));
 	m_vsc->set_addrmap(0, &pm3585_state::vsc_map);

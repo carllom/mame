@@ -1,0 +1,261 @@
+<?xml version="1.0"?>
+<!--
+license:CC0-1.0
+copyright-holders:Carl Lom
+
+Philips PM 3585 logic analyzer front panel, stylized after a photo of the unit.
+Keys map to the panel keyboard matrix (kbd:LINE0-7). The dial is not clickable;
+use the mouse or PgUp/PgDn.
+-->
+<mamelayout version="2">
+
+	<!-- Cabinet -->
+
+	<element name="frame"><rect><color red="0.55" green="0.55" blue="0.52"/></rect></element>
+	<element name="panel"><rect><color red="0.84" green="0.83" blue="0.79"/></rect></element>
+	<element name="strip"><rect><color red="0.90" green="0.89" blue="0.86"/></rect></element>
+	<element name="bezel"><rect><color red="0.20" green="0.20" blue="0.20"/></rect></element>
+	<element name="slot"><rect><color red="0.15" green="0.15" blue="0.15"/></rect></element>
+
+	<element name="title"><text string="PM 3585  logic analyzer  200MHz" align="1"><color red="0.25" green="0.25" blue="0.25"/></text></element>
+	<element name="brand"><text string="PHILIPS" align="2"><color red="0.15" green="0.15" blue="0.15"/></text></element>
+
+	<element name="dial">
+		<disk><bounds x="0" y="0" width="128" height="128"/><color red="0.40" green="0.40" blue="0.38"/></disk>
+		<disk><bounds x="2" y="2" width="124" height="124"/><color red="0.95" green="0.95" blue="0.93"/></disk>
+		<disk><bounds x="95" y="49" width="30" height="30"/><color red="0.75" green="0.75" blue="0.73"/></disk>
+		<disk><bounds x="96" y="50" width="28" height="28"/><color red="0.92" green="0.92" blue="0.90"/></disk>
+	</element>
+
+	<!-- Key bodies, one per key style; state 1 = pressed -->
+
+	<element name="key_func"> <!-- function keys -->
+		<rect><bounds x="0" y="0" width="34" height="20"/><color red="0.25" green="0.25" blue="0.25"/></rect>
+		<rect><bounds x="1" y="1" width="32" height="18"/><color state="0" red="0.66" green="0.66" blue="0.64"/><color state="1" red="0.46" green="0.46" blue="0.44"/></rect>
+	</element>
+	<element name="key_nav"> <!-- cursor keys -->
+		<rect><bounds x="0" y="0" width="34" height="20"/><color red="0.25" green="0.25" blue="0.25"/></rect>
+		<rect><bounds x="1" y="1" width="32" height="18"/><color state="0" red="0.36" green="0.36" blue="0.36"/><color state="1" red="0.20" green="0.20" blue="0.20"/></rect>
+	</element>
+	<element name="key_data"> <!-- keypad and alphanumeric keys -->
+		<rect><bounds x="0" y="0" width="34" height="20"/><color red="0.25" green="0.25" blue="0.25"/></rect>
+		<rect><bounds x="1" y="1" width="32" height="18"/><color state="0" red="0.96" green="0.96" blue="0.94"/><color state="1" red="0.72" green="0.72" blue="0.70"/></rect>
+	</element>
+
+	<!-- Key legends -->
+
+	<element name="arrow_up"><image><data><![CDATA[<svg width="14" height="10" viewBox="0 0 14 10"><path fill="#eee" d="M 0,10 L 14,10 L 7,0 Z"/></svg>]]></data></image></element>
+	<element name="arrow_down"><image><data><![CDATA[<svg width="14" height="10" viewBox="0 0 14 10"><path fill="#eee" d="M 0,0 L 14,0 L 7,10 Z"/></svg>]]></data></image></element>
+	<element name="arrow_left"><image><data><![CDATA[<svg width="10" height="14" viewBox="0 0 10 14"><path fill="#eee" d="M 10,0 L 10,14 L 0,7 Z"/></svg>]]></data></image></element>
+	<element name="arrow_right"><image><data><![CDATA[<svg width="10" height="14" viewBox="0 0 10 14"><path fill="#eee" d="M 0,0 L 0,14 L 10,7 Z"/></svg>]]></data></image></element>
+
+	<element name="lbl_config"><text string="CONFIG"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_format"><text string="FORMAT"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_trace"><text string="TRACE"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_io"><text string="I/O"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_display"><text string="DISPLAY"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_print"><text string="PRINT"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_run"><text string="RUN"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_stop"><text string="STOP"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_insert"><text string="INSERT"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_delete"><text string="DELETE"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_home"><text string="HOME"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_select"><text string="SELECT"><color red="0.95" green="0.95" blue="0.95"/></text></element>
+
+	<element name="lbl_7"><text string="7"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_8"><text string="8"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_9"><text string="9"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_4"><text string="4"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_5"><text string="5"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_6"><text string="6"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_1"><text string="1"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_2"><text string="2"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_3"><text string="3"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_0"><text string="0"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_point"><text string="."><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_sign"><text string="+/-"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_a"><text string="A"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_b"><text string="B"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_c"><text string="C"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_d"><text string="D"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_e"><text string="E"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_f"><text string="F"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_g"><text string="G"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_h"><text string="H"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_i"><text string="I"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_j"><text string="J"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_k"><text string="K"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_l"><text string="L"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_m"><text string="M"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_n"><text string="N"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_o"><text string="O"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_p"><text string="P"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_q"><text string="Q"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_r"><text string="R"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_s"><text string="S"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_t"><text string="T"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_u"><text string="U"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_v"><text string="V"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_w"><text string="W"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_x"><text string="X"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_y"><text string="Y"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_z"><text string="Z"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_underscore"><text string="_"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_slash"><text string="/"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_shift"><text string="SHIFT"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_space"><text string="SPACE"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_ins"><text string="INS"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+	<element name="lbl_backspace"><text string="←"><color red="0.10" green="0.10" blue="0.10"/></text></element>
+
+	<view name="Front Panel">
+		<element ref="frame"><bounds x="0" y="0" width="1196" height="525"/></element>
+		<element ref="panel"><bounds x="2" y="2" width="676" height="521"/></element>
+		<element ref="panel"><bounds x="682" y="2" width="512" height="521"/></element>
+
+		<!-- Title strip -->
+		<element ref="strip"><bounds x="8" y="10" width="664" height="48"/></element>
+		<element ref="title"><bounds x="20" y="24" width="260" height="18"/></element>
+		<element ref="brand"><bounds x="560" y="24" width="100" height="18"/></element>
+
+		<!-- CRT -->
+		<element ref="bezel"><bounds x="77" y="66" width="532" height="399"/></element>
+		<screen index="0"><bounds x="85" y="72" width="516" height="387"/></screen>
+
+		<!-- Floppy drive -->
+		<element ref="strip"><bounds x="862" y="68" width="293" height="72"/></element>
+		<element ref="slot"><bounds x="877" y="85" width="263" height="16"/></element>
+		<element ref="key_data"><bounds x="1082" y="117" width="52" height="15"/></element>
+
+		<!-- Dial -->
+		<element ref="dial"><bounds x="844" y="331" width="128" height="128"/></element>
+
+		<!-- Function keys -->
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x10"><bounds x="697" y="71" width="48" height="24"/></element>
+		<element ref="lbl_config"><bounds x="699" y="78" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x01"><bounds x="770" y="71" width="48" height="24"/></element>
+		<element ref="lbl_format"><bounds x="772" y="78" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x20"><bounds x="697" y="121" width="48" height="24"/></element>
+		<element ref="lbl_trace"><bounds x="699" y="128" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x02"><bounds x="770" y="121" width="48" height="24"/></element>
+		<element ref="lbl_io"><bounds x="772" y="128" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x40"><bounds x="697" y="172" width="48" height="24"/></element>
+		<element ref="lbl_display"><bounds x="699" y="179" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x04"><bounds x="770" y="172" width="48" height="24"/></element>
+		<element ref="lbl_print"><bounds x="772" y="179" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x80"><bounds x="697" y="226" width="48" height="32"/></element>
+		<element ref="lbl_run"><bounds x="699" y="237" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE0" inputmask="0x08"><bounds x="770" y="226" width="48" height="32"/></element>
+		<element ref="lbl_stop"><bounds x="772" y="237" width="44" height="10"/></element>
+		<element ref="key_func" inputtag="kbd:LINE7" inputmask="0x10"><bounds x="697" y="283" width="34" height="19"/></element>
+		<element ref="lbl_insert"><bounds x="699" y="289" width="30" height="7"/></element>
+		<element ref="key_func" inputtag="kbd:LINE6" inputmask="0x10"><bounds x="740" y="283" width="34" height="19"/></element>
+		<element ref="lbl_delete"><bounds x="742" y="289" width="30" height="7"/></element>
+		<element ref="key_func" inputtag="kbd:LINE5" inputmask="0x10"><bounds x="784" y="283" width="34" height="19"/></element>
+		<element ref="lbl_home"><bounds x="786" y="289" width="30" height="7"/></element>
+
+		<!-- Cursor keys -->
+		<element ref="key_nav" inputtag="kbd:LINE6" inputmask="0x20"><bounds x="740" y="336" width="34" height="26"/></element>
+		<element ref="arrow_up"><bounds x="750" y="344" width="14" height="10"/></element>
+		<element ref="key_nav" inputtag="kbd:LINE7" inputmask="0x40"><bounds x="697" y="382" width="34" height="28"/></element>
+		<element ref="arrow_left"><bounds x="709" y="389" width="10" height="14"/></element>
+		<element ref="key_nav" inputtag="kbd:LINE6" inputmask="0x40"><bounds x="740" y="382" width="34" height="28"/></element>
+		<element ref="lbl_select"><bounds x="742" y="392.5" width="30" height="7"/></element>
+		<element ref="key_nav" inputtag="kbd:LINE5" inputmask="0x40"><bounds x="784" y="382" width="34" height="28"/></element>
+		<element ref="arrow_right"><bounds x="796" y="389" width="10" height="14"/></element>
+		<element ref="key_nav" inputtag="kbd:LINE6" inputmask="0x80"><bounds x="740" y="429" width="34" height="26"/></element>
+		<element ref="arrow_down"><bounds x="750" y="437" width="14" height="10"/></element>
+
+		<!-- Numeric keypad -->
+		<element ref="key_data" inputtag="kbd:LINE7" inputmask="0x01"><bounds x="849" y="162" width="34" height="19"/></element>
+		<element ref="lbl_7"><bounds x="851" y="166.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE6" inputmask="0x01"><bounds x="893" y="162" width="34" height="19"/></element>
+		<element ref="lbl_8"><bounds x="895" y="166.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE5" inputmask="0x01"><bounds x="937" y="162" width="34" height="19"/></element>
+		<element ref="lbl_9"><bounds x="939" y="166.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE7" inputmask="0x02"><bounds x="849" y="202" width="34" height="19"/></element>
+		<element ref="lbl_4"><bounds x="851" y="206.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE6" inputmask="0x02"><bounds x="893" y="202" width="34" height="19"/></element>
+		<element ref="lbl_5"><bounds x="895" y="206.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE5" inputmask="0x02"><bounds x="937" y="202" width="34" height="19"/></element>
+		<element ref="lbl_6"><bounds x="939" y="206.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE7" inputmask="0x04"><bounds x="849" y="241" width="34" height="19"/></element>
+		<element ref="lbl_1"><bounds x="851" y="245.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE6" inputmask="0x04"><bounds x="893" y="241" width="34" height="19"/></element>
+		<element ref="lbl_2"><bounds x="895" y="245.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE5" inputmask="0x04"><bounds x="937" y="241" width="34" height="19"/></element>
+		<element ref="lbl_3"><bounds x="939" y="245.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE7" inputmask="0x08"><bounds x="849" y="281" width="34" height="19"/></element>
+		<element ref="lbl_0"><bounds x="851" y="285.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE6" inputmask="0x08"><bounds x="893" y="281" width="34" height="19"/></element>
+		<element ref="lbl_point"><bounds x="895" y="285.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE5" inputmask="0x08"><bounds x="937" y="281" width="34" height="19"/></element>
+		<element ref="lbl_sign"><bounds x="939" y="286.5" width="30" height="8"/></element>
+
+		<!-- Alphanumeric keys -->
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x01"><bounds x="1002" y="161" width="34" height="19"/></element>
+		<element ref="lbl_a"><bounds x="1004" y="165.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x01"><bounds x="1046" y="161" width="34" height="19"/></element>
+		<element ref="lbl_b"><bounds x="1048" y="165.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x01"><bounds x="1090" y="161" width="34" height="19"/></element>
+		<element ref="lbl_c"><bounds x="1092" y="165.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x01"><bounds x="1134" y="161" width="34" height="19"/></element>
+		<element ref="lbl_d"><bounds x="1136" y="165.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x02"><bounds x="1002" y="200" width="34" height="19"/></element>
+		<element ref="lbl_e"><bounds x="1004" y="204.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x02"><bounds x="1046" y="200" width="34" height="19"/></element>
+		<element ref="lbl_f"><bounds x="1048" y="204.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x02"><bounds x="1090" y="200" width="34" height="19"/></element>
+		<element ref="lbl_g"><bounds x="1092" y="204.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x02"><bounds x="1134" y="200" width="34" height="19"/></element>
+		<element ref="lbl_h"><bounds x="1136" y="204.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x04"><bounds x="1002" y="240" width="34" height="19"/></element>
+		<element ref="lbl_i"><bounds x="1004" y="244.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x04"><bounds x="1046" y="240" width="34" height="19"/></element>
+		<element ref="lbl_j"><bounds x="1048" y="244.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x04"><bounds x="1090" y="240" width="34" height="19"/></element>
+		<element ref="lbl_k"><bounds x="1092" y="244.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x04"><bounds x="1134" y="240" width="34" height="19"/></element>
+		<element ref="lbl_l"><bounds x="1136" y="244.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x08"><bounds x="1002" y="280" width="34" height="19"/></element>
+		<element ref="lbl_m"><bounds x="1004" y="284.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x08"><bounds x="1046" y="280" width="34" height="19"/></element>
+		<element ref="lbl_n"><bounds x="1048" y="284.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x08"><bounds x="1090" y="280" width="34" height="19"/></element>
+		<element ref="lbl_o"><bounds x="1092" y="284.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x08"><bounds x="1134" y="280" width="34" height="19"/></element>
+		<element ref="lbl_p"><bounds x="1136" y="284.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x10"><bounds x="1002" y="319" width="34" height="19"/></element>
+		<element ref="lbl_q"><bounds x="1004" y="323.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x10"><bounds x="1046" y="319" width="34" height="19"/></element>
+		<element ref="lbl_r"><bounds x="1048" y="323.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x10"><bounds x="1090" y="319" width="34" height="19"/></element>
+		<element ref="lbl_s"><bounds x="1092" y="323.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x10"><bounds x="1134" y="319" width="34" height="19"/></element>
+		<element ref="lbl_t"><bounds x="1136" y="323.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x20"><bounds x="1002" y="358" width="34" height="19"/></element>
+		<element ref="lbl_u"><bounds x="1004" y="362.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x20"><bounds x="1046" y="358" width="34" height="19"/></element>
+		<element ref="lbl_v"><bounds x="1048" y="362.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x20"><bounds x="1090" y="358" width="34" height="19"/></element>
+		<element ref="lbl_w"><bounds x="1092" y="362.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x20"><bounds x="1134" y="358" width="34" height="19"/></element>
+		<element ref="lbl_x"><bounds x="1136" y="362.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x40"><bounds x="1002" y="398" width="34" height="19"/></element>
+		<element ref="lbl_y"><bounds x="1004" y="402.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x40"><bounds x="1046" y="398" width="34" height="19"/></element>
+		<element ref="lbl_z"><bounds x="1048" y="402.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x40"><bounds x="1090" y="398" width="34" height="19"/></element>
+		<element ref="lbl_underscore"><bounds x="1092" y="402.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x40"><bounds x="1134" y="398" width="34" height="19"/></element>
+		<element ref="lbl_slash"><bounds x="1136" y="402.5" width="30" height="10"/></element>
+		<element ref="key_data" inputtag="kbd:LINE4" inputmask="0x80"><bounds x="1002" y="438" width="34" height="19"/></element>
+		<element ref="lbl_shift"><bounds x="1004" y="444" width="30" height="7"/></element>
+		<element ref="key_data" inputtag="kbd:LINE3" inputmask="0x80"><bounds x="1046" y="438" width="34" height="19"/></element>
+		<element ref="lbl_space"><bounds x="1048" y="444" width="30" height="7"/></element>
+		<element ref="key_data" inputtag="kbd:LINE2" inputmask="0x80"><bounds x="1090" y="438" width="34" height="19"/></element>
+		<element ref="lbl_ins"><bounds x="1092" y="444" width="30" height="7"/></element>
+		<element ref="key_data" inputtag="kbd:LINE1" inputmask="0x80"><bounds x="1134" y="438" width="34" height="19"/></element>
+		<element ref="lbl_backspace"><bounds x="1136" y="442.5" width="30" height="10"/></element>
+	</view>
+
+</mamelayout>
