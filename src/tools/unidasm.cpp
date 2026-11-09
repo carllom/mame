@@ -197,6 +197,7 @@ using util::BIT;
 #include "cpu/tms320c2x/tms320c2x_dasm.h"
 #include "cpu/tms320c3x/tms320c3x_dasm.h"
 #include "cpu/tms320c5x/tms320c5x_dasm.h"
+#include "cpu/tms320c6x/tms320c6x_dasm.h"
 #include "cpu/tms320c82/mp_dasm.h"
 #include "cpu/tms320c82/pp_dasm.h"
 #include "cpu/tms34010/34010dsm.h"
@@ -691,6 +692,7 @@ static const dasm_table_entry dasm_table[] =
 	{ "tms320c2x",       be, -1, []() -> util::disasm_interface * { return new tms320c2x_disassembler; } },
 	{ "tms320c3x",       le, -2, []() -> util::disasm_interface * { return new tms320c3x_disassembler; } },
 	{ "tms320c5x",       le, -1, []() -> util::disasm_interface * { return new tms320c5x_disassembler; } },
+	{ "tms320c6x",       le,  0, []() -> util::disasm_interface * { return new tms320c6x_disassembler; } },
 	{ "tms320c82_mp",    be,  0, []() -> util::disasm_interface * { return new tms320c82_mp_disassembler; } },
 	{ "tms320c82_pp",    be,  0, []() -> util::disasm_interface * { return new tms320c82_pp_disassembler; } },
 	{ "tms34010",        le,  3, []() -> util::disasm_interface * { return new tms34010_disassembler(false); } },

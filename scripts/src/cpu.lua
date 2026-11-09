@@ -3061,6 +3061,25 @@ if opt_tool(CPUS, "TMS320C5X") then
 end
 
 --------------------------------------------------
+-- Texas Instruments TMS320C6000 DSP
+--@src/devices/cpu/tms320c6x/tms320c6745.h,CPUS["TMS320C6X"] = true
+--------------------------------------------------
+
+if CPUS["TMS320C6X"] then
+	files {
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c674x.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c674x.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745.h",
+	}
+end
+
+if opt_tool(CPUS, "TMS320C6X") then
+	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6x_dasm.cpp")
+	table.insert(disasm_files , MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6x_dasm.h")
+end
+
+--------------------------------------------------
 -- Texas Instruments TMS320C82 DSP
 --@src/devices/cpu/tms320c82/tms320c82.h,CPUS["TMS320C82"] = true
 --------------------------------------------------
