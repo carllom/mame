@@ -71,6 +71,16 @@
 #include "emupal.h"
 #include "screen.h"
 
+#include "multibyte.h"
+
+#include <algorithm>
+#include <string>
+
+#define LOG_AIS (1U << 1) // HLE boot loader commands
+
+#define VERBOSE (0)
+#include "logmacro.h"
+
 
 namespace {
 
@@ -90,9 +100,12 @@ public:
 
 protected:
 	virtual void machine_start() override ATTR_COLD;
+	virtual void machine_reset() override ATTR_COLD;
 
 private:
 	void main_map(address_map &map) ATTR_COLD;
+
+	void hle_ais_boot() ATTR_COLD;
 
 	required_device<tms320c6745_device> m_maincpu;
 	required_device_array<generic_spi_flash_device, 2> m_flash;
@@ -109,6 +122,202 @@ void ms100bt_state::machine_start()
 		m_flash[i]->set_rom_ptr(m_flash_rom[i]->base());
 		m_flash[i]->set_rom_size(m_flash_rom[i]->bytes());
 	}
+}
+
+void ms100bt_state::machine_reset()
+{
+	hle_ais_boot();
+}
+
+
+/*
+    Stand-in for the TMS320C6745 ROM boot loader until it's dumped
+    (SPRAB04G "Using the OMAP-L1x7 Bootloader").
+
+    Assumes the BOOT straps select SPI0 flash boot. Runs the AIS image at
+    the start of the boot flash (IC4) the way the ROM would, then starts
+    the DSP at the Jump & Close entry point. The ROM also sets up pin
+    multiplexing, PSC and SPI0 for the boot peripheral and restores some of
+    that on Jump & Close; none of that is reproduced.
+*/
+void ms100bt_state::hle_ais_boot()
+{
+	enum : u32
+	{
+		AIS_MAGIC = 0x4150'4954,
+
+		AIS_SECTION_LOAD = 0x5853'5901,
+		AIS_REQUEST_CRC = 0x5853'5902,
+		AIS_ENABLE_CRC = 0x5853'5903,
+		AIS_DISABLE_CRC = 0x5853'5904,
+		AIS_JUMP = 0x5853'5905,
+		AIS_JUMP_CLOSE = 0x5853'5906,
+		AIS_SET = 0x5853'5907,
+		AIS_SECTION_FILL = 0x5853'590a,
+		AIS_FUNCTION_EXEC = 0x5853'590d,
+		AIS_SEQ_READ_ENABLE = 0x5853'5963
+	};
+
+	static char const *const FUNCTION_NAMES[] =
+	{
+		"PLL configuration", "clock configuration", "EMIFB SDRAM configuration",
+		"EMIFA SDRAM configuration", "EMIFA CE space configuration",
+		"PLL and clock configuration", "PSC configuration", "pinmux configuration"
+	};
+
+	u8 const *const ais = m_flash_rom[0]->base();
+	u32 const length = m_flash_rom[0]->bytes();
+	address_space &space = m_maincpu->space(AS_PROGRAM);
+
+	u32 pos = 0;
+	auto const fetch =
+			[ais, length, &pos] (u32 &word) -> bool
+			{
+				if ((length - pos) < 4)
+					return false;
+				word = get_u32le(&ais[pos]);
+				pos += 4;
+				return true;
+			};
+
+	u32 word;
+	if (!fetch(word) || (word != AIS_MAGIC))
+	{
+		logerror("AIS: no boot image in boot flash\n");
+		return;
+	}
+
+	u32 op;
+	while (fetch(op))
+	{
+		switch (op)
+		{
+		case AIS_SECTION_LOAD:
+			{
+				u32 address, size;
+				if (!fetch(address) || !fetch(size) || (size > (length - pos)))
+					break;
+				LOGMASKED(LOG_AIS, "AIS: section load %08x-%08x\n", address, address + size - 1);
+				for (u32 i = 0; i < size; i++)
+					space.write_byte(address + i, ais[pos + i]);
+				pos += (size + 3) & ~u32(3);
+			}
+			continue;
+
+		case AIS_SECTION_FILL:
+			{
+				u32 address, size, type, pattern;
+				if (!fetch(address) || !fetch(size) || !fetch(type) || !fetch(pattern))
+					break;
+				LOGMASKED(LOG_AIS, "AIS: section fill %08x-%08x type %u pattern %08x\n", address, address + size - 1, type, pattern);
+				switch (type)
+				{
+				case 0:
+					for (u32 i = 0; i < size; i++)
+						space.write_byte(address + i, u8(pattern));
+					break;
+				case 1:
+					for (u32 i = 0; i < size; i += 2)
+						space.write_word(address + i, u16(pattern));
+					break;
+				default:
+					for (u32 i = 0; i < size; i += 4)
+						space.write_dword(address + i, pattern);
+					break;
+				}
+			}
+			continue;
+
+		case AIS_SET:
+			{
+				u32 type, address, data, sleep;
+				if (!fetch(type) || !fetch(address) || !fetch(data) || !fetch(sleep))
+					break;
+				LOGMASKED(LOG_AIS, "AIS: set type %06x %08x = %08x\n", type, address, data);
+				switch (type & 0xff)
+				{
+				case 0:
+					space.write_byte(address, u8(data));
+					break;
+				case 1:
+					space.write_word(address, u16(data));
+					break;
+				case 2:
+					space.write_dword(address, data);
+					break;
+				case 3:
+				case 4:
+					{
+						// field from bit START to bit STOP, preserving the rest
+						unsigned const start = BIT(type, 8, 5);
+						unsigned const stop = std::max<unsigned>(BIT(type, 16, 5), start);
+						u32 const mask = make_bitmask<u32>(stop - start + 1) << start;
+						u32 const old = space.read_dword(address);
+						space.write_dword(address, (old & ~mask) | ((data << start) & mask));
+					}
+					break;
+				default:
+					logerror("AIS: set with reserved type %06x\n", type);
+					break;
+				}
+			}
+			continue;
+
+		case AIS_FUNCTION_EXEC:
+			{
+				u32 header;
+				if (!fetch(header))
+					break;
+				unsigned const index = header & 0xffff;
+				unsigned const count = header >> 16;
+				std::string args;
+				for (unsigned i = 0; i < count; i++)
+				{
+					u32 arg;
+					if (!fetch(arg))
+						break;
+					args += util::string_format(" %08x", arg);
+				}
+				// TODO: do what the ROM function does once the PLL, EMIFB and PSC exist
+				LOGMASKED(LOG_AIS, "AIS: function %u (%s):%s\n",
+						index, (index < std::size(FUNCTION_NAMES)) ? FUNCTION_NAMES[index] : "unknown", args);
+			}
+			continue;
+
+		case AIS_SEQ_READ_ENABLE:
+		case AIS_ENABLE_CRC:
+		case AIS_DISABLE_CRC:
+			LOGMASKED(LOG_AIS, "AIS: %08x ignored\n", op);
+			continue;
+
+		case AIS_REQUEST_CRC:
+			// the CRC isn't calculated, so take every check as a match
+			if (!fetch(word) || !fetch(word))
+				break;
+			continue;
+
+		case AIS_JUMP_CLOSE:
+			if (!fetch(word))
+				break;
+			LOGMASKED(LOG_AIS, "AIS: jump and close to %08x\n", word);
+			m_maincpu->set_state_int(STATE_GENPC, word);
+			return;
+
+		case AIS_JUMP:
+			// would need the DSP to run the code and return to the loader
+			if (fetch(word))
+				logerror("AIS: jump to %08x not supported\n", word);
+			return;
+
+		default:
+			logerror("AIS: unknown command %08x at %06x\n", op, pos - 4);
+			return;
+		}
+
+		break; // a command ran past the end of the flash
+	}
+
+	logerror("AIS: boot image ends without Jump & Close\n");
 }
 
 
