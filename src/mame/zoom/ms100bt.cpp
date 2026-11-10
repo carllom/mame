@@ -2,7 +2,7 @@
 // copyright-holders:Carl Lom
 /****************************************************************************
 
-    Skeleton driver for the Zoom MS-100BT MultiStomp guitar effects pedal
+    Zoom MS-100BT MultiStomp guitar effects pedal
 
     Main board D242-MAIN (PCB-0300-03):
 
@@ -50,8 +50,7 @@
     so they aren't factory-fresh.
 
     TODO:
-    - everything on the TMS320C6745 (core, peripherals, boot ROM)
-    - connect the flash chips and the LCD controller to SPI0 and GPIO
+    - the rest of the TMS320C6745 (core, peripherals, boot ROM)
     - GP4[14] is polled with the switches; what drives it is unknown
     - the ON/OFF LED
     - audio: WM8782S, PCM5101 and McASP0
@@ -72,7 +71,7 @@
 #include "multibyte.h"
 
 #include <algorithm>
-#include <string>
+#include <sstream>
 
 #define LOG_AIS (1U << 1) // HLE boot loader commands
 
@@ -96,9 +95,9 @@ public:
 	{
 	}
 
-	DECLARE_INPUT_CHANGED_MEMBER(input_changed) { update_inputs(); }
-
 	void ms100bt(machine_config &config) ATTR_COLD;
+
+	DECLARE_INPUT_CHANGED_MEMBER(input_changed) { update_inputs(); }
 
 protected:
 	virtual void machine_start() override ATTR_COLD;
@@ -119,8 +118,8 @@ private:
 	void update_inputs();
 	void vblank_w(int state);
 	TIMER_CALLBACK_MEMBER(encoder_step);
-	u32 spi0_transfer(u32 data, unsigned bits);
-	u32 spi1_transfer(u32 data, unsigned bits);
+	u32 spi0_transfer(u32 data, u32 bits);
+	u32 spi1_transfer(u32 data, u32 bits);
 
 	// Apple MFi authentication coprocessor on I2C0
 	bool mfi_start(u8 address, bool read);
@@ -131,12 +130,12 @@ private:
 	required_device_array<generic_spi_flash_device, 2> m_flash;
 	required_memory_region_array<2> m_flash_rom;
 	required_device<st7565_device> m_lcdc;
-	optional_ioport_array<5> m_gp_in;
+	required_ioport_array<5> m_gp_in;
 	required_ioport_array<3> m_encoder;
 
 	emu_timer *m_encoder_timer = nullptr;
 
-	int m_spi0_scs0 = 1;
+	u8 m_spi0_scs0 = 1;
 	bool m_selected[2] = { false, false };
 	bool m_lcd_reset = false;
 	u8 m_adc_byte = 0;
@@ -154,7 +153,7 @@ private:
 void ms100bt_state::machine_start()
 {
 	// the dumps are the initial contents; writes are saved as NVRAM
-	for (unsigned i = 0; i < 2; i++)
+	for (u32 i = 0; i < 2; i++)
 	{
 		m_flash[i]->set_rom_ptr(m_flash_rom[i]->base());
 		m_flash[i]->set_rom_size(m_flash_rom[i]->bytes());
@@ -175,8 +174,8 @@ void ms100bt_state::machine_start()
 
 	m_encoder_timer = timer_alloc(FUNC(ms100bt_state::encoder_step), this);
 
-	// device version 2.0C, firmware 1, protocol 2.0, device ID 0x00000200
-	static u8 const MFI_ID[] = { 0x05, 0x01, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00 };
+	// device version 2.0C, firmware 1, protocol 2.0, device ID 0x0000'0200
+	static constexpr u8 MFI_ID[] = { 0x05, 0x01, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00 };
 	std::copy(std::begin(MFI_ID), std::end(MFI_ID), m_mfi_reg);
 }
 
@@ -190,7 +189,7 @@ void ms100bt_state::update_selects()
 	bool const ic4 = (BIT(m_maincpu->pinmux(7), 28, 4) == 1) ? !m_spi0_scs0 : !BIT(gp5, 4);
 	bool const ic9 = !BIT(gp2, 7);
 	bool const selected[2] = { ic4, ic9 };
-	for (unsigned i = 0; i < 2; i++)
+	for (u32 i = 0; i < 2; i++)
 	{
 		if (m_selected[i] && !selected[i])
 			m_flash[i]->set_ready();
@@ -206,12 +205,12 @@ void ms100bt_state::update_selects()
 	m_adc_selected = adc;
 }
 
-u32 ms100bt_state::spi0_transfer(u32 data, unsigned bits)
+u32 ms100bt_state::spi0_transfer(u32 data, u32 bits)
 {
 	update_selects();
 
 	u32 result = 0xff;
-	for (unsigned i = 0; i < 2; i++)
+	for (u32 i = 0; i < 2; i++)
 	{
 		if (m_selected[i])
 		{
@@ -231,7 +230,7 @@ u32 ms100bt_state::spi0_transfer(u32 data, unsigned bits)
 	return result;
 }
 
-u32 ms100bt_state::spi1_transfer(u32 data, unsigned bits)
+u32 ms100bt_state::spi1_transfer(u32 data, u32 bits)
 {
 	// 8-bit ADC (battery voltage?): 3 leading zeros, 8 data bits, then zeros
 	// TODO: what it measures and the right value
@@ -276,7 +275,7 @@ u8 ms100bt_state::mfi_read()
 
 void ms100bt_state::machine_reset()
 {
-	for (unsigned i = 0; i < 3; i++)
+	for (u32 i = 0; i < 3; i++)
 	{
 		m_dial[i] = m_encoder[i]->read();
 		m_steps[i] = 0;
@@ -302,12 +301,12 @@ void ms100bt_state::machine_reset()
 */
 void ms100bt_state::update_inputs()
 {
-	for (unsigned bank = 0; bank < m_gp_in.size(); bank++)
+	for (u32 bank = 0; bank < m_gp_in.size(); bank++)
 	{
-		u16 data = m_gp_in[bank] ? m_gp_in[bank]->read() : 0xffff;
+		u16 data = m_gp_in[bank]->read();
 		if (bank == 1)
 		{
-			for (unsigned e = 0; e < 3; e++)
+			for (u32 e = 0; e < 3; e++)
 			{
 				data = (data & ~(1U << ENCODER_A[e])) | (BIT(m_phase[e], 0) << ENCODER_A[e]);
 				data = (data & ~(1U << ENCODER_B[e])) | (BIT(m_phase[e], 1) << ENCODER_B[e]);
@@ -323,7 +322,7 @@ void ms100bt_state::vblank_w(int state)
 		return;
 
 	// turn dial movement into detents for the encoder timer to play out
-	for (unsigned i = 0; i < 3; i++)
+	for (u32 i = 0; i < 3; i++)
 	{
 		u8 const dial = m_encoder[i]->read();
 		m_steps[i] += s8(dial - m_dial[i]);
@@ -337,7 +336,7 @@ TIMER_CALLBACK_MEMBER(ms100bt_state::encoder_step)
 {
 	// one edge per encoder each time, so the firmware sees the phases change in turn
 	bool more = false;
-	for (unsigned i = 0; i < 3; i++)
+	for (u32 i = 0; i < 3; i++)
 	{
 		if (!m_steps[i])
 			continue;
@@ -366,23 +365,20 @@ TIMER_CALLBACK_MEMBER(ms100bt_state::encoder_step)
 */
 void ms100bt_state::hle_ais_boot()
 {
-	enum : u32
-	{
-		AIS_MAGIC = 0x4150'4954,
+	constexpr u32 AIS_MAGIC = 0x4150'4954;
 
-		AIS_SECTION_LOAD = 0x5853'5901,
-		AIS_REQUEST_CRC = 0x5853'5902,
-		AIS_ENABLE_CRC = 0x5853'5903,
-		AIS_DISABLE_CRC = 0x5853'5904,
-		AIS_JUMP = 0x5853'5905,
-		AIS_JUMP_CLOSE = 0x5853'5906,
-		AIS_SET = 0x5853'5907,
-		AIS_SECTION_FILL = 0x5853'590a,
-		AIS_FUNCTION_EXEC = 0x5853'590d,
-		AIS_SEQ_READ_ENABLE = 0x5853'5963
-	};
+	constexpr u32 AIS_SECTION_LOAD = 0x5853'5901;
+	constexpr u32 AIS_REQUEST_CRC = 0x5853'5902;
+	constexpr u32 AIS_ENABLE_CRC = 0x5853'5903;
+	constexpr u32 AIS_DISABLE_CRC = 0x5853'5904;
+	constexpr u32 AIS_JUMP = 0x5853'5905;
+	constexpr u32 AIS_JUMP_CLOSE = 0x5853'5906;
+	constexpr u32 AIS_SET = 0x5853'5907;
+	constexpr u32 AIS_SECTION_FILL = 0x5853'590a;
+	constexpr u32 AIS_FUNCTION_EXEC = 0x5853'590d;
+	constexpr u32 AIS_SEQ_READ_ENABLE = 0x5853'5963;
 
-	static char const *const FUNCTION_NAMES[] =
+	static constexpr char const *FUNCTION_NAMES[] =
 	{
 		"PLL configuration", "clock configuration", "EMIFB SDRAM configuration",
 		"EMIFA SDRAM configuration", "EMIFA CE space configuration",
@@ -473,8 +469,8 @@ void ms100bt_state::hle_ais_boot()
 				case 4:
 					{
 						// field from bit START to bit STOP, preserving the rest
-						unsigned const start = BIT(type, 8, 5);
-						unsigned const stop = std::max<unsigned>(BIT(type, 16, 5), start);
+						u32 const start = BIT(type, 8, 5);
+						u32 const stop = std::max<u32>(BIT(type, 16, 5), start);
 						u32 const mask = make_bitmask<u32>(stop - start + 1) << start;
 						u32 const old = space.read_dword(address);
 						space.write_dword(address, (old & ~mask) | ((data << start) & mask));
@@ -492,19 +488,19 @@ void ms100bt_state::hle_ais_boot()
 				u32 header;
 				if (!fetch(header))
 					break;
-				unsigned const index = header & 0xffff;
-				unsigned const count = header >> 16;
-				std::string args;
-				for (unsigned i = 0; i < count; i++)
+				u32 const index = header & 0xffff;
+				u32 const count = header >> 16;
+				std::ostringstream args;
+				for (u32 i = 0; i < count; i++)
 				{
 					u32 arg;
 					if (!fetch(arg))
 						break;
-					args += util::string_format(" %08x", arg);
+					util::stream_format(args, " %08x", arg);
 				}
 				// TODO: do what the ROM function does once the PLL, EMIFB and PSC exist
 				LOGMASKED(LOG_AIS, "AIS: function %u (%s):%s\n",
-						index, (index < std::size(FUNCTION_NAMES)) ? FUNCTION_NAMES[index] : "unknown", args);
+						index, (index < std::size(FUNCTION_NAMES)) ? FUNCTION_NAMES[index] : "unknown", std::move(args).str());
 			}
 			continue;
 
@@ -582,6 +578,8 @@ void ms100bt_state::ms100bt(machine_config &config)
 		flash->set_jedec_capacity(0x46);
 	}
 
+	auto &palette(PALETTE(config, "palette", FUNC(ms100bt_state::lcd_palette), 2));
+
 	screen_device &screen(SCREEN(config, "screen"));
 	screen.set_lcd();
 	screen.set_refresh_hz(60);
@@ -589,10 +587,8 @@ void ms100bt_state::ms100bt(machine_config &config)
 	screen.set_visarea(0, 127, 0, 63); // the firmware writes columns 4-131 with the segment order reversed
 	screen.set_physical_aspect(4, 3); // the panel's dots are 2:3, taller than wide
 	screen.set_screen_update(m_lcdc, FUNC(st7565_device::screen_update));
-	screen.set_palette("palette");
+	screen.set_palette(palette);
 	screen.screen_vblank().set(FUNC(ms100bt_state::vblank_w));
-
-	PALETTE(config, "palette", FUNC(ms100bt_state::lcd_palette), 2);
 
 	ST7565(config, m_lcdc);
 }
@@ -615,6 +611,9 @@ INPUT_PORTS_START(ms100bt)
 	PORT_START("GP2")
 	PORT_BIT(0xfff7, IP_ACTIVE_LOW, IPT_UNUSED)
 	PORT_BIT(0x0008, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Footswitch") PORT_CODE(KEYCODE_SPACE) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+
+	PORT_START("GP3")
+	PORT_BIT(0xffff, IP_ACTIVE_LOW, IPT_UNUSED)
 
 	PORT_START("GP4")
 	PORT_BIT(0xbfff, IP_ACTIVE_LOW, IPT_UNUSED)
