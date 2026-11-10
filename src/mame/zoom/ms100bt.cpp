@@ -37,7 +37,7 @@
 
     SPI0 carries both flash chips and the LCD:
     - IC4 is on SPI0_SCS[0], the boot chip select
-    - IC9 is on a GPIO chip select (probably GP3[11])
+    - IC9 is on GP2[7], found by tracing the firmware's file system reads
     - the LCD is write-only 4-wire serial: GP5[11] chip select, GP2[5] A0,
       GP4[0] reset. The firmware turns SPI0_SCS[0] into a GPIO and holds it
       high while it writes to the LCD.
@@ -52,9 +52,6 @@
     TODO:
     - everything on the TMS320C6745 (core, peripherals, boot ROM)
     - connect the flash chips and the LCD controller to SPI0 and GPIO
-    - LCD: the NT7534 device is a stand-in for the ST7565 family (same
-      command set); it lacks COM reverse and has the wrong row count
-      for this panel
     - inputs: encoders, buttons and footswitch (GPIO bank 1 interrupt)
     - audio: WM8782S, PCM5101 and McASP0
     - battery ADC on SPI1
@@ -66,7 +63,7 @@
 
 #include "cpu/tms320c6x/tms320c6745.h"
 #include "machine/generic_spi_flash.h"
-#include "video/nt7534.h"
+#include "video/st7565.h"
 
 #include "emupal.h"
 #include "screen.h"
@@ -106,11 +103,30 @@ private:
 	void main_map(address_map &map) ATTR_COLD;
 
 	void hle_ais_boot() ATTR_COLD;
+	void lcd_palette(palette_device &palette) const ATTR_COLD;
+
+	void update_selects();
+	u32 spi0_transfer(u32 data, unsigned bits);
+	u32 spi1_transfer(u32 data, unsigned bits);
+
+	// Apple MFi authentication coprocessor on I2C0
+	bool mfi_start(u8 address, bool read);
+	bool mfi_write(u8 data);
+	u8 mfi_read();
 
 	required_device<tms320c6745_device> m_maincpu;
 	required_device_array<generic_spi_flash_device, 2> m_flash;
 	required_memory_region_array<2> m_flash_rom;
-	required_device<nt7534_device> m_lcdc;
+	required_device<st7565_device> m_lcdc;
+
+	int m_spi0_scs0 = 1;
+	bool m_selected[2] = { false, false };
+	bool m_lcd_reset = false;
+	u8 m_adc_byte = 0;
+	bool m_adc_selected = false;
+	u8 m_mfi_reg[0x100] = { };
+	u8 m_mfi_ptr = 0;
+	bool m_mfi_address_phase = false;
 };
 
 
@@ -122,6 +138,113 @@ void ms100bt_state::machine_start()
 		m_flash[i]->set_rom_ptr(m_flash_rom[i]->base());
 		m_flash[i]->set_rom_size(m_flash_rom[i]->bytes());
 	}
+
+	save_item(NAME(m_spi0_scs0));
+	save_item(NAME(m_selected));
+	save_item(NAME(m_lcd_reset));
+	save_item(NAME(m_adc_byte));
+	save_item(NAME(m_adc_selected));
+	save_item(NAME(m_mfi_reg));
+	save_item(NAME(m_mfi_ptr));
+	save_item(NAME(m_mfi_address_phase));
+
+	// device version 2.0C, firmware 1, protocol 2.0, device ID 0x00000200
+	static u8 const MFI_ID[] = { 0x05, 0x01, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00 };
+	std::copy(std::begin(MFI_ID), std::end(MFI_ID), m_mfi_reg);
+}
+
+void ms100bt_state::update_selects()
+{
+	u16 const gp2 = m_maincpu->gpio_output(2);
+	u16 const gp4 = m_maincpu->gpio_output(4);
+	u16 const gp5 = m_maincpu->gpio_output(5);
+
+	// pin 9 is SPI0_SCS[0] or GP5[4], depending on PINMUX7[31:28]
+	bool const ic4 = (BIT(m_maincpu->pinmux(7), 28, 4) == 1) ? !m_spi0_scs0 : !BIT(gp5, 4);
+	bool const ic9 = !BIT(gp2, 7);
+	bool const selected[2] = { ic4, ic9 };
+	for (unsigned i = 0; i < 2; i++)
+	{
+		if (m_selected[i] && !selected[i])
+			m_flash[i]->set_ready();
+		m_selected[i] = selected[i];
+	}
+
+	m_lcd_reset = !BIT(gp4, 0);
+	m_lcdc->reset_w(BIT(gp4, 0));
+
+	bool const adc = !BIT(gp2, 10);
+	if (adc && !m_adc_selected)
+		m_adc_byte = 0;
+	m_adc_selected = adc;
+}
+
+u32 ms100bt_state::spi0_transfer(u32 data, unsigned bits)
+{
+	update_selects();
+
+	u32 result = 0xff;
+	for (unsigned i = 0; i < 2; i++)
+	{
+		if (m_selected[i])
+		{
+			m_flash[i]->write(u8(data));
+			result &= m_flash[i]->read();
+		}
+	}
+
+	// the LCD is write-only; GP2[5] is A0
+	if (!BIT(m_maincpu->gpio_output(5), 11) && !m_lcd_reset)
+	{
+		if (BIT(m_maincpu->gpio_output(2), 5))
+			m_lcdc->data_w(u8(data));
+		else
+			m_lcdc->control_w(u8(data));
+	}
+	return result;
+}
+
+u32 ms100bt_state::spi1_transfer(u32 data, unsigned bits)
+{
+	// 8-bit ADC (battery voltage?): 3 leading zeros, 8 data bits, then zeros
+	// TODO: what it measures and the right value
+	update_selects();
+	if (!m_adc_selected)
+		return 0xff;
+	u8 const value = 0xff;
+	u8 const result = m_adc_byte ? u8(value << 5) : u8(value >> 3);
+	m_adc_byte++;
+	return result;
+}
+
+/*
+    Stand-in for the MFi coprocessor (version 2.0C, I2C address 0x10), with
+    the identification registers the firmware checks at boot. The
+    challenge and certificate registers need the real chip.
+*/
+bool ms100bt_state::mfi_start(u8 address, bool read)
+{
+	if (address != 0x10)
+		return false;
+	m_mfi_address_phase = !read;
+	return true;
+}
+
+bool ms100bt_state::mfi_write(u8 data)
+{
+	if (m_mfi_address_phase)
+	{
+		m_mfi_ptr = data;
+		m_mfi_address_phase = false;
+	}
+	else
+		m_mfi_reg[m_mfi_ptr++] = data;
+	return true;
+}
+
+u8 ms100bt_state::mfi_read()
+{
+	return m_mfi_reg[m_mfi_ptr++];
 }
 
 void ms100bt_state::machine_reset()
@@ -321,6 +444,13 @@ void ms100bt_state::hle_ais_boot()
 }
 
 
+void ms100bt_state::lcd_palette(palette_device &palette) const
+{
+	// sampled from a photo of the backlit panel
+	palette.set_pen_color(0, rgb_t(0x83, 0xa9, 0x9a)); // background
+	palette.set_pen_color(1, rgb_t(0x2d, 0x2f, 0x29)); // dot on, averaged with the gaps between dots
+}
+
 void ms100bt_state::main_map(address_map &map)
 {
 	map(0xc000'0000, 0xc07f'ffff).ram(); // EMIFB SDRAM
@@ -331,6 +461,16 @@ void ms100bt_state::ms100bt(machine_config &config)
 {
 	TMS320C6745(config, m_maincpu, 24_MHz_XTAL);
 	m_maincpu->set_addrmap(AS_PROGRAM, &ms100bt_state::main_map);
+	m_maincpu->set_mcasp_ahclk(0, 11.2896_MHz_XTAL); // X1, 256 x 44.1 kHz
+	m_maincpu->set_spi_transfer_callback(0, FUNC(ms100bt_state::spi0_transfer));
+	m_maincpu->set_spi_transfer_callback(1, FUNC(ms100bt_state::spi1_transfer));
+	m_maincpu->set_i2c_start_callback(0, FUNC(ms100bt_state::mfi_start));
+	m_maincpu->set_i2c_write_callback(0, FUNC(ms100bt_state::mfi_write));
+	m_maincpu->set_i2c_read_callback(0, FUNC(ms100bt_state::mfi_read));
+	m_maincpu->spi_scs0(0).set([this] (int state) { m_spi0_scs0 = state; update_selects(); });
+	m_maincpu->gpio_out<2>().set([this] (u16 data) { update_selects(); });
+	m_maincpu->gpio_out<4>().set([this] (u16 data) { update_selects(); });
+	m_maincpu->gpio_out<5>().set([this] (u16 data) { update_selects(); });
 
 	for (auto &flash : m_flash)
 	{
@@ -345,13 +485,14 @@ void ms100bt_state::ms100bt(machine_config &config)
 	screen.set_lcd();
 	screen.set_refresh_hz(60);
 	screen.set_size(132, 65);
-	screen.set_visarea_full();
-	screen.set_screen_update(m_lcdc, FUNC(nt7534_device::screen_update));
+	screen.set_visarea(0, 127, 0, 63); // the firmware writes columns 4-131 with the segment order reversed
+	screen.set_physical_aspect(4, 3); // the panel's dots are 2:3, taller than wide
+	screen.set_screen_update(m_lcdc, FUNC(st7565_device::screen_update));
 	screen.set_palette("palette");
 
-	PALETTE(config, "palette", palette_device::MONOCHROME_INVERTED);
+	PALETTE(config, "palette", FUNC(ms100bt_state::lcd_palette), 2);
 
-	NT7534(config, m_lcdc);
+	ST7565(config, m_lcdc);
 }
 
 
@@ -369,4 +510,4 @@ ROM_END
 } // anonymous namespace
 
 
-SYST(2013, ms100bt, 0, 0, ms100bt, 0, ms100bt_state, empty_init, "Zoom", "MS-100BT MultiStomp", MACHINE_NOT_WORKING | MACHINE_NO_SOUND)
+SYST(2013, ms100bt, 0, 0, ms100bt, 0, ms100bt_state, empty_init, "Zoom", "MS-100BT MultiStomp", ROT180 | MACHINE_NOT_WORKING | MACHINE_NO_SOUND)
