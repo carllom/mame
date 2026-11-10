@@ -25,8 +25,8 @@ protected:
 	virtual void device_reset() override ATTR_COLD;
 
 private:
-	static constexpr unsigned COLUMNS = 132;
-	static constexpr unsigned PAGES = 9;
+	static constexpr u32 COLUMNS = 132;
+	static constexpr u32 PAGES = 9;
 
 	u8 m_ram[PAGES * COLUMNS];
 	u8 m_page;

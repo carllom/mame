@@ -170,15 +170,16 @@ void st7565_device::control_w(u8 data)
 
 u32 st7565_device::screen_update(screen_device &screen, bitmap_ind16 &bitmap, rectangle const &cliprect)
 {
-	for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
+	for (int y = cliprect.top(); y <= cliprect.bottom(); y++)
 	{
 		// common driver y shows display line (start line + y), scanned in either direction
-		unsigned const com = m_com_reverse ? (63 - (y & 63)) : (y & 63);
-		unsigned const line = (y >= 64) ? 64 : ((com + m_start_line) & 63);
+		u32 const com = m_com_reverse ? (63 - (y & 63)) : (y & 63);
+		u32 const line = (y >= 64) ? 64 : ((com + m_start_line) & 63);
 		u8 const *const row = &m_ram[(line >> 3) * COLUMNS];
-		for (int x = cliprect.min_x; x <= cliprect.max_x; x++)
+		u16 *const dst = &bitmap.pix(y);
+		for (int x = cliprect.left(); x <= cliprect.right(); x++)
 		{
-			unsigned const column = m_adc_reverse ? (COLUMNS - 1 - x) : x;
+			u32 const column = m_adc_reverse ? (COLUMNS - 1 - x) : x;
 			bool pixel = BIT(row[column], line & 7);
 			if (m_all_on)
 				pixel = true;
@@ -186,7 +187,7 @@ u32 st7565_device::screen_update(screen_device &screen, bitmap_ind16 &bitmap, re
 				pixel = !pixel;
 			if (!m_display_on || m_reset)
 				pixel = false;
-			bitmap.pix(y, x) = pixel ? 1 : 0;
+			dst[x] = pixel ? 1 : 0;
 		}
 	}
 	return 0;
