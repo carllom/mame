@@ -3071,6 +3071,20 @@ if CPUS["TMS320C6X"] then
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c674x.h",
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745.cpp",
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_psc.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_psc.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_timer.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_timer.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_spi.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_spi.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_gpio.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_gpio.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_i2c.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_i2c.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_mcasp.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_mcasp.h",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_edma.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_edma.h",
 	}
 end
 
