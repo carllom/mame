@@ -13,11 +13,15 @@ public:
 	template <typename T> void set_space(T &&tag, int spacenum) { m_space.set_tag(std::forward<T>(tag), spacenum); }
 
 	// shadow region completion interrupts (EDMA3_CC0_INTn), and the error interrupt
-	template <unsigned N> auto region_irq() { return m_region_irq_cb[N].bind(); }
+	template <u32 N> auto region_irq() { return m_region_irq_cb[N].bind(); }
 	auto error_irq() { return m_error_irq_cb.bind(); }
 
 	// synchronization event from a peripheral
-	void event(unsigned channel);
+	template <u32 Channel> void event_w(int state)
+	{
+		if (state)
+			event(Channel);
+	}
 
 	void map(address_map &map) ATTR_COLD;
 
@@ -27,19 +31,20 @@ protected:
 	virtual void device_reset() override ATTR_COLD;
 
 private:
-	static constexpr unsigned CHANNELS = 32;
-	static constexpr unsigned QCHANNELS = 8;
-	static constexpr unsigned PARAM_SETS = 128;
+	static constexpr u32 CHANNELS = 32;
+	static constexpr u32 QCHANNELS = 8;
+	static constexpr u32 PARAM_SETS = 128;
 
-	void trigger(unsigned set, bool qdma, unsigned channel);
-	void completion(unsigned tcc, bool interrupt, bool chain);
+	void event(u32 channel);
+	void trigger(u32 set, bool qdma, u32 channel);
+	void completion(u32 tcc, bool interrupt, bool chain);
 	void update_interrupts(bool force);
 	void process_events();
 
 	u32 channel_r(offs_t offset, u32 mask);
 	void channel_w(offs_t offset, u32 data, u32 mask);
-	u32 global_r(offs_t offset);
-	void global_w(offs_t offset, u32 data);
+	u32 drae_r(offs_t offset);
+	void drae_w(offs_t offset, u32 data);
 	u32 region_r(offs_t offset);
 	void region_w(offs_t offset, u32 data);
 	u32 param_r(offs_t offset);

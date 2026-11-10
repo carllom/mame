@@ -19,6 +19,8 @@
 #include "emu.h"
 #include "tms320c6745_spi.h"
 
+#include <algorithm>
+
 
 DEFINE_DEVICE_TYPE(TMS320C6745_SPI, tms320c6745_spi_device, "tms320c6745_spi", "TMS320C6745 SPI")
 
@@ -136,7 +138,7 @@ void tms320c6745_spi_device::transfer(u16 data)
 	}
 
 	u32 const fmt = m_fmt[BIT(m_dat1, 24, 2)];
-	unsigned bits = fmt & 0x1f;
+	u32 bits = fmt & 0x1f;
 	if (bits < 2)
 		bits = 16;
 
@@ -144,11 +146,11 @@ void tms320c6745_spi_device::transfer(u16 data)
 	if (BIT(m_pc[0], 0))
 		set_scs0(BIT(m_dat1, 16));
 
-	u32 out = data & ((1U << bits) - 1);
+	u32 out = data & make_bitmask<u32>(bits);
 	bool const lsb_first = BIT(fmt, 20);
 	if (lsb_first)
 		out = bitswap<16>(out, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) >> (16 - bits);
-	u32 in = (m_transfer_cb.isnull() ? ~u32(0) : m_transfer_cb(out, bits)) & ((1U << bits) - 1);
+	u32 in = (m_transfer_cb.isnull() ? ~u32(0) : m_transfer_cb(out, bits)) & make_bitmask<u32>(bits);
 	if (lsb_first)
 		in = bitswap<16>(in << (16 - bits), 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 

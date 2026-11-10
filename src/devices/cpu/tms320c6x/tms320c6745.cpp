@@ -57,12 +57,14 @@
     - PLL: the device clock is OSCIN, and the core runs at a fixed
       OSCIN x 25 / 2 (300 MHz, the PLL setting the boot image programs)
     - BOOT[15:0] strap input
-    - dump the boot ROM, or HLE the AIS loader
+    - dump the boot ROM (zoom/ms100bt.cpp HLEs its AIS loader meanwhile)
 
 ***************************************************************************/
 
 #include "emu.h"
 #include "tms320c6745.h"
+
+#include <algorithm>
 
 
 DEFINE_DEVICE_TYPE(TMS320C6745, tms320c6745_device, "tms320c6745", "Texas Instruments TMS320C6745")
@@ -87,8 +89,8 @@ tms320c6745_device::tms320c6745_device(machine_config const &mconfig, char const
 
 void tms320c6745_device::device_add_mconfig(machine_config &config)
 {
-	TMS320C6745_PSC(config, m_psc[0], 0);
-	TMS320C6745_PSC(config, m_psc[1], 0);
+	TMS320C6745_PSC(config, m_psc[0]);
+	TMS320C6745_PSC(config, m_psc[1]);
 
 	// the timers count AUXCLK, which is OSCIN
 	TMS320C6745_TIMER(config, m_timer[0], clock());
@@ -124,11 +126,11 @@ void tms320c6745_device::device_add_mconfig(machine_config &config)
 	m_edma->error_irq().set(FUNC(tms320c6745_device::event_w<56>));
 
 	TMS320C6745_MCASP(config, m_mcasp[0]);
-	m_mcasp[0]->arevt().set([this] (int state) { if (state) m_edma->event(0); });
-	m_mcasp[0]->axevt().set([this] (int state) { if (state) m_edma->event(1); });
+	m_mcasp[0]->arevt().set(m_edma, FUNC(tms320c6745_edma_device::event_w<0>));
+	m_mcasp[0]->axevt().set(m_edma, FUNC(tms320c6745_edma_device::event_w<1>));
 	TMS320C6745_MCASP(config, m_mcasp[1]);
-	m_mcasp[1]->arevt().set([this] (int state) { if (state) m_edma->event(2); });
-	m_mcasp[1]->axevt().set([this] (int state) { if (state) m_edma->event(3); });
+	m_mcasp[1]->arevt().set(m_edma, FUNC(tms320c6745_edma_device::event_w<2>));
+	m_mcasp[1]->axevt().set(m_edma, FUNC(tms320c6745_edma_device::event_w<3>));
 }
 
 void tms320c6745_device::device_start()
@@ -168,14 +170,14 @@ void tms320c6745_device::device_reset()
 //  INTERRUPT CONTROLLER
 //**************************************************************************
 
-void tms320c6745_device::event(unsigned n)
+void tms320c6745_device::event(u32 n)
 {
 	if (n >= 128)
 		return;
 	m_evtflag[n >> 5] |= 1U << (n & 31);
 
 	// the interrupt selector routes one event to each of INT4-INT15
-	for (unsigned line = 4; line < 16; line++)
+	for (u32 line = 4; line < 16; line++)
 		if (BIT(m_intmux[(line - 4) >> 2], ((line - 4) & 3) * 8, 7) == n)
 			interrupt_pulse(line);
 
@@ -186,7 +188,7 @@ void tms320c6745_device::event(unsigned n)
 void tms320c6745_device::update_combined()
 {
 	// each event combiner ORs the unmasked flags of one group of 32 events
-	for (unsigned g = 0; g < 4; g++)
+	for (u32 g = 0; g < 4; g++)
 	{
 		u32 const flags = m_evtflag[g] & ~m_evtmask[g] & (g ? 0xffff'ffff : 0xffff'fff0);
 		bool const active = flags != 0;
@@ -202,7 +204,7 @@ void tms320c6745_device::update_combined()
 
 void tms320c6745_device::evtset_w(offs_t offset, u32 data)
 {
-	for (unsigned b = 0; b < 32; b++)
+	for (u32 b = 0; b < 32; b++)
 		if (BIT(data, b))
 			event(offset * 32 + b);
 }
@@ -266,6 +268,6 @@ void tms320c6745_device::internal_map(address_map &map)
 	map(0x01d0'6000, 0x01d0'6fff).m(m_mcasp[1], FUNC(tms320c6745_mcasp_device::data_map));
 	map(0x01e1'2000, 0x01e1'2fff).m(m_spi[1], FUNC(tms320c6745_spi_device::map));
 	map(0x01e2'6000, 0x01e2'6fff).m(m_gpio, FUNC(tms320c6745_gpio_device::map));
-	map(0x01e2'8000, 0x01e2'8fff).m(m_i2c[1], FUNC(tms320c6745_i2c_device::map));
 	map(0x01e2'7000, 0x01e2'7fff).m(m_psc[1], FUNC(tms320c6745_psc_device::map));
+	map(0x01e2'8000, 0x01e2'8fff).m(m_i2c[1], FUNC(tms320c6745_i2c_device::map));
 }

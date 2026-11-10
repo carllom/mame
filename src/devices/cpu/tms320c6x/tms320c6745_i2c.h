@@ -31,6 +31,10 @@ protected:
 	virtual void device_reset() override ATTR_COLD;
 
 private:
+	template <u32 Reg> u32 reg_r();
+	template <u32 Reg> void reg_w(u32 data);
+	void imr_w(u32 data);
+	void str_w(u32 data);
 	void mdr_w(u32 data);
 	void dxr_w(u32 data);
 	u32 drr_r();
@@ -48,7 +52,7 @@ private:
 
 	u32 m_reg[16];
 	bool m_dxr_full;
-	int m_irq;
+	u8 m_irq;
 };
 
 DECLARE_DEVICE_TYPE(TMS320C6745_I2C, tms320c6745_i2c_device)

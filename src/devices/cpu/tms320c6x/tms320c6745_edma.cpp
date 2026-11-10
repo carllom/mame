@@ -19,6 +19,8 @@
 #include "emu.h"
 #include "tms320c6745_edma.h"
 
+#include <algorithm>
+
 #define LOG_XFER (1U << 1)
 
 #define VERBOSE (0)
@@ -31,7 +33,7 @@ DEFINE_DEVICE_TYPE(TMS320C6745_EDMA, tms320c6745_edma_device, "tms320c6745_edma"
 namespace {
 
 // channel registers, at 0x1000 (global) and 0x2000 + 0x200 * region (shadow)
-enum : unsigned
+enum : u32
 {
 	ER = 0x00 / 4, ECR = 0x08 / 4, ESR = 0x10 / 4, CER = 0x18 / 4, EER = 0x20 / 4, EECR = 0x28 / 4,
 	EESR = 0x30 / 4, SER = 0x38 / 4, SECR = 0x40 / 4, IER = 0x50 / 4, IECR = 0x58 / 4, IESR = 0x60 / 4,
@@ -40,7 +42,7 @@ enum : unsigned
 };
 
 // PaRAM words
-enum : unsigned
+enum : u32
 {
 	P_OPT, P_SRC, P_ABCNT, P_DST, P_BIDX, P_LINK, P_CIDX, P_CCNT
 };
@@ -97,14 +99,42 @@ void tms320c6745_edma_device::device_reset()
 	m_quepri = 0;
 	m_busy = false;
 	if (m_irq_state)
-		for (unsigned r = 0; r < 4; r++)
+		for (u32 r = 0; r < 4; r++)
 			m_region_irq_cb[r](0);
 	m_irq_state = 0;
 }
 
 void tms320c6745_edma_device::map(address_map &map)
 {
-	map(0x0000, 0x0fff).rw(FUNC(tms320c6745_edma_device::global_r), FUNC(tms320c6745_edma_device::global_w));
+	map(0x0000, 0x0003).lr32(NAME([] () -> u32 { return 0x4001'5300; })); // REVID
+	map(0x0004, 0x0007).lr32(NAME([] () -> u32 { return 0x0034'3005; })); // CCCFG: 32 DMA channels, 8 QDMA channels, 128 PaRAM sets, 2 queues, 4 regions
+	map(0x0200, 0x021f).lrw32(
+			NAME([this] (offs_t offset) -> u32 { return m_qchmap[offset]; }),
+			NAME([this] (offs_t offset, u32 data) { m_qchmap[offset] = data & 0x3ffc; })); // QCHMAPn
+	map(0x0240, 0x024f).lrw32(
+			NAME([this] (offs_t offset) -> u32 { return m_dmaqnum[offset]; }),
+			NAME([this] (offs_t offset, u32 data) { m_dmaqnum[offset] = data; })); // DMAQNUMn
+	map(0x0260, 0x0263).lrw32(NAME([this] () -> u32 { return m_qdmaqnum; }), NAME([this] (u32 data) { m_qdmaqnum = data; }));
+	map(0x0284, 0x0287).lrw32(NAME([this] () -> u32 { return m_quepri; }), NAME([this] (u32 data) { m_quepri = data; }));
+	map(0x0300, 0x0303).lr32(NAME([this] () -> u32 { return m_emr; }));
+	map(0x0308, 0x030b).lw32(NAME([this] (u32 data) { m_emr &= ~data; })); // EMCR
+	map(0x0310, 0x0313).lr32(NAME([this] () -> u32 { return m_qemr; }));
+	map(0x0314, 0x0317).lw32(NAME([this] (u32 data) { m_qemr &= ~data; })); // QEMCR
+	map(0x0318, 0x031b).lr32(NAME([this] () -> u32 { return m_ccerr; }));
+	map(0x031c, 0x031f).lw32(NAME([this] (u32 data) { m_ccerr &= ~data; })); // CCERRCLR
+	map(0x0320, 0x0323).lw32(
+			NAME([this] (u32 data)
+			{
+				// EEVAL
+				if (BIT(data, 0))
+					m_error_irq_cb(m_emr || m_qemr || m_ccerr);
+			}));
+	map(0x0340, 0x035f).rw(FUNC(tms320c6745_edma_device::drae_r), FUNC(tms320c6745_edma_device::drae_w));
+	map(0x0380, 0x038f).lrw32(
+			NAME([this] (offs_t offset) -> u32 { return m_qrae[offset]; }),
+			NAME([this] (offs_t offset, u32 data) { m_qrae[offset] = data; })); // QRAEn
+	map(0x0640, 0x0643).lr32(NAME([] () -> u32 { return 0; })); // CCSTAT: idle
+
 	map(0x1000, 0x10ff).lrw32(
 			NAME([this] (offs_t offset) -> u32 { return channel_r(offset, ~u32(0)); }),
 			NAME([this] (offs_t offset, u32 data) { channel_w(offset, data, ~u32(0)); }));
@@ -112,69 +142,33 @@ void tms320c6745_edma_device::map(address_map &map)
 	map(0x4000, 0x4fff).rw(FUNC(tms320c6745_edma_device::param_r), FUNC(tms320c6745_edma_device::param_w));
 }
 
-u32 tms320c6745_edma_device::global_r(offs_t offset)
+u32 tms320c6745_edma_device::drae_r(offs_t offset)
 {
-	switch (offset * 4)
-	{
-	case 0x000: return 0x4001'5300; // REVID
-	case 0x004: return 0x0034'3005; // CCCFG: 32 DMA channels, 8 QDMA channels, 128 PaRAM sets, 2 queues, 4 regions
-	case 0x240: case 0x244: case 0x248: case 0x24c: return m_dmaqnum[offset - 0x240 / 4];
-	case 0x260: return m_qdmaqnum;
-	case 0x284: return m_quepri;
-	case 0x300: return m_emr;
-	case 0x310: return m_qemr;
-	case 0x318: return m_ccerr;
-	case 0x340: return m_drae[0];
-	case 0x348: return m_drae[1];
-	case 0x350: return m_drae[2];
-	case 0x358: return m_drae[3];
-	case 0x380: case 0x384: case 0x388: case 0x38c: return m_qrae[offset - 0x380 / 4];
-	case 0x640: return 0; // CCSTAT: idle
-	default:
-		if ((offset >= 0x200 / 4) && (offset < 0x220 / 4))
-			return m_qchmap[offset - 0x200 / 4];
-		return 0;
-	}
+	// DRAEn at even words; DRAEHn (channels 32-63) don't exist here
+	return BIT(offset, 0) ? 0 : m_drae[offset >> 1];
 }
 
-void tms320c6745_edma_device::global_w(offs_t offset, u32 data)
+void tms320c6745_edma_device::drae_w(offs_t offset, u32 data)
 {
-	switch (offset * 4)
+	if (!BIT(offset, 0))
 	{
-	case 0x240: case 0x244: case 0x248: case 0x24c: m_dmaqnum[offset - 0x240 / 4] = data; break;
-	case 0x260: m_qdmaqnum = data; break;
-	case 0x284: m_quepri = data; break;
-	case 0x308: m_emr &= ~data; break; // EMCR
-	case 0x314: m_qemr &= ~data; break; // QEMCR
-	case 0x31c: m_ccerr &= ~data; break; // CCERRCLR
-	case 0x320: // EEVAL
-		if (data & 1)
-			m_error_irq_cb(m_emr || m_qemr || m_ccerr);
-		break;
-	case 0x340: m_drae[0] = data; update_interrupts(false); break;
-	case 0x348: m_drae[1] = data; update_interrupts(false); break;
-	case 0x350: m_drae[2] = data; update_interrupts(false); break;
-	case 0x358: m_drae[3] = data; update_interrupts(false); break;
-	case 0x380: case 0x384: case 0x388: case 0x38c: m_qrae[offset - 0x380 / 4] = data; break;
-	default:
-		if ((offset >= 0x200 / 4) && (offset < 0x220 / 4))
-			m_qchmap[offset - 0x200 / 4] = data & 0x3ffc;
-		break;
+		m_drae[offset >> 1] = data;
+		update_interrupts(false);
 	}
 }
 
 u32 tms320c6745_edma_device::region_r(offs_t offset)
 {
-	unsigned const region = offset / (0x200 / 4);
-	unsigned const reg = offset % (0x200 / 4);
+	u32 const region = offset / (0x200 / 4);
+	u32 const reg = offset % (0x200 / 4);
 	bool const qdma = (reg >= QER) && (reg <= QSECR);
 	return channel_r(reg, qdma ? m_qrae[region] : m_drae[region]);
 }
 
 void tms320c6745_edma_device::region_w(offs_t offset, u32 data)
 {
-	unsigned const region = offset / (0x200 / 4);
-	unsigned const reg = offset % (0x200 / 4);
+	u32 const region = offset / (0x200 / 4);
+	u32 const reg = offset % (0x200 / 4);
 	bool const qdma = (reg >= QER) && (reg <= QSECR);
 	channel_w(reg, data, qdma ? m_qrae[region] : m_drae[region]);
 }
@@ -204,7 +198,7 @@ void tms320c6745_edma_device::channel_w(offs_t offset, u32 data, u32 mask)
 	case ECR: m_er &= ~data; break;
 	case ESR:
 		// manual trigger
-		for (unsigned ch = 0; ch < CHANNELS; ch++)
+		for (u32 ch = 0; ch < CHANNELS; ch++)
 			if (BIT(data, ch))
 				trigger(ch, false, ch);
 		break;
@@ -232,16 +226,16 @@ void tms320c6745_edma_device::param_w(offs_t offset, u32 data, u32 mem_mask)
 	COMBINE_DATA(&m_param[offset]);
 
 	// QDMA channels trigger on a write to their trigger word
-	unsigned const set = offset / 8;
-	unsigned const word = offset % 8;
-	for (unsigned q = 0; q < QCHANNELS; q++)
+	u32 const set = offset / 8;
+	u32 const word = offset % 8;
+	for (u32 q = 0; q < QCHANNELS; q++)
 	{
 		if (BIT(m_qeer, q) && (BIT(m_qchmap[q], 5, 9) == set) && (BIT(m_qchmap[q], 2, 3) == word))
 			trigger(set, true, q);
 	}
 }
 
-void tms320c6745_edma_device::event(unsigned channel)
+void tms320c6745_edma_device::event(u32 channel)
 {
 	if (channel >= CHANNELS)
 		return;
@@ -260,7 +254,7 @@ void tms320c6745_edma_device::process_events()
 	if (m_busy)
 		return;
 	u32 const pending = m_er & m_eer;
-	for (unsigned ch = 0; ch < CHANNELS; ch++)
+	for (u32 ch = 0; ch < CHANNELS; ch++)
 	{
 		if (BIT(pending, ch))
 		{
@@ -270,7 +264,7 @@ void tms320c6745_edma_device::process_events()
 	}
 }
 
-void tms320c6745_edma_device::trigger(unsigned set, bool qdma, unsigned channel)
+void tms320c6745_edma_device::trigger(u32 set, bool qdma, u32 channel)
 {
 	u32 *const p = &m_param[set * 8];
 	u32 const opt = p[P_OPT];
@@ -288,7 +282,7 @@ void tms320c6745_edma_device::trigger(unsigned set, bool qdma, unsigned channel)
 
 	bool const ab_sync = BIT(opt, 2);
 	bool const fixed = BIT(opt, 3);
-	unsigned const tcc = BIT(opt, 12, 6);
+	u32 const tcc = BIT(opt, 12, 6);
 	bool const sam = BIT(opt, 0);
 	bool const dam = BIT(opt, 1);
 
@@ -297,7 +291,7 @@ void tms320c6745_edma_device::trigger(unsigned set, bool qdma, unsigned channel)
 	auto const copy_array = [this, acnt, sam, dam, opt] (u32 s, u32 d)
 	{
 		// constant addressing wraps within the FIFO width
-		unsigned const fwid = 1U << BIT(opt, 8, 3);
+		u32 const fwid = 1U << BIT(opt, 8, 3);
 		if (!(acnt & 3) && !((s | d) & 3))
 		{
 			for (u32 n = 0; n < acnt; n += 4)
@@ -368,8 +362,8 @@ void tms320c6745_edma_device::trigger(unsigned set, bool qdma, unsigned channel)
 			// link the next set in, or a null set
 			if (link != 0xffff)
 			{
-				unsigned const next = ((link - 0x4000) & 0xfff) / 32;
-				for (unsigned w = 0; w < 8; w++)
+				u32 const next = ((link - 0x4000) & 0xfff) / 32;
+				for (u32 w = 0; w < 8; w++)
 					p[w] = m_param[next * 8 + w];
 			}
 			else
@@ -396,7 +390,7 @@ void tms320c6745_edma_device::trigger(unsigned set, bool qdma, unsigned channel)
 	process_events();
 }
 
-void tms320c6745_edma_device::completion(unsigned tcc, bool interrupt, bool chain)
+void tms320c6745_edma_device::completion(u32 tcc, bool interrupt, bool chain)
 {
 	if (tcc >= 32)
 		return;
@@ -412,7 +406,7 @@ void tms320c6745_edma_device::completion(unsigned tcc, bool interrupt, bool chai
 void tms320c6745_edma_device::update_interrupts(bool force)
 {
 	// each region interrupt is the OR of its enabled, pending completion codes
-	for (unsigned r = 0; r < 4; r++)
+	for (u32 r = 0; r < 4; r++)
 	{
 		bool const active = (m_ipr & m_ier & m_drae[r]) != 0;
 		if (active && (!BIT(m_irq_state, r) || force))

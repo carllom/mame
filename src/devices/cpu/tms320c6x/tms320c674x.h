@@ -45,7 +45,7 @@ protected:
 	tms320c674x_device(machine_config const &mconfig, device_type type, char const *tag, device_t *owner, u32 clock, address_map_constructor internal_map, u32 istp_reset, u8 revision);
 
 	// latch an interrupt from the megamodule interrupt controller (INT4-INT15)
-	void interrupt_pulse(unsigned line);
+	void interrupt_pulse(u32 line);
 
 	// device_t implementation
 	virtual void device_start() override ATTR_COLD;
@@ -53,9 +53,9 @@ protected:
 	virtual void device_post_load() override ATTR_COLD;
 
 	// device_execute_interface implementation
-	virtual u32 execute_min_cycles() const noexcept override { return 1; }
-	virtual u32 execute_max_cycles() const noexcept override { return 1; }
-	virtual bool execute_input_edge_triggered(int inputnum) const noexcept override { return true; }
+	virtual u32 execute_min_cycles() const noexcept override;
+	virtual u32 execute_max_cycles() const noexcept override;
+	virtual bool execute_input_edge_triggered(int inputnum) const noexcept override;
 	virtual void execute_run() override;
 	virtual void execute_set_input(int inputnum, int state) override;
 
@@ -70,17 +70,14 @@ private:
 	using insn = tms320c6x_disassembler::insn;
 
 	// register numbers for delayed writes beyond the register files
-	enum : u8
-	{
-		REG_ILC = 64,
-		REG_RILC = 65
-	};
+	static constexpr u8 REG_ILC = 64;
+	static constexpr u8 REG_RILC = 65;
 
-	static constexpr unsigned WB_SLOTS = 16;   // longer than the longest delay
-	static constexpr unsigned WB_DEPTH = 32;
-	static constexpr unsigned MAX_EP = 16;     // instructions in one execute packet
-	static constexpr unsigned LB_SIZE = 64;    // loop buffer instructions
-	static constexpr unsigned BRANCH_SLOTS = 8;
+	static constexpr u32 WB_SLOTS = 16;   // longer than the longest delay
+	static constexpr u32 WB_DEPTH = 32;
+	static constexpr u32 MAX_EP = 16;     // instructions in one execute packet
+	static constexpr u32 LB_SIZE = 64;    // loop buffer instructions
+	static constexpr u32 BRANCH_SLOTS = 8;
 
 	struct store
 	{
@@ -102,7 +99,7 @@ private:
 		insn ep[MAX_EP];
 	};
 
-	static constexpr unsigned EP_CACHE_SIZE = 8192;
+	static constexpr u32 EP_CACHE_SIZE = 8192;
 
 	struct lb_entry
 	{
@@ -119,30 +116,30 @@ private:
 	// fetch and execute
 	void step();
 	ep_cache_entry const &fetch_ep(u32 pc);
-	unsigned decode_ep(u32 pc, ep_cache_entry &e);
+	u32 decode_ep(u32 pc, ep_cache_entry &e);
 	void execute(insn const &i, u32 pce1, u32 next_pc);
 	void tick();
 	bool condition(insn const &i) const;
 
 	// register access
-	u32 reg(unsigned r) const { return m_r[r]; }
+	u32 reg(u32 r) const { return m_r[r]; }
 	u32 src_a(insn const &i) const { return (i.flags & dasm::F_A_CST) ? u32(i.cst) : m_r[i.a]; }
 	u32 src_b(insn const &i) const { return (i.flags & dasm::F_B_CST) ? u32(i.cst) : m_r[i.b]; }
-	u64 pair(unsigned r) const { return (u64(m_r[r | 1]) << 32) | m_r[r & ~1]; }
-	s64 long40(unsigned r) const { return util::sext((u64(m_r[r | 1] & 0xff) << 32) | m_r[r & ~1], 40); }
-	u64 ulong40(unsigned r) const { return (u64(m_r[r | 1] & 0xff) << 32) | m_r[r & ~1]; }
-	void write(unsigned r, u32 value, unsigned delay = 0);
-	void write_pair(unsigned r, u64 value, unsigned delay = 0);
-	void write_long(unsigned r, u64 value, unsigned delay = 0) { write_pair(r, value & 0xff'ffff'ffffU, delay); }
+	u64 pair(u32 r) const { return (u64(m_r[r | 1]) << 32) | m_r[r & ~1]; }
+	s64 long40(u32 r) const { return util::sext((u64(m_r[r | 1] & 0xff) << 32) | m_r[r & ~1], 40); }
+	u64 ulong40(u32 r) const { return (u64(m_r[r | 1] & 0xff) << 32) | m_r[r & ~1]; }
+	void write(u32 r, u32 value, u32 delay = 0);
+	void write_pair(u32 r, u64 value, u32 delay = 0);
+	void write_long(u32 r, u64 value, u32 delay = 0) { write_pair(r, value & 0xff'ffff'ffffU, delay); }
 	void flush_writes();
 	void set_sat() { m_csr |= 1U << 9; }
 
 	// control registers
-	u32 read_control(unsigned crlo, u32 pce1);
-	void write_control(unsigned crlo, u32 value);
+	u32 read_control(u32 crlo, u32 pce1);
+	void write_control(u32 crlo, u32 value);
 
 	// memory
-	u32 address(insn const &i, unsigned shift);
+	u32 address(insn const &i, u32 shift);
 	u64 load(insn const &i, u32 addr);
 
 	// branches and interrupts
@@ -153,7 +150,7 @@ private:
 
 	// loop buffer
 	void sploop_start(insn const &i, u32 address);
-	void sploop_load(insn const *ep, u32 const *raw, u32 const *hdr, u32 const *pce1, unsigned count, u32 mask);
+	void sploop_load(insn const *ep, u32 const *raw, u32 const *hdr, u32 const *pce1, u32 count, u32 mask);
 	void sploop_end_cycle();
 	void sploop_stop();
 	void sploop_reload();
@@ -221,14 +218,14 @@ private:
 	u8 m_branches;
 	u32 m_nop_cycles;
 	bool m_idle;
-	int m_int_lines;
+	u16 m_int_lines;
 
 	// decoded execute packets, checked against memory before use
 	std::unique_ptr<ep_cache_entry []> m_ep_cache;
 
 	// current execute packet
 	store m_stores[MAX_EP * 2];
-	unsigned m_store_count;
+	u32 m_store_count;
 	u32 m_ep_nops;
 	bool m_ep_sploop;
 

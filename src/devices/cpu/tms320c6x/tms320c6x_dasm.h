@@ -83,19 +83,16 @@ public:
 	};
 
 	// operand flags
-	enum : u16
-	{
-		F_A_CST = 1 << 0,   // a is a constant
-		F_B_CST = 1 << 1,   // b is a constant
-		F_A_PAIR = 1 << 2,  // a is a register pair
-		F_B_PAIR = 1 << 3,  // b is a register pair
-		F_D_PAIR = 1 << 4,  // dst is a register pair
-		F_CROSS = 1 << 5,   // a source uses the cross path
-		F_NOA = 1 << 6,     // no a operand (unary)
-		F_NOD = 1 << 7,     // no destination
-		F_PROT = 1 << 8,    // load in a protected fetch packet (implied NOP 4)
-		F_COMPACT = 1 << 9  // 16-bit compact instruction
-	};
+	static constexpr u16 F_A_CST = 1 << 0;   // a is a constant
+	static constexpr u16 F_B_CST = 1 << 1;   // b is a constant
+	static constexpr u16 F_A_PAIR = 1 << 2;  // a is a register pair
+	static constexpr u16 F_B_PAIR = 1 << 3;  // b is a register pair
+	static constexpr u16 F_D_PAIR = 1 << 4;  // dst is a register pair
+	static constexpr u16 F_CROSS = 1 << 5;   // a source uses the cross path
+	static constexpr u16 F_NOA = 1 << 6;     // no a operand (unary)
+	static constexpr u16 F_NOD = 1 << 7;     // no destination
+	static constexpr u16 F_PROT = 1 << 8;    // load in a protected fetch packet (implied NOP 4)
+	static constexpr u16 F_COMPACT = 1 << 9; // 16-bit compact instruction
 
 	// load/store addressing
 	enum : u8
@@ -138,10 +135,10 @@ public:
 	static void decode32(u32 opcode, u32 pce1, bool header_fp, insn &i);
 	static void decode16(u16 opcode, u32 header, u32 pce1, insn &i);
 	static char const *mnemonic(op_t op);
-	static char const *control_register_name(unsigned crlo, unsigned crhi, bool write);
+	static char const *control_register_name(u32 crlo, u32 crhi, bool write);
 
 private:
-	static std::string reg_name(unsigned r, bool pair);
+	static std::string reg_name(u32 r, bool pair);
 	static void format(std::ostream &stream, insn const &i);
 };
 

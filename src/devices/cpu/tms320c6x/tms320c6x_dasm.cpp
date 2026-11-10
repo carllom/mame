@@ -22,7 +22,7 @@
 
 namespace {
 
-char const *const MNEMONICS[] =
+constexpr char const *MNEMONICS[] =
 {
 #define TMS320C6X_OP_NAME(name, mnemonic) mnemonic,
 	TMS320C6X_OPS(TMS320C6X_OP_NAME)
@@ -31,11 +31,6 @@ char const *const MNEMONICS[] =
 
 using insn = tms320c6x_disassembler::insn;
 using dasm = tms320c6x_disassembler;
-
-constexpr s32 sext(u32 value, unsigned bits)
-{
-	return util::sext(value, bits);
-}
 
 // condition register field to register number + 1
 constexpr u8 CREG_REGS[8] = { 0, 32 + 1, 33 + 1, 34 + 1, 1 + 1, 2 + 1, 0 + 1, 0 };
@@ -205,7 +200,7 @@ const table_entry D_EXT_TABLE[] =
 #undef E
 
 template <std::size_t N>
-table_entry const *lookup(table_entry const (&table)[N], unsigned opfield)
+table_entry const *lookup(table_entry const (&table)[N], u32 opfield)
 {
 	for (auto const &e : table)
 		if (e.opfield == opfield)
@@ -216,9 +211,9 @@ table_entry const *lookup(table_entry const (&table)[N], unsigned opfield)
 // fill operands of a table-driven 1 or 2 source instruction
 void apply(insn &i, table_entry const &e, u32 o, u8 unit)
 {
-	unsigned const side = BIT(o, 1) ? 32 : 0;
-	unsigned const xside = BIT(o, 12) ? (side ^ 32) : side;
-	unsigned const fd = BIT(o, 23, 5), f2 = BIT(o, 18, 5), f1 = BIT(o, 13, 5);
+	u32 const side = BIT(o, 1) ? 32 : 0;
+	u32 const xside = BIT(o, 12) ? (side ^ 32) : side;
+	u32 const fd = BIT(o, 23, 5), f2 = BIT(o, 18, 5), f1 = BIT(o, 13, 5);
 
 	i.op = e.op;
 	i.unit = unit;
@@ -229,10 +224,10 @@ void apply(insn &i, table_entry const &e, u32 o, u8 unit)
 	switch (e.f)
 	{
 	case RR: i.a = side + f1; i.b = xside + f2; break;
-	case CR: i.cst = sext(f1, 5); i.flags |= dasm::F_A_CST; i.b = xside + f2; break;
+	case CR: i.cst = util::sext(f1, 5); i.flags |= dasm::F_A_CST; i.b = xside + f2; break;
 	case UR: i.cst = f1; i.flags |= dasm::F_A_CST; i.b = xside + f2; break;
 	case XL: i.a = xside + f1; i.b = side + f2; break;
-	case CL: i.cst = sext(f1, 5); i.flags |= dasm::F_A_CST; i.b = side + f2; break;
+	case CL: i.cst = util::sext(f1, 5); i.flags |= dasm::F_A_CST; i.b = side + f2; break;
 	case UL: i.cst = f1; i.flags |= dasm::F_A_CST; i.b = side + f2; break;
 	case SW: i.a = xside + f1; i.b = side + f2; break;
 	case SX: i.a = xside + f2; i.b = side + f1; break;
@@ -263,7 +258,7 @@ void apply(insn &i, table_entry const &e, u32 o, u8 unit)
 }
 
 // load/store access sizes
-unsigned access_shift(dasm::op_t op)
+u32 access_shift(dasm::op_t op)
 {
 	switch (op)
 	{
@@ -303,6 +298,18 @@ bool is_pair_access(dasm::op_t op)
 	return access_shift(op) == 3;
 }
 
+// p-bit of the last instruction in the fetch packet before fp
+bool last_p(u32 fp, tms320c6x_disassembler::data_buffer const &opcodes)
+{
+	u32 const prev = fp - 32;
+	u32 const header = opcodes.r32(prev + 28);
+	if (!tms320c6x_disassembler::is_header(header))
+		return BIT(header, 0);
+	if (BIT(header, 21 + 6))
+		return BIT(header, 13);
+	return BIT(opcodes.r32(prev + 24), 0);
+}
+
 } // anonymous namespace
 
 
@@ -311,7 +318,7 @@ char const *tms320c6x_disassembler::mnemonic(op_t op)
 	return (op < OP_COUNT) ? MNEMONICS[op] : "?";
 }
 
-char const *tms320c6x_disassembler::control_register_name(unsigned crlo, unsigned crhi, bool write)
+char const *tms320c6x_disassembler::control_register_name(u32 crlo, u32 crhi, bool write)
 {
 	switch (crlo)
 	{
@@ -353,9 +360,9 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 	i.size = 4;
 	i.p = BIT(o, 0);
 
-	unsigned const s = BIT(o, 1);
-	unsigned const side = s ? 32 : 0;
-	unsigned const fd = BIT(o, 23, 5), f2 = BIT(o, 18, 5), f1 = BIT(o, 13, 5);
+	u32 const s = BIT(o, 1);
+	u32 const side = s ? 32 : 0;
+	u32 const fd = BIT(o, 23, 5), f2 = BIT(o, 18, 5), f1 = BIT(o, 13, 5);
 	bool const nc = BIT(o, 28, 4) == 1;
 
 	i.creg = CREG_REGS[BIT(o, 29, 3)];
@@ -378,7 +385,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 	// no unit
 	if (BIT(o, 2, 10) == 0)
 	{
-		unsigned const op = BIT(o, 13, 4);
+		u32 const op = BIT(o, 13, 4);
 		if (BIT(o, 17))
 		{
 			switch (op)
@@ -419,18 +426,18 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 	{
 	case 1: // .D load/store
 		{
-			unsigned const y = BIT(o, 7);
-			unsigned const op = BIT(o, 4, 3);
-			unsigned const mode = BIT(o, 9, 4);
+			u32 const y = BIT(o, 7);
+			u32 const op = BIT(o, 4, 3);
+			u32 const mode = BIT(o, 9, 4);
 			if (!BIT(o, 8))
 			{
-				static op_t const OPS[8] = { OP_LDHU, OP_LDBU, OP_LDB, OP_STB, OP_LDH, OP_STH, OP_LDW, OP_STW };
+				static constexpr op_t OPS[8] = { OP_LDHU, OP_LDBU, OP_LDB, OP_STB, OP_LDH, OP_STH, OP_LDW, OP_STW };
 				i.op = OPS[op];
 				i.dst = side + fd;
 			}
 			else
 			{
-				static op_t const OPS[8] = { OP_INVALID, OP_INVALID, OP_LDNDW, OP_LDNW, OP_STDW, OP_STNW, OP_LDDW, OP_STNDW };
+				static constexpr op_t OPS[8] = { OP_INVALID, OP_INVALID, OP_LDNDW, OP_LDNW, OP_STDW, OP_STNW, OP_LDDW, OP_STNDW };
 				i.op = OPS[op];
 				if ((i.op == OP_LDNDW) || (i.op == OP_STNDW))
 				{
@@ -449,7 +456,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 				i.a = (y ? 32 : 0) + f1;
 			else
 				i.cst = f1;
-			static u8 const MODES[16] =
+			static constexpr u8 MODES[16] =
 			{
 				AM_NEG_OFFSET, AM_POS_OFFSET, 0xff, 0xff, AM_NEG_OFFSET, AM_POS_OFFSET, 0xff, 0xff,
 				AM_PREDEC, AM_PREINC, AM_POSTDEC, AM_POSTINC, AM_PREDEC, AM_PREINC, AM_POSTDEC, AM_POSTINC
@@ -462,8 +469,8 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 
 	case 3: // .D load/store with 15-bit offset, or ADDAB/ADDAH/ADDAW long immediate
 		{
-			unsigned const op = BIT(o, 4, 3);
-			unsigned const base = BIT(o, 7) ? (32 + 15) : (32 + 14);
+			u32 const op = BIT(o, 4, 3);
+			u32 const base = BIT(o, 7) ? (32 + 15) : (32 + 14);
 			if (nc)
 			{
 				switch (op)
@@ -483,7 +490,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 			}
 			else
 			{
-				static op_t const OPS[8] = { OP_LDHU, OP_LDBU, OP_LDB, OP_STB, OP_LDH, OP_STH, OP_LDW, OP_STW };
+				static constexpr op_t OPS[8] = { OP_LDHU, OP_LDBU, OP_LDB, OP_STB, OP_LDH, OP_STH, OP_LDW, OP_STW };
 				i.op = OPS[op];
 				i.unit = UNIT_D2;
 				i.dst = side + fd;
@@ -501,7 +508,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 		if (BIT(o, 4))
 		{
 			// .L unit, or .S floating-point add/subtract
-			unsigned const op = BIT(o, 5, 7);
+			u32 const op = BIT(o, 5, 7);
 			if (nc)
 			{
 				if (auto const e = lookup(L_NC_TABLE, op))
@@ -526,7 +533,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 				case 0x04: i.op = OP_ABS2; break;
 				case 0x05:
 					i.op = OP_MVK;
-					i.cst = sext(f2, 5);
+					i.cst = util::sext(f2, 5);
 					i.flags = (i.flags & ~(F_CROSS | F_NOA)) | F_A_CST;
 					break;
 				}
@@ -556,13 +563,13 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 			else
 			{
 				i.op = OP_MVK;
-				i.cst = sext(BIT(o, 7, 16), 16);
+				i.cst = util::sext(BIT(o, 7, 16), 16);
 			}
 			return;
 		}
 		// field operations
 		{
-			static op_t const OPS[4] = { OP_EXTU, OP_EXT, OP_SET, OP_CLR };
+			static constexpr op_t OPS[4] = { OP_EXTU, OP_EXT, OP_SET, OP_CLR };
 			i.op = OPS[BIT(o, 6, 2)];
 			i.unit = sunit;
 			i.dst = side + fd;
@@ -578,15 +585,15 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 	{
 	case 2: // .S unit
 		{
-			unsigned const op = BIT(o, 6, 6);
-			unsigned const xside = BIT(o, 12) ? (side ^ 32) : side;
+			u32 const op = BIT(o, 6, 6);
+			u32 const xside = BIT(o, 12) ? (side ^ 32) : side;
 			switch (op)
 			{
 			case 0x05: // ADDKPC
 				i.op = OP_ADDKPC;
 				i.unit = sunit;
 				i.dst = side + fd;
-				i.cst = pce1 + (sext(BIT(o, 16, 7), 7) << 2);
+				i.cst = pce1 + (util::sext(BIT(o, 16, 7), 7) << 2);
 				i.cst2 = BIT(o, 13, 3);
 				return;
 			case 0x0d: // B/BNOP register
@@ -613,12 +620,12 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 				i.op = BIT(o, 12) ? OP_BDEC : OP_BPOS;
 				i.unit = sunit;
 				i.dst = side + fd;
-				i.cst = pce1 + (sext(BIT(o, 13, 10), 10) << 2);
+				i.cst = pce1 + (util::sext(BIT(o, 13, 10), 10) << 2);
 				return;
 			case 0x04: // BNOP displacement
 				i.op = OP_BNOP;
 				i.unit = sunit;
-				i.cst = pce1 + (sext(BIT(o, 16, 12), 12) << (header_fp ? 1 : 2));
+				i.cst = pce1 + (util::sext(BIT(o, 16, 12), 12) << (header_fp ? 1 : 2));
 				i.cst2 = BIT(o, 13, 3);
 				return;
 			case 0x0e: // MVC to control register
@@ -659,10 +666,10 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 
 	case 3: // extended .M/.D/.S
 		{
-			unsigned const op = BIT(o, 6, 4);
+			u32 const op = BIT(o, 6, 4);
 			if (!BIT(o, 11))
 			{
-				unsigned const mop = BIT(o, 6, 5);
+				u32 const mop = BIT(o, 6, 5);
 				if (nc)
 				{
 					if (auto const e = lookup(M_NC_TABLE, mop))
@@ -702,7 +709,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 			{
 				if ((op == 0xb) && nc)
 				{
-					static table_entry const RPACK2 = { 0xb, OP_RPACK2, RR, 0 };
+					static constexpr table_entry RPACK2 = { 0xb, OP_RPACK2, RR, 0 };
 					apply(i, RPACK2, o, sunit);
 					return;
 				}
@@ -721,7 +728,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 		else
 		{
 			// .D 1 or 2 sources: src2, src1, dst
-			unsigned const op = BIT(o, 7, 6);
+			u32 const op = BIT(o, 7, 6);
 			i.unit = dunit;
 			i.dst = side + fd;
 			i.a = side + f2;
@@ -748,7 +755,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 				if (f2 == 0)
 				{
 					i.op = OP_MVK;
-					i.cst = sext(f1, 5);
+					i.cst = util::sext(f1, 5);
 					i.flags = F_A_CST;
 				}
 				break;
@@ -761,7 +768,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 		{
 			i.op = nc ? OP_CALLP : OP_B;
 			i.unit = sunit;
-			i.cst = pce1 + (sext(BIT(o, 7, 21), 21) << 2);
+			i.cst = pce1 + (util::sext(BIT(o, 7, 21), 21) << 2);
 			if (nc)
 				i.dst = side + 3;
 		}
@@ -770,7 +777,7 @@ void tms320c6x_disassembler::decode32(u32 o, u32 pce1, bool header_fp, insn &i)
 			i.op = OP_ADDK;
 			i.unit = sunit;
 			i.dst = side + fd;
-			i.cst = sext(BIT(o, 7, 16), 16);
+			i.cst = util::sext(BIT(o, 7, 16), 16);
 			i.flags |= F_A_CST;
 		}
 		return;
@@ -783,30 +790,30 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 	i.size = 2;
 	i.flags = F_COMPACT;
 
-	unsigned const s = BIT(o, 0);
-	unsigned const side = s ? 32 : 0;
-	unsigned const roff = BIT(header, 19) ? 16 : 0;
-	unsigned const dsz = BIT(header, 16, 3);
+	u32 const s = BIT(o, 0);
+	u32 const side = s ? 32 : 0;
+	u32 const roff = BIT(header, 19) ? 16 : 0;
+	u32 const dsz = BIT(header, 16, 3);
 	bool const br = BIT(header, 15);
 	bool const sat = BIT(header, 14);
-	unsigned const x = BIT(o, 12);
-	unsigned const xside = x ? (side ^ 32) : side;
+	u32 const x = BIT(o, 12);
+	u32 const xside = x ? (side ^ 32) : side;
 
-	auto const r3 = [roff] (unsigned sd, unsigned n) -> u8 { return sd + roff + n; };
+	auto const r3 = [roff] (u32 sd, u32 n) -> u8 { return sd + roff + n; };
 	auto const cross = [&i, x] () { if (x) i.flags |= F_CROSS; };
 
 	if (BIT(o, 1, 2) == 2)
 	{
 		// .D load/store
-		unsigned const t = BIT(o, 12) ? 32 : 0;
-		unsigned const ldst = BIT(o, 3);
-		unsigned const sz = BIT(o, 9);
+		u32 const t = BIT(o, 12) ? 32 : 0;
+		u32 const ldst = BIT(o, 3);
+		u32 const sz = BIT(o, 9);
 		i.unit = s ? UNIT_D2 : UNIT_D1;
 		i.base = side + 4 + BIT(o, 7, 2);
 
 		bool dw = false;
 		bool na = false;
-		auto const pick = [&] (bool word_only)
+		auto const pick = [&i, &dw, &na, sz, dsz, ldst, o, t, roff] (bool word_only)
 		{
 			if (word_only || !sz)
 			{
@@ -821,8 +828,8 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 			}
 			else
 			{
-				static op_t const LD[8] = { OP_LDBU, OP_LDB, OP_LDHU, OP_LDH, OP_LDW, OP_LDB, OP_LDNW, OP_LDH };
-				static op_t const ST[8] = { OP_STB, OP_STB, OP_STH, OP_STH, OP_STW, OP_STB, OP_STNW, OP_STH };
+				static constexpr op_t LD[8] = { OP_LDBU, OP_LDB, OP_LDHU, OP_LDH, OP_LDW, OP_LDB, OP_LDNW, OP_LDH };
+				static constexpr op_t ST[8] = { OP_STB, OP_STB, OP_STH, OP_STH, OP_STW, OP_STB, OP_STNW, OP_STH };
 				i.op = ldst ? LD[dsz] : ST[dsz];
 			}
 			if (dw)
@@ -894,7 +901,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 			}
 			else
 			{
-				unsigned const cst3 = BIT(o, 13, 3);
+				u32 const cst3 = BIT(o, 13, 3);
 				i.op = OP_ADD;
 				i.flags |= F_A_CST;
 				if (!BIT(o, 11))
@@ -906,7 +913,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 		else if (BIT(o, 10))
 		{
 			// L2c
-			static op_t const OPS[8] = { OP_AND, OP_OR, OP_XOR, OP_CMPEQ, OP_CMPLT, OP_CMPGT, OP_CMPLTU, OP_CMPGTU };
+			static constexpr op_t OPS[8] = { OP_AND, OP_OR, OP_XOR, OP_CMPEQ, OP_CMPLT, OP_CMPGT, OP_CMPLTU, OP_CMPGTU };
 			i.op = OPS[(BIT(o, 11) << 2) | BIT(o, 5, 2)];
 			i.unit = s ? UNIT_L2 : UNIT_L1;
 			i.a = r3(side, BIT(o, 13, 3));
@@ -935,7 +942,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 					}
 					else
 					{
-						i.cst = pce1 + (sext(BIT(o, 6, 7), 7) << 1);
+						i.cst = pce1 + (util::sext(BIT(o, 6, 7), 7) << 1);
 						i.cst2 = BIT(o, 13, 3);
 					}
 				}
@@ -943,7 +950,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 				{
 					// Scs10
 					i.op = OP_CALLP;
-					i.cst = pce1 + (sext(BIT(o, 6, 10), 10) << 2);
+					i.cst = pce1 + (util::sext(BIT(o, 6, 10), 10) << 2);
 					i.dst = side + 3;
 				}
 				else
@@ -959,7 +966,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 					}
 					else
 					{
-						i.cst = pce1 + (sext(BIT(o, 6, 7), 7) << 1);
+						i.cst = pce1 + (util::sext(BIT(o, 6, 7), 7) << 1);
 						i.cst2 = BIT(o, 13, 3);
 					}
 				}
@@ -981,7 +988,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 				else
 				{
 					// S3i
-					static u8 const CST[8] = { 16, 1, 2, 3, 4, 5, 6, 8 };
+					static constexpr u8 CST[8] = { 16, 1, 2, 3, 4, 5, 6, 8 };
 					i.op = BIT(o, 11) ? OP_SHR : OP_SHL;
 					i.a = r3(xside, BIT(o, 7, 3));
 					cross();
@@ -1000,15 +1007,15 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 			i.flags |= F_A_CST;
 			return;
 		}
-		unsigned const ucst5 = (BIT(o, 11, 2) << 3) | BIT(o, 13, 3);
-		unsigned const op = BIT(o, 5, 2);
-		unsigned const rd = r3(side, BIT(o, 7, 3));
+		u32 const ucst5 = (BIT(o, 11, 2) << 3) | BIT(o, 13, 3);
+		u32 const op = BIT(o, 5, 2);
+		u32 const rd = r3(side, BIT(o, 7, 3));
 		if (BIT(o, 10))
 		{
 			if (op != 3)
 			{
 				// Ssh5
-				static op_t const OPS[4] = { OP_SHL, OP_SHR, OP_SHRU, OP_INVALID };
+				static constexpr op_t OPS[4] = { OP_SHL, OP_SHR, OP_SHRU, OP_INVALID };
 				i.op = OPS[op];
 				if ((op == 2) && sat)
 					i.op = OP_SSHL;
@@ -1020,7 +1027,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 			else
 			{
 				// S2sh
-				static op_t const OPS[4] = { OP_SHL, OP_SHR, OP_SHRU, OP_SSHL };
+				static constexpr op_t OPS[4] = { OP_SHL, OP_SHR, OP_SHRU, OP_SSHL };
 				i.op = OPS[BIT(o, 11, 2)];
 				i.a = rd;
 				i.b = r3(side, BIT(o, 13, 3));
@@ -1057,7 +1064,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 			else
 			{
 				// S2ext
-				static op_t const OPS[4] = { OP_EXT, OP_EXT, OP_EXTU, OP_EXTU };
+				static constexpr op_t OPS[4] = { OP_EXT, OP_EXT, OP_EXTU, OP_EXTU };
 				i.op = OPS[BIT(o, 11, 2)];
 				i.a = r3(side, BIT(o, 7, 3));
 				i.dst = r3(side, BIT(o, 13, 3));
@@ -1069,11 +1076,11 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 	}
 
 	// bits 2:1 = 11
-	unsigned const unit = BIT(o, 3, 2);
+	u32 const unit = BIT(o, 3, 2);
 	if (unit == 3)
 	{
 		// M3
-		static op_t const OPS[8] = { OP_MPY, OP_MPYH, OP_MPYLH, OP_MPYHL, OP_SMPY, OP_SMPYH, OP_SMPYLH, OP_SMPYHL };
+		static constexpr op_t OPS[8] = { OP_MPY, OP_MPYH, OP_MPYLH, OP_MPYHL, OP_SMPY, OP_SMPYH, OP_SMPYLH, OP_SMPYHL };
 		i.op = OPS[(sat ? 4 : 0) | BIT(o, 5, 2)];
 		i.unit = s ? UNIT_M2 : UNIT_M1;
 		i.a = r3(side, BIT(o, 13, 3));
@@ -1083,7 +1090,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 		return;
 	}
 
-	static u8 const UNITS[3][2] = { { UNIT_L1, UNIT_L2 }, { UNIT_S1, UNIT_S2 }, { UNIT_D1, UNIT_D2 } };
+	static constexpr u8 UNITS[3][2] = { { UNIT_L1, UNIT_L2 }, { UNIT_S1, UNIT_S2 }, { UNIT_D1, UNIT_D2 } };
 	u8 const u = UNITS[unit][s];
 
 	switch (BIT(o, 5, 2))
@@ -1116,7 +1123,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 				// Lx5
 				i.op = OP_MVK;
 				i.dst = r3(side, BIT(o, 7, 3));
-				i.cst = sext((BIT(o, 11, 2) << 3) | BIT(o, 13, 3), 5);
+				i.cst = util::sext((BIT(o, 11, 2) << 3) | BIT(o, 13, 3), 5);
 				i.flags |= F_A_CST;
 			}
 			else if (!BIT(o, 12))
@@ -1131,7 +1138,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 			else
 			{
 				// Lx1c
-				static op_t const OPS[4] = { OP_CMPLT, OP_CMPGT, OP_CMPLTU, OP_CMPGTU };
+				static constexpr op_t OPS[4] = { OP_CMPLT, OP_CMPGT, OP_CMPLTU, OP_CMPGTU };
 				i.op = OPS[BIT(o, 14, 2)];
 				i.cst = BIT(o, 13);
 				i.flags |= F_A_CST;
@@ -1190,9 +1197,9 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 	}
 
 	// bits 6:5 = 11
-	unsigned const op3 = BIT(o, 13, 3);
-	unsigned const rd = r3(side, BIT(o, 7, 3));
-	unsigned const sub = BIT(o, 10, 3);
+	u32 const op3 = BIT(o, 13, 3);
+	u32 const rd = r3(side, BIT(o, 7, 3));
+	u32 const sub = BIT(o, 10, 3);
 	if (sub == 6)
 	{
 		// LSDx1 and the unit-specific Dx1/Lx1/Sx1
@@ -1246,7 +1253,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 	if (sub == 2)
 	{
 		// LSDx1c
-		static u8 const CREGS[4] = { 0 + 1, 0 + 1, 32 + 1, 32 + 1 };
+		static constexpr u8 CREGS[4] = { 0 + 1, 0 + 1, 32 + 1, 32 + 1 };
 		i.op = OP_MVK;
 		i.unit = u;
 		i.creg = CREGS[BIT(o, 14, 2)];
@@ -1261,7 +1268,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 	{
 	case 0: // loop buffer instructions in the .L space
 		{
-			unsigned const op4 = BIT(o, 10, 4);
+			u32 const op4 = BIT(o, 10, 4);
 			i.flags = F_COMPACT;
 			switch (op4)
 			{
@@ -1312,7 +1319,7 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 		if (!BIT(o, 11))
 		{
 			// Dpp
-			unsigned const r = (BIT(o, 12) ? 32 : 0) + BIT(o, 7, 4);
+			u32 const r = (BIT(o, 12) ? 32 : 0) + BIT(o, 7, 4);
 			bool const dw = BIT(o, 15);
 			bool const ld = BIT(o, 14);
 			i.unit = UNIT_D2;
@@ -1344,10 +1351,10 @@ void tms320c6x_disassembler::decode16(u16 o, u32 header, u32 pce1, insn &i)
 	}
 }
 
-std::string tms320c6x_disassembler::reg_name(unsigned r, bool pair)
+std::string tms320c6x_disassembler::reg_name(u32 r, bool pair)
 {
 	char const side = (r & 32) ? 'B' : 'A';
-	unsigned const n = r & 31;
+	u32 const n = r & 31;
 	if (pair)
 		return util::string_format("%c%u:%c%u", side, n + 1, side, n);
 	else
@@ -1356,7 +1363,7 @@ std::string tms320c6x_disassembler::reg_name(unsigned r, bool pair)
 
 void tms320c6x_disassembler::format(std::ostream &stream, insn const &i)
 {
-	static char const *const UNITS[] = { "", ".L1", ".L2", ".S1", ".S2", ".M1", ".M2", ".D1", ".D2" };
+	static constexpr char const *UNITS[] = { "", ".L1", ".L2", ".S1", ".S2", ".M1", ".M2", ".D1", ".D2" };
 
 	auto const cst = [] (s32 v) -> std::string
 	{
@@ -1364,19 +1371,19 @@ void tms320c6x_disassembler::format(std::ostream &stream, insn const &i)
 			return util::string_format("%d", v);
 		return util::string_format("0x%x", u32(v));
 	};
-	auto const a = [&] () -> std::string
+	auto const a = [&i, &cst] () -> std::string
 	{
 		if (i.flags & F_A_CST)
 			return cst(i.cst);
 		return reg_name(i.a, i.flags & F_A_PAIR);
 	};
-	auto const b = [&] () -> std::string
+	auto const b = [&i, &cst] () -> std::string
 	{
 		if (i.flags & F_B_CST)
 			return cst(i.cst);
 		return reg_name(i.b, i.flags & F_B_PAIR);
 	};
-	auto const d = [&] () -> std::string { return reg_name(i.dst, i.flags & F_D_PAIR); };
+	auto const d = [&i] () -> std::string { return reg_name(i.dst, i.flags & F_D_PAIR); };
 
 	std::string mnem = mnemonic(i.op);
 	std::string ops;
@@ -1463,8 +1470,8 @@ void tms320c6x_disassembler::format(std::ostream &stream, insn const &i)
 
 		case OP_SPMASK: case OP_SPMASKR:
 			{
-				static char const *const NAMES[8] = { "L1", "L2", "S1", "S2", "D1", "D2", "M1", "M2" };
-				for (unsigned n = 0; n < 8; n++)
+				static constexpr char const *NAMES[8] = { "L1", "L2", "S1", "S2", "D1", "D2", "M1", "M2" };
+				for (u32 n = 0; n < 8; n++)
 				{
 					if (BIT(i.cst, n))
 					{
@@ -1564,11 +1571,11 @@ void tms320c6x_disassembler::format(std::ostream &stream, insn const &i)
 	}
 
 	if (i.creg)
-		stream << util::string_format("[%c%c%u] ", i.z ? '!' : ' ', ((i.creg - 1) & 32) ? 'B' : 'A', (i.creg - 1) & 31);
+		util::stream_format(stream, "[%c%c%u] ", i.z ? '!' : ' ', ((i.creg - 1) & 32) ? 'B' : 'A', (i.creg - 1) & 31);
 	if (ops.empty())
 		stream << mnem + unit;
 	else
-		stream << util::string_format("%-13s %s", mnem + unit, ops);
+		util::stream_format(stream, "%-13s %s", mnem + unit, ops);
 }
 
 u32 tms320c6x_disassembler::opcode_alignment() const
@@ -1576,23 +1583,11 @@ u32 tms320c6x_disassembler::opcode_alignment() const
 	return 2;
 }
 
-// p-bit of the last instruction in the fetch packet before fp
-static bool last_p(u32 fp, tms320c6x_disassembler::data_buffer const &opcodes)
-{
-	u32 const prev = fp - 32;
-	u32 const header = opcodes.r32(prev + 28);
-	if (!tms320c6x_disassembler::is_header(header))
-		return BIT(header, 0);
-	if (BIT(header, 21 + 6))
-		return BIT(header, 13);
-	return BIT(opcodes.r32(prev + 24), 0);
-}
-
 offs_t tms320c6x_disassembler::disassemble(std::ostream &stream, offs_t pc, data_buffer const &opcodes, data_buffer const &params)
 {
 	u32 const fp = pc & ~u32(31);
 	u32 const header = opcodes.r32(fp + 28);
-	unsigned const offset = pc & 31;
+	u32 const offset = pc & 31;
 
 	if (!is_header(header))
 	{
@@ -1605,7 +1600,7 @@ offs_t tms320c6x_disassembler::disassemble(std::ostream &stream, offs_t pc, data
 		if (prev_p)
 			stream << "|| ";
 		if (i.op == OP_INVALID)
-			stream << util::string_format(".word 0x%08x", opcodes.r32(pc & ~u32(3)));
+			util::stream_format(stream, ".word 0x%08x", opcodes.r32(pc & ~u32(3)));
 		else
 			format(stream, i);
 		return 4 | SUPPORTED;
@@ -1613,11 +1608,11 @@ offs_t tms320c6x_disassembler::disassemble(std::ostream &stream, offs_t pc, data
 
 	if (offset == 28)
 	{
-		static char const *const SECONDARY[8] = { "BU", "B", "HU", "H", "W", "B", "NW", "H" };
+		static constexpr char const *SECONDARY[8] = { "BU", "B", "HU", "H", "W", "B", "NW", "H" };
 		std::string layout;
 		for (int n = 6; n >= 0; n--)
 			layout += BIT(header, 21 + n) ? '1' : '0';
-		stream << util::string_format(".fphead %s, %s, %s, %s, %s, %s, %sb",
+		util::stream_format(stream, ".fphead %s, %s, %s, %s, %s, %s, %sb",
 				BIT(header, 20) ? "p" : "n",
 				BIT(header, 19) ? "h" : "l",
 				BIT(header, 18) ? "DW/NDW" : "W",
@@ -1628,7 +1623,7 @@ offs_t tms320c6x_disassembler::disassemble(std::ostream &stream, offs_t pc, data
 		return 4 | SUPPORTED;
 	}
 
-	unsigned const word = offset >> 2;
+	u32 const word = offset >> 2;
 	bool const compact = BIT(header, 21 + word);
 
 	// p-bit of the previous instruction in this fetch packet
@@ -1660,9 +1655,9 @@ offs_t tms320c6x_disassembler::disassemble(std::ostream &stream, offs_t pc, data
 	if (i.op == OP_INVALID)
 	{
 		if (compact)
-			stream << util::string_format(".half 0x%04x", opcodes.r16(pc & ~u32(1)));
+			util::stream_format(stream, ".half 0x%04x", opcodes.r16(pc & ~u32(1)));
 		else
-			stream << util::string_format(".word 0x%08x", opcodes.r32(pc & ~u32(3)));
+			util::stream_format(stream, ".word 0x%08x", opcodes.r32(pc & ~u32(3)));
 	}
 	else
 		format(stream, i);

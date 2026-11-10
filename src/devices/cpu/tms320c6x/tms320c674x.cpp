@@ -33,14 +33,14 @@
 #include "emu.h"
 #include "tms320c674x.h"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 
-#define LOG_UNIMPL (1U << 1)
-#define LOG_SPLOOP (1U << 2)
-#define LOG_INT    (1U << 3)
+#define LOG_SPLOOP (1U << 1)
+#define LOG_INT    (1U << 2)
 
-#define VERBOSE (LOG_UNIMPL)
+#define VERBOSE (0)
 #include "logmacro.h"
 
 
@@ -130,6 +130,21 @@ device_memory_interface::space_config_vector tms320c674x_device::memory_space_co
 	return space_config_vector{ std::make_pair(AS_PROGRAM, &m_program_config) };
 }
 
+u32 tms320c674x_device::execute_min_cycles() const noexcept
+{
+	return 1;
+}
+
+u32 tms320c674x_device::execute_max_cycles() const noexcept
+{
+	return 1;
+}
+
+bool tms320c674x_device::execute_input_edge_triggered(int inputnum) const noexcept
+{
+	return true;
+}
+
 std::unique_ptr<util::disasm_interface> tms320c674x_device::create_disassembler()
 {
 	return std::make_unique<tms320c6x_disassembler>();
@@ -142,15 +157,15 @@ void tms320c674x_device::device_start()
 	set_icountptr(m_icount);
 
 	m_ep_cache = std::make_unique<ep_cache_entry []>(EP_CACHE_SIZE);
-	for (unsigned n = 0; n < EP_CACHE_SIZE; n++)
+	for (u32 n = 0; n < EP_CACHE_SIZE; n++)
 		m_ep_cache[n].count = 0;
 
 	state_add(STATE_GENPC, "GENPC", m_pc).noshow();
 	state_add(STATE_GENPCBASE, "CURPC", m_pc).noshow();
 	state_add(C6X_PC, "PC", m_pc);
-	for (unsigned i = 0; i < 32; i++)
+	for (u32 i = 0; i < 32; i++)
 		state_add(C6X_A0 + i, util::string_format("A%u", i).c_str(), m_r[i]);
-	for (unsigned i = 0; i < 32; i++)
+	for (u32 i = 0; i < 32; i++)
 		state_add(C6X_B0 + i, util::string_format("B%u", i).c_str(), m_r[32 + i]);
 	state_add(C6X_AMR, "AMR", m_amr);
 	state_add(C6X_CSR, "CSR", m_csr);
@@ -273,12 +288,12 @@ void tms320c674x_device::device_reset()
 	sploop_stop();
 
 	// execution begins at the ISTB field of ISTP
-	m_pc = m_istp & 0xfffffc00;
+	m_pc = m_istp & 0xffff'fc00;
 }
 
 void tms320c674x_device::device_post_load()
 {
-	for (unsigned n = 0; n < m_lb_count; n++)
+	for (u32 n = 0; n < m_lb_count; n++)
 	{
 		if (m_lb[n].size == 2)
 			dasm::decode16(m_lb[n].opcode, m_lb[n].header, m_lb[n].pce1, m_lb_insn[n]);
@@ -306,7 +321,7 @@ void tms320c674x_device::execute_set_input(int inputnum, int state)
 		m_int_lines &= ~(1 << bit);
 }
 
-void tms320c674x_device::interrupt_pulse(unsigned line)
+void tms320c674x_device::interrupt_pulse(u32 line)
 {
 	if ((line >= 4) && (line <= 15))
 		m_ifr |= 1U << line;
@@ -366,7 +381,7 @@ void tms320c674x_device::take_interrupt(int number, u32 return_pc, bool splx)
 	m_tsr |= 1U << 9; // INT
 
 	standard_irq_callback(number, return_pc);
-	m_pc = (m_istp & 0xfffffc00) | (number << 5);
+	m_pc = (m_istp & 0xffff'fc00) | (number << 5);
 }
 
 
@@ -374,10 +389,10 @@ void tms320c674x_device::take_interrupt(int number, u32 return_pc, bool splx)
 //  PIPELINE
 //**************************************************************************
 
-void tms320c674x_device::write(unsigned r, u32 value, unsigned delay)
+void tms320c674x_device::write(u32 r, u32 value, u32 delay)
 {
-	unsigned const slot = (m_cycle + delay + 1) % WB_SLOTS;
-	unsigned const n = m_wb_count[slot];
+	u32 const slot = (m_cycle + delay + 1) % WB_SLOTS;
+	u32 const n = m_wb_count[slot];
 	if (n >= WB_DEPTH)
 	{
 		logerror("write queue overflow at %08x\n", m_pc);
@@ -388,7 +403,7 @@ void tms320c674x_device::write(unsigned r, u32 value, unsigned delay)
 	m_wb_count[slot] = n + 1;
 }
 
-void tms320c674x_device::write_pair(unsigned r, u64 value, unsigned delay)
+void tms320c674x_device::write_pair(u32 r, u64 value, u32 delay)
 {
 	write(r & ~1U, u32(value), delay);
 	write(r | 1U, u32(value >> 32), delay);
@@ -396,10 +411,10 @@ void tms320c674x_device::write_pair(unsigned r, u64 value, unsigned delay)
 
 void tms320c674x_device::flush_writes()
 {
-	for (unsigned d = 1; d <= WB_SLOTS; d++)
+	for (u32 d = 1; d <= WB_SLOTS; d++)
 	{
-		unsigned const slot = (m_cycle + d) % WB_SLOTS;
-		for (unsigned n = 0; n < m_wb_count[slot]; n++)
+		u32 const slot = (m_cycle + d) % WB_SLOTS;
+		for (u32 n = 0; n < m_wb_count[slot]; n++)
 		{
 			u8 const r = m_wb_reg[slot * WB_DEPTH + n];
 			u32 const v = m_wb_value[slot * WB_DEPTH + n];
@@ -431,8 +446,8 @@ void tms320c674x_device::tick()
 	m_cycle++;
 	m_icount--;
 
-	unsigned const slot = m_cycle % WB_SLOTS;
-	for (unsigned n = 0; n < m_wb_count[slot]; n++)
+	u32 const slot = m_cycle % WB_SLOTS;
+	for (u32 n = 0; n < m_wb_count[slot]; n++)
 	{
 		u8 const r = m_wb_reg[slot * WB_DEPTH + n];
 		u32 const v = m_wb_value[slot * WB_DEPTH + n];
@@ -445,7 +460,7 @@ void tms320c674x_device::tick()
 	}
 	m_wb_count[slot] = 0;
 
-	for (unsigned n = 0; n < m_branches; )
+	for (u32 n = 0; n < m_branches; )
 	{
 		if (m_branch_when[n] == m_cycle)
 		{
@@ -480,9 +495,9 @@ bool tms320c674x_device::condition(insn const &i) const
 	return i.z ? zero : !zero;
 }
 
-unsigned tms320c674x_device::decode_ep(u32 pc, ep_cache_entry &e)
+u32 tms320c674x_device::decode_ep(u32 pc, ep_cache_entry &e)
 {
-	unsigned count = 0;
+	u32 count = 0;
 	e.pc = pc;
 	for (;;)
 	{
@@ -554,7 +569,7 @@ tms320c674x_device::ep_cache_entry const &tms320c674x_device::fetch_ep(u32 pc)
 	{
 		// code may have been rewritten since it was decoded
 		bool valid = true;
-		for (unsigned n = 0; valid && (n < e.count); n++)
+		for (u32 n = 0; valid && (n < e.count); n++)
 		{
 			u32 const op = (e.ep[n].size == 2) ? m_cache.read_word(e.addr[n]) : m_cache.read_dword(e.addr[n]);
 			u32 const header = m_cache.read_dword(e.pce1[n] + 28);
@@ -569,7 +584,7 @@ tms320c674x_device::ep_cache_entry const &tms320c674x_device::fetch_ep(u32 pc)
 
 void tms320c674x_device::step()
 {
-	static ep_cache_entry const NONE = { 0, 0, 0 };
+	static constexpr ep_cache_entry NONE{};
 	ep_cache_entry const *e = &NONE;
 	u32 next = m_pc;
 
@@ -603,7 +618,7 @@ void tms320c674x_device::step()
 		next = e->next;
 		fetched = true;
 	}
-	unsigned const count = e->count;
+	u32 const count = e->count;
 	insn const *const ep = e->ep;
 	u32 const *const pce1 = e->pce1;
 
@@ -611,7 +626,7 @@ void tms320c674x_device::step()
 	u32 mask = 0;
 	bool kernel = false;
 	bool restart = false;
-	for (unsigned n = 0; n < count; n++)
+	for (u32 n = 0; n < count; n++)
 	{
 		if ((ep[n].op == dasm::OP_SPLOOP) || (ep[n].op == dasm::OP_SPLOOPD) || (ep[n].op == dasm::OP_SPLOOPW))
 		{
@@ -640,35 +655,35 @@ void tms320c674x_device::step()
 	}
 
 	// loop buffer instructions due this cycle; piping up after an interrupt ignores SPMASK
-	unsigned lb_exec[LB_SIZE];
-	unsigned lb_count = 0;
+	u32 lb_exec[LB_SIZE];
+	u32 lb_count = 0;
 	bool const lb_was_active = m_lb_active;
 	bool const loading = m_lb_active && m_lb_loading;
 	bool const resuming = loading && m_lb_restart;
 	if (m_lb_active)
 	{
 		u32 const lb_mask = resuming ? 0 : mask;
-		for (unsigned n = 0; n < m_lb_count; n++)
+		for (u32 n = 0; n < m_lb_count; n++)
 		{
-			lb_entry &e = m_lb[n];
+			lb_entry &lb = m_lb[n];
 			bool run = false;
 
 			// the previous invocation drains on its own LBC while this one reloads
-			if (m_lb_old_active && (e.slot == m_lb_old_lbc))
+			if (m_lb_old_active && (lb.slot == m_lb_old_lbc))
 			{
-				if (e.loadcnt == m_lb_old_drain)
-					e.old_valid = false;
-				run = e.old_valid;
+				if (lb.loadcnt == m_lb_old_drain)
+					lb.old_valid = false;
+				run = lb.old_valid;
 			}
 
 			// draining disables and reloading enables instructions in the order they were loaded
-			if (e.slot == m_lb_lbc)
+			if (lb.slot == m_lb_lbc)
 			{
-				if (m_lb_draining && (e.loadcnt == m_lb_drain))
-					e.valid = false;
-				if (m_lb_reloading && !m_lb_initial_term && (e.loadcnt == m_lb_reloadcnt))
-					e.valid = true;
-				run = run || e.valid;
+				if (m_lb_draining && (lb.loadcnt == m_lb_drain))
+					lb.valid = false;
+				if (m_lb_reloading && !m_lb_initial_term && (lb.loadcnt == m_lb_reloadcnt))
+					lb.valid = true;
+				run = run || lb.valid;
 			}
 
 			if (run && !(unit_mask(m_lb_insn[n].unit) & lb_mask))
@@ -677,7 +692,7 @@ void tms320c674x_device::step()
 	}
 
 	// program memory instructions
-	for (unsigned n = 0; n < count; n++)
+	for (u32 n = 0; n < count; n++)
 	{
 		insn const &i = ep[n];
 		bool const is_sploop = (i.op == dasm::OP_SPLOOPD) || (i.op == dasm::OP_SPLOOP) || (i.op == dasm::OP_SPLOOPW);
@@ -701,7 +716,7 @@ void tms320c674x_device::step()
 
 	// loop buffer instructions; their NOP counts (protected loads, BNOP) don't hold up program fetch
 	u32 const pm_nops = m_ep_nops;
-	for (unsigned n = 0; n < lb_count; n++)
+	for (u32 n = 0; n < lb_count; n++)
 	{
 		insn const &i = m_lb_insn[lb_exec[n]];
 		if (condition(i))
@@ -714,7 +729,7 @@ void tms320c674x_device::step()
 		sploop_load(ep, e->raw, e->hdr, pce1, count, mask);
 
 	// stores happen after the loads in the same cycle
-	for (unsigned n = 0; n < m_store_count; n++)
+	for (u32 n = 0; n < m_store_count; n++)
 	{
 		store const &s = m_stores[n];
 		switch (s.size)
@@ -728,7 +743,7 @@ void tms320c674x_device::step()
 		case 4:
 			if (s.unaligned)
 			{
-				for (unsigned b = 0; b < 4; b++)
+				for (u32 b = 0; b < 4; b++)
 					m_program.write_byte(s.address + b, u8(s.data >> (b * 8)));
 			}
 			else
@@ -737,7 +752,7 @@ void tms320c674x_device::step()
 		case 8:
 			if (s.unaligned)
 			{
-				for (unsigned b = 0; b < 8; b++)
+				for (u32 b = 0; b < 8; b++)
 					m_program.write_byte(s.address + b, u8(s.data >> (b * 8)));
 			}
 			else
@@ -768,11 +783,11 @@ void tms320c674x_device::step()
 			m_lb_dynlen = m_lb_loadcnt + 1;
 
 			// stage and cycle split depends on ii
-			unsigned const ii = m_lb_ii;
-			unsigned const cbits = (ii <= 1) ? 0 : (ii <= 2) ? 1 : (ii <= 4) ? 2 : (ii <= 8) ? 3 : 4;
-			unsigned const fcyc = m_lb_stgcyc & ((1U << cbits) - 1);
-			unsigned stg = 0;
-			for (unsigned b = 0; b < 6 - cbits; b++)
+			u32 const ii = m_lb_ii;
+			u32 const cbits = (ii <= 1) ? 0 : (ii <= 2) ? 1 : (ii <= 4) ? 2 : (ii <= 8) ? 3 : 4;
+			u32 const fcyc = m_lb_stgcyc & make_bitmask<u32>(cbits);
+			u32 stg = 0;
+			for (u32 b = 0; b < 6 - cbits; b++)
 				stg |= BIT(m_lb_stgcyc, 5 - b) << b;
 			m_lb_delay = stg * ii + fcyc;
 			m_lb_fetch = false;
@@ -825,7 +840,7 @@ u32 tms320c674x_device::insn_nops(insn const &i)
 void tms320c674x_device::sploop_start(insn const &i, u32 address)
 {
 	if (m_lb_active)
-		LOGMASKED(LOG_UNIMPL, "nested SPLOOP at %08x\n", address);
+		logerror("nested SPLOOP at %08x\n", address);
 
 	// SPRUFE8B 7.13.2: an interrupted SPLOOPD resumes as SPLOOP
 	m_lb_restart = BIT(m_tsr, 14);
@@ -868,9 +883,9 @@ void tms320c674x_device::sploop_start(insn const &i, u32 address)
 	LOGMASKED(LOG_SPLOOP, "%s %u at %08x, ILC %u%s\n", dasm::mnemonic(dasm::op_t(i.op)), i.cst, address, m_ilc, m_lb_restart ? " (resumed)" : "");
 }
 
-void tms320c674x_device::sploop_load(insn const *ep, u32 const *raw, u32 const *hdr, u32 const *pce1, unsigned count, u32 mask)
+void tms320c674x_device::sploop_load(insn const *ep, u32 const *raw, u32 const *hdr, u32 const *pce1, u32 count, u32 mask)
 {
-	for (unsigned n = 0; n < count; n++)
+	for (u32 n = 0; n < count; n++)
 	{
 		insn const &i = ep[n];
 		if ((i.unit == dasm::UNIT_NONE) || (i.op == dasm::OP_BNOP) || (unit_mask(i.unit) & mask))
@@ -937,7 +952,7 @@ void tms320c674x_device::sploop_end_cycle()
 		m_lb_fetch = false;
 		if (m_lb_initial_term)
 		{
-			LOGMASKED(LOG_UNIMPL, "SPLOOP at %08x skipped a reload with RILC 0\n", m_lb_address);
+			logerror("SPLOOP at %08x skipped a reload with RILC 0\n", m_lb_address);
 			sploop_stop();
 			return;
 		}
@@ -1030,7 +1045,7 @@ void tms320c674x_device::sploop_end_cycle()
 			{
 				// drained before the reload point: stay active and wait for it
 				m_lb_draining = false;
-				for (unsigned n = 0; n < m_lb_count; n++)
+				for (u32 n = 0; n < m_lb_count; n++)
 					m_lb[n].valid = false;
 				m_lb_fetch = true;
 				return;
@@ -1077,7 +1092,7 @@ void tms320c674x_device::sploop_reload()
 	m_lb_old_active = m_lb_draining;
 	m_lb_old_lbc = m_lb_lbc;
 	m_lb_old_drain = m_lb_drain;
-	for (unsigned n = 0; n < m_lb_count; n++)
+	for (u32 n = 0; n < m_lb_count; n++)
 	{
 		m_lb[n].old_valid = m_lb_draining && m_lb[n].valid;
 		m_lb[n].valid = false;
@@ -1100,7 +1115,7 @@ void tms320c674x_device::sploop_reload()
 //  CONTROL REGISTERS
 //**************************************************************************
 
-u32 tms320c674x_device::read_control(unsigned crlo, u32 pce1)
+u32 tms320c674x_device::read_control(u32 crlo, u32 pce1)
 {
 	switch (crlo)
 	{
@@ -1113,7 +1128,7 @@ u32 tms320c674x_device::read_control(unsigned crlo, u32 pce1)
 			// HPEINT: highest priority enabled pending interrupt
 			u32 const pending = m_ifr & m_ier & 0xfff2;
 			u32 const hpeint = pending ? std::countr_zero(pending) : 0;
-			return (m_istp & 0xfffffc00) | (hpeint << 5);
+			return (m_istp & 0xffff'fc00) | (hpeint << 5);
 		}
 	case 0x06: return m_irp;
 	case 0x07: return m_nrp;
@@ -1142,21 +1157,21 @@ u32 tms320c674x_device::read_control(unsigned crlo, u32 pce1)
 	case 0x1d: return m_efr;
 	case 0x1f: return m_ierr;
 	default:
-		LOGMASKED(LOG_UNIMPL, "read of control register %02x at %08x\n", crlo, m_pc);
+		logerror("read of control register %02x at %08x\n", crlo, m_pc);
 		return 0;
 	}
 }
 
-void tms320c674x_device::write_control(unsigned crlo, u32 value)
+void tms320c674x_device::write_control(u32 crlo, u32 value)
 {
 	switch (crlo)
 	{
 	case 0x00: m_amr = value; break;
-	case 0x01: m_csr = (m_csr & 0xffff0100) | (value & 0x0000feff); break;
+	case 0x01: m_csr = (m_csr & 0xffff'0100) | (value & 0x0000'feff); break;
 	case 0x02: m_ifr |= value & 0xfff0; break;      // ISR
 	case 0x03: m_ifr &= ~(value & 0xfff0); break;   // ICR
 	case 0x04: m_ier = (value & 0xfff2) | 1; break;
-	case 0x05: m_istp = value & 0xfffffc00; break;
+	case 0x05: m_istp = value & 0xffff'fc00; break;
 	case 0x06: m_irp = value; break;
 	case 0x07: m_nrp = value; break;
 	case 0x0a: // writing TSCL starts the counter
@@ -1185,7 +1200,7 @@ void tms320c674x_device::write_control(unsigned crlo, u32 value)
 	case 0x1d: m_efr &= ~value; break; // ECR
 	case 0x1f: m_ierr = value; break;
 	default:
-		LOGMASKED(LOG_UNIMPL, "write of %08x to control register %02x at %08x\n", value, crlo, m_pc);
+		logerror("write of %08x to control register %02x at %08x\n", value, crlo, m_pc);
 		break;
 	}
 }
@@ -1195,7 +1210,7 @@ void tms320c674x_device::write_control(unsigned crlo, u32 value)
 //  MEMORY
 //**************************************************************************
 
-u32 tms320c674x_device::address(insn const &i, unsigned shift)
+u32 tms320c674x_device::address(insn const &i, u32 shift)
 {
 	u32 const base = m_r[i.base];
 	u32 offset = i.offset_reg ? m_r[i.a] : u32(i.cst);
@@ -1203,15 +1218,15 @@ u32 tms320c674x_device::address(insn const &i, unsigned shift)
 		offset <<= shift;
 
 	// circular addressing for A4-A7 and B4-B7
-	unsigned const n = i.base & 31;
-	unsigned mode = 0;
+	u32 const n = i.base & 31;
+	u32 mode = 0;
 	if ((n >= 4) && (n <= 7))
 		mode = BIT(m_amr, ((i.base & 32) ? 8 : 0) + (n - 4) * 2, 2);
 	auto const modify = [this, base, mode] (u32 result) -> u32
 	{
 		if (!mode || (mode == 3))
 			return result;
-		unsigned const bk = BIT(m_amr, (mode == 1) ? 16 : 21, 5);
+		u32 const bk = BIT(m_amr, (mode == 1) ? 16 : 21, 5);
 		u32 const size_mask = u32((u64(2) << bk) - 1);
 		return (base & ~size_mask) | (result & size_mask);
 	};
@@ -1257,7 +1272,7 @@ u64 tms320c674x_device::load(insn const &i, u32 addr)
 	case dasm::OP_LDNW:
 		{
 			u32 v = 0;
-			for (unsigned b = 0; b < 4; b++)
+			for (u32 b = 0; b < 4; b++)
 				v |= u32(m_program.read_byte(addr + b)) << (b * 8);
 			return v;
 		}
@@ -1266,7 +1281,7 @@ u64 tms320c674x_device::load(insn const &i, u32 addr)
 	case dasm::OP_LDNDW:
 		{
 			u64 v = 0;
-			for (unsigned b = 0; b < 8; b++)
+			for (u32 b = 0; b < 8; b++)
 				v |= u64(m_program.read_byte(addr + b)) << (b * 8);
 			return v;
 		}
@@ -1325,8 +1340,8 @@ namespace {
 
 s32 saturate32(s64 v, bool &sat)
 {
-	if (v > 0x7fffffffLL) { sat = true; return 0x7fffffff; }
-	if (v < -0x80000000LL) { sat = true; return s32(0x80000000); }
+	if (v > 0x7fff'ffffLL) { sat = true; return 0x7fff'ffff; }
+	if (v < -0x8000'0000LL) { sat = true; return s32(0x8000'0000); }
 	return s32(v);
 }
 
@@ -1355,7 +1370,7 @@ template <typename F>
 u32 lanes8(u32 a, u32 b, F f)
 {
 	u32 r = 0;
-	for (unsigned n = 0; n < 4; n++)
+	for (u32 n = 0; n < 4; n++)
 		r |= u32(f((a >> (n * 8)) & 0xff, (b >> (n * 8)) & 0xff) & 0xff) << (n * 8);
 	return r;
 }
@@ -1363,15 +1378,15 @@ u32 lanes8(u32 a, u32 b, F f)
 s32 float_to_int(double v, bool truncate)
 {
 	if (std::isnan(v))
-		return 0x7fffffff;
+		return 0x7fff'ffff;
 	if (!truncate)
 		v = std::nearbyint(v);
 	else
 		v = std::trunc(v);
 	if (v >= 2147483648.0)
-		return 0x7fffffff;
+		return 0x7fff'ffff;
 	if (v < -2147483648.0)
-		return s32(0x80000000);
+		return s32(0x8000'0000);
 	return s32(v);
 }
 
@@ -1385,7 +1400,7 @@ u32 norm32(u32 v)
 
 void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 {
-	unsigned const d = i.dst;
+	u32 const d = i.dst;
 	bool sat = false;
 
 	switch (i.op)
@@ -1460,7 +1475,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	// moves
 	case dasm::OP_MV: write(d, m_r[i.b]); break;
 	case dasm::OP_MVK: write(d, i.cst); break;
-	case dasm::OP_MVKH: write(d, (m_r[d] & 0xffff) | (u32(i.cst) & 0xffff0000)); break;
+	case dasm::OP_MVKH: write(d, (m_r[d] & 0xffff) | (u32(i.cst) & 0xffff'0000)); break;
 	case dasm::OP_ADDK: write(d, m_r[d] + i.cst); break;
 	case dasm::OP_MVD: write(d, m_r[i.b], 3); break;
 	case dasm::OP_DMV: write(d | 1, src_a(i)); write(d & ~1U, src_b(i)); break;
@@ -1484,7 +1499,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_ABS:
 		{
 			s32 const v = s32(m_r[i.b]);
-			write(d, (v == s32(0x80000000)) ? 0x7fffffff : std::abs(v));
+			write(d, (v == s32(0x8000'0000)) ? 0x7fff'ffff : std::abs(v));
 		}
 		break;
 	case dasm::OP_ABS_L:
@@ -1545,49 +1560,49 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	// shifts and fields
 	case dasm::OP_SHL:
 		{
-			unsigned const n = src_b(i) & 0x3f;
+			u32 const n = src_b(i) & 0x3f;
 			write(d, (n >= 32) ? 0 : (src_a(i) << n));
 		}
 		break;
 	case dasm::OP_SHL_L:
 		{
-			unsigned const n = src_b(i) & 0x3f;
+			u32 const n = src_b(i) & 0x3f;
 			write_long(d, (n >= 40) ? 0 : (ulong40(i.a) << n));
 		}
 		break;
 	case dasm::OP_SHL_UL:
 		{
-			unsigned const n = src_b(i) & 0x3f;
+			u32 const n = src_b(i) & 0x3f;
 			write_long(d, (n >= 40) ? 0 : (u64(src_a(i)) << n));
 		}
 		break;
 	case dasm::OP_SHR:
 		{
-			unsigned const n = std::min<unsigned>(src_b(i) & 0x3f, 31);
+			u32 const n = std::min<u32>(src_b(i) & 0x3f, 31);
 			write(d, u32(s32(src_a(i)) >> n));
 		}
 		break;
 	case dasm::OP_SHR_L:
 		{
-			unsigned const n = std::min<unsigned>(src_b(i) & 0x3f, 39);
+			u32 const n = std::min<u32>(src_b(i) & 0x3f, 39);
 			write_long(d, u64(long40(i.a) >> n));
 		}
 		break;
 	case dasm::OP_SHRU:
 		{
-			unsigned const n = src_b(i) & 0x3f;
+			u32 const n = src_b(i) & 0x3f;
 			write(d, (n >= 32) ? 0 : (src_a(i) >> n));
 		}
 		break;
 	case dasm::OP_SHRU_L:
 		{
-			unsigned const n = src_b(i) & 0x3f;
+			u32 const n = src_b(i) & 0x3f;
 			write_long(d, (n >= 40) ? 0 : (ulong40(i.a) >> n));
 		}
 		break;
 	case dasm::OP_SSHL:
 		{
-			unsigned const n = src_b(i) & 0x3f;
+			u32 const n = src_b(i) & 0x3f;
 			s32 const v = s32(src_a(i));
 			s64 const r = (n >= 32) ? (v ? ((v < 0) ? INT64_MIN : INT64_MAX) : 0) : (s64(v) << n);
 			write(d, saturate32(r, sat));
@@ -1598,7 +1613,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		break;
 	case dasm::OP_EXT: case dasm::OP_EXTU:
 		{
-			unsigned csta, cstb;
+			u32 csta, cstb;
 			if (i.flags & dasm::F_B_CST)
 			{
 				csta = i.cst;
@@ -1615,7 +1630,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		break;
 	case dasm::OP_SET: case dasm::OP_CLR:
 		{
-			unsigned csta, cstb;
+			u32 csta, cstb;
 			if (i.flags & dasm::F_B_CST)
 			{
 				csta = i.cst;
@@ -1651,13 +1666,13 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_AVGU4: write(d, lanes8(src_a(i), src_b(i), [] (u32 x, u32 y) { return (x + y + 1) >> 1; }), 1); break;
 	case dasm::OP_SHR2:
 		{
-			unsigned const n = std::min<unsigned>(src_b(i) & 0x1f, 15);
+			u32 const n = std::min<u32>(src_b(i) & 0x1f, 15);
 			write(d, lanes16(src_a(i), 0, [n] (u32 x, u32) { return u32(s32(s16(x)) >> n); }));
 		}
 		break;
 	case dasm::OP_SHRU2:
 		{
-			unsigned const n = src_b(i) & 0x1f;
+			u32 const n = src_b(i) & 0x1f;
 			write(d, lanes16(src_a(i), 0, [n] (u32 x, u32) { return (n >= 16) ? 0 : (x >> n); }));
 		}
 		break;
@@ -1677,7 +1692,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		{
 			u32 const a = src_a(i), b = src_b(i);
 			u32 r = 0;
-			for (unsigned n = 0; n < 4; n++)
+			for (u32 n = 0; n < 4; n++)
 			{
 				u32 const x = (a >> (n * 8)) & 0xff, y = (b >> (n * 8)) & 0xff;
 				if ((i.op == dasm::OP_CMPEQ4) ? (x == y) : (x > y))
@@ -1715,7 +1730,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_SWAP4:
 		{
 			u32 const v = m_r[i.b];
-			write(d, ((v & 0x00ff00ff) << 8) | ((v >> 8) & 0x00ff00ff));
+			write(d, ((v & 0x00ff'00ff) << 8) | ((v >> 8) & 0x00ff'00ff));
 		}
 		break;
 	case dasm::OP_UNPKLU4:
@@ -1739,7 +1754,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		{
 			u32 const v = m_r[i.b];
 			u32 r = 0;
-			for (unsigned n = 0; n < 4; n++)
+			for (u32 n = 0; n < 4; n++)
 				r |= u32(std::popcount((v >> (n * 8)) & 0xff)) << (n * 8);
 			write(d, r, 1);
 		}
@@ -1748,18 +1763,18 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		{
 			u32 v = m_r[i.b];
 			u32 r = 0;
-			for (unsigned n = 0; n < 32; n++)
+			for (u32 n = 0; n < 32; n++)
 				r |= BIT(v, n) << (31 - n);
 			write(d, r, 1);
 		}
 		break;
 	case dasm::OP_XPND2:
-		write(d, (BIT(m_r[i.b], 1) ? 0xffff0000 : 0) | (BIT(m_r[i.b], 0) ? 0x0000ffff : 0), 1);
+		write(d, (BIT(m_r[i.b], 1) ? 0xffff'0000 : 0) | (BIT(m_r[i.b], 0) ? 0x0000'ffff : 0), 1);
 		break;
 	case dasm::OP_XPND4:
 		{
 			u32 r = 0;
-			for (unsigned n = 0; n < 4; n++)
+			for (u32 n = 0; n < 4; n++)
 				if (BIT(m_r[i.b], n))
 					r |= 0xffU << (n * 8);
 			write(d, r, 1);
@@ -1807,9 +1822,9 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 			default: x = slo16(a); y = shi16(b); break;
 			}
 			s32 r = (x * y) << 1;
-			if (r == s32(0x80000000))
+			if (r == s32(0x8000'0000))
 			{
-				r = 0x7fffffff;
+				r = 0x7fff'ffff;
 				sat = true;
 			}
 			write(d, r, 1);
@@ -1829,9 +1844,9 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_SMPY32:
 		{
 			s32 const a = src_a(i), b = src_b(i);
-			if ((a == s32(0x80000000)) && (b == s32(0x80000000)))
+			if ((a == s32(0x8000'0000)) && (b == s32(0x8000'0000)))
 			{
-				write(d, 0x7fffffff, 3);
+				write(d, 0x7fff'ffff, 3);
 				sat = true;
 			}
 			else
@@ -1845,7 +1860,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		{
 			u32 const a = src_a(i), b = src_b(i);
 			u32 p[4];
-			for (unsigned n = 0; n < 4; n++)
+			for (u32 n = 0; n < 4; n++)
 			{
 				s32 const x = (i.op == dasm::OP_MPYSU4) ? s32(s8(a >> (n * 8))) : s32((a >> (n * 8)) & 0xff);
 				p[n] = u32(x * s32((b >> (n * 8)) & 0xff)) & 0xffff;
@@ -1866,7 +1881,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		{
 			u32 const a = src_a(i), b = src_b(i);
 			s32 r = 0;
-			for (unsigned n = 0; n < 4; n++)
+			for (u32 n = 0; n < 4; n++)
 			{
 				s32 const x = (i.op == dasm::OP_DOTPSU4) ? s32(s8(a >> (n * 8))) : s32((a >> (n * 8)) & 0xff);
 				r += x * s32((b >> (n * 8)) & 0xff);
@@ -1943,7 +1958,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_LDW: case dasm::OP_LDNW:
 	case dasm::OP_LDDW: case dasm::OP_LDNDW:
 		{
-			unsigned const shift =
+			u32 const shift =
 					((i.op == dasm::OP_LDB) || (i.op == dasm::OP_LDBU)) ? 0 :
 					((i.op == dasm::OP_LDH) || (i.op == dasm::OP_LDHU)) ? 1 :
 					((i.op == dasm::OP_LDDW) || (i.op == dasm::OP_LDNDW)) ? 3 : 2;
@@ -1961,7 +1976,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_STW: case dasm::OP_STNW:
 	case dasm::OP_STDW: case dasm::OP_STNDW:
 		{
-			unsigned const shift =
+			u32 const shift =
 					(i.op == dasm::OP_STB) ? 0 :
 					(i.op == dasm::OP_STH) ? 1 :
 					((i.op == dasm::OP_STDW) || (i.op == dasm::OP_STNDW)) ? 3 : 2;
@@ -1978,7 +1993,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		break;
 
 	default:
-		LOGMASKED(LOG_UNIMPL, "unimplemented %s at %08x\n", dasm::mnemonic(i.op), m_pc);
+		logerror("unimplemented %s at %08x\n", dasm::mnemonic(i.op), m_pc);
 		break;
 	}
 

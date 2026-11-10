@@ -23,19 +23,19 @@
 #include "emu.h"
 #include "tms320c6745_mcasp.h"
 
+#include <algorithm>
+
 
 DEFINE_DEVICE_TYPE(TMS320C6745_MCASP, tms320c6745_mcasp_device, "tms320c6745_mcasp", "TMS320C6745 McASP")
 
 
 namespace {
 
-enum : unsigned
+enum : u32
 {
 	GBLCTL = 0x44 / 4,
-	RGBLCTL = 0x60 / 4,
 	RTDM = 0x78 / 4,
 	RSTAT = 0x80 / 4,
-	XGBLCTL = 0xa0 / 4,
 	XFMT = 0xa8 / 4,
 	AFSXCTL = 0xac / 4,
 	ACLKXCTL = 0xb0 / 4,
@@ -70,7 +70,6 @@ void tms320c6745_mcasp_device::device_start()
 void tms320c6745_mcasp_device::device_reset()
 {
 	std::fill(std::begin(m_reg), std::end(m_reg), 0);
-	m_reg[0] = 0x4430'0a02; // PID
 	m_slot = 0;
 	m_running = false;
 	m_slot_timer->adjust(attotime::never);
@@ -78,43 +77,42 @@ void tms320c6745_mcasp_device::device_reset()
 
 void tms320c6745_mcasp_device::map(address_map &map)
 {
+	// everything not listed after this is register storage
 	map(0x000, 0x2ff).lrw32(
-			NAME([this] (offs_t offset) -> u32
-			{
-				switch (offset)
-				{
-				case RGBLCTL: return m_reg[GBLCTL];
-				case XGBLCTL: return m_reg[GBLCTL];
-				default: return m_reg[offset];
-				}
-			}),
-			NAME([this] (offs_t offset, u32 data, u32 mem_mask)
-			{
-				switch (offset)
-				{
-				case 0:
-					break;
-				case GBLCTL:
-					COMBINE_DATA(&m_reg[GBLCTL]);
-					update_timer();
-					break;
-				case RGBLCTL:
-					m_reg[GBLCTL] = (m_reg[GBLCTL] & ~0x0000'001f) | (data & 0x0000'001f);
-					update_timer();
-					break;
-				case XGBLCTL:
-					m_reg[GBLCTL] = (m_reg[GBLCTL] & ~0x0000'1f00) | (data & 0x0000'1f00);
-					update_timer();
-					break;
-				case RSTAT:
-				case XSTAT:
-					m_reg[offset] &= ~(data & mem_mask & 0x01ff); // write 1 to clear
-					break;
-				default:
-					COMBINE_DATA(&m_reg[offset]);
-					break;
-				}
-			}));
+			NAME([this] (offs_t offset) -> u32 { return m_reg[offset]; }),
+			NAME([this] (offs_t offset, u32 data, u32 mem_mask) { COMBINE_DATA(&m_reg[offset]); }));
+	map(0x000, 0x003).lr32(NAME([] () -> u32 { return 0x4430'0a02; })); // PID
+	map(0x044, 0x047).lr32(NAME([this] () -> u32 { return m_reg[GBLCTL]; })).w(FUNC(tms320c6745_mcasp_device::gblctl_w));
+	map(0x060, 0x063).lr32(NAME([this] () -> u32 { return m_reg[GBLCTL]; })).w(FUNC(tms320c6745_mcasp_device::rgblctl_w));
+	map(0x080, 0x083).lr32(NAME([this] () -> u32 { return m_reg[RSTAT]; })).w(FUNC(tms320c6745_mcasp_device::stat_w<RSTAT>));
+	map(0x0a0, 0x0a3).lr32(NAME([this] () -> u32 { return m_reg[GBLCTL]; })).w(FUNC(tms320c6745_mcasp_device::xgblctl_w));
+	map(0x0c0, 0x0c3).lr32(NAME([this] () -> u32 { return m_reg[XSTAT]; })).w(FUNC(tms320c6745_mcasp_device::stat_w<XSTAT>));
+}
+
+void tms320c6745_mcasp_device::gblctl_w(offs_t offset, u32 data, u32 mem_mask)
+{
+	COMBINE_DATA(&m_reg[GBLCTL]);
+	update_timer();
+}
+
+void tms320c6745_mcasp_device::rgblctl_w(u32 data)
+{
+	// receiver half of GBLCTL
+	m_reg[GBLCTL] = (m_reg[GBLCTL] & ~0x0000'001f) | (data & 0x0000'001f);
+	update_timer();
+}
+
+void tms320c6745_mcasp_device::xgblctl_w(u32 data)
+{
+	// transmitter half of GBLCTL
+	m_reg[GBLCTL] = (m_reg[GBLCTL] & ~0x0000'1f00) | (data & 0x0000'1f00);
+	update_timer();
+}
+
+template <u32 Reg>
+void tms320c6745_mcasp_device::stat_w(offs_t offset, u32 data, u32 mem_mask)
+{
+	m_reg[Reg] &= ~(data & mem_mask & 0x01ff); // write 1 to clear
 }
 
 void tms320c6745_mcasp_device::data_map(address_map &map)
@@ -155,8 +153,8 @@ void tms320c6745_mcasp_device::update_timer()
 	u32 aclk = ahclk;
 	if (BIT(m_reg[ACLKXCTL], 5))
 		aclk = ahclk / (BIT(m_reg[ACLKXCTL], 0, 5) + 1);
-	unsigned const ssz = BIT(m_reg[XFMT], 4, 4);
-	unsigned const slot_bits = (ssz >= 3) ? (ssz + 1) * 2 : 32;
+	u32 const ssz = BIT(m_reg[XFMT], 4, 4);
+	u32 const slot_bits = (ssz >= 3) ? (ssz + 1) * 2 : 32;
 	if (!aclk)
 	{
 		logerror("no transmit clock\n");
@@ -169,10 +167,10 @@ void tms320c6745_mcasp_device::update_timer()
 
 TIMER_CALLBACK_MEMBER(tms320c6745_mcasp_device::slot_tick)
 {
-	unsigned slots = BIT(m_reg[AFSXCTL], 7, 9);
+	u32 slots = BIT(m_reg[AFSXCTL], 7, 9);
 	if (slots < 2)
 		slots = 1;
-	unsigned const slot = m_slot;
+	u32 const slot = m_slot;
 	m_slot = (m_slot + 1) % std::min(slots, 32U);
 
 	if (BIT(m_reg[GBLCTL], 11) && BIT(m_reg[GBLCTL], 12) && BIT(m_reg[XTDM], slot))

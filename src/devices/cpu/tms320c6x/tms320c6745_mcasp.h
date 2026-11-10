@@ -26,6 +26,10 @@ protected:
 private:
 	TIMER_CALLBACK_MEMBER(slot_tick);
 
+	void gblctl_w(offs_t offset, u32 data, u32 mem_mask);
+	void rgblctl_w(u32 data);
+	void xgblctl_w(u32 data);
+	template <u32 Reg> void stat_w(offs_t offset, u32 data, u32 mem_mask);
 	void update_timer();
 	u32 data_r();
 	void data_w(u32 data);

@@ -18,6 +18,8 @@
 #include "emu.h"
 #include "tms320c6745_psc.h"
 
+#include <algorithm>
+
 
 DEFINE_DEVICE_TYPE(TMS320C6745_PSC, tms320c6745_psc_device, "tms320c6745_psc", "TMS320C6745 Power and Sleep Controller")
 
@@ -76,7 +78,7 @@ void tms320c6745_psc_device::ptcmd_w(u32 data)
 	// GO for either power domain moves every module to its NEXT state
 	if (data & 3)
 	{
-		for (unsigned n = 0; n < MODULES; n++)
+		for (u32 n = 0; n < MODULES; n++)
 			m_state[n] = m_mdctl[n] & 7;
 	}
 }

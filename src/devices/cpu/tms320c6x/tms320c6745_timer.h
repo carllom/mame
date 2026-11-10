@@ -24,11 +24,11 @@ private:
 	TIMER_CALLBACK_MEMBER(period_expired);
 
 	bool chained() const { return BIT(m_tgcr, 2, 2) != 1; }
-	unsigned enamode(unsigned n) const { return BIT(m_tcr, n ? 22 : 6, 2); }
-	u64 period(unsigned n) const;
-	u32 prescale(unsigned n) const;
-	u64 count(unsigned n) const;
-	void update(unsigned n);
+	u32 enamode(u32 n) const { return BIT(m_tcr, n ? 22 : 6, 2); }
+	u64 period(u32 n) const;
+	u32 prescale(u32 n) const;
+	u64 count(u32 n) const;
+	void update(u32 n);
 
 	u32 tim_r(offs_t offset);
 	void tim_w(offs_t offset, u32 data, u32 mem_mask);

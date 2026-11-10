@@ -9,7 +9,7 @@ class tms320c6745_spi_device : public device_t
 {
 public:
 	// shifts out a word of the given length and returns the received word
-	using transfer_delegate = device_delegate<u32 (u32 data, unsigned bits)>;
+	using transfer_delegate = device_delegate<u32 (u32 data, u32 bits)>;
 
 	tms320c6745_spi_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock = 0);
 
@@ -49,8 +49,8 @@ private:
 	u32 m_delay;
 	u32 m_def;
 	u32 m_fmt[4];
-	int m_scs0;
-	int m_irq;
+	u8 m_scs0;
+	u8 m_irq;
 };
 
 DECLARE_DEVICE_TYPE(TMS320C6745_SPI, tms320c6745_spi_device)

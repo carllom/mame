@@ -20,6 +20,8 @@
 #include "emu.h"
 #include "tms320c6745_timer.h"
 
+#include <algorithm>
+
 
 DEFINE_DEVICE_TYPE(TMS320C6745_TIMER, tms320c6745_timer_device, "tms320c6745_timer", "TMS320C6745 64-bit timer")
 
@@ -59,7 +61,7 @@ void tms320c6745_timer_device::device_start()
 
 void tms320c6745_timer_device::device_reset()
 {
-	for (unsigned n = 0; n < 2; n++)
+	for (u32 n = 0; n < 2; n++)
 	{
 		m_timer[n]->adjust(attotime::never);
 		m_running[n] = false;
@@ -95,20 +97,20 @@ void tms320c6745_timer_device::map(address_map &map)
 			}));
 }
 
-u64 tms320c6745_timer_device::period(unsigned n) const
+u64 tms320c6745_timer_device::period(u32 n) const
 {
 	if (chained())
 		return (u64(m_prd[1]) << 32) | m_prd[0];
 	return m_prd[n];
 }
 
-u32 tms320c6745_timer_device::prescale(unsigned n) const
+u32 tms320c6745_timer_device::prescale(u32 n) const
 {
 	// only the upper half has a prescaler in dual 32-bit unchained mode
 	return (!chained() && n) ? (BIT(m_tgcr, 8, 4) + 1) : 1;
 }
 
-u64 tms320c6745_timer_device::count(unsigned n) const
+u64 tms320c6745_timer_device::count(u32 n) const
 {
 	if (!m_running[n])
 		return chained() ? ((u64(m_tim[1]) << 32) | m_tim[0]) : m_tim[n];
@@ -116,7 +118,7 @@ u64 tms320c6745_timer_device::count(unsigned n) const
 	return m_base[n] + ticks;
 }
 
-void tms320c6745_timer_device::update(unsigned n)
+void tms320c6745_timer_device::update(u32 n)
 {
 	bool const in_reset = chained() ? ((m_tgcr & 3) != 3) : !BIT(m_tgcr, n);
 	bool const run = !in_reset && enamode(n);
@@ -153,7 +155,7 @@ void tms320c6745_timer_device::update(unsigned n)
 
 TIMER_CALLBACK_MEMBER(tms320c6745_timer_device::period_expired)
 {
-	unsigned const n = param;
+	u32 const n = param;
 
 	// the counter resets to 0 and the period interrupt fires
 	m_intctlstat |= n ? 0x0002'0000 : 0x0000'0002;
@@ -198,7 +200,7 @@ u32 tms320c6745_timer_device::tim_r(offs_t offset)
 
 void tms320c6745_timer_device::tim_w(offs_t offset, u32 data, u32 mem_mask)
 {
-	unsigned const n = chained() ? 0 : offset;
+	u32 const n = chained() ? 0 : offset;
 	if (m_running[n])
 	{
 		u64 const c = count(n);

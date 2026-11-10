@@ -52,7 +52,7 @@ void tms320c6745_gpio_device::device_start()
 void tms320c6745_gpio_device::device_reset()
 {
 	m_binten = 0;
-	for (unsigned b = 0; b < BANKS; b++)
+	for (u32 b = 0; b < BANKS; b++)
 	{
 		m_dir[b] = 0xffff; // all inputs
 		m_out[b] = 0;
@@ -70,14 +70,14 @@ void tms320c6745_gpio_device::map(address_map &map)
 	map(0x10, 0xaf).rw(FUNC(tms320c6745_gpio_device::pair_r), FUNC(tms320c6745_gpio_device::pair_w));
 }
 
-void tms320c6745_gpio_device::in_w(unsigned bank, u16 data)
+void tms320c6745_gpio_device::in_w(u32 bank, u16 data)
 {
 	u16 const old_pins = pins(bank);
 	m_in[bank] = data;
 	update(bank, output(bank), old_pins);
 }
 
-void tms320c6745_gpio_device::update(unsigned bank, u16 old_out, u16 old_pins)
+void tms320c6745_gpio_device::update(u32 bank, u16 old_out, u16 old_pins)
 {
 	u16 const now = output(bank);
 	if (now != old_out)
@@ -99,9 +99,9 @@ void tms320c6745_gpio_device::update(unsigned bank, u16 old_out, u16 old_pins)
 
 u32 tms320c6745_gpio_device::pair_r(offs_t offset)
 {
-	unsigned const pair = offset / 10;
-	unsigned const reg = offset % 10;
-	unsigned const lo = pair * 2, hi = lo + 1;
+	u32 const pair = offset / 10;
+	u32 const reg = offset % 10;
+	u32 const lo = pair * 2, hi = lo + 1;
 	auto const both = [] (u16 l, u16 h) -> u32 { return (u32(h) << 16) | l; };
 
 	switch (reg)
@@ -122,9 +122,9 @@ u32 tms320c6745_gpio_device::pair_r(offs_t offset)
 
 void tms320c6745_gpio_device::pair_w(offs_t offset, u32 data, u32 mem_mask)
 {
-	unsigned const pair = offset / 10;
-	unsigned const reg = offset % 10;
-	unsigned const lo = pair * 2, hi = lo + 1;
+	u32 const pair = offset / 10;
+	u32 const reg = offset % 10;
+	u32 const lo = pair * 2, hi = lo + 1;
 	u16 const old_out[2] = { output(lo), output(hi) };
 	u16 const old_pins[2] = { pins(lo), pins(hi) };
 	u16 const dl = ACCESSING_BITS_0_15 ? u16(data) : 0;

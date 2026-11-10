@@ -5,35 +5,40 @@
 
 #pragma once
 
-#include "tms320c674x.h"
-#include "tms320c6745_psc.h"
-#include "tms320c6745_timer.h"
-#include "tms320c6745_spi.h"
+#include "tms320c6745_edma.h"
 #include "tms320c6745_gpio.h"
 #include "tms320c6745_i2c.h"
 #include "tms320c6745_mcasp.h"
-#include "tms320c6745_edma.h"
+#include "tms320c6745_psc.h"
+#include "tms320c6745_spi.h"
+#include "tms320c6745_timer.h"
+#include "tms320c674x.h"
 
 class tms320c6745_device : public tms320c674x_device
 {
 public:
 	tms320c6745_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock);
 
-	// system events 4-127 into the interrupt controller
-	template <unsigned N> void event_w(int state) { if (state) event(N); }
-
 	// peripheral connections
-	template <typename... T> void set_spi_transfer_callback(unsigned n, T &&... args) { m_spi[n].lookup()->set_transfer_callback(std::forward<T>(args)...); }
-	auto spi_scs0(unsigned n) { return m_spi[n].lookup()->scs0(); }
-	template <unsigned Bank> auto gpio_out() { return m_gpio.lookup()->out<Bank>(); }
-	void gpio_in_w(unsigned bank, u16 data) { m_gpio->in_w(bank, data); }
-	u16 gpio_output(unsigned bank) const { return m_gpio->output(bank); }
-	u32 pinmux(unsigned n) const { return m_syscfg[0x120 / 4 + n]; }
-	void set_mcasp_ahclk(unsigned n, XTAL const &clock) { m_mcasp[n].lookup()->set_clock(clock); }
-	template <typename... T> void set_i2c_start_callback(unsigned n, T &&... args) { m_i2c[n].lookup()->set_start_callback(std::forward<T>(args)...); }
-	template <typename... T> void set_i2c_write_callback(unsigned n, T &&... args) { m_i2c[n].lookup()->set_write_callback(std::forward<T>(args)...); }
-	template <typename... T> void set_i2c_read_callback(unsigned n, T &&... args) { m_i2c[n].lookup()->set_read_callback(std::forward<T>(args)...); }
-	template <typename... T> void set_i2c_stop_callback(unsigned n, T &&... args) { m_i2c[n].lookup()->set_stop_callback(std::forward<T>(args)...); }
+	template <typename... T> void set_spi_transfer_callback(u32 n, T &&... args) { m_spi[n].lookup()->set_transfer_callback(std::forward<T>(args)...); }
+	auto spi_scs0(u32 n) { return m_spi[n].lookup()->scs0(); }
+	template <u32 Bank> auto gpio_out() { return m_gpio.lookup()->out<Bank>(); }
+	void set_mcasp_ahclk(u32 n, XTAL const &clock) { m_mcasp[n].lookup()->set_clock(clock); }
+	template <typename... T> void set_i2c_start_callback(u32 n, T &&... args) { m_i2c[n].lookup()->set_start_callback(std::forward<T>(args)...); }
+	template <typename... T> void set_i2c_write_callback(u32 n, T &&... args) { m_i2c[n].lookup()->set_write_callback(std::forward<T>(args)...); }
+	template <typename... T> void set_i2c_read_callback(u32 n, T &&... args) { m_i2c[n].lookup()->set_read_callback(std::forward<T>(args)...); }
+	template <typename... T> void set_i2c_stop_callback(u32 n, T &&... args) { m_i2c[n].lookup()->set_stop_callback(std::forward<T>(args)...); }
+
+	// system events 4-127 into the interrupt controller
+	template <u32 N> void event_w(int state)
+	{
+		if (state)
+			event(N);
+	}
+
+	void gpio_in_w(u32 bank, u16 data) { m_gpio->in_w(bank, data); }
+	u16 gpio_output(u32 bank) const { return m_gpio->output(bank); }
+	u32 pinmux(u32 n) const { return m_syscfg[0x120 / 4 + n]; }
 
 protected:
 	// device_t implementation
@@ -48,7 +53,7 @@ private:
 	void intc_map(address_map &map) ATTR_COLD;
 
 	// interrupt controller
-	void event(unsigned n);
+	void event(u32 n);
 	void update_combined();
 	void evtset_w(offs_t offset, u32 data);
 	void evtclr_w(offs_t offset, u32 data);

@@ -18,7 +18,7 @@ protected:
 	virtual void device_reset() override ATTR_COLD;
 
 private:
-	static constexpr unsigned MODULES = 32;
+	static constexpr u32 MODULES = 32;
 
 	u32 mdstat_r(offs_t offset);
 	void ptcmd_w(u32 data);
