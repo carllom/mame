@@ -75,7 +75,7 @@ private:
 
 	static constexpr u32 WB_SLOTS = 16;   // longer than the longest delay
 	static constexpr u32 WB_DEPTH = 32;
-	static constexpr u32 MAX_EP = 16;     // instructions in one execute packet
+	static constexpr u32 MAX_EP = 8;      // instructions in one execute packet (SPRUFE8B 3.5)
 	static constexpr u32 LB_SIZE = 64;    // loop buffer instructions
 	static constexpr u32 BRANCH_SLOTS = 8;
 

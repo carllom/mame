@@ -708,9 +708,9 @@ void tms320c674x_device::step()
 		}
 		if (condition(i))
 			execute(i, pce1[n], next);
-		else if ((i.op == dasm::OP_BNOP) || (i.op == dasm::OP_BNOP_REG))
-			m_ep_nops = std::max<u32>(m_ep_nops, i.cst2);
-		else if (is_sploop)
+		else if (!is_sploop)
+			m_ep_nops = std::max(m_ep_nops, insn_nops(i)); // BNOP and protected loads keep their NOP cycles when the condition is false
+		else
 			execute(i, pce1[n], next); // the condition only matters for reload or termination
 	}
 
