@@ -45,7 +45,7 @@
     0x01d0_c000  UART1, 0x01d0_d000 UART2
     0x01e1_2000  SPI1 (master mode)
     0x01e1_4000  MPU1, 0x01e1_5000 MPU2
-    0x01e2_6000  GPIO (banks 0-7), no interrupts yet
+    0x01e2_6000  GPIO (banks 0-7)
     0x01e2_7000  PSC1 (minimal)
     0x01e2_8000  I2C1 (master mode)
     0x01f0_0000  eHRPWM0-2, eCAP0-2, eQEP0-1
@@ -104,6 +104,14 @@ void tms320c6745_device::device_add_mconfig(machine_config &config)
 	m_spi[1]->irq().set(FUNC(tms320c6745_device::event_w<43>));
 
 	TMS320C6745_GPIO(config, m_gpio);
+	m_gpio->bank_irq<0>().set(FUNC(tms320c6745_device::event_w<65>));
+	m_gpio->bank_irq<1>().set(FUNC(tms320c6745_device::event_w<41>));
+	m_gpio->bank_irq<2>().set(FUNC(tms320c6745_device::event_w<49>));
+	m_gpio->bank_irq<3>().set(FUNC(tms320c6745_device::event_w<52>));
+	m_gpio->bank_irq<4>().set(FUNC(tms320c6745_device::event_w<54>));
+	m_gpio->bank_irq<5>().set(FUNC(tms320c6745_device::event_w<59>));
+	m_gpio->bank_irq<6>().set(FUNC(tms320c6745_device::event_w<62>));
+	m_gpio->bank_irq<7>().set(FUNC(tms320c6745_device::event_w<72>));
 
 	TMS320C6745_I2C(config, m_i2c[0]);
 	m_i2c[0]->irq().set(FUNC(tms320c6745_device::event_w<36>));

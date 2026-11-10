@@ -26,7 +26,7 @@ public:
 	template <typename... T> void set_spi_transfer_callback(unsigned n, T &&... args) { m_spi[n].lookup()->set_transfer_callback(std::forward<T>(args)...); }
 	auto spi_scs0(unsigned n) { return m_spi[n].lookup()->scs0(); }
 	template <unsigned Bank> auto gpio_out() { return m_gpio.lookup()->out<Bank>(); }
-	template <unsigned Bank> auto gpio_in() { return m_gpio.lookup()->in<Bank>(); }
+	void gpio_in_w(unsigned bank, u16 data) { m_gpio->in_w(bank, data); }
 	u16 gpio_output(unsigned bank) const { return m_gpio->output(bank); }
 	u32 pinmux(unsigned n) const { return m_syscfg[0x120 / 4 + n]; }
 	void set_mcasp_ahclk(unsigned n, XTAL const &clock) { m_mcasp[n].lookup()->set_clock(clock); }

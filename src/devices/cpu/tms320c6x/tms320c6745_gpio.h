@@ -12,9 +12,13 @@ public:
 
 	tms320c6745_gpio_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock = 0);
 
-	// output levels of a bank (pins configured as inputs read as 1), and its input levels
+	// output levels of a bank (pins configured as inputs read as 1)
 	template <unsigned Bank> auto out() { return m_out_cb[Bank].bind(); }
-	template <unsigned Bank> auto in() { return m_in_cb[Bank].bind(); }
+	// bank interrupt, pulsed on each enabled edge
+	template <unsigned Bank> auto bank_irq() { return m_irq_cb[Bank].bind(); }
+
+	// levels driven onto a bank's pins from outside
+	void in_w(unsigned bank, u16 data);
 
 	u16 output(unsigned bank) const { return m_out[bank] | m_dir[bank]; }
 
@@ -28,12 +32,14 @@ protected:
 private:
 	u32 pair_r(offs_t offset);
 	void pair_w(offs_t offset, u32 data, u32 mem_mask);
-	void update(unsigned bank, u16 old);
+	u16 pins(unsigned bank) const { return (m_in[bank] & m_dir[bank]) | (m_out[bank] & ~m_dir[bank]); }
+	void update(unsigned bank, u16 old_out, u16 old_pins);
 
 	devcb_write16::array<BANKS> m_out_cb;
-	devcb_read16::array<BANKS> m_in_cb;
+	devcb_write_line::array<BANKS> m_irq_cb;
 
 	u32 m_binten;
+	u16 m_in[BANKS];
 	u16 m_dir[BANKS];
 	u16 m_out[BANKS];
 	u16 m_ris[BANKS];
