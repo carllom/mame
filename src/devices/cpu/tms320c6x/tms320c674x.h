@@ -113,6 +113,7 @@ private:
 		u8 slot;
 		u8 loadcnt;
 		bool valid;
+		bool old_valid;    // for the previous invocation draining during a reload
 	};
 
 	// fetch and execute
@@ -155,7 +156,9 @@ private:
 	void sploop_load(insn const *ep, u32 const *raw, u32 const *hdr, u32 const *pce1, unsigned count, u32 mask);
 	void sploop_end_cycle();
 	void sploop_stop();
+	void sploop_reload();
 	bool sploop_terminate() const;
+	bool sploop_reload_condition() const;
 	bool sploop_interruptible() const;
 	static u32 unit_mask(u8 unit);
 	static u32 insn_nops(insn const &i);
@@ -254,6 +257,15 @@ private:
 	u32 m_lb_address;
 	bool m_lb_int_drain;   // draining to take an interrupt
 	bool m_lb_restart;     // restarted after an interrupt (TSR.SPLX was set)
+	bool m_lb_kernelr;     // loop body ended with SPKERNELR
+	bool m_lb_reload_pending; // reload condition true, waiting for the reload point
+	bool m_lb_reload_start;   // reload begins next cycle
+	bool m_lb_reload_branch;  // a taken branch disables fetch instead of idling the buffer
+	bool m_lb_reloading;
+	u8 m_lb_reloadcnt;
+	bool m_lb_old_active;  // previous invocation still draining during a reload
+	u8 m_lb_old_lbc;
+	u8 m_lb_old_drain;
 
 	int m_icount;
 };

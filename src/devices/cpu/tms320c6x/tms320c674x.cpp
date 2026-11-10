@@ -24,7 +24,7 @@
     - instructions not used by the firmware seen so far (logged when hit)
     - floating-point rounding modes, FADCR/FAUCR/FMCR flags
     - circular addressing for the ADDA and SUBA instructions
-    - SPLOOP reload (SPKERNELR, SPMASKR), and interrupting a reloading SPLOOP
+    - SPLOOP reload with RILC = 0 (a skipped invocation)
     - exceptions, supervisor and user modes
     - pipeline stalls and memory wait states
 
@@ -112,6 +112,15 @@ tms320c674x_device::tms320c674x_device(machine_config const &mconfig, device_typ
 	m_lb_address(0),
 	m_lb_int_drain(false),
 	m_lb_restart(false),
+	m_lb_kernelr(false),
+	m_lb_reload_pending(false),
+	m_lb_reload_start(false),
+	m_lb_reload_branch(false),
+	m_lb_reloading(false),
+	m_lb_reloadcnt(0),
+	m_lb_old_active(false),
+	m_lb_old_lbc(0),
+	m_lb_old_drain(0),
 	m_icount(0)
 {
 }
@@ -210,6 +219,7 @@ void tms320c674x_device::device_start()
 	save_item(STRUCT_MEMBER(m_lb, slot));
 	save_item(STRUCT_MEMBER(m_lb, loadcnt));
 	save_item(STRUCT_MEMBER(m_lb, valid));
+	save_item(STRUCT_MEMBER(m_lb, old_valid));
 	save_item(NAME(m_lb_count));
 	save_item(NAME(m_lb_active));
 	save_item(NAME(m_lb_loading));
@@ -232,6 +242,15 @@ void tms320c674x_device::device_start()
 	save_item(NAME(m_lb_address));
 	save_item(NAME(m_lb_int_drain));
 	save_item(NAME(m_lb_restart));
+	save_item(NAME(m_lb_kernelr));
+	save_item(NAME(m_lb_reload_pending));
+	save_item(NAME(m_lb_reload_start));
+	save_item(NAME(m_lb_reload_branch));
+	save_item(NAME(m_lb_reloading));
+	save_item(NAME(m_lb_reloadcnt));
+	save_item(NAME(m_lb_old_active));
+	save_item(NAME(m_lb_old_lbc));
+	save_item(NAME(m_lb_old_drain));
 }
 
 void tms320c674x_device::device_reset()
@@ -251,10 +270,7 @@ void tms320c674x_device::device_reset()
 	m_branches = 0;
 	m_nop_cycles = 0;
 	m_idle = false;
-	m_lb_active = false;
-	m_lb_fetch = true;
-	m_lb_int_drain = false;
-	m_lb_restart = false;
+	sploop_stop();
 
 	// execution begins at the ISTB field of ISTP
 	m_pc = m_istp & 0xfffffc00;
@@ -437,7 +453,16 @@ void tms320c674x_device::tick()
 			m_nop_cycles = 0;
 			m_idle = false;
 			if (m_lb_active)
-				sploop_stop();
+			{
+				if (m_lb_reload_branch)
+				{
+					// SPRUFE8B 7.9.6.3: the outer loop branch disables fetch, the PC stays at its target
+					m_lb_reload_branch = false;
+					m_lb_fetch = false;
+				}
+				else
+					sploop_stop();
+			}
 			m_branches--;
 			m_branch_when[n] = m_branch_when[m_branches];
 			m_branch_target[n] = m_branch_target[m_branches];
@@ -563,6 +588,10 @@ void tms320c674x_device::step()
 		}
 	}
 
+	// reload begins the cycle after SPMASKR or the last kernel stage boundary (SPKERNELR)
+	if (m_lb_reload_start)
+		sploop_reload();
+
 	bool fetched = false;
 	if (m_nop_cycles)
 		m_nop_cycles--;
@@ -592,8 +621,8 @@ void tms320c674x_device::step()
 		else if ((ep[n].op == dasm::OP_SPMASK) || (ep[n].op == dasm::OP_SPMASKR))
 		{
 			mask |= ep[n].cst;
-			if (ep[n].op == dasm::OP_SPMASKR)
-				LOGMASKED(LOG_UNIMPL, "SPMASKR reload not implemented at %08x\n", m_pc);
+			if ((ep[n].op == dasm::OP_SPMASKR) && m_lb_active && m_lb_reload_pending && !m_lb_kernelr)
+				m_lb_reload_start = true;
 		}
 		else if (ep[n].op == dasm::OP_SPKERNEL)
 		{
@@ -602,9 +631,11 @@ void tms320c674x_device::step()
 		}
 		else if (ep[n].op == dasm::OP_SPKERNELR)
 		{
+			// post-loop code and reload both start with the epilog
 			kernel = true;
 			m_lb_stgcyc = 0;
-			LOGMASKED(LOG_UNIMPL, "SPKERNELR reload not implemented at %08x\n", m_pc);
+			if (m_lb_active && m_lb_loading)
+				m_lb_kernelr = true;
 		}
 	}
 
@@ -620,11 +651,27 @@ void tms320c674x_device::step()
 		for (unsigned n = 0; n < m_lb_count; n++)
 		{
 			lb_entry &e = m_lb[n];
-			if (e.slot != m_lb_lbc)
-				continue;
-			if (m_lb_draining && (e.loadcnt == m_lb_drain))
-				e.valid = false;
-			if (e.valid && !(unit_mask(m_lb_insn[n].unit) & lb_mask))
+			bool run = false;
+
+			// the previous invocation drains on its own LBC while this one reloads
+			if (m_lb_old_active && (e.slot == m_lb_old_lbc))
+			{
+				if (e.loadcnt == m_lb_old_drain)
+					e.old_valid = false;
+				run = e.old_valid;
+			}
+
+			// draining disables and reloading enables instructions in the order they were loaded
+			if (e.slot == m_lb_lbc)
+			{
+				if (m_lb_draining && (e.loadcnt == m_lb_drain))
+					e.valid = false;
+				if (m_lb_reloading && !m_lb_initial_term && (e.loadcnt == m_lb_reloadcnt))
+					e.valid = true;
+				run = run || e.valid;
+			}
+
+			if (run && !(unit_mask(m_lb_insn[n].unit) & lb_mask))
 				lb_exec[lb_count++] = n;
 		}
 	}
@@ -802,6 +849,12 @@ void tms320c674x_device::sploop_start(insn const &i, u32 address)
 	m_lb_cond_history = 0;
 	m_lb_address = address;
 	m_lb_int_drain = false;
+	m_lb_kernelr = false;
+	m_lb_reload_pending = false;
+	m_lb_reload_start = false;
+	m_lb_reload_branch = false;
+	m_lb_reloading = false;
+	m_lb_old_active = false;
 	m_tsr |= 1U << 14; // SPLX
 
 	m_lb_initial_term = false;
@@ -812,8 +865,6 @@ void tms320c674x_device::sploop_start(insn const &i, u32 address)
 		else
 			m_ilc--;
 	}
-	if (i.creg && (i.op != dasm::OP_SPLOOPW))
-		LOGMASKED(LOG_UNIMPL, "conditional SPLOOP(D) reload not implemented at %08x\n", address);
 	LOGMASKED(LOG_SPLOOP, "%s %u at %08x, ILC %u%s\n", dasm::mnemonic(dasm::op_t(i.op)), i.cst, address, m_ilc, m_lb_restart ? " (resumed)" : "");
 }
 
@@ -852,10 +903,18 @@ bool tms320c674x_device::sploop_terminate() const
 	return !m_ilc;
 }
 
+bool tms320c674x_device::sploop_reload_condition() const
+{
+	// SPRUFE8B 7.9.6: a predicated SPLOOP(D) whose condition was true 4 cycles before the last kernel stage boundary
+	return (m_lb_kind != dasm::OP_SPLOOPW) && m_lb_creg && BIT(m_lb_cond_history, 4);
+}
+
 bool tms320c674x_device::sploop_interruptible() const
 {
 	// SPRUFE8B 7.13.1, checked on a stage boundary where the loop doesn't terminate
 	if (!m_lb_kernel || m_lb_loading || m_lb_draining)
+		return false;
+	if (m_lb_reloading || m_lb_reload_pending || m_lb_reload_start || m_lb_old_active)
 		return false;
 	if ((m_lb_kind != dasm::OP_SPLOOP) && (m_lb_cycles <= 3))
 		return false;
@@ -871,18 +930,34 @@ void tms320c674x_device::sploop_end_cycle()
 		m_lb_loadcnt++;
 	if (m_lb_draining)
 		m_lb_drain++;
-
-	// SPLOOPW tests its condition as it was 3 cycles before the stage boundary
-	if (m_lb_kind == dasm::OP_SPLOOPW)
+	if (m_lb_reloading && (++m_lb_reloadcnt >= m_lb_dynlen))
 	{
-		bool c = true;
-		if (m_lb_creg)
+		// every instruction is enabled again; fetch stops for the kernel
+		m_lb_reloading = false;
+		m_lb_fetch = false;
+		if (m_lb_initial_term)
 		{
-			bool const zero = !m_r[m_lb_creg - 1];
-			c = m_lb_z ? zero : !zero;
+			LOGMASKED(LOG_UNIMPL, "SPLOOP at %08x skipped a reload with RILC 0\n", m_lb_address);
+			sploop_stop();
+			return;
 		}
-		m_lb_cond_history = (m_lb_cond_history << 1) | (c ? 1 : 0);
 	}
+	if (m_lb_old_active)
+	{
+		if (++m_lb_old_drain >= (m_lb_dynlen - m_lb_ii))
+			m_lb_old_active = false;
+		else if (++m_lb_old_lbc >= m_lb_ii)
+			m_lb_old_lbc = 0;
+	}
+
+	// SPLOOPW tests its condition 3 cycles before the stage boundary, reload 4 cycles before
+	bool c = true;
+	if (m_lb_creg)
+	{
+		bool const zero = !m_r[m_lb_creg - 1];
+		c = m_lb_z ? zero : !zero;
+	}
+	m_lb_cond_history = (m_lb_cond_history << 1) | (c ? 1 : 0);
 
 	if (++m_lb_lbc >= m_lb_ii)
 	{
@@ -906,7 +981,7 @@ void tms320c674x_device::sploop_end_cycle()
 				return;
 			}
 		}
-		else if (!m_lb_draining)
+		else if (!m_lb_draining && !m_lb_reload_pending && !m_lb_reload_start)
 		{
 			if (sploop_terminate())
 			{
@@ -922,6 +997,15 @@ void tms320c674x_device::sploop_end_cycle()
 				}
 				m_lb_draining = true;
 				m_lb_drain = 0;
+				if (sploop_reload_condition())
+				{
+					// SPKERNELR reloads from the first epilog cycle, otherwise SPMASKR sets the point
+					LOGMASKED(LOG_SPLOOP, "SPLOOP at %08x will reload\n", m_lb_address);
+					m_lb_reload_pending = true;
+					m_lb_reload_branch = true;
+					if (m_lb_kernelr)
+						m_lb_reload_start = true;
+				}
 			}
 			else if (sploop_interruptible())
 			{
@@ -942,6 +1026,15 @@ void tms320c674x_device::sploop_end_cycle()
 	{
 		if (m_lb_drain >= (m_lb_dynlen - m_lb_ii))
 		{
+			if (m_lb_reload_pending || m_lb_reload_start)
+			{
+				// drained before the reload point: stay active and wait for it
+				m_lb_draining = false;
+				for (unsigned n = 0; n < m_lb_count; n++)
+					m_lb[n].valid = false;
+				m_lb_fetch = true;
+				return;
+			}
 			bool const interrupt = m_lb_int_drain;
 			sploop_stop();
 			if (interrupt)
@@ -965,8 +1058,41 @@ void tms320c674x_device::sploop_stop()
 	m_lb_draining = false;
 	m_lb_int_drain = false;
 	m_lb_restart = false;
+	m_lb_kernelr = false;
+	m_lb_reload_pending = false;
+	m_lb_reload_start = false;
+	m_lb_reload_branch = false;
+	m_lb_reloading = false;
+	m_lb_old_active = false;
 	m_lb_fetch = true;
 	m_tsr &= ~(1U << 14); // SPLX
+}
+
+void tms320c674x_device::sploop_reload()
+{
+	m_lb_reload_start = false;
+	m_lb_reload_pending = false;
+
+	// the previous invocation finishes its epilog alongside the reload prolog
+	m_lb_old_active = m_lb_draining;
+	m_lb_old_lbc = m_lb_lbc;
+	m_lb_old_drain = m_lb_drain;
+	for (unsigned n = 0; n < m_lb_count; n++)
+	{
+		m_lb[n].old_valid = m_lb_draining && m_lb[n].valid;
+		m_lb[n].valid = false;
+	}
+
+	// SPRUFE8B 7.9.6.2: ILC = RILC - 1, or RILC = 0 skips this invocation
+	m_lb_initial_term = !m_rilc;
+	if (m_rilc)
+		m_ilc = m_rilc - 1;
+	m_lb_draining = false;
+	m_lb_drain = 0;
+	m_lb_reloading = true;
+	m_lb_reloadcnt = 0;
+	m_lb_lbc = 0;
+	LOGMASKED(LOG_SPLOOP, "SPLOOP at %08x reloading, ILC %u\n", m_lb_address, m_ilc);
 }
 
 
