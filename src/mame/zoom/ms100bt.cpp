@@ -52,7 +52,8 @@
     TODO:
     - everything on the TMS320C6745 (core, peripherals, boot ROM)
     - connect the flash chips and the LCD controller to SPI0 and GPIO
-    - inputs: encoders, buttons and footswitch (GPIO bank 1 interrupt)
+    - GP4[14] is polled with the switches; what drives it is unknown
+    - the ON/OFF LED
     - audio: WM8782S, PCM5101 and McASP0
     - battery ADC on SPI1
     - Bluetooth module
@@ -89,9 +90,13 @@ public:
 		m_maincpu(*this, "maincpu"),
 		m_flash(*this, { "ic4", "ic9" }),
 		m_flash_rom(*this, { "ic4", "ic9" }),
-		m_lcdc(*this, "lcdc")
+		m_lcdc(*this, "lcdc"),
+		m_gp_in(*this, "GP%u", 0U),
+		m_encoder(*this, "ENC%u", 0U)
 	{
 	}
+
+	DECLARE_INPUT_CHANGED_MEMBER(input_changed) { update_inputs(); }
 
 	void ms100bt(machine_config &config) ATTR_COLD;
 
@@ -100,12 +105,20 @@ protected:
 	virtual void machine_reset() override ATTR_COLD;
 
 private:
+	// encoder phase pins on GP1
+	static constexpr u8 ENCODER_A[3] = { 1, 2, 12 };
+	static constexpr u8 ENCODER_B[3] = { 14, 13, 10 };
+	static constexpr attotime ENCODER_EDGE_TIME = attotime::from_msec(2);
+
 	void main_map(address_map &map) ATTR_COLD;
 
 	void hle_ais_boot() ATTR_COLD;
 	void lcd_palette(palette_device &palette) const ATTR_COLD;
 
 	void update_selects();
+	void update_inputs();
+	void vblank_w(int state);
+	TIMER_CALLBACK_MEMBER(encoder_step);
 	u32 spi0_transfer(u32 data, unsigned bits);
 	u32 spi1_transfer(u32 data, unsigned bits);
 
@@ -118,6 +131,10 @@ private:
 	required_device_array<generic_spi_flash_device, 2> m_flash;
 	required_memory_region_array<2> m_flash_rom;
 	required_device<st7565_device> m_lcdc;
+	optional_ioport_array<5> m_gp_in;
+	required_ioport_array<3> m_encoder;
+
+	emu_timer *m_encoder_timer = nullptr;
 
 	int m_spi0_scs0 = 1;
 	bool m_selected[2] = { false, false };
@@ -127,6 +144,10 @@ private:
 	u8 m_mfi_reg[0x100] = { };
 	u8 m_mfi_ptr = 0;
 	bool m_mfi_address_phase = false;
+	u8 m_dial[3] = { };
+	s32 m_steps[3] = { };      // detents still to send, positive means phase A leads
+	u8 m_phase[3] = { };       // bit 0 = phase A level, bit 1 = phase B level
+	bool m_half_step[3] = { }; // one phase has moved, the other is next
 };
 
 
@@ -147,6 +168,12 @@ void ms100bt_state::machine_start()
 	save_item(NAME(m_mfi_reg));
 	save_item(NAME(m_mfi_ptr));
 	save_item(NAME(m_mfi_address_phase));
+	save_item(NAME(m_dial));
+	save_item(NAME(m_steps));
+	save_item(NAME(m_phase));
+	save_item(NAME(m_half_step));
+
+	m_encoder_timer = timer_alloc(FUNC(ms100bt_state::encoder_step), this);
 
 	// device version 2.0C, firmware 1, protocol 2.0, device ID 0x00000200
 	static u8 const MFI_ID[] = { 0x05, 0x01, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00 };
@@ -249,7 +276,81 @@ u8 ms100bt_state::mfi_read()
 
 void ms100bt_state::machine_reset()
 {
+	for (unsigned i = 0; i < 3; i++)
+	{
+		m_dial[i] = m_encoder[i]->read();
+		m_steps[i] = 0;
+		m_phase[i] = 3; // detents sit with both phases equal
+		m_half_step[i] = false;
+	}
+	m_encoder_timer->adjust(attotime::never);
+	update_inputs();
+
 	hle_ais_boot();
+}
+
+
+/*
+    Inputs, from the firmware's input code; switches pull low when pressed.
+    - the knobs are encoders on GP1 (1/14, 2/13, 12/10), interrupting on
+      both edges (bank 1, INT8). The decoder counts when the second phase
+      catches up with the first, so a detent is two edges; phase A leading
+      counts up.
+    - the switches are polled. Knob 2 and 3 pushes (GP1[9], GP1[11]), the
+      cursor keys (GP0[4-7]) and GP4[14] make one group; the footswitch
+      (GP2[3]) and knob 1 push (GP1[8]) make another with hold timing.
+*/
+void ms100bt_state::update_inputs()
+{
+	for (unsigned bank = 0; bank < m_gp_in.size(); bank++)
+	{
+		u16 data = m_gp_in[bank] ? m_gp_in[bank]->read() : 0xffff;
+		if (bank == 1)
+		{
+			for (unsigned e = 0; e < 3; e++)
+			{
+				data = (data & ~(1U << ENCODER_A[e])) | (BIT(m_phase[e], 0) << ENCODER_A[e]);
+				data = (data & ~(1U << ENCODER_B[e])) | (BIT(m_phase[e], 1) << ENCODER_B[e]);
+			}
+		}
+		m_maincpu->gpio_in_w(bank, data);
+	}
+}
+
+void ms100bt_state::vblank_w(int state)
+{
+	if (!state)
+		return;
+
+	// turn dial movement into detents for the encoder timer to play out
+	for (unsigned i = 0; i < 3; i++)
+	{
+		u8 const dial = m_encoder[i]->read();
+		m_steps[i] += s8(dial - m_dial[i]);
+		m_dial[i] = dial;
+	}
+	if ((m_steps[0] || m_steps[1] || m_steps[2]) && m_encoder_timer->remaining().is_never())
+		m_encoder_timer->adjust(ENCODER_EDGE_TIME);
+}
+
+TIMER_CALLBACK_MEMBER(ms100bt_state::encoder_step)
+{
+	// one edge per encoder each time, so the firmware sees the phases change in turn
+	bool more = false;
+	for (unsigned i = 0; i < 3; i++)
+	{
+		if (!m_steps[i])
+			continue;
+		bool const a_leads = m_steps[i] > 0;
+		m_phase[i] ^= (a_leads != m_half_step[i]) ? 1 : 2;
+		m_half_step[i] = !m_half_step[i];
+		if (!m_half_step[i])
+			m_steps[i] += a_leads ? -1 : 1;
+		more = more || m_steps[i];
+	}
+	update_inputs();
+	if (more)
+		m_encoder_timer->adjust(ENCODER_EDGE_TIME);
 }
 
 
@@ -489,11 +590,46 @@ void ms100bt_state::ms100bt(machine_config &config)
 	screen.set_physical_aspect(4, 3); // the panel's dots are 2:3, taller than wide
 	screen.set_screen_update(m_lcdc, FUNC(st7565_device::screen_update));
 	screen.set_palette("palette");
+	screen.screen_vblank().set(FUNC(ms100bt_state::vblank_w));
 
 	PALETTE(config, "palette", FUNC(ms100bt_state::lcd_palette), 2);
 
 	ST7565(config, m_lcdc);
 }
+
+
+INPUT_PORTS_START(ms100bt)
+	PORT_START("GP0")
+	PORT_BIT(0xff0f, IP_ACTIVE_LOW, IPT_UNUSED)
+	PORT_BIT(0x0010, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Right") PORT_CODE(KEYCODE_RIGHT) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+	PORT_BIT(0x0020, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Down") PORT_CODE(KEYCODE_DOWN) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+	PORT_BIT(0x0040, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Left") PORT_CODE(KEYCODE_LEFT) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+	PORT_BIT(0x0080, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Up") PORT_CODE(KEYCODE_UP) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+
+	PORT_START("GP1")
+	PORT_BIT(0xf4ff, IP_ACTIVE_LOW, IPT_UNUSED) // encoder phases are added by update_inputs()
+	PORT_BIT(0x0100, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Knob 1 Push (Menu)") PORT_CODE(KEYCODE_E) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+	PORT_BIT(0x0200, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Knob 2 Push (Memory)") PORT_CODE(KEYCODE_D) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+	PORT_BIT(0x0800, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Knob 3 Push (Page)") PORT_CODE(KEYCODE_C) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+
+	PORT_START("GP2")
+	PORT_BIT(0xfff7, IP_ACTIVE_LOW, IPT_UNUSED)
+	PORT_BIT(0x0008, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Footswitch") PORT_CODE(KEYCODE_SPACE) PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+
+	PORT_START("GP4")
+	PORT_BIT(0xbfff, IP_ACTIVE_LOW, IPT_UNUSED)
+	// polled with the cursor keys, but not a panel control; no visible effect
+	PORT_BIT(0x4000, IP_ACTIVE_LOW, IPT_OTHER) PORT_NAME("Unknown (GP4[14])") PORT_CHANGED_MEMBER(DEVICE_SELF, FUNC(ms100bt_state::input_changed), 0)
+
+	PORT_START("ENC0")
+	PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_NAME("Knob 1") PORT_SENSITIVITY(50) PORT_KEYDELTA(1) PORT_CODE_DEC(KEYCODE_Q) PORT_CODE_INC(KEYCODE_W)
+
+	PORT_START("ENC1")
+	PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_NAME("Knob 2") PORT_SENSITIVITY(50) PORT_KEYDELTA(1) PORT_CODE_DEC(KEYCODE_A) PORT_CODE_INC(KEYCODE_S) PORT_PLAYER(2)
+
+	PORT_START("ENC2")
+	PORT_BIT(0xff, 0x00, IPT_DIAL) PORT_NAME("Knob 3") PORT_SENSITIVITY(50) PORT_KEYDELTA(1) PORT_CODE_DEC(KEYCODE_Z) PORT_CODE_INC(KEYCODE_X) PORT_PLAYER(3)
+INPUT_PORTS_END
 
 
 ROM_START(ms100bt)
@@ -510,4 +646,4 @@ ROM_END
 } // anonymous namespace
 
 
-SYST(2013, ms100bt, 0, 0, ms100bt, 0, ms100bt_state, empty_init, "Zoom", "MS-100BT MultiStomp", ROT180 | MACHINE_NOT_WORKING | MACHINE_NO_SOUND)
+SYST(2013, ms100bt, 0, 0, ms100bt, ms100bt, ms100bt_state, empty_init, "Zoom", "MS-100BT MultiStomp", ROT180 | MACHINE_NOT_WORKING | MACHINE_NO_SOUND)
