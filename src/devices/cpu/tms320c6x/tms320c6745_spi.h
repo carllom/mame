@@ -27,6 +27,8 @@ protected:
 
 private:
 	void set_scs0(int state);
+	void gcr1_w(u32 data);
+	void update_gpio();
 	void transfer(u16 data);
 	void update_irq();
 
@@ -43,7 +45,7 @@ private:
 	u32 m_int0;
 	u32 m_lvl;
 	u32 m_flg;
-	u32 m_pc[6];
+	u32 m_pc[4]; // SPIPC0-SPIPC3
 	u32 m_dat1;
 	u32 m_buf;
 	u32 m_delay;

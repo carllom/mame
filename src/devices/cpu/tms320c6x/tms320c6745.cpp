@@ -15,9 +15,9 @@
 
     The DSP boots from the L2 ROM at its reset vector (HOST1CFG
     DSP_ISTP_RST_VAL = 0x0070_0000). The ROM bootloader reads the BOOT[x]
-    straps and loads an AIS image from the selected peripheral. It isn't
-    dumped; SPRAB04G says it can be read at 0x1170_0000 through a JTAG
-    debugger.
+    straps and loads an AIS image from the selected peripheral. The ROM
+    (ID string d800k005) was read at 0x1170_0000 by code booted on a
+    Zoom MS-100BT.
 
     The internal memories have local addresses (0x00xx_xxxx) that alias
     the global addresses (0x11xx_xxxx).
@@ -32,6 +32,7 @@
                  0x01c0_8000/0x01c0_8400 TC0/TC1
     0x01c1_0000  PSC0 (minimal)
     0x01c1_1000  PLL0 controller
+    0x01c1_3000  undocumented security block (device type register only)
     0x01c1_4000  SYSCFG (pin multiplexing, CFGCHIPn, HOST1CFG); storage only
     0x01c2_0000  Timer64P0, 0x01c2_1000 Timer64P1 (general-purpose modes)
     0x01c2_2000  I2C0 (master mode)
@@ -56,8 +57,6 @@
     - everything in the list above
     - PLL: the device clock is OSCIN, and the core runs at a fixed
       OSCIN x 25 / 2 (300 MHz, the PLL setting the boot image programs)
-    - BOOT[15:0] strap input
-    - dump the boot ROM (zoom/ms100bt.cpp HLEs its AIS loader meanwhile)
 
 ***************************************************************************/
 
@@ -79,6 +78,7 @@ tms320c6745_device::tms320c6745_device(machine_config const &mconfig, char const
 	m_i2c(*this, "i2c%u", 0U),
 	m_mcasp(*this, "mcasp%u", 0U),
 	m_edma(*this, "edma"),
+	m_boot_pins(0),
 	m_syscfg{},
 	m_evtflag{},
 	m_evtmask{},
@@ -158,10 +158,11 @@ void tms320c6745_device::device_reset()
 	m_intmux[2] = 0x0f0e'0d0c;
 	m_combined = 0;
 
-	// SYSCFG: REVID, DEVIDR0, HOST1CFG
+	// SYSCFG: REVID, DEVIDR0, BOOTCFG, HOST1CFG
 	std::fill(std::begin(m_syscfg), std::end(m_syscfg), 0);
 	m_syscfg[0x000 / 4] = 0x4e84'0102;
 	m_syscfg[0x018 / 4] = 0x0b7d'f02f;
+	m_syscfg[0x020 / 4] = m_boot_pins;
 	m_syscfg[0x044 / 4] = 0x0070'0001;
 }
 
@@ -230,9 +231,8 @@ void tms320c6745_device::intc_map(address_map &map)
 }
 
 ROM_START(tms320c6745)
-	// the 1 MB window is the size of the address range, not of the ROM
-	ROM_REGION32_LE(0x100000, "bootrom", ROMREGION_ERASE00)
-	ROM_LOAD("c6745_bootrom.bin", 0x000000, 0x100000, NO_DUMP)
+	ROM_REGION32_LE(0x100000, "bootrom", 0)
+	ROM_LOAD("c6745_bootrom.bin", 0x000000, 0x100000, CRC(23f8b215) SHA1(e797d4c123b3589dbb10b65dfe5b1f4729404f3a))
 ROM_END
 
 tiny_rom_entry const *tms320c6745_device::device_rom_region() const
@@ -255,6 +255,8 @@ void tms320c6745_device::internal_map(address_map &map)
 	map(0x0180'0000, 0x0180'0fff).m(FUNC(tms320c6745_device::intc_map));
 	map(0x01c0'0000, 0x01c0'7fff).m(m_edma, FUNC(tms320c6745_edma_device::map));
 	map(0x01c1'0000, 0x01c1'0fff).m(m_psc[0], FUNC(tms320c6745_psc_device::map));
+	// undocumented security block: the ROM boot loader takes unsigned AIS images only when bits 2:0 read 3
+	map(0x01c1'3010, 0x01c1'3013).lr32(NAME([] () -> u32 { return 3; }));
 	map(0x01c1'4000, 0x01c1'4fff).lrw32(
 			NAME([this] (offs_t offset) -> u32 { return m_syscfg[offset]; }),
 			NAME([this] (offs_t offset, u32 data, u32 mem_mask) { COMBINE_DATA(&m_syscfg[offset]); })); // SYSCFG, storage only

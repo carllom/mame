@@ -19,6 +19,9 @@ class tms320c6745_device : public tms320c674x_device
 public:
 	tms320c6745_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock);
 
+	// BOOT[15:0] pin levels latched at reset (SYSCFG BOOTCFG)
+	void set_boot_pins(u16 pins) { m_boot_pins = pins; }
+
 	// peripheral connections
 	template <typename... T> void set_spi_transfer_callback(u32 n, T &&... args) { m_spi[n].lookup()->set_transfer_callback(std::forward<T>(args)...); }
 	auto spi_scs0(u32 n) { return m_spi[n].lookup()->scs0(); }
@@ -66,6 +69,7 @@ private:
 	required_device_array<tms320c6745_mcasp_device, 2> m_mcasp;
 	required_device<tms320c6745_edma_device> m_edma;
 
+	u16 m_boot_pins;
 	u32 m_syscfg[0x1000 / 4];
 
 	u32 m_evtflag[4];

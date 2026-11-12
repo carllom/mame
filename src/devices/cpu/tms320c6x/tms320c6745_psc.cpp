@@ -11,7 +11,7 @@
 
     TODO:
     - power domain control, interrupts and error registers
-    - module states after reset (the ROM boot loader leaves some enabled)
+    - module states after reset
 
 ***************************************************************************/
 

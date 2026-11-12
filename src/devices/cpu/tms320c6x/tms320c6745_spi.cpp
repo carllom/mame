@@ -12,7 +12,7 @@
     TODO:
     - transfer timing and delays, slave mode, SPIx_ENA
     - EDMA requests
-    - GPIO mode of the SPI pins
+    - GPIO mode of the SPI pins other than SCS0 output, SPIPC2 input levels
 
 ***************************************************************************/
 
@@ -89,15 +89,21 @@ void tms320c6745_spi_device::device_reset()
 void tms320c6745_spi_device::map(address_map &map)
 {
 	map(0x00, 0x03).lrw32(NAME([this] () -> u32 { return m_gcr0; }), NAME([this] (u32 data) { m_gcr0 = data & 1; if (!m_gcr0) device_reset(); }));
-	map(0x04, 0x07).lrw32(NAME([this] () -> u32 { return m_gcr1; }), NAME([this] (u32 data) { m_gcr1 = data & 0x0101'0f03; }));
+	map(0x04, 0x07).lrw32(NAME([this] () -> u32 { return m_gcr1; }), NAME([this] (u32 data) { gcr1_w(data); }));
 	map(0x08, 0x0b).lrw32(NAME([this] () -> u32 { return m_int0; }), NAME([this] (u32 data) { m_int0 = data; update_irq(); }));
 	map(0x0c, 0x0f).lrw32(NAME([this] () -> u32 { return m_lvl; }), NAME([this] (u32 data) { m_lvl = data; }));
 	map(0x10, 0x13).lrw32(
 			NAME([this] () -> u32 { return m_flg; }),
 			NAME([this] (u32 data) { m_flg &= ~(data & 0x0000'015f); update_irq(); }));
-	map(0x14, 0x2b).lrw32(
+	map(0x14, 0x23).lrw32(
 			NAME([this] (offs_t offset) -> u32 { return m_pc[offset]; }),
-			NAME([this] (offs_t offset, u32 data) { m_pc[offset] = data; }));
+			NAME([this] (offs_t offset, u32 data) { m_pc[offset] = data; update_gpio(); })); // SPIPC0-SPIPC3
+	map(0x24, 0x27).lrw32(
+			NAME([this] () -> u32 { return m_pc[3]; }),
+			NAME([this] (u32 data) { m_pc[3] |= data; update_gpio(); })); // SPIPC4: set DOUT bits
+	map(0x28, 0x2b).lrw32(
+			NAME([this] () -> u32 { return m_pc[3]; }),
+			NAME([this] (u32 data) { m_pc[3] &= ~data; update_gpio(); })); // SPIPC5: clear DOUT bits
 	map(0x38, 0x3b).w(FUNC(tms320c6745_spi_device::dat0_w));
 	map(0x3c, 0x3f).lr32(NAME([this] () -> u32 { return m_dat1; })).w(FUNC(tms320c6745_spi_device::dat1_w));
 	map(0x40, 0x43).r(FUNC(tms320c6745_spi_device::buf_r));
@@ -118,6 +124,13 @@ void tms320c6745_spi_device::set_scs0(int state)
 	}
 }
 
+void tms320c6745_spi_device::update_gpio()
+{
+	// SCS0 as a GPIO pin follows SPIPC3 DOUT when SPIPC1 makes it an output; an input floats high
+	if (!BIT(m_pc[0], 0))
+		set_scs0(!BIT(m_pc[1], 0) || BIT(m_pc[3], 0));
+}
+
 void tms320c6745_spi_device::update_irq()
 {
 	// RXINTENA, TXINTENA and the error interrupts share one line
@@ -127,6 +140,18 @@ void tms320c6745_spi_device::update_irq()
 		m_irq = state;
 		m_irq_cb(state);
 	}
+}
+
+void tms320c6745_spi_device::gcr1_w(u32 data)
+{
+	m_gcr1 = data & 0x0101'0f03;
+
+	// TXINTFLG means the transmit buffer is empty; transfers finish at once, so it is whenever the SPI is enabled
+	if (BIT(m_gcr1, 24))
+		m_flg |= 1U << 9;
+	else
+		m_flg &= ~(1U << 9);
+	update_irq();
 }
 
 void tms320c6745_spi_device::transfer(u16 data)
