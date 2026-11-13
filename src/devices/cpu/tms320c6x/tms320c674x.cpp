@@ -49,43 +49,23 @@ tms320c674x_device::tms320c674x_device(machine_config const &mconfig, device_typ
 	m_program_config("program", ENDIANNESS_LITTLE, 32, 32, 0, internal_map),
 	m_istp_reset(istp_reset),
 	m_revision(revision),
-	m_pc(0),
-	m_r{},
-	m_amr(0),
-	m_csr(0),
-	m_ifr(0),
-	m_ier(0),
-	m_istp(0),
-	m_irp(0),
-	m_nrp(0),
-	m_tsr(0),
-	m_itsr(0),
-	m_ntsr(0),
-	m_efr(0),
-	m_ierr(0),
-	m_ilc(0),
-	m_rilc(0),
-	m_rep(0),
-	m_ssr(0),
-	m_gfpgfr(0),
-	m_gplya(0),
-	m_gplyb(0),
+	m_core(&m_local_core),
 	m_tsc_start(0),
 	m_tsch(0),
 	m_tsc_running(false),
-	m_fadcr(0),
-	m_faucr(0),
-	m_fmcr(0),
-	m_cycle(0),
-	m_wb_reg{},
-	m_wb_value{},
-	m_wb_count{},
-	m_branch_when{},
-	m_branch_target{},
-	m_branches(0),
-	m_nop_cycles(0),
-	m_idle(false),
 	m_int_lines(0),
+	m_enable_drc(false),
+	m_entry(nullptr),
+	m_nocode(nullptr),
+	m_read8(nullptr),
+	m_read16(nullptr),
+	m_read32(nullptr),
+	m_read32u(nullptr),
+	m_write8(nullptr),
+	m_write16(nullptr),
+	m_write32(nullptr),
+	m_write32u(nullptr),
+	m_drc_map_changed(false),
 	m_store_count(0),
 	m_ep_nops(0),
 	m_ep_sploop(false),
@@ -120,8 +100,7 @@ tms320c674x_device::tms320c674x_device(machine_config const &mconfig, device_typ
 	m_lb_reloadcnt(0),
 	m_lb_old_active(false),
 	m_lb_old_lbc(0),
-	m_lb_old_drain(0),
-	m_icount(0)
+	m_lb_old_drain(0)
 {
 }
 
@@ -152,80 +131,108 @@ std::unique_ptr<util::disasm_interface> tms320c674x_device::create_disassembler(
 
 void tms320c674x_device::device_start()
 {
+	m_enable_drc = allow_drc();
+	if (m_enable_drc)
+		drc_find_fast_ram();
+
+	// every write (CPU, DMA, debugger) marks its code page so decoded code is redone
+	space(AS_PROGRAM).install_write_tap(
+			0x0000'0000, 0xffff'ffff,
+			"code",
+			[this] (offs_t offset, u32 &data, u32 mem_mask) { code_written(offset); },
+			&m_code_tap);
+	if (m_enable_drc)
+		space(AS_PROGRAM).add_change_notifier([this] (read_or_write mode) { m_drc_map_changed = true; });
+
 	space(AS_PROGRAM).cache(m_cache);
 	space(AS_PROGRAM).specific(m_program);
-	set_icountptr(m_icount);
+
+	// the recompiler keeps the CPU state in its near cache
+	if (m_enable_drc)
+	{
+		m_drcuml = std::make_unique<drcuml_state>(*this, DRC_CACHE_SIZE + sizeof(internal_state));
+		m_drcuml->initialize(0, 1, 32, 1, 4096);
+		m_core = m_drcuml->cache_alloc_near<internal_state>();
+		drc_generate_invariant();
+	}
+	else
+	{
+		m_core = &m_local_core;
+	}
+
+	set_icountptr(m_core->icount);
 
 	m_ep_cache = std::make_unique<ep_cache_entry []>(EP_CACHE_SIZE);
-	for (u32 n = 0; n < EP_CACHE_SIZE; n++)
-		m_ep_cache[n].count = 0;
+	flush_ep_cache();
 
-	state_add(STATE_GENPC, "GENPC", m_pc).noshow();
-	state_add(STATE_GENPCBASE, "CURPC", m_pc).noshow();
-	state_add(C6X_PC, "PC", m_pc);
+	state_add(STATE_GENPC, "GENPC", m_core->pc).noshow();
+	state_add(STATE_GENPCBASE, "CURPC", m_core->pc).noshow();
+	state_add(C6X_PC, "PC", m_core->pc);
 	for (u32 i = 0; i < 32; i++)
-		state_add(C6X_A0 + i, util::string_format("A%u", i).c_str(), m_r[i]);
+		state_add(C6X_A0 + i, util::string_format("A%u", i).c_str(), m_core->r[i]);
 	for (u32 i = 0; i < 32; i++)
-		state_add(C6X_B0 + i, util::string_format("B%u", i).c_str(), m_r[32 + i]);
-	state_add(C6X_AMR, "AMR", m_amr);
-	state_add(C6X_CSR, "CSR", m_csr);
-	state_add(C6X_IFR, "IFR", m_ifr);
-	state_add(C6X_IER, "IER", m_ier);
-	state_add(C6X_ISTP, "ISTP", m_istp);
-	state_add(C6X_IRP, "IRP", m_irp);
-	state_add(C6X_NRP, "NRP", m_nrp);
-	state_add(C6X_TSR, "TSR", m_tsr);
-	state_add(C6X_ITSR, "ITSR", m_itsr);
-	state_add(C6X_NTSR, "NTSR", m_ntsr);
-	state_add(C6X_EFR, "EFR", m_efr);
-	state_add(C6X_IERR, "IERR", m_ierr);
-	state_add(C6X_ILC, "ILC", m_ilc);
-	state_add(C6X_RILC, "RILC", m_rilc);
-	state_add(C6X_REP, "REP", m_rep);
-	state_add(C6X_SSR, "SSR", m_ssr);
-	state_add(C6X_GFPGFR, "GFPGFR", m_gfpgfr);
-	state_add(C6X_GPLYA, "GPLYA", m_gplya);
-	state_add(C6X_GPLYB, "GPLYB", m_gplyb);
-	state_add(C6X_FADCR, "FADCR", m_fadcr);
-	state_add(C6X_FAUCR, "FAUCR", m_faucr);
-	state_add(C6X_FMCR, "FMCR", m_fmcr);
+		state_add(C6X_B0 + i, util::string_format("B%u", i).c_str(), m_core->r[32 + i]);
+	state_add(C6X_AMR, "AMR", m_core->amr);
+	state_add(C6X_CSR, "CSR", m_core->csr);
+	state_add(C6X_IFR, "IFR", m_core->ifr);
+	state_add(C6X_IER, "IER", m_core->ier);
+	state_add(C6X_ISTP, "ISTP", m_core->istp);
+	state_add(C6X_IRP, "IRP", m_core->irp);
+	state_add(C6X_NRP, "NRP", m_core->nrp);
+	state_add(C6X_TSR, "TSR", m_core->tsr);
+	state_add(C6X_ITSR, "ITSR", m_core->itsr);
+	state_add(C6X_NTSR, "NTSR", m_core->ntsr);
+	state_add(C6X_EFR, "EFR", m_core->efr);
+	state_add(C6X_IERR, "IERR", m_core->ierr);
+	state_add(C6X_ILC, "ILC", m_core->ilc);
+	state_add(C6X_RILC, "RILC", m_core->rilc);
+	state_add(C6X_REP, "REP", m_core->rep);
+	state_add(C6X_SSR, "SSR", m_core->ssr);
+	state_add(C6X_GFPGFR, "GFPGFR", m_core->gfpgfr);
+	state_add(C6X_GPLYA, "GPLYA", m_core->gplya);
+	state_add(C6X_GPLYB, "GPLYB", m_core->gplyb);
+	state_add(C6X_FADCR, "FADCR", m_core->fadcr);
+	state_add(C6X_FAUCR, "FAUCR", m_core->faucr);
+	state_add(C6X_FMCR, "FMCR", m_core->fmcr);
 
-	save_item(NAME(m_pc));
-	save_item(NAME(m_r));
-	save_item(NAME(m_amr));
-	save_item(NAME(m_csr));
-	save_item(NAME(m_ifr));
-	save_item(NAME(m_ier));
-	save_item(NAME(m_istp));
-	save_item(NAME(m_irp));
-	save_item(NAME(m_nrp));
-	save_item(NAME(m_tsr));
-	save_item(NAME(m_itsr));
-	save_item(NAME(m_ntsr));
-	save_item(NAME(m_efr));
-	save_item(NAME(m_ierr));
-	save_item(NAME(m_ilc));
-	save_item(NAME(m_rilc));
-	save_item(NAME(m_rep));
-	save_item(NAME(m_ssr));
-	save_item(NAME(m_gfpgfr));
-	save_item(NAME(m_gplya));
-	save_item(NAME(m_gplyb));
+	save_item(NAME(m_core->pc));
+	save_item(NAME(m_core->r));
+	save_item(NAME(m_core->amr));
+	save_item(NAME(m_core->csr));
+	save_item(NAME(m_core->ifr));
+	save_item(NAME(m_core->ier));
+	save_item(NAME(m_core->istp));
+	save_item(NAME(m_core->irp));
+	save_item(NAME(m_core->nrp));
+	save_item(NAME(m_core->tsr));
+	save_item(NAME(m_core->itsr));
+	save_item(NAME(m_core->ntsr));
+	save_item(NAME(m_core->efr));
+	save_item(NAME(m_core->ierr));
+	save_item(NAME(m_core->ilc));
+	save_item(NAME(m_core->rilc));
+	save_item(NAME(m_core->rep));
+	save_item(NAME(m_core->ssr));
+	save_item(NAME(m_core->gfpgfr));
+	save_item(NAME(m_core->gplya));
+	save_item(NAME(m_core->gplyb));
 	save_item(NAME(m_tsc_start));
 	save_item(NAME(m_tsch));
 	save_item(NAME(m_tsc_running));
-	save_item(NAME(m_fadcr));
-	save_item(NAME(m_faucr));
-	save_item(NAME(m_fmcr));
-	save_item(NAME(m_cycle));
-	save_item(NAME(m_wb_reg));
-	save_item(NAME(m_wb_value));
-	save_item(NAME(m_wb_count));
-	save_item(NAME(m_branch_when));
-	save_item(NAME(m_branch_target));
-	save_item(NAME(m_branches));
-	save_item(NAME(m_nop_cycles));
-	save_item(NAME(m_idle));
+	save_item(NAME(m_core->fadcr));
+	save_item(NAME(m_core->faucr));
+	save_item(NAME(m_core->fmcr));
+	save_item(NAME(m_core->cycle));
+	save_item(NAME(m_core->wb_reg));
+	save_item(NAME(m_core->wb_value));
+	save_item(NAME(m_core->wb_count));
+	save_item(NAME(m_core->wb_total));
+	save_item(NAME(m_core->branch_when));
+	save_item(NAME(m_core->branch_target));
+	save_item(NAME(m_core->branches));
+	save_item(NAME(m_core->nop_cycles));
+	save_item(NAME(m_core->idle));
+	save_item(NAME(m_core->irq_poll));
 	save_item(NAME(m_int_lines));
 	save_item(STRUCT_MEMBER(m_lb, opcode));
 	save_item(STRUCT_MEMBER(m_lb, header));
@@ -271,28 +278,35 @@ void tms320c674x_device::device_start()
 void tms320c674x_device::device_reset()
 {
 	// SPRUFE8B 5.3.4.1: CPU state after reset
-	m_amr = 0;
-	m_ifr = 0;
-	m_ier = 1;
-	m_istp = m_istp_reset;
-	m_csr = (u32(0x14) << 24) | (u32(m_revision) << 16) | 0x0100; // C674x CPU ID, little-endian
-	m_tsr = 0;
-	m_itsr = 0;
-	m_ntsr = 0;
+	m_core->amr = 0;
+	m_core->ifr = 0;
+	m_core->ier = 1;
+	m_core->istp = m_istp_reset;
+	m_core->csr = (u32(0x14) << 24) | (u32(m_revision) << 16) | 0x0100; // C674x CPU ID, little-endian
+	m_core->tsr = 0;
+	m_core->itsr = 0;
+	m_core->ntsr = 0;
 	m_tsc_running = false;
 
-	std::fill(std::begin(m_wb_count), std::end(m_wb_count), 0);
-	m_branches = 0;
-	m_nop_cycles = 0;
-	m_idle = false;
+	std::fill(std::begin(m_core->wb_count), std::end(m_core->wb_count), 0);
+	m_core->wb_total = 0;
+	m_core->branches = 0;
+	m_core->nop_cycles = 0;
+	m_core->idle = false;
+	m_core->irq_poll = 1;
 	sploop_stop();
 
 	// execution begins at the ISTB field of ISTP
-	m_pc = m_istp & 0xffff'fc00;
+	m_core->pc = m_core->istp & 0xffff'fc00;
 }
 
 void tms320c674x_device::device_post_load()
 {
+	// memory was restored without going through the write tap
+	flush_ep_cache();
+	drc_flush_cache();
+	m_core->irq_poll = 1;
+
 	for (u32 n = 0; n < m_lb_count; n++)
 	{
 		if (m_lb[n].size == 2)
@@ -314,7 +328,10 @@ void tms320c674x_device::execute_set_input(int inputnum, int state)
 		return;
 
 	if (state && !BIT(m_int_lines, bit))
-		m_ifr |= 1U << bit;
+	{
+		m_core->ifr |= 1U << bit;
+		m_core->irq_poll = 1;
+	}
 	if (state)
 		m_int_lines |= 1 << bit;
 	else
@@ -324,20 +341,23 @@ void tms320c674x_device::execute_set_input(int inputnum, int state)
 void tms320c674x_device::interrupt_pulse(u32 line)
 {
 	if ((line >= 4) && (line <= 15))
-		m_ifr |= 1U << line;
+	{
+		m_core->ifr |= 1U << line;
+		m_core->irq_poll = 1;
+	}
 }
 
 int tms320c674x_device::pending_interrupt() const
 {
 	// not in branch delay slots
-	if (m_branches || !BIT(m_ier, 1))
+	if (m_core->branches || !BIT(m_core->ier, 1))
 		return -1;
 
-	if (BIT(m_ifr, 1))
+	if (BIT(m_core->ifr, 1))
 		return 1;
 
-	u32 const pending = m_ifr & m_ier & 0xfff0;
-	if (pending && BIT(m_csr, 0))
+	u32 const pending = m_core->ifr & m_core->ier & 0xfff0;
+	if (pending && BIT(m_core->csr, 0))
 		return std::countr_zero(pending);
 	return -1;
 }
@@ -350,7 +370,7 @@ void tms320c674x_device::check_interrupts()
 
 	int const number = pending_interrupt();
 	if (number >= 0)
-		take_interrupt(number, m_pc, false);
+		take_interrupt(number, m_core->pc, false);
 }
 
 void tms320c674x_device::take_interrupt(int number, u32 return_pc, bool splx)
@@ -359,29 +379,30 @@ void tms320c674x_device::take_interrupt(int number, u32 return_pc, bool splx)
 
 	// in-flight instructions complete before the service routine starts
 	flush_writes();
-	m_idle = false;
-	m_nop_cycles = 0;
-	m_ifr &= ~(1U << number);
+	m_core->idle = false;
+	m_core->nop_cycles = 0;
+	m_core->ifr &= ~(1U << number);
 
 	// an interrupted SPLOOP returns to its execute packet with SPLX set
-	u32 const tsr = (m_tsr & ~(1U | (1U << 14))) | BIT(m_csr, 0) | (splx ? (1U << 14) : 0);
+	u32 const tsr = (m_core->tsr & ~(1U | (1U << 14))) | BIT(m_core->csr, 0) | (splx ? (1U << 14) : 0);
 	if (number == 1)
 	{
-		m_nrp = return_pc;
-		m_ntsr = tsr;
-		m_ier &= ~2U; // NMIE
+		m_core->nrp = return_pc;
+		m_core->ntsr = tsr;
+		m_core->ier &= ~2U; // NMIE
 	}
 	else
 	{
-		m_irp = return_pc;
-		m_itsr = tsr;
-		m_csr = (m_csr & ~2U) | (BIT(m_csr, 0) << 1); // PGIE = GIE
+		m_core->irp = return_pc;
+		m_core->itsr = tsr;
+		m_core->csr = (m_core->csr & ~2U) | (BIT(m_core->csr, 0) << 1); // PGIE = GIE
 	}
-	m_csr &= ~1U; // GIE
-	m_tsr |= 1U << 9; // INT
+	m_core->csr &= ~1U; // GIE
+	m_core->tsr |= 1U << 9; // INT
+	m_core->irq_poll = 1;
 
 	standard_irq_callback(number, return_pc);
-	m_pc = (m_istp & 0xffff'fc00) | (number << 5);
+	m_core->pc = (m_core->istp & 0xffff'fc00) | (number << 5);
 }
 
 
@@ -391,16 +412,17 @@ void tms320c674x_device::take_interrupt(int number, u32 return_pc, bool splx)
 
 void tms320c674x_device::write(u32 r, u32 value, u32 delay)
 {
-	u32 const slot = (m_cycle + delay + 1) % WB_SLOTS;
-	u32 const n = m_wb_count[slot];
+	u32 const slot = (m_core->cycle + delay + 1) % WB_SLOTS;
+	u32 const n = m_core->wb_count[slot];
 	if (n >= WB_DEPTH)
 	{
-		logerror("write queue overflow at %08x\n", m_pc);
+		logerror("write queue overflow at %08x\n", m_core->pc);
 		return;
 	}
-	m_wb_reg[slot * WB_DEPTH + n] = r;
-	m_wb_value[slot * WB_DEPTH + n] = value;
-	m_wb_count[slot] = n + 1;
+	m_core->wb_reg[slot * WB_DEPTH + n] = r;
+	m_core->wb_value[slot * WB_DEPTH + n] = value;
+	m_core->wb_count[slot] = n + 1;
+	m_core->wb_total++;
 }
 
 void tms320c674x_device::write_pair(u32 r, u64 value, u32 delay)
@@ -409,64 +431,56 @@ void tms320c674x_device::write_pair(u32 r, u64 value, u32 delay)
 	write(r | 1U, u32(value >> 32), delay);
 }
 
+void tms320c674x_device::commit_writes(u32 slot)
+{
+	u32 const count = m_core->wb_count[slot];
+	for (u32 n = 0; n < count; n++)
+	{
+		u8 const r = m_core->wb_reg[slot * WB_DEPTH + n];
+		u32 const v = m_core->wb_value[slot * WB_DEPTH + n];
+		if (r < 64)
+			m_core->r[r] = v;
+		else if (r == REG_ILC)
+			m_core->ilc = v;
+		else if (r == REG_RILC)
+			m_core->rilc = v;
+	}
+	m_core->wb_count[slot] = 0;
+	m_core->wb_total -= count;
+}
+
 void tms320c674x_device::flush_writes()
 {
-	for (u32 d = 1; d <= WB_SLOTS; d++)
-	{
-		u32 const slot = (m_cycle + d) % WB_SLOTS;
-		for (u32 n = 0; n < m_wb_count[slot]; n++)
-		{
-			u8 const r = m_wb_reg[slot * WB_DEPTH + n];
-			u32 const v = m_wb_value[slot * WB_DEPTH + n];
-			if (r < 64)
-				m_r[r] = v;
-			else if (r == REG_ILC)
-				m_ilc = v;
-			else if (r == REG_RILC)
-				m_rilc = v;
-		}
-		m_wb_count[slot] = 0;
-	}
+	for (u32 d = 1; m_core->wb_total && (d <= WB_SLOTS); d++)
+		commit_writes((m_core->cycle + d) % WB_SLOTS);
 }
 
 void tms320c674x_device::branch(u32 target)
 {
-	if (m_branches >= BRANCH_SLOTS)
+	if (m_core->branches >= BRANCH_SLOTS)
 	{
-		logerror("too many branches in flight at %08x\n", m_pc);
+		logerror("too many branches in flight at %08x\n", m_core->pc);
 		return;
 	}
-	m_branch_when[m_branches] = m_cycle + 6;
-	m_branch_target[m_branches] = target;
-	m_branches++;
+	m_core->branch_when[m_core->branches] = m_core->cycle + 6;
+	m_core->branch_target[m_core->branches] = target;
+	m_core->branches++;
 }
 
 void tms320c674x_device::tick()
 {
-	m_cycle++;
-	m_icount--;
+	m_core->cycle++;
+	m_core->icount--;
 
-	u32 const slot = m_cycle % WB_SLOTS;
-	for (u32 n = 0; n < m_wb_count[slot]; n++)
-	{
-		u8 const r = m_wb_reg[slot * WB_DEPTH + n];
-		u32 const v = m_wb_value[slot * WB_DEPTH + n];
-		if (r < 64)
-			m_r[r] = v;
-		else if (r == REG_ILC)
-			m_ilc = v;
-		else if (r == REG_RILC)
-			m_rilc = v;
-	}
-	m_wb_count[slot] = 0;
+	commit_writes(m_core->cycle % WB_SLOTS);
 
-	for (u32 n = 0; n < m_branches; )
+	for (u32 n = 0; n < m_core->branches; )
 	{
-		if (m_branch_when[n] == m_cycle)
+		if (m_core->branch_when[n] == m_core->cycle)
 		{
-			m_pc = m_branch_target[n];
-			m_nop_cycles = 0;
-			m_idle = false;
+			m_core->pc = m_core->branch_target[n];
+			m_core->nop_cycles = 0;
+			m_core->idle = false;
 			if (m_lb_active)
 			{
 				if (m_lb_reload_branch)
@@ -478,9 +492,9 @@ void tms320c674x_device::tick()
 				else
 					sploop_stop();
 			}
-			m_branches--;
-			m_branch_when[n] = m_branch_when[m_branches];
-			m_branch_target[n] = m_branch_target[m_branches];
+			m_core->branches--;
+			m_core->branch_when[n] = m_core->branch_when[m_core->branches];
+			m_core->branch_target[n] = m_core->branch_target[m_core->branches];
 		}
 		else
 			n++;
@@ -491,13 +505,48 @@ bool tms320c674x_device::condition(insn const &i) const
 {
 	if (!i.creg)
 		return true;
-	bool const zero = !m_r[i.creg - 1];
+	bool const zero = !m_core->r[i.creg - 1];
 	return i.z ? zero : !zero;
+}
+
+u32 tms320c674x_device::ep_index(u32 pc)
+{
+	// consecutive word-aligned packets use consecutive entries, halfword-aligned ones the other half
+	return ((pc >> 2) ^ (BIT(pc, 1) << (EP_CACHE_BITS - 1))) & (EP_CACHE_SIZE - 1);
+}
+
+u32 tms320c674x_device::code_region(u32 address)
+{
+	// the internal memories' local addresses 0x00xx_xxxx alias their global addresses 0x11xx_xxxx
+	u32 const region = address >> 24;
+	return region ? region : 0x11;
+}
+
+u32 const *tms320c674x_device::code_gen(u32 address)
+{
+	std::unique_ptr<u32 []> &gen = m_code_gen[code_region(address)];
+	if (!gen)
+		gen = make_unique_clear<u32 []>(CODE_PAGES);
+	return &gen[BIT(address, CODE_PAGE_SHIFT, 24 - CODE_PAGE_SHIFT)];
+}
+
+void tms320c674x_device::code_written(offs_t address)
+{
+	u32 *const gen = m_code_gen[code_region(address)].get();
+	if (gen)
+		gen[BIT(address, CODE_PAGE_SHIFT, 24 - CODE_PAGE_SHIFT)]++;
+}
+
+void tms320c674x_device::flush_ep_cache()
+{
+	for (u32 n = 0; n < EP_CACHE_SIZE; n++)
+		m_ep_cache[n].count = 0;
 }
 
 u32 tms320c674x_device::decode_ep(u32 pc, ep_cache_entry &e)
 {
 	u32 count = 0;
+	u32 last = pc;
 	e.pc = pc;
 	for (;;)
 	{
@@ -519,7 +568,7 @@ u32 tms320c674x_device::decode_ep(u32 pc, ep_cache_entry &e)
 			u16 const op = m_cache.read_word(pc);
 			dasm::decode16(op, header, fp, i);
 			p = BIT(header, ((pc & 31) >> 1));
-			e.addr[count] = pc;
+			last = pc;
 			e.raw[count] = op;
 			pc += 2;
 		}
@@ -541,7 +590,7 @@ u32 tms320c674x_device::decode_ep(u32 pc, ep_cache_entry &e)
 				}
 			}
 			p = BIT(op, 0);
-			e.addr[count] = pc;
+			last = pc;
 			e.raw[count] = op;
 			pc += 4;
 		}
@@ -557,6 +606,12 @@ u32 tms320c674x_device::decode_ep(u32 pc, ep_cache_entry &e)
 	if (((pc & 31) == 28) && dasm::is_header(m_cache.read_dword(pc)))
 		pc += 4;
 
+	// a packet spans less than a code page, so at most two of them
+	e.gen[0] = code_gen(e.pc);
+	e.gen[1] = code_gen(last);
+	e.gen_value[0] = *e.gen[0];
+	e.gen_value[1] = *e.gen[1];
+
 	e.next = pc;
 	e.count = count;
 	return count;
@@ -564,21 +619,10 @@ u32 tms320c674x_device::decode_ep(u32 pc, ep_cache_entry &e)
 
 tms320c674x_device::ep_cache_entry const &tms320c674x_device::fetch_ep(u32 pc)
 {
-	ep_cache_entry &e = m_ep_cache[(pc >> 1) & (EP_CACHE_SIZE - 1)];
-	if (e.count && (e.pc == pc))
-	{
-		// code may have been rewritten since it was decoded
-		bool valid = true;
-		for (u32 n = 0; valid && (n < e.count); n++)
-		{
-			u32 const op = (e.ep[n].size == 2) ? m_cache.read_word(e.addr[n]) : m_cache.read_dword(e.addr[n]);
-			u32 const header = m_cache.read_dword(e.pce1[n] + 28);
-			valid = (op == e.raw[n]) && ((dasm::is_header(header) ? header : 0) == e.hdr[n]);
-		}
-		if (valid)
-			return e;
-	}
-	decode_ep(pc, e);
+	// code may have been rewritten since it was decoded
+	ep_cache_entry &e = m_ep_cache[ep_index(pc)];
+	if (!e.count || (e.pc != pc) || (*e.gen[0] != e.gen_value[0]) || (*e.gen[1] != e.gen_value[1]))
+		decode_ep(pc, e);
 	return e;
 }
 
@@ -586,18 +630,18 @@ void tms320c674x_device::step()
 {
 	static constexpr ep_cache_entry NONE{};
 	ep_cache_entry const *e = &NONE;
-	u32 next = m_pc;
+	u32 next = m_core->pc;
 
 	m_store_count = 0;
 	m_ep_nops = 0;
 	m_ep_sploop = false;
 
-	if (m_idle)
+	if (m_core->idle)
 	{
 		check_interrupts();
-		if (m_idle)
+		if (m_core->idle)
 		{
-			m_icount -= std::max(m_icount, 0);
+			m_core->icount -= std::max(m_core->icount, 0);
 			tick();
 			return;
 		}
@@ -608,13 +652,13 @@ void tms320c674x_device::step()
 		sploop_reload();
 
 	bool fetched = false;
-	if (m_nop_cycles)
-		m_nop_cycles--;
+	if (m_core->nop_cycles)
+		m_core->nop_cycles--;
 	else if (!m_lb_active || m_lb_fetch)
 	{
 		check_interrupts();
-		debugger_instruction_hook(m_pc);
-		e = &fetch_ep(m_pc);
+		debugger_instruction_hook(m_core->pc);
+		e = &fetch_ep(m_core->pc);
 		next = e->next;
 		fetched = true;
 	}
@@ -631,7 +675,7 @@ void tms320c674x_device::step()
 		if ((ep[n].op == dasm::OP_SPLOOP) || (ep[n].op == dasm::OP_SPLOOPD) || (ep[n].op == dasm::OP_SPLOOPW))
 		{
 			// returning to an interrupted SPLOOP
-			restart = !m_lb_active && BIT(m_tsr, 14);
+			restart = !m_lb_active && BIT(m_core->tsr, 14);
 		}
 		else if ((ep[n].op == dasm::OP_SPMASK) || (ep[n].op == dasm::OP_SPMASKR))
 		{
@@ -767,10 +811,10 @@ void tms320c674x_device::step()
 	if (fetched)
 	{
 		// SPLX from B IRP/B NRP only resumes a SPLOOP at the branch target
-		if (!m_lb_active && !m_branches && !restart)
-			m_tsr &= ~(1U << 14);
-		m_pc = next;
-		m_nop_cycles = m_ep_nops;
+		if (!m_lb_active && !m_core->branches && !restart)
+			m_core->tsr &= ~(1U << 14);
+		m_core->pc = next;
+		m_core->nop_cycles = m_ep_nops;
 	}
 
 	if (lb_was_active && m_lb_active)
@@ -801,8 +845,16 @@ void tms320c674x_device::step()
 
 void tms320c674x_device::execute_run()
 {
-	while (m_icount > 0)
-		step();
+	// the debugger sees every execute packet in the interpreter
+	if (m_enable_drc && !(machine().debug_flags & DEBUG_FLAG_ENABLED))
+	{
+		execute_run_drc();
+	}
+	else
+	{
+		while (m_core->icount > 0)
+			step();
+	}
 }
 
 
@@ -843,7 +895,7 @@ void tms320c674x_device::sploop_start(insn const &i, u32 address)
 		logerror("nested SPLOOP at %08x\n", address);
 
 	// SPRUFE8B 7.13.2: an interrupted SPLOOPD resumes as SPLOOP
-	m_lb_restart = BIT(m_tsr, 14);
+	m_lb_restart = BIT(m_core->tsr, 14);
 	m_ep_sploop = true;
 	m_lb_active = true;
 	m_lb_kind = (m_lb_restart && (i.op == dasm::OP_SPLOOPD)) ? dasm::OP_SPLOOP : i.op;
@@ -870,17 +922,17 @@ void tms320c674x_device::sploop_start(insn const &i, u32 address)
 	m_lb_reload_branch = false;
 	m_lb_reloading = false;
 	m_lb_old_active = false;
-	m_tsr |= 1U << 14; // SPLX
+	m_core->tsr |= 1U << 14; // SPLX
 
 	m_lb_initial_term = false;
 	if (m_lb_kind == dasm::OP_SPLOOP)
 	{
-		if (!m_ilc)
+		if (!m_core->ilc)
 			m_lb_initial_term = true;
 		else
-			m_ilc--;
+			m_core->ilc--;
 	}
-	LOGMASKED(LOG_SPLOOP, "%s %u at %08x, ILC %u%s\n", dasm::mnemonic(dasm::op_t(i.op)), i.cst, address, m_ilc, m_lb_restart ? " (resumed)" : "");
+	LOGMASKED(LOG_SPLOOP, "%s %u at %08x, ILC %u%s\n", dasm::mnemonic(dasm::op_t(i.op)), i.cst, address, m_core->ilc, m_lb_restart ? " (resumed)" : "");
 }
 
 void tms320c674x_device::sploop_load(insn const *ep, u32 const *raw, u32 const *hdr, u32 const *pce1, u32 count, u32 mask)
@@ -892,7 +944,7 @@ void tms320c674x_device::sploop_load(insn const *ep, u32 const *raw, u32 const *
 			continue;
 		if (m_lb_count >= LB_SIZE)
 		{
-			logerror("loop buffer overflow at %08x\n", m_pc);
+			logerror("loop buffer overflow at %08x\n", m_core->pc);
 			return;
 		}
 		lb_entry &e = m_lb[m_lb_count];
@@ -915,7 +967,7 @@ bool tms320c674x_device::sploop_terminate() const
 		return false;
 	if (m_lb_kind == dasm::OP_SPLOOPW)
 		return !BIT(m_lb_cond_history, 3);
-	return !m_ilc;
+	return !m_core->ilc;
 }
 
 bool tms320c674x_device::sploop_reload_condition() const
@@ -933,7 +985,7 @@ bool tms320c674x_device::sploop_interruptible() const
 		return false;
 	if ((m_lb_kind != dasm::OP_SPLOOP) && (m_lb_cycles <= 3))
 		return false;
-	if ((m_lb_kind != dasm::OP_SPLOOPW) && (m_ilc < ((m_lb_dynlen + m_lb_ii - 1U) / m_lb_ii)))
+	if ((m_lb_kind != dasm::OP_SPLOOPW) && (m_core->ilc < ((m_lb_dynlen + m_lb_ii - 1U) / m_lb_ii)))
 		return false; // returning would early-exit
 	return pending_interrupt() >= 0;
 }
@@ -969,7 +1021,7 @@ void tms320c674x_device::sploop_end_cycle()
 	bool c = true;
 	if (m_lb_creg)
 	{
-		bool const zero = !m_r[m_lb_creg - 1];
+		bool const zero = !m_core->r[m_lb_creg - 1];
 		c = m_lb_z ? zero : !zero;
 	}
 	m_lb_cond_history = (m_lb_cond_history << 1) | (c ? 1 : 0);
@@ -1025,14 +1077,14 @@ void tms320c674x_device::sploop_end_cycle()
 			else if (sploop_interruptible())
 			{
 				// pipe down, then take the interrupt; ILC keeps the remaining iterations
-				LOGMASKED(LOG_SPLOOP, "SPLOOP at %08x interrupt draining, ILC %u\n", m_lb_address, m_ilc);
+				LOGMASKED(LOG_SPLOOP, "SPLOOP at %08x interrupt draining, ILC %u\n", m_lb_address, m_core->ilc);
 				m_lb_draining = true;
 				m_lb_int_drain = true;
 				m_lb_drain = 0;
 			}
 			else if ((m_lb_kind != dasm::OP_SPLOOPW) && !((m_lb_kind == dasm::OP_SPLOOPD) && (m_lb_cycles <= 3)))
 			{
-				m_ilc--; // non-zero, or the loop would have terminated
+				m_core->ilc--; // non-zero, or the loop would have terminated
 			}
 		}
 	}
@@ -1080,7 +1132,7 @@ void tms320c674x_device::sploop_stop()
 	m_lb_reloading = false;
 	m_lb_old_active = false;
 	m_lb_fetch = true;
-	m_tsr &= ~(1U << 14); // SPLX
+	m_core->tsr &= ~(1U << 14); // SPLX
 }
 
 void tms320c674x_device::sploop_reload()
@@ -1099,15 +1151,15 @@ void tms320c674x_device::sploop_reload()
 	}
 
 	// SPRUFE8B 7.9.6.2: ILC = RILC - 1, or RILC = 0 skips this invocation
-	m_lb_initial_term = !m_rilc;
-	if (m_rilc)
-		m_ilc = m_rilc - 1;
+	m_lb_initial_term = !m_core->rilc;
+	if (m_core->rilc)
+		m_core->ilc = m_core->rilc - 1;
 	m_lb_draining = false;
 	m_lb_drain = 0;
 	m_lb_reloading = true;
 	m_lb_reloadcnt = 0;
 	m_lb_lbc = 0;
-	LOGMASKED(LOG_SPLOOP, "SPLOOP at %08x reloading, ILC %u\n", m_lb_address, m_ilc);
+	LOGMASKED(LOG_SPLOOP, "SPLOOP at %08x reloading, ILC %u\n", m_lb_address, m_core->ilc);
 }
 
 
@@ -1119,88 +1171,89 @@ u32 tms320c674x_device::read_control(u32 crlo, u32 pce1)
 {
 	switch (crlo)
 	{
-	case 0x00: return m_amr;
-	case 0x01: return m_csr;
-	case 0x02: return m_ifr;
-	case 0x04: return m_ier | 1;
+	case 0x00: return m_core->amr;
+	case 0x01: return m_core->csr;
+	case 0x02: return m_core->ifr;
+	case 0x04: return m_core->ier | 1;
 	case 0x05:
 		{
 			// HPEINT: highest priority enabled pending interrupt
-			u32 const pending = m_ifr & m_ier & 0xfff2;
+			u32 const pending = m_core->ifr & m_core->ier & 0xfff2;
 			u32 const hpeint = pending ? std::countr_zero(pending) : 0;
-			return (m_istp & 0xffff'fc00) | (hpeint << 5);
+			return (m_core->istp & 0xffff'fc00) | (hpeint << 5);
 		}
-	case 0x06: return m_irp;
-	case 0x07: return m_nrp;
+	case 0x06: return m_core->irp;
+	case 0x07: return m_core->nrp;
 	case 0x0a:
 		{
-			u64 const tsc = m_tsc_running ? (m_cycle - m_tsc_start) : 0;
+			u64 const tsc = m_tsc_running ? (m_core->cycle - m_tsc_start) : 0;
 			m_tsch = u32(tsc >> 32);
 			return u32(tsc);
 		}
 	case 0x0b: return m_tsch;
-	case 0x0d: return m_ilc;
-	case 0x0e: return m_rilc;
-	case 0x0f: return m_rep;
+	case 0x0d: return m_core->ilc;
+	case 0x0e: return m_core->rilc;
+	case 0x0f: return m_core->rep;
 	case 0x10: return pce1;
 	case 0x11: return 0; // DNUM
-	case 0x12: return m_fadcr;
-	case 0x13: return m_faucr;
-	case 0x14: return m_fmcr;
-	case 0x15: return m_ssr;
-	case 0x16: return m_gplya;
-	case 0x17: return m_gplyb;
-	case 0x18: return m_gfpgfr;
-	case 0x1a: return (m_tsr & ~1U) | BIT(m_csr, 0);
-	case 0x1b: return m_itsr;
-	case 0x1c: return m_ntsr;
-	case 0x1d: return m_efr;
-	case 0x1f: return m_ierr;
+	case 0x12: return m_core->fadcr;
+	case 0x13: return m_core->faucr;
+	case 0x14: return m_core->fmcr;
+	case 0x15: return m_core->ssr;
+	case 0x16: return m_core->gplya;
+	case 0x17: return m_core->gplyb;
+	case 0x18: return m_core->gfpgfr;
+	case 0x1a: return (m_core->tsr & ~1U) | BIT(m_core->csr, 0);
+	case 0x1b: return m_core->itsr;
+	case 0x1c: return m_core->ntsr;
+	case 0x1d: return m_core->efr;
+	case 0x1f: return m_core->ierr;
 	default:
-		logerror("read of control register %02x at %08x\n", crlo, m_pc);
+		logerror("read of control register %02x at %08x\n", crlo, m_core->pc);
 		return 0;
 	}
 }
 
 void tms320c674x_device::write_control(u32 crlo, u32 value)
 {
+	m_core->irq_poll = 1;
 	switch (crlo)
 	{
-	case 0x00: m_amr = value; break;
-	case 0x01: m_csr = (m_csr & 0xffff'0100) | (value & 0x0000'feff); break;
-	case 0x02: m_ifr |= value & 0xfff0; break;      // ISR
-	case 0x03: m_ifr &= ~(value & 0xfff0); break;   // ICR
-	case 0x04: m_ier = (value & 0xfff2) | 1; break;
-	case 0x05: m_istp = value & 0xffff'fc00; break;
-	case 0x06: m_irp = value; break;
-	case 0x07: m_nrp = value; break;
+	case 0x00: m_core->amr = value; break;
+	case 0x01: m_core->csr = (m_core->csr & 0xffff'0100) | (value & 0x0000'feff); break;
+	case 0x02: m_core->ifr |= value & 0xfff0; break;      // ISR
+	case 0x03: m_core->ifr &= ~(value & 0xfff0); break;   // ICR
+	case 0x04: m_core->ier = (value & 0xfff2) | 1; break;
+	case 0x05: m_core->istp = value & 0xffff'fc00; break;
+	case 0x06: m_core->irp = value; break;
+	case 0x07: m_core->nrp = value; break;
 	case 0x0a: // writing TSCL starts the counter
 		if (!m_tsc_running)
 		{
 			m_tsc_running = true;
-			m_tsc_start = m_cycle;
+			m_tsc_start = m_core->cycle;
 		}
 		break;
 	case 0x0d: write(REG_ILC, value, 3); break;
 	case 0x0e: write(REG_RILC, value, 3); break;
-	case 0x0f: m_rep = value; break;
-	case 0x12: m_fadcr = value; break;
-	case 0x13: m_faucr = value; break;
-	case 0x14: m_fmcr = value; break;
-	case 0x15: m_ssr = value; break;
-	case 0x16: m_gplya = value; break;
-	case 0x17: m_gplyb = value; break;
-	case 0x18: m_gfpgfr = value; break;
+	case 0x0f: m_core->rep = value; break;
+	case 0x12: m_core->fadcr = value; break;
+	case 0x13: m_core->faucr = value; break;
+	case 0x14: m_core->fmcr = value; break;
+	case 0x15: m_core->ssr = value; break;
+	case 0x16: m_core->gplya = value; break;
+	case 0x17: m_core->gplyb = value; break;
+	case 0x18: m_core->gfpgfr = value; break;
 	case 0x1a:
-		m_tsr = (m_tsr & ~0x1fU) | (value & 0x1e);
-		m_csr = (m_csr & ~1U) | (value & 1);
+		m_core->tsr = (m_core->tsr & ~0x1fU) | (value & 0x1e);
+		m_core->csr = (m_core->csr & ~1U) | (value & 1);
 		break;
-	case 0x1b: m_itsr = value; break;
-	case 0x1c: m_ntsr = value; break;
-	case 0x1d: m_efr &= ~value; break; // ECR
-	case 0x1f: m_ierr = value; break;
+	case 0x1b: m_core->itsr = value; break;
+	case 0x1c: m_core->ntsr = value; break;
+	case 0x1d: m_core->efr &= ~value; break; // ECR
+	case 0x1f: m_core->ierr = value; break;
 	default:
-		logerror("write of %08x to control register %02x at %08x\n", value, crlo, m_pc);
+		logerror("write of %08x to control register %02x at %08x\n", value, crlo, m_core->pc);
 		break;
 	}
 }
@@ -1210,10 +1263,11 @@ void tms320c674x_device::write_control(u32 crlo, u32 value)
 //  MEMORY
 //**************************************************************************
 
-u32 tms320c674x_device::address(insn const &i, u32 shift)
+u32 tms320c674x_device::address(insn const &i, u32 shift, u32 &base)
 {
-	u32 const base = m_r[i.base];
-	u32 offset = i.offset_reg ? m_r[i.a] : u32(i.cst);
+	// returns the address, and the new base register value in base
+	base = m_core->r[i.base];
+	u32 offset = i.offset_reg ? m_core->r[i.a] : u32(i.cst);
 	if (i.scaled)
 		offset <<= shift;
 
@@ -1221,43 +1275,47 @@ u32 tms320c674x_device::address(insn const &i, u32 shift)
 	u32 const n = i.base & 31;
 	u32 mode = 0;
 	if ((n >= 4) && (n <= 7))
-		mode = BIT(m_amr, ((i.base & 32) ? 8 : 0) + (n - 4) * 2, 2);
-	auto const modify = [this, base, mode] (u32 result) -> u32
+		mode = BIT(m_core->amr, ((i.base & 32) ? 8 : 0) + (n - 4) * 2, 2);
+	auto const modify = [this, b = base, mode] (u32 result) -> u32
 	{
 		if (!mode || (mode == 3))
 			return result;
-		u32 const bk = BIT(m_amr, (mode == 1) ? 16 : 21, 5);
+		u32 const bk = BIT(m_core->amr, (mode == 1) ? 16 : 21, 5);
 		u32 const size_mask = u32((u64(2) << bk) - 1);
-		return (base & ~size_mask) | (result & size_mask);
+		return (b & ~size_mask) | (result & size_mask);
 	};
 
+	u32 const old = base;
 	switch (i.mode)
 	{
 	case dasm::AM_NEG_OFFSET:
-		return modify(base - offset);
+		return modify(old - offset);
 	case dasm::AM_POS_OFFSET:
-		return modify(base + offset);
+		return modify(old + offset);
 	case dasm::AM_PREDEC:
-		{
-			u32 const a = modify(base - offset);
-			write(i.base, a);
-			return a;
-		}
+		base = modify(old - offset);
+		return base;
 	case dasm::AM_PREINC:
-		{
-			u32 const a = modify(base + offset);
-			write(i.base, a);
-			return a;
-		}
+		base = modify(old + offset);
+		return base;
 	case dasm::AM_POSTDEC:
-		write(i.base, modify(base - offset));
-		return base;
+		base = modify(old - offset);
+		return old;
 	case dasm::AM_POSTINC:
-		write(i.base, modify(base + offset));
-		return base;
+		base = modify(old + offset);
+		return old;
 	default:
-		return base;
+		return old;
 	}
+}
+
+u32 tms320c674x_device::address(insn const &i, u32 shift)
+{
+	u32 base;
+	u32 const result = address(i, shift, base);
+	if (i.mode >= dasm::AM_PREDEC)
+		write(i.base, base);
+	return result;
 }
 
 u64 tms320c674x_device::load(insn const &i, u32 addr)
@@ -1410,17 +1468,19 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		m_ep_nops = std::max<u32>(m_ep_nops, i.cst - 1);
 		break;
 	case dasm::OP_IDLE:
-		m_idle = true;
+		m_core->idle = true;
 		break;
 	case dasm::OP_DINT:
-		m_tsr = (m_tsr & ~2U) | (BIT(m_csr, 0) << 1);
-		m_csr &= ~1U;
+		m_core->tsr = (m_core->tsr & ~2U) | (BIT(m_core->csr, 0) << 1);
+		m_core->csr &= ~1U;
+		m_core->irq_poll = 1;
 		break;
 	case dasm::OP_RINT:
-		m_csr = (m_csr & ~1U) | BIT(m_tsr, 1);
+		m_core->csr = (m_core->csr & ~1U) | BIT(m_core->tsr, 1);
+		m_core->irq_poll = 1;
 		break;
 	case dasm::OP_SPLOOP: case dasm::OP_SPLOOPD: case dasm::OP_SPLOOPW:
-		sploop_start(i, m_pc); // the execute packet, the return address if interrupted
+		sploop_start(i, m_core->pc); // the execute packet, the return address if interrupted
 		break;
 	case dasm::OP_SPKERNEL: case dasm::OP_SPKERNELR: case dasm::OP_SPMASK: case dasm::OP_SPMASKR:
 		break;
@@ -1430,26 +1490,28 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		branch(i.cst);
 		break;
 	case dasm::OP_B_REG:
-		branch(m_r[i.b]);
+		branch(m_core->r[i.b]);
 		break;
 	case dasm::OP_BNOP:
 		branch(i.cst);
 		m_ep_nops = std::max<u32>(m_ep_nops, i.cst2);
 		break;
 	case dasm::OP_BNOP_REG:
-		branch(m_r[i.b]);
+		branch(m_core->r[i.b]);
 		m_ep_nops = std::max<u32>(m_ep_nops, i.cst2);
 		break;
 	case dasm::OP_B_IRP:
-		branch(m_irp);
-		m_csr = (m_csr & ~1U) | BIT(m_itsr, 0);
-		m_tsr = m_itsr & ~1U;
+		branch(m_core->irp);
+		m_core->csr = (m_core->csr & ~1U) | BIT(m_core->itsr, 0);
+		m_core->tsr = m_core->itsr & ~1U;
+		m_core->irq_poll = 1;
 		break;
 	case dasm::OP_B_NRP:
-		branch(m_nrp);
-		m_ier |= 2; // NMIE
-		m_csr = (m_csr & ~1U) | BIT(m_ntsr, 0);
-		m_tsr = m_ntsr & ~1U;
+		branch(m_core->nrp);
+		m_core->ier |= 2; // NMIE
+		m_core->csr = (m_core->csr & ~1U) | BIT(m_core->ntsr, 0);
+		m_core->tsr = m_core->ntsr & ~1U;
+		m_core->irq_poll = 1;
 		break;
 	case dasm::OP_CALLP:
 		branch(i.cst);
@@ -1461,25 +1523,25 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		m_ep_nops = std::max<u32>(m_ep_nops, i.cst2);
 		break;
 	case dasm::OP_BDEC:
-		if (s32(m_r[d]) >= 0)
+		if (s32(m_core->r[d]) >= 0)
 		{
 			branch(i.cst);
-			write(d, m_r[d] - 1);
+			write(d, m_core->r[d] - 1);
 		}
 		break;
 	case dasm::OP_BPOS:
-		if (s32(m_r[d]) >= 0)
+		if (s32(m_core->r[d]) >= 0)
 			branch(i.cst);
 		break;
 
 	// moves
-	case dasm::OP_MV: write(d, m_r[i.b]); break;
+	case dasm::OP_MV: write(d, m_core->r[i.b]); break;
 	case dasm::OP_MVK: write(d, i.cst); break;
-	case dasm::OP_MVKH: write(d, (m_r[d] & 0xffff) | (u32(i.cst) & 0xffff'0000)); break;
-	case dasm::OP_ADDK: write(d, m_r[d] + i.cst); break;
-	case dasm::OP_MVD: write(d, m_r[i.b], 3); break;
+	case dasm::OP_MVKH: write(d, (m_core->r[d] & 0xffff) | (u32(i.cst) & 0xffff'0000)); break;
+	case dasm::OP_ADDK: write(d, m_core->r[d] + i.cst); break;
+	case dasm::OP_MVD: write(d, m_core->r[i.b], 3); break;
 	case dasm::OP_DMV: write(d | 1, src_a(i)); write(d & ~1U, src_b(i)); break;
-	case dasm::OP_MVC_TO: write_control(i.cst, m_r[i.b]); break;
+	case dasm::OP_MVC_TO: write_control(i.cst, m_core->r[i.b]); break;
 	case dasm::OP_MVC_FROM: write(d, read_control(i.cst, pce1)); break;
 
 	// integer arithmetic
@@ -1498,7 +1560,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_SSUB_L: write_long(d, saturate40(s64(s32(src_a(i))) - long40(i.b), sat)); break;
 	case dasm::OP_ABS:
 		{
-			s32 const v = s32(m_r[i.b]);
+			s32 const v = s32(m_core->r[i.b]);
 			write(d, (v == s32(0x8000'0000)) ? 0x7fff'ffff : std::abs(v));
 		}
 		break;
@@ -1511,7 +1573,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_SAT:
 		write(d, saturate32(long40(i.b), sat));
 		break;
-	case dasm::OP_NORM: write(d, norm32(m_r[i.b])); break;
+	case dasm::OP_NORM: write(d, norm32(m_core->r[i.b])); break;
 	case dasm::OP_NORM_L:
 		{
 			u64 const v = ulong40(i.b);
@@ -1521,7 +1583,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		break;
 	case dasm::OP_LMBD:
 		{
-			u32 const v = BIT(src_a(i), 0) ? m_r[i.b] : ~m_r[i.b];
+			u32 const v = BIT(src_a(i), 0) ? m_core->r[i.b] : ~m_core->r[i.b];
 			write(d, std::countl_zero(v));
 		}
 		break;
@@ -1621,10 +1683,10 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 			}
 			else
 			{
-				csta = BIT(m_r[i.b], 5, 5);
-				cstb = BIT(m_r[i.b], 0, 5);
+				csta = BIT(m_core->r[i.b], 5, 5);
+				cstb = BIT(m_core->r[i.b], 0, 5);
 			}
-			u32 const v = m_r[i.a] << csta;
+			u32 const v = m_core->r[i.a] << csta;
 			write(d, (i.op == dasm::OP_EXT) ? u32(s32(v) >> cstb) : (v >> cstb));
 		}
 		break;
@@ -1638,13 +1700,13 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 			}
 			else
 			{
-				csta = BIT(m_r[i.b], 5, 5);
-				cstb = BIT(m_r[i.b], 0, 5);
+				csta = BIT(m_core->r[i.b], 5, 5);
+				cstb = BIT(m_core->r[i.b], 0, 5);
 			}
 			u32 mask = 0;
 			if (cstb >= csta)
 				mask = u32((u64(2) << (cstb - csta)) - 1) << csta;
-			write(d, (i.op == dasm::OP_SET) ? (m_r[i.a] | mask) : (m_r[i.a] & ~mask));
+			write(d, (i.op == dasm::OP_SET) ? (m_core->r[i.a] | mask) : (m_core->r[i.a] & ~mask));
 		}
 		break;
 
@@ -1729,30 +1791,30 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		break;
 	case dasm::OP_SWAP4:
 		{
-			u32 const v = m_r[i.b];
+			u32 const v = m_core->r[i.b];
 			write(d, ((v & 0x00ff'00ff) << 8) | ((v >> 8) & 0x00ff'00ff));
 		}
 		break;
 	case dasm::OP_UNPKLU4:
 		{
-			u32 const v = m_r[i.b];
+			u32 const v = m_core->r[i.b];
 			write(d, (BIT(v, 8, 8) << 16) | BIT(v, 0, 8));
 		}
 		break;
 	case dasm::OP_UNPKHU4:
 		{
-			u32 const v = m_r[i.b];
+			u32 const v = m_core->r[i.b];
 			write(d, (BIT(v, 24, 8) << 16) | BIT(v, 16, 8));
 		}
 		break;
 	case dasm::OP_ABS2:
-		write(d, lanes16(m_r[i.b], 0, [] (u32 x, u32) { s32 const v = s16(x); return u32((v == -0x8000) ? 0x7fff : std::abs(v)); }));
+		write(d, lanes16(m_core->r[i.b], 0, [] (u32 x, u32) { s32 const v = s16(x); return u32((v == -0x8000) ? 0x7fff : std::abs(v)); }));
 		break;
 	case dasm::OP_SHLMB: write(d, (src_b(i) << 8) | (src_a(i) >> 24)); break;
 	case dasm::OP_SHRMB: write(d, (src_b(i) >> 8) | (src_a(i) << 24)); break;
 	case dasm::OP_BITC4:
 		{
-			u32 const v = m_r[i.b];
+			u32 const v = m_core->r[i.b];
 			u32 r = 0;
 			for (u32 n = 0; n < 4; n++)
 				r |= u32(std::popcount((v >> (n * 8)) & 0xff)) << (n * 8);
@@ -1761,7 +1823,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		break;
 	case dasm::OP_BITR:
 		{
-			u32 v = m_r[i.b];
+			u32 v = m_core->r[i.b];
 			u32 r = 0;
 			for (u32 n = 0; n < 32; n++)
 				r |= BIT(v, n) << (31 - n);
@@ -1769,13 +1831,13 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		}
 		break;
 	case dasm::OP_XPND2:
-		write(d, (BIT(m_r[i.b], 1) ? 0xffff'0000 : 0) | (BIT(m_r[i.b], 0) ? 0x0000'ffff : 0), 1);
+		write(d, (BIT(m_core->r[i.b], 1) ? 0xffff'0000 : 0) | (BIT(m_core->r[i.b], 0) ? 0x0000'ffff : 0), 1);
 		break;
 	case dasm::OP_XPND4:
 		{
 			u32 r = 0;
 			for (u32 n = 0; n < 4; n++)
-				if (BIT(m_r[i.b], n))
+				if (BIT(m_core->r[i.b], n))
 					r |= 0xffU << (n * 8);
 			write(d, r, 1);
 		}
@@ -1913,7 +1975,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_MPYDP: write_pair(d, dp_result(dp_in(pair(i.a)) * dp_in(pair(i.b))), 9); break;
 	case dasm::OP_MPYSPDP: write_pair(d, dp_result(double(sp_in(src_a(i))) * dp_in(pair(i.b))), 6); break;
 	case dasm::OP_MPYSP2DP: write_pair(d, dp_result(double(sp_in(src_a(i))) * double(sp_in(src_b(i)))), 4); break;
-	case dasm::OP_ABSSP: write(d, sp_result(std::fabs(sp_in(m_r[i.b])))); break;
+	case dasm::OP_ABSSP: write(d, sp_result(std::fabs(sp_in(m_core->r[i.b])))); break;
 	case dasm::OP_ABSDP: write_pair(d, dp_result(std::fabs(dp_in(pair(i.b)))), 1); break;
 	case dasm::OP_CMPEQSP: write(d, sp_in(src_a(i)) == sp_in(src_b(i))); break;
 	case dasm::OP_CMPGTSP: write(d, sp_in(src_a(i)) > sp_in(src_b(i))); break;
@@ -1921,19 +1983,19 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_CMPEQDP: write(d, dp_in(pair(i.a)) == dp_in(pair(i.b)), 1); break;
 	case dasm::OP_CMPGTDP: write(d, dp_in(pair(i.a)) > dp_in(pair(i.b)), 1); break;
 	case dasm::OP_CMPLTDP: write(d, dp_in(pair(i.a)) < dp_in(pair(i.b)), 1); break;
-	case dasm::OP_INTSP: write(d, sp_result(float(s32(m_r[i.b]))), 3); break;
-	case dasm::OP_INTSPU: write(d, sp_result(float(m_r[i.b])), 3); break;
-	case dasm::OP_INTDP: write_pair(d, dp_result(double(s32(m_r[i.b]))), 4); break;
-	case dasm::OP_INTDPU: write_pair(d, dp_result(double(m_r[i.b])), 4); break;
-	case dasm::OP_SPINT: write(d, float_to_int(sp_in(m_r[i.b]), false), 3); break;
-	case dasm::OP_SPTRUNC: write(d, float_to_int(sp_in(m_r[i.b]), true), 3); break;
+	case dasm::OP_INTSP: write(d, sp_result(float(s32(m_core->r[i.b]))), 3); break;
+	case dasm::OP_INTSPU: write(d, sp_result(float(m_core->r[i.b])), 3); break;
+	case dasm::OP_INTDP: write_pair(d, dp_result(double(s32(m_core->r[i.b]))), 4); break;
+	case dasm::OP_INTDPU: write_pair(d, dp_result(double(m_core->r[i.b])), 4); break;
+	case dasm::OP_SPINT: write(d, float_to_int(sp_in(m_core->r[i.b]), false), 3); break;
+	case dasm::OP_SPTRUNC: write(d, float_to_int(sp_in(m_core->r[i.b]), true), 3); break;
 	case dasm::OP_DPINT: write(d, float_to_int(dp_in(pair(i.b)), false), 3); break;
 	case dasm::OP_DPTRUNC: write(d, float_to_int(dp_in(pair(i.b)), true), 3); break;
 	case dasm::OP_DPSP: write(d, sp_result(float(dp_in(pair(i.b)))), 3); break;
-	case dasm::OP_SPDP: write_pair(d, dp_result(double(sp_in(m_r[i.b]))), 1); break;
+	case dasm::OP_SPDP: write_pair(d, dp_result(double(sp_in(m_core->r[i.b]))), 1); break;
 	case dasm::OP_RCPSP: case dasm::OP_RSQRSP:
 		{
-			float const x = sp_in(m_r[i.b]);
+			float const x = sp_in(m_core->r[i.b]);
 			float const r = (i.op == dasm::OP_RCPSP) ? (1.0f / x) : (1.0f / std::sqrt(x));
 			u32 v = sp_result(r);
 			if ((v & 0x7f80'0000) != 0x7f80'0000)
@@ -1987,13 +2049,13 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 				s.address = addr;
 				s.size = 1 << shift;
 				s.unaligned = (i.op == dasm::OP_STNW) || (i.op == dasm::OP_STNDW);
-				s.data = (shift == 3) ? pair(d) : m_r[d];
+				s.data = (shift == 3) ? pair(d) : m_core->r[d];
 			}
 		}
 		break;
 
 	default:
-		logerror("unimplemented %s at %08x\n", dasm::mnemonic(i.op), m_pc);
+		logerror("unimplemented %s at %08x\n", dasm::mnemonic(i.op), m_core->pc);
 		break;
 	}
 

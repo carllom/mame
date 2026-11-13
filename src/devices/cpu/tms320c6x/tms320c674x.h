@@ -7,6 +7,8 @@
 
 #include "tms320c6x_dasm.h"
 
+#include "cpu/drcuml.h"
+
 class tms320c674x_device : public cpu_device
 {
 public:
@@ -78,6 +80,11 @@ private:
 	static constexpr u32 MAX_EP = 8;      // instructions in one execute packet (SPRUFE8B 3.5)
 	static constexpr u32 LB_SIZE = 64;    // loop buffer instructions
 	static constexpr u32 BRANCH_SLOTS = 8;
+	static constexpr u32 MAX_DELAY = 9;   // MPYDP, MPYID
+
+	// recompiler
+	static constexpr size_t DRC_CACHE_SIZE = 64 * 1024 * 1024;
+	static constexpr u32 DRC_TEMPS = 512; // more than the results that can be in flight
 
 	struct store
 	{
@@ -92,14 +99,78 @@ private:
 		u32 pc;
 		u32 next;
 		u8 count;
-		u32 addr[MAX_EP];
+		u32 const *gen[2];  // write generations of the first and last code page
+		u32 gen_value[2];
 		u32 raw[MAX_EP];
 		u32 hdr[MAX_EP];
 		u32 pce1[MAX_EP];
 		insn ep[MAX_EP];
 	};
 
-	static constexpr u32 EP_CACHE_SIZE = 8192;
+	static constexpr u32 EP_CACHE_BITS = 13;
+	static constexpr u32 EP_CACHE_SIZE = 1U << EP_CACHE_BITS;
+
+	// writes are counted per code page to detect stale decoded code
+	static constexpr u32 CODE_PAGE_SHIFT = 8;
+	static constexpr u32 CODE_PAGES = 1U << (24 - CODE_PAGE_SHIFT); // per 16 MB region
+
+	struct internal_state
+	{
+		// register files
+		u32 pc = 0;
+		alignas(8) u32 r[64] = { };
+
+		// control register file
+		u32 amr = 0;
+		u32 csr = 0;
+		u32 ifr = 0;
+		u32 ier = 0;
+		u32 istp = 0;
+		u32 irp = 0;
+		u32 nrp = 0;
+
+		// C64x+ control register file extensions
+		u32 tsr = 0;
+		u32 itsr = 0;
+		u32 ntsr = 0;
+		u32 efr = 0;
+		u32 ierr = 0;
+		u32 ilc = 0;
+		u32 rilc = 0;
+		u32 rep = 0;
+		u32 ssr = 0;
+		u32 gfpgfr = 0;
+		u32 gplya = 0;
+		u32 gplyb = 0;
+
+		// C67x floating-point control register file extensions
+		u32 fadcr = 0;
+		u32 faucr = 0;
+		u32 fmcr = 0;
+
+		// pipeline
+		u64 cycle = 0;
+		u32 wb_total = 0;   // queued writes in all slots
+		u8 wb_reg[WB_SLOTS * WB_DEPTH] = { };
+		u32 wb_value[WB_SLOTS * WB_DEPTH] = { };
+		u8 wb_count[WB_SLOTS] = { };
+		u64 branch_when[BRANCH_SLOTS] = { };
+		u32 branch_target[BRANCH_SLOTS] = { };
+		u8 branches = 0;
+		u32 nop_cycles = 0;
+		bool idle = false;
+		u32 irq_poll = 0;   // something an interrupt depends on has changed
+
+		int icount = 0;
+
+		// recompiler
+		u64 drc_base = 0;   // cycle at the start of the block
+		u32 drc_btarget[BRANCH_SLOTS] = { };
+		u32 drc_arg0 = 0;
+		u32 drc_arg1 = 0;
+		u32 drc_tmp[DRC_TEMPS] = { };   // results waiting for the end of their delay slots
+		u32 drc_pred[DRC_TEMPS] = { };  // instruction conditions
+	};
 
 	struct lb_entry
 	{
@@ -117,22 +188,28 @@ private:
 	void step();
 	ep_cache_entry const &fetch_ep(u32 pc);
 	u32 decode_ep(u32 pc, ep_cache_entry &e);
+	static u32 ep_index(u32 pc);
+	static u32 code_region(u32 address);
+	u32 const *code_gen(u32 address);
+	void code_written(offs_t address);
+	void flush_ep_cache();
 	void execute(insn const &i, u32 pce1, u32 next_pc);
 	void tick();
 	bool condition(insn const &i) const;
 
 	// register access
-	u32 reg(u32 r) const { return m_r[r]; }
-	u32 src_a(insn const &i) const { return (i.flags & dasm::F_A_CST) ? u32(i.cst) : m_r[i.a]; }
-	u32 src_b(insn const &i) const { return (i.flags & dasm::F_B_CST) ? u32(i.cst) : m_r[i.b]; }
-	u64 pair(u32 r) const { return (u64(m_r[r | 1]) << 32) | m_r[r & ~1]; }
-	s64 long40(u32 r) const { return util::sext((u64(m_r[r | 1] & 0xff) << 32) | m_r[r & ~1], 40); }
-	u64 ulong40(u32 r) const { return (u64(m_r[r | 1] & 0xff) << 32) | m_r[r & ~1]; }
+	u32 reg(u32 r) const { return m_core->r[r]; }
+	u32 src_a(insn const &i) const { return (i.flags & dasm::F_A_CST) ? u32(i.cst) : m_core->r[i.a]; }
+	u32 src_b(insn const &i) const { return (i.flags & dasm::F_B_CST) ? u32(i.cst) : m_core->r[i.b]; }
+	u64 pair(u32 r) const { return (u64(m_core->r[r | 1]) << 32) | m_core->r[r & ~1]; }
+	s64 long40(u32 r) const { return util::sext((u64(m_core->r[r | 1] & 0xff) << 32) | m_core->r[r & ~1], 40); }
+	u64 ulong40(u32 r) const { return (u64(m_core->r[r | 1] & 0xff) << 32) | m_core->r[r & ~1]; }
 	void write(u32 r, u32 value, u32 delay = 0);
 	void write_pair(u32 r, u64 value, u32 delay = 0);
 	void write_long(u32 r, u64 value, u32 delay = 0) { write_pair(r, value & 0xff'ffff'ffffU, delay); }
+	void commit_writes(u32 slot);
 	void flush_writes();
-	void set_sat() { m_csr |= 1U << 9; }
+	void set_sat() { m_core->csr |= 1U << 9; }
 
 	// control registers
 	u32 read_control(u32 crlo, u32 pce1);
@@ -140,6 +217,7 @@ private:
 
 	// memory
 	u32 address(insn const &i, u32 shift);
+	u32 address(insn const &i, u32 shift, u32 &base);
 	u64 load(insn const &i, u32 addr);
 
 	// branches and interrupts
@@ -160,6 +238,54 @@ private:
 	static u32 unit_mask(u8 unit);
 	static u32 insn_nops(insn const &i);
 
+	// recompiler
+	struct drc_funcs;
+	struct drc_pending;
+	struct drc_flight;
+	struct drc_exit;
+	struct drc_call;
+	struct drc_address_call;
+	struct drc_drain;
+	struct drc_pending_store;
+	struct drc_packet;
+	struct drc_compiler;
+
+	void execute_run_drc();
+	bool drc_clean() const;
+	void drc_flush_cache();
+	void drc_generate_invariant();
+	void drc_find_fast_ram();
+	void drc_generate_accessors();
+	void drc_accessor(drcuml_block &block, uml::code_label &label, uml::code_handle &handle, u32 bytes, bool write, bool unaligned);
+	void drc_compile_block(u32 pc);
+	bool drc_compilable(ep_cache_entry const &e, drc_compiler const &c) const;
+	void drc_boundary(drcuml_block &block, drc_compiler &c, u32 cycle);
+	void drc_commit(drcuml_block &block, drc_compiler &c, u32 cycle);
+	drc_exit *drc_make_exit(drcuml_block &block, drc_compiler &c, u32 boundary, u32 next_pc, u32 nop_cycles, s32 icount_adjust);
+	uml::code_label drc_exit_stub(drcuml_block &block, drc_compiler &c, drc_exit *exit, int code);
+	void drc_irq_check(drcuml_block &block, drc_compiler &c, u32 pc);
+	void drc_count_cycles(drcuml_block &block, drc_compiler &c, u32 cycles, u32 boundary, u32 next_pc, u32 nop_cycles, s32 icount_adjust);
+	void drc_test_branches(drcuml_block &block, drc_compiler &c, uml::code_label taken);
+	void drc_block_end(drcuml_block &block, drc_compiler &c, u32 boundary, uml::parameter target);
+	void drc_packet_body(drcuml_block &block, drc_compiler &c, ep_cache_entry const &e);
+	bool drc_insn(drcuml_block &block, drc_compiler &c, drc_packet &p, insn const &i, u32 pce1, u32 next_pc);
+	void drc_fallback(drcuml_block &block, drc_compiler &c, insn const &i, u32 pce1, u32 next_pc, u32 pc);
+	uml::parameter drc_dest(drcuml_block &block, drc_compiler &c, drc_packet &p, u32 r, u32 delay);
+	uml::parameter drc_reg(u32 r) const;
+	uml::parameter drc_src_a(insn const &i) const;
+	uml::parameter drc_src_b(insn const &i) const;
+	void drc_dest_pair(drcuml_block &block, drc_compiler &c, drc_packet &p, u32 r, u32 delay, uml::parameter value);
+	void drc_sp_in(drcuml_block &block, uml::parameter dst, uml::parameter src);
+	void drc_sp_out(drcuml_block &block, uml::parameter value);
+	void drc_dp_in(drcuml_block &block, uml::parameter dst, u32 r);
+	void drc_dp_out(drcuml_block &block, uml::parameter value);
+	void drc_address(drcuml_block &block, drc_compiler &c, drc_packet &p, insn const &i, u32 shift);
+	void drc_load(drcuml_block &block, drc_compiler &c, drc_packet &p, insn const &i);
+	void drc_store(drcuml_block &block, drc_compiler &c, drc_packet &p, insn const &i);
+	void drc_branch(drcuml_block &block, drc_compiler &c, drc_packet &p, insn const &i, u32 next_pc);
+	static u32 drc_ep_nops(insn const &i);
+	static u64 drc_reads(insn const &i);
+
 	// floating point
 	u32 sp_result(float value);
 	u64 dp_result(double value);
@@ -173,55 +299,47 @@ private:
 	u32 const m_istp_reset;
 	u8 const m_revision;
 
-	// register files
-	u32 m_pc;
-	u32 m_r[64];
+	// state shared by the interpreter and the recompiler, in the recompiler's near cache when it's enabled
+	internal_state *m_core;
+	internal_state m_local_core;
 
-	// control register file
-	u32 m_amr;
-	u32 m_csr;
-	u32 m_ifr;
-	u32 m_ier;
-	u32 m_istp;
-	u32 m_irp;
-	u32 m_nrp;
-
-	// C64x+ control register file extensions
-	u32 m_tsr;
-	u32 m_itsr;
-	u32 m_ntsr;
-	u32 m_efr;
-	u32 m_ierr;
-	u32 m_ilc;
-	u32 m_rilc;
-	u32 m_rep;
-	u32 m_ssr;
-	u32 m_gfpgfr;
-	u32 m_gplya;
-	u32 m_gplyb;
+	// C64x+ time stamp counter
 	u64 m_tsc_start;
 	u32 m_tsch;
 	bool m_tsc_running;
 
-	// C67x floating-point control register file extensions
-	u32 m_fadcr;
-	u32 m_faucr;
-	u32 m_fmcr;
-
-	// pipeline
-	u64 m_cycle;
-	u8 m_wb_reg[WB_SLOTS * WB_DEPTH];
-	u32 m_wb_value[WB_SLOTS * WB_DEPTH];
-	u8 m_wb_count[WB_SLOTS];
-	u64 m_branch_when[BRANCH_SLOTS];
-	u32 m_branch_target[BRANCH_SLOTS];
-	u8 m_branches;
-	u32 m_nop_cycles;
-	bool m_idle;
 	u16 m_int_lines;
 
-	// decoded execute packets, checked against memory before use
+	// recompiler
+	bool m_enable_drc;
+	std::unique_ptr<drcuml_state> m_drcuml;
+	uml::code_handle *m_entry;
+	uml::code_handle *m_nocode;
+	uml::code_handle *m_read8;
+	uml::code_handle *m_read16;
+	uml::code_handle *m_read32;
+	uml::code_handle *m_read32u;
+	uml::code_handle *m_write8;
+	uml::code_handle *m_write16;
+	uml::code_handle *m_write32;
+	uml::code_handle *m_write32u;
+	bool m_drc_map_changed;
+
+	// memory the recompiled code accesses directly
+	struct fast_ram
+	{
+		u32 start;
+		u32 size;
+		u8 *base;
+		bool writable;
+		u32 *gen;      // code page write generations for its region
+	};
+	std::vector<fast_ram> m_fast_ram;
+
+	// decoded execute packets, checked against the code page write generations before use
 	std::unique_ptr<ep_cache_entry []> m_ep_cache;
+	std::unique_ptr<u32 []> m_code_gen[256]; // allocated for a region when code is first decoded there
+	memory_passthrough_handler m_code_tap;
 
 	// current execute packet
 	store m_stores[MAX_EP * 2];
@@ -264,7 +382,6 @@ private:
 	u8 m_lb_old_lbc;
 	u8 m_lb_old_drain;
 
-	int m_icount;
 };
 
 #endif // MAME_CPU_TMS320C6X_TMS320C674X_H
