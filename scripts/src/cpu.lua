@@ -3070,6 +3070,7 @@ if CPUS["TMS320C6X"] then
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c674x.cpp",
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c674x.h",
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c674xdrc.cpp",
+		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c674xlb.ipp",
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745.cpp",
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745.h",
 		MAME_DIR .. "src/devices/cpu/tms320c6x/tms320c6745_psc.cpp",

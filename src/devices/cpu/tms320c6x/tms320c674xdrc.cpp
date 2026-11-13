@@ -17,9 +17,13 @@
     the CPU runs out of cycles or an interrupt might have to be taken.
     The recompiler therefore runs everything at the same cycle as the
     interpreter, and can hand over to it at any packet. The interpreter
-    runs what isn't compiled: the loop buffer, IDLE, a branch issued while
-    another one is in flight, and an execute packet the CPU was in the
-    middle of when its time slice ended.
+    runs what isn't compiled: IDLE, more branches in flight than it keeps
+    track of, the rest of an execute packet the CPU was in the middle of
+    when its time slice ended, and the rest of a software pipelined loop
+    the recompiled code left (for an interrupt, for example).
+
+    SPLOOP loops are compiled a cycle at a time with the interpreter's own
+    loop buffer code; see SOFTWARE PIPELINED LOOPS below.
 
     Instructions without generated code are run by calling the
     interpreter. Their results go to the write queue.
@@ -28,10 +32,14 @@
 
 #include "emu.h"
 #include "tms320c674x.h"
+#include "tms320c674xlb.ipp"
 
 #include "cpu/drcumlsh.h"
 
 #include <algorithm>
+#include <bitset>
+#include <map>
+#include <string>
 
 
 namespace {
@@ -91,6 +99,16 @@ struct tms320c674x_device::drc_exit
 	drc_pending const *pending;
 	u32 branch_count;
 	drc_flight const *branches;
+	drc_lb_snapshot const *lb;  // loop buffer, if it's active
+};
+
+// the loop buffer for the interpreter when leaving a loop
+struct tms320c674x_device::drc_lb_snapshot
+{
+	loop_buffer_state state;
+	lb_entry const *entries;    // without the valid flags
+	u64 valid;
+	u64 old_valid;
 };
 
 // an instruction run by the interpreter
@@ -161,10 +179,49 @@ struct tms320c674x_device::drc_compiler
 	std::vector<stub> stubs;
 	std::vector<std::pair<u32 const *, u32> > pages;
 
+	// a loop's code runs more than once, so temporaries in use are allocated by what's live
+	bool live = false;
+	bool full = false;
+	u32 estimate = 0;       // more than the UML instructions generated so far
+	std::map<std::string, lb_entry const *> layouts;
+
+	void live_reset()
+	{
+		m_used_tmp.reset();
+		m_used_pred.reset();
+		m_used_slot = 0;
+		for (drc_pending const &p : pending)
+		{
+			m_used_tmp.set(p.tmp);
+			if (p.pred >= 0)
+				m_used_pred.set(p.pred);
+		}
+		for (drc_flight const &b : branches)
+		{
+			if (b.pred >= 0)
+				m_used_pred.set(b.pred);
+			if (b.dynamic)
+				m_used_slot |= 1U << b.slot;
+		}
+	}
+
 	uml::code_label label() { return m_next_label++; }
 
 	u8 slot()
 	{
+		if (live)
+		{
+			for (u8 n = 0; n < BRANCH_SLOTS; n++)
+			{
+				if (!BIT(m_used_slot, n))
+				{
+					m_used_slot |= 1U << n;
+					return n;
+				}
+			}
+			full = true;
+			return 0;
+		}
 		u8 const result = m_next_slot;
 		m_next_slot = (m_next_slot + 1) % BRANCH_SLOTS;
 		return result;
@@ -177,6 +234,8 @@ struct tms320c674x_device::drc_compiler
 
 	u16 tmp()
 	{
+		if (live)
+			return u16(allocate(m_used_tmp));
 		u16 const result = m_next_tmp;
 		m_next_tmp = (m_next_tmp + 1) % DRC_TEMPS;
 		return result;
@@ -184,6 +243,8 @@ struct tms320c674x_device::drc_compiler
 
 	s16 pred()
 	{
+		if (live)
+			return s16(allocate(m_used_pred));
 		s16 const result = m_next_pred;
 		m_next_pred = (m_next_pred + 1) % DRC_TEMPS;
 		return result;
@@ -207,10 +268,27 @@ struct tms320c674x_device::drc_compiler
 	}
 
 private:
+	u32 allocate(std::bitset<DRC_TEMPS> &used)
+	{
+		for (u32 n = 0; n < DRC_TEMPS; n++)
+		{
+			if (!used[n])
+			{
+				used.set(n);
+				return n;
+			}
+		}
+		full = true;
+		return 0;
+	}
+
 	uml::code_label m_next_label = 1;
 	u8 m_next_slot = 0;
 	u16 m_next_tmp = 0;
 	s16 m_next_pred = 0;
+	std::bitset<DRC_TEMPS> m_used_tmp;
+	std::bitset<DRC_TEMPS> m_used_pred;
+	u32 m_used_slot = 0;
 };
 
 
@@ -294,6 +372,20 @@ struct tms320c674x_device::drc_funcs
 				core.branches++;
 			}
 		}
+
+		if (e.lb)
+		{
+			loop_buffer &lb = cpu.m_lb;
+			static_cast<loop_buffer_state &>(lb) = e.lb->state;
+			lb.cond_history = u8(core.drc_lb_hist);
+			for (u32 n = 0; n < lb.count; n++)
+			{
+				lb.entry[n] = e.lb->entries[n];
+				lb.entry[n].valid = BIT(e.lb->valid, n);
+				lb.entry[n].old_valid = BIT(e.lb->old_valid, n);
+			}
+			cpu.lb_decode(lb);
+		}
 	}
 
 	static void poll_irq(tms320c674x_device &cpu)
@@ -331,7 +423,7 @@ struct tms320c674x_device::drc_funcs
 bool tms320c674x_device::drc_clean() const
 {
 	// recompiled code starts at an execute packet with no branch in flight
-	return !m_core->idle && !m_core->nop_cycles && !m_core->branches && !m_lb_active;
+	return !m_core->idle && !m_core->nop_cycles && !m_core->branches && !m_lb.active;
 }
 
 void tms320c674x_device::execute_run_drc()
@@ -574,8 +666,26 @@ bool tms320c674x_device::drc_compilable(ep_cache_entry const &e, drc_compiler co
 	return (branches <= 1) && (!branches || (c.branches.size() < (BRANCH_SLOTS - 2)));
 }
 
+bool tms320c674x_device::drc_has_sploop(ep_cache_entry const &e)
+{
+	for (u32 n = 0; n < e.count; n++)
+	{
+		if ((e.ep[n].op == dasm::OP_SPLOOP) || (e.ep[n].op == dasm::OP_SPLOOPD) || (e.ep[n].op == dasm::OP_SPLOOPW))
+			return true;
+	}
+	return false;
+}
+
 void tms320c674x_device::drc_compile_block(u32 pc)
 {
+	// a software pipelined loop is compiled from its SPLOOP execute packet
+	{
+		ep_cache_entry e;
+		decode_ep(pc, e);
+		if (drc_has_sploop(e) && drc_compile_sploop(pc))
+			return;
+	}
+
 	auto profile = g_profiler.start(PROFILER_DRC_COMPILE);
 
 	for (;;)
@@ -610,6 +720,12 @@ void tms320c674x_device::drc_compile_block(u32 pc)
 					c.irq_dirty = false;
 				}
 
+				if (count && c.branches.empty() && drc_has_sploop(e))
+				{
+					// the loop has a block of its own
+					drc_block_end(block, c, c.cycle, fetch);
+					break;
+				}
 				if (!drc_compilable(e, c))
 				{
 					// the interpreter runs this execute packet
@@ -800,6 +916,7 @@ tms320c674x_device::drc_exit *tms320c674x_device::drc_make_exit(drcuml_block &bl
 
 	e->branch_count = 0;
 	e->branches = nullptr;
+	e->lb = nullptr;
 	if (!c.branches.empty())
 	{
 		drc_flight *const branches = m_drcuml->cache_alloc_transient<drc_flight []>(c.branches.size());
@@ -880,6 +997,773 @@ void tms320c674x_device::drc_block_end(drcuml_block &block, drc_compiler &c, u32
 		UML_DADD(block, uml::mem(&m_core->cycle), uml::mem(&m_core->drc_base), boundary);
 	}
 	UML_HASHJMP(block, 0, target, *m_nocode);
+}
+
+
+//**************************************************************************
+//  SOFTWARE PIPELINED LOOPS
+//**************************************************************************
+
+/*
+    A loop is compiled a cycle at a time by running the interpreter's
+    loop buffer code on a copy of the loop buffer. Each cycle is a node;
+    where the loop buffer depends on a run-time value (ILC, the SPLOOP
+    condition, a branch's condition) the generated code tests it and
+    continues with the node for each outcome. A cycle in the same state
+    as an earlier one jumps to its code, so the kernel and an outer
+    reload loop become loops in the generated code. Rare events (an
+    interrupt, resuming an interrupted loop, RILC 0) leave before the
+    cycle, and the interpreter carries on from the same state.
+*/
+
+namespace {
+
+constexpr u32 MAX_LOOP_NODES = 20000;
+constexpr u32 LOOP_BLOCK_SIZE = 262144;
+
+// what the loop buffer changes elsewhere in a cycle
+enum : u8
+{
+	LB_ILC_DEC,
+	LB_ILC_FROM_RILC,
+	LB_COND_RESET,
+	LB_COND_SHIFT,
+	LB_SPLX_SET,
+	LB_SPLX_CLEAR
+};
+
+} // anonymous namespace
+
+// a run-time value the loop buffer depends on
+struct tms320c674x_device::drc_lb_decision
+{
+	enum : u8 { ILC_ZERO, COND, BRANCH };
+
+	u8 kind;
+	bool from_rilc;     // ILC_ZERO: ILC was loaded from RILC this cycle
+	u8 sub;             // ILC_ZERO: decrements this cycle before the test; COND: history bit
+	u8 shifts;          // COND: condition shifts this cycle before the test
+	s16 pred;           // BRANCH: the branch's condition
+
+	bool operator==(drc_lb_decision const &d) const
+	{
+		return (kind == d.kind) && (from_rilc == d.from_rilc) && (sub == d.sub) && (shifts == d.shifts) && (pred == d.pred);
+	}
+};
+
+// a reason to let the interpreter run the cycle
+struct tms320c674x_device::drc_lb_check
+{
+	enum : u8 { SPLX, RILC_ZERO, INTERRUPT };
+
+	u8 kind;
+	bool check_ilc;     // INTERRUPT: only with ILC at least the threshold
+	bool from_rilc;
+	u8 sub;
+	u32 threshold;
+
+	bool operator==(drc_lb_check const &c) const
+	{
+		return (kind == c.kind) && (check_ilc == c.check_ilc) && (from_rilc == c.from_rilc) && (sub == c.sub) && (threshold == c.threshold);
+	}
+};
+
+// the loop buffer's environment while compiling: decisions come from a list, everything else is recorded
+struct tms320c674x_device::drc_lb_env
+{
+	std::vector<bool> const &answers;
+	std::vector<drc_lb_decision> decisions;
+	std::vector<drc_lb_check> checks;
+	std::vector<u8> actions;
+	bool from_rilc = false;
+	u8 sub = 0;
+	u8 shifts = 0;
+	bool reset = false;
+	bool failed = false;
+
+	drc_lb_env(std::vector<bool> const &a) : answers(a) { }
+
+	template <typename... Params> void log(Params &&... args) { }
+	template <typename... Params> void error(Params &&... args) { failed = true; }
+	u32 ilc() const { return 0; }
+
+	bool ask(drc_lb_decision const &d)
+	{
+		size_t const n = decisions.size();
+		decisions.push_back(d);
+		return (n < answers.size()) && answers[n];
+	}
+
+	bool splx() { checks.push_back(drc_lb_check{ drc_lb_check::SPLX, false, false, 0, 0 }); return false; }
+	void set_splx(bool state) { actions.push_back(state ? LB_SPLX_SET : LB_SPLX_CLEAR); }
+	bool ilc_zero() { return ask(drc_lb_decision{ drc_lb_decision::ILC_ZERO, from_rilc, sub, 0, -1 }); }
+	void ilc_decrement() { actions.push_back(LB_ILC_DEC); sub++; }
+	bool rilc_zero() { checks.push_back(drc_lb_check{ drc_lb_check::RILC_ZERO, false, false, 0, 0 }); return false; }
+	void ilc_from_rilc() { actions.push_back(LB_ILC_FROM_RILC); from_rilc = true; sub = 0; }
+
+	void cond_reset(loop_buffer &lb) { actions.push_back(LB_COND_RESET); reset = true; }
+	void cond_shift(loop_buffer &lb) { actions.push_back(LB_COND_SHIFT); shifts++; failed = failed || (shifts > 1); }
+	bool cond_bit(loop_buffer const &lb, u32 bit)
+	{
+		failed = failed || reset;
+		return ask(drc_lb_decision{ drc_lb_decision::COND, false, u8(bit), shifts, -1 });
+	}
+
+	bool interrupt_takeable(bool check_ilc, u32 threshold)
+	{
+		checks.push_back(drc_lb_check{ drc_lb_check::INTERRUPT, check_ilc, from_rilc, sub, threshold });
+		return false;
+	}
+	void take_pending_interrupt(u32 address) { failed = true; }
+};
+
+// the state at the start of a cycle in a loop
+struct tms320c674x_device::drc_lb_state
+{
+	loop_buffer lb;
+	u32 pc = 0;
+	s16 pc_slot = -1;       // the PC is a branch target in drc_btarget
+	u32 nop_cycles = 0;
+	std::vector<drc_pending> pending;   // block cycles relative to this one
+	std::vector<drc_flight> branches;
+
+	bool clean() const { return !lb.active && !nop_cycles && branches.empty(); }
+
+	std::string key() const
+	{
+		// everything that decides what happens next; the condition history and ILC are in the CPU
+		std::string k;
+		auto const put = [&k] (auto const &v) { k.append(reinterpret_cast<char const *>(&v), sizeof(v)); };
+		loop_buffer_state s = lb;
+		s.cond_history = 0;
+		s.cycles = std::min<u32>(s.cycles, 4); // only the first cycles matter
+		put(s.count); put(s.active); put(s.loading); put(s.draining); put(s.fetch); put(s.kind); put(s.ii); put(s.lbc);
+		put(s.loadcnt); put(s.dynlen); put(s.drain); put(s.delay); put(s.stgcyc); put(s.cycles); put(s.kernel); put(s.initial_term);
+		put(s.creg); put(s.z); put(s.address); put(s.int_drain); put(s.restart); put(s.kernelr); put(s.reload_pending);
+		put(s.reload_start); put(s.reload_branch); put(s.reloading); put(s.reloadcnt); put(s.old_active); put(s.old_lbc); put(s.old_drain);
+		for (u32 n = 0; n < lb.count; n++)
+		{
+			lb_entry const &e = lb.entry[n];
+			put(e.opcode); put(e.header); put(e.pce1); put(e.size); put(e.slot); put(e.loadcnt); put(e.valid); put(e.old_valid);
+		}
+		put(pc);
+		put(nop_cycles);
+
+		// conditions shared by several results or branches must stay shared
+		std::vector<s16> preds;
+		auto const pred = [&preds] (s16 p) -> s16
+		{
+			if (p < 0)
+				return -1;
+			auto const it = std::find(preds.begin(), preds.end(), p);
+			if (it != preds.end())
+				return s16(it - preds.begin());
+			preds.push_back(p);
+			return s16(preds.size() - 1);
+		};
+		put(u32(pending.size()));
+		for (drc_pending const &p : pending)
+		{
+			put(p.reg); put(p.cycle); put(pred(p.pred));
+		}
+		put(u32(branches.size()));
+		for (drc_flight const &b : branches)
+		{
+			put(b.dynamic); put(b.target); put(b.landing); put(pred(b.pred));
+		}
+		return k;
+	}
+};
+
+// what a cycle runs, the same whatever the loop buffer decides
+struct tms320c674x_device::drc_lb_plan
+{
+	bool fetched = false;
+	bool splx_clear = false;    // TSR.SPLX clears unless a branch is in flight
+	u32 next = 0;               // the execute packet's next PC
+	std::vector<insn> insns;
+	std::vector<u32> pce1;
+};
+
+// the cycles of a loop compiled so far
+struct tms320c674x_device::drc_lb_graph
+{
+	struct node
+	{
+		uml::code_label label;
+		drc_lb_state state;
+	};
+
+	std::vector<node> nodes;
+	std::map<std::string, u32> index;
+	std::vector<u32> work;
+};
+
+void tms320c674x_device::drc_lb_cycle(drc_lb_state const &s, drc_lb_env &env, drc_lb_state &next, drc_lb_plan &plan, std::vector<u32> &landed, drc_compiler &c)
+{
+	// one cycle of step() with the loop buffer active
+	next.lb = s.lb;
+	next.pc = s.pc;
+	next.pc_slot = -1;
+	next.nop_cycles = s.nop_cycles;
+	loop_buffer &lb = next.lb;
+
+	if (lb.reload_start)
+		sploop_reload(lb, env);
+
+	ep_cache_entry e;
+	e.count = 0;
+	u32 nextpc = s.pc;
+	if (next.nop_cycles)
+	{
+		next.nop_cycles--;
+	}
+	else if (!lb.active || lb.fetch)
+	{
+		decode_ep(s.pc, e);
+		c.add_page(e.gen[0], e.gen_value[0]);
+		c.add_page(e.gen[1], e.gen_value[1]);
+		nextpc = e.next;
+		plan.fetched = true;
+	}
+
+	u32 mask;
+	bool kernel, restart;
+	lb_packet(lb, env, e.ep, e.count, mask, kernel, restart);
+
+	bool const lb_was_active = lb.active;
+	bool const loading = lb.active && lb.loading;
+	bool const resuming = loading && lb.restart;
+	u8 exec[LB_SIZE];
+	u32 const lb_count = lb.active ? lb_select(lb, mask, resuming, exec) : 0;
+
+	u32 nops = 0;
+	bool ep_sploop = false;
+	for (u32 n = 0; n < e.count; n++)
+	{
+		insn const &i = e.ep[n];
+		int const action = lb_pm_action(lb, i, mask, restart, loading, resuming);
+		if (action == PM_SKIP)
+			continue;
+		if (action == PM_SKIP_NOPS)
+		{
+			nops = std::max(nops, insn_nops(i));
+			continue;
+		}
+		switch (i.op)
+		{
+		case dasm::OP_SPLOOP: case dasm::OP_SPLOOPD: case dasm::OP_SPLOOPW:
+			sploop_start(lb, env, i, s.pc);
+			ep_sploop = true;
+			break;
+		case dasm::OP_SPMASK: case dasm::OP_SPMASKR: case dasm::OP_SPKERNEL: case dasm::OP_SPKERNELR: case dasm::OP_NOP:
+			break;
+		default:
+			plan.insns.push_back(i);
+			plan.pce1.push_back(e.pce1[n]);
+			break;
+		}
+		nops = std::max(nops, drc_ep_nops(i));
+	}
+	for (u32 n = 0; n < lb_count; n++)
+	{
+		plan.insns.push_back(lb.decoded[exec[n]]);
+		plan.pce1.push_back(lb.entry[exec[n]].pce1);
+	}
+
+	if (loading && plan.fetched && !ep_sploop)
+		sploop_load(lb, env, e.ep, e.raw, e.hdr, e.pce1, e.count, mask, s.pc);
+
+	plan.next = nextpc;
+	if (plan.fetched)
+	{
+		plan.splx_clear = !lb.active && !restart;
+		next.pc = nextpc;
+		next.nop_cycles = nops;
+	}
+
+	if (lb_was_active && lb.active)
+		lb_end_packet(lb, env, kernel);
+
+	// branches taking effect at the end of the cycle
+	for (u32 n = 0; n < s.branches.size(); n++)
+	{
+		drc_flight const &b = s.branches[n];
+		if (b.landing != 1)
+			continue;
+		if ((b.pred >= 0) && !env.ask(drc_lb_decision{ drc_lb_decision::BRANCH, false, 0, 0, b.pred }))
+			continue;
+		landed.push_back(n);
+		next.pc = b.target;
+		next.pc_slot = b.dynamic ? b.slot : -1;
+		next.nop_cycles = 0;
+		if (lb.active)
+			lb_branch_landed(lb, env);
+	}
+}
+
+tms320c674x_device::drc_exit *tms320c674x_device::drc_lb_exit(drcuml_block &block, drc_compiler &c, drc_lb_state const &s, std::vector<drc_flight> const &branches)
+{
+	// the state at the start of a cycle, for the interpreter
+	std::vector<drc_pending> const pending = std::exchange(c.pending, s.pending);
+	std::vector<drc_flight> const flights = std::exchange(c.branches, branches);
+	drc_exit *const exit = drc_make_exit(block, c, 0, s.pc, s.nop_cycles, 0);
+	c.pending = pending;
+	c.branches = flights;
+	exit->drain_from = 0;
+
+	if (s.lb.active)
+	{
+		std::string layout(reinterpret_cast<char const *>(s.lb.entry), sizeof(lb_entry) * s.lb.count);
+		auto it = c.layouts.find(layout);
+		if (it == c.layouts.end())
+		{
+			lb_entry *const entries = m_drcuml->cache_alloc_transient<lb_entry []>(std::max<u32>(s.lb.count, 1));
+			if (!entries)
+				block.abort();
+			std::copy_n(s.lb.entry, s.lb.count, entries);
+			it = c.layouts.emplace(std::move(layout), entries).first;
+		}
+
+		drc_lb_snapshot *const snapshot = m_drcuml->cache_alloc_transient<drc_lb_snapshot>();
+		if (!snapshot)
+			block.abort();
+		snapshot->state = s.lb;
+		snapshot->entries = it->second;
+		snapshot->valid = 0;
+		snapshot->old_valid = 0;
+		for (u32 n = 0; n < s.lb.count; n++)
+		{
+			snapshot->valid |= u64(s.lb.entry[n].valid ? 1 : 0) << n;
+			snapshot->old_valid |= u64(s.lb.entry[n].old_valid ? 1 : 0) << n;
+		}
+		exit->lb = snapshot;
+	}
+	return exit;
+}
+
+bool tms320c674x_device::drc_compile_sploop(u32 pc)
+{
+	auto profile = g_profiler.start(PROFILER_DRC_COMPILE);
+
+	for (;;)
+	{
+		bool failed = false;
+		try
+		{
+			drc_compiler c;
+			c.live = true;
+			drcuml_block &block(m_drcuml->begin_block(LOOP_BLOCK_SIZE));
+			uml::code_label const check = c.label();
+			uml::code_label const body = c.label();
+			uml::code_label const recompile = c.label();
+
+			UML_HASH(block, 0, pc);
+			UML_JMP(block, check);
+			UML_LABEL(block, body);
+			UML_DMOV(block, uml::mem(&m_core->drc_base), uml::mem(&m_core->cycle));
+
+			// interrupts are taken before the SPLOOP execute packet, as at the start of any block
+			drc_irq_check(block, c, pc);
+
+			drc_lb_graph g;
+			drc_lb_state start;
+			start.pc = pc;
+			g.nodes.push_back(drc_lb_graph::node{ c.label(), start });
+			g.work.push_back(0);
+			while (!g.work.empty())
+			{
+				if ((g.nodes.size() > MAX_LOOP_NODES) || (c.estimate > (LOOP_BLOCK_SIZE - (LOOP_BLOCK_SIZE / 16) - (c.pages.size() * 3))))
+					failed = true;
+				else
+				{
+					u32 const n = g.work.front();
+					g.work.erase(g.work.begin());
+					failed = !drc_lb_node(block, c, g, n);
+				}
+				if (failed)
+					block.abort();
+			}
+
+			// leaving the loop
+			for (drc_compiler::stub const &s : c.stubs)
+			{
+				UML_LABEL(block, s.label);
+				if (s.irq)
+				{
+					UML_CALLC(block, &drc_funcs::poll_irq, this);
+					UML_CMP(block, uml::mem(&m_core->drc_arg0), 0);
+					UML_JMPc(block, uml::COND_E, s.resume);
+				}
+				UML_CALLC(block, &drc_funcs::leave, s.exit);
+				UML_EXIT(block, s.code);
+			}
+
+			// recompile if the code was written
+			UML_LABEL(block, check);
+			for (auto const &page : c.pages)
+			{
+				UML_LOAD(block, uml::I0, page.first, 0, uml::SIZE_DWORD, uml::SCALE_x4);
+				UML_CMP(block, uml::I0, page.second);
+				UML_JMPc(block, uml::COND_NE, recompile);
+			}
+			UML_JMP(block, body);
+			UML_LABEL(block, recompile);
+			UML_MOV(block, uml::mem(&m_core->pc), pc);
+			UML_EXIT(block, EXECUTE_MISSING_CODE);
+
+			block.end();
+			return true;
+		}
+		catch (drcuml_block::abort_compilation &)
+		{
+			// a loop that can't be compiled is left to the interpreter
+			if (failed)
+				return false;
+			drc_flush_cache();
+		}
+	}
+}
+
+bool tms320c674x_device::drc_lb_node(drcuml_block &block, drc_compiler &c, drc_lb_graph &g, u32 index)
+{
+	using namespace uml;
+
+	drc_lb_state const s = g.nodes[index].state;
+	UML_LABEL(block, g.nodes[index].label);
+	c.pending = s.pending;
+	c.branches = s.branches;
+	c.cycle = 0;
+	c.live_reset();
+	c.estimate += 50 + (3 * c.pending.size());
+	// out of cycles, or the interpreter has to run this cycle
+	drc_exit *const exit = drc_lb_exit(block, c, s, s.branches);
+	code_label const out = drc_exit_stub(block, c, exit, EXECUTE_OUT_OF_CYCLES);
+	code_label const leave = drc_exit_stub(block, c, exit, EXECUTE_INTERPRET);
+	UML_CMP(block, mem(&m_core->icount), 0);
+	UML_JMPc(block, COND_LE, out);
+
+	// every outcome of what the loop buffer depends on
+	struct leaf
+	{
+		std::vector<bool> answers;
+		std::vector<drc_lb_decision> decisions;
+		std::vector<drc_lb_check> checks;
+		std::vector<u8> actions;
+		drc_lb_state next;
+		std::vector<u32> landed;
+	};
+	std::vector<leaf> leaves;
+	drc_lb_plan plan;
+	std::vector<bool> answers;
+	for (;;)
+	{
+		drc_lb_env env(answers);
+		leaf l;
+		drc_lb_plan p;
+		drc_lb_cycle(s, env, l.next, p, l.landed, c);
+		if (env.failed)
+			return false;
+		if (leaves.empty())
+			plan = p;
+		else if ((p.insns.size() != plan.insns.size()) || (p.fetched != plan.fetched) || (p.splx_clear != plan.splx_clear) || (p.pce1 != plan.pce1))
+			return false; // the instructions don't depend on the outcome
+		l.answers = answers;
+		l.answers.resize(env.decisions.size(), false);
+		l.decisions = std::move(env.decisions);
+		l.checks = std::move(env.checks);
+		l.actions = std::move(env.actions);
+		leaves.push_back(std::move(l));
+
+		// the next combination of outcomes
+		std::vector<bool> const &last = leaves.back().answers;
+		size_t n = last.size();
+		while (n && last[n - 1])
+			n--;
+		if (!n)
+			break;
+		answers.assign(last.begin(), last.begin() + n);
+		answers.back() = true;
+	}
+
+	for (insn const &i : plan.insns)
+	{
+		// the generated code changes ILC and TSR after the instructions
+		if ((i.op == dasm::OP_MVC_FROM) && ((i.cst == 0x0d) || (i.cst == 0x0e) || (i.cst == 0x1a)))
+			return false;
+		if ((i.op == dasm::OP_IDLE) || (i.op == dasm::OP_B_IRP) || (i.op == dasm::OP_B_NRP) || (i.op == dasm::OP_INVALID) || (i.op == dasm::OP_SWE) || (i.op == dasm::OP_SWENR))
+			return false;
+	}
+
+	// queued writes due now
+	drc_drain *const d = m_drcuml->cache_alloc_transient<drc_drain>();
+	if (!d)
+		block.abort();
+	d->cpu = this;
+	d->from = 0;
+	d->to = 0;
+	code_label const drained = c.label();
+	UML_CMP(block, mem(&m_core->wb_total), 0);
+	UML_JMPc(block, COND_E, drained);
+	UML_CALLC(block, &drc_funcs::drain, d);
+	UML_LABEL(block, drained);
+	drc_commit(block, c, 0);
+
+	// leave if the interpreter has to run this cycle
+	std::vector<drc_lb_check> checks;
+	for (leaf const &l : leaves)
+	{
+		for (drc_lb_check const &k : l.checks)
+		{
+			if (std::find(checks.begin(), checks.end(), k) == checks.end())
+				checks.push_back(k);
+		}
+	}
+	for (drc_lb_check const &k : checks)
+	{
+		switch (k.kind)
+		{
+		case drc_lb_check::SPLX:
+			UML_TEST(block, mem(&m_core->tsr), TSR_SPLX);
+			UML_JMPc(block, COND_NZ, leave);
+			break;
+		case drc_lb_check::RILC_ZERO:
+			UML_CMP(block, mem(&m_core->rilc), 0);
+			UML_JMPc(block, COND_E, leave);
+			break;
+		case drc_lb_check::INTERRUPT:
+			{
+				code_label const skip = c.label();
+				UML_CMP(block, mem(&m_core->irq_poll), 0);
+				UML_JMPc(block, COND_E, skip);
+				if (k.check_ilc)
+				{
+					UML_SUB(block, I0, mem(k.from_rilc ? &m_core->rilc : &m_core->ilc), k.sub + (k.from_rilc ? 1 : 0));
+					UML_CMP(block, I0, k.threshold);
+					UML_JMPc(block, COND_B, skip);
+				}
+				UML_CALLC(block, &drc_funcs::poll_irq, this);
+				UML_CMP(block, mem(&m_core->drc_arg0), 0);
+				UML_JMPc(block, COND_NE, leave);
+				UML_LABEL(block, skip);
+			}
+			break;
+		}
+	}
+
+	// the values decided on, read before the instructions write
+	bool const shifts = std::any_of(leaves.begin(), leaves.end(), [] (leaf const &l) { return std::find(l.actions.begin(), l.actions.end(), LB_COND_SHIFT) != l.actions.end(); });
+	s16 cond_now = -1;
+	if (shifts && s.lb.creg)
+	{
+		cond_now = c.pred();
+		UML_CMP(block, drc_reg(s.lb.creg - 1), 0);
+		UML_SETc(block, s.lb.z ? COND_E : COND_NE, mem(&m_core->drc_pred[cond_now]));
+	}
+	std::vector<std::pair<drc_lb_decision, s16> > values;
+	for (leaf const &l : leaves)
+	{
+		for (drc_lb_decision const &k : l.decisions)
+		{
+			if (std::find_if(values.begin(), values.end(), [&k] (auto const &v) { return v.first == k; }) != values.end())
+				continue;
+			s16 p = k.pred;
+			switch (k.kind)
+			{
+			case drc_lb_decision::ILC_ZERO:
+				p = c.pred();
+				UML_CMP(block, mem(k.from_rilc ? &m_core->rilc : &m_core->ilc), k.sub + (k.from_rilc ? 1 : 0));
+				UML_SETc(block, COND_E, mem(&m_core->drc_pred[p]));
+				break;
+			case drc_lb_decision::COND:
+				p = c.pred();
+				if (k.shifts && !k.sub)
+				{
+					if (cond_now >= 0)
+						UML_MOV(block, mem(&m_core->drc_pred[p]), mem(&m_core->drc_pred[cond_now]));
+					else
+						UML_MOV(block, mem(&m_core->drc_pred[p]), 1);
+				}
+				else
+				{
+					UML_TEST(block, mem(&m_core->drc_lb_hist), 1U << (k.sub - (k.shifts ? 1 : 0)));
+					UML_SETc(block, COND_NZ, mem(&m_core->drc_pred[p]));
+				}
+				break;
+			default:
+				break;
+			}
+			values.emplace_back(k, p);
+		}
+	}
+
+	// the instructions, at most about 60 UML instructions each
+	c.estimate += (60 * plan.insns.size()) + (12 * checks.size()) + (6 * values.size());
+	drc_packet_list(block, c, plan.insns.data(), plan.pce1.data(), plan.insns.size(), plan.next, s.pc);
+	if (c.full)
+		return false;
+	if (plan.splx_clear)
+	{
+		code_label const skip = c.label();
+		drc_test_branches(block, c, skip);
+		UML_AND(block, mem(&m_core->tsr), mem(&m_core->tsr), ~TSR_SPLX);
+		UML_LABEL(block, skip);
+	}
+	UML_SUB(block, mem(&m_core->icount), mem(&m_core->icount), 1);
+	UML_DADD(block, mem(&m_core->drc_base), mem(&m_core->drc_base), 1);
+
+	// on to the next cycle, by the outcome
+	std::vector<drc_pending> pending = c.pending;
+	for (drc_pending &p : pending)
+		p.cycle--;
+	auto const value = [&values] (drc_lb_decision const &k) { return std::find_if(values.begin(), values.end(), [&k] (auto const &v) { return v.first == k; })->second; };
+	auto const emit = [&] (auto &self, u32 first, u32 last, u32 depth) -> bool
+	{
+		leaf const &l = leaves[first];
+		if (depth == l.answers.size())
+			return drc_lb_successor(block, c, g, l.next, l.actions, l.landed, pending, cond_now);
+
+		// leaves are in order, with the outcomes false before true
+		u32 split = first;
+		while ((split < last) && !leaves[split].answers[depth])
+			split++;
+		code_label const taken = c.label();
+		UML_CMP(block, mem(&m_core->drc_pred[value(l.decisions[depth])]), 0);
+		UML_JMPc(block, COND_NE, taken);
+		if ((split > first) && !self(self, first, split, depth + 1))
+			return false;
+		UML_LABEL(block, taken);
+		return (split < last) ? self(self, split, last, depth + 1) : true;
+	};
+	return emit(emit, 0, leaves.size(), 0);
+}
+
+bool tms320c674x_device::drc_lb_successor(drcuml_block &block, drc_compiler &c, drc_lb_graph &g, drc_lb_state next, std::vector<u8> const &actions, std::vector<u32> const &landed, std::vector<drc_pending> const &pending, s16 cond_now)
+{
+	using namespace uml;
+
+	c.estimate += 30 + (4 * actions.size()) + (4 * (pending.size() + c.branches.size()));
+
+	// what the loop buffer changes
+	for (u8 a : actions)
+	{
+		switch (a)
+		{
+		case LB_ILC_DEC:
+			UML_SUB(block, mem(&m_core->ilc), mem(&m_core->ilc), 1);
+			break;
+		case LB_ILC_FROM_RILC:
+			UML_SUB(block, mem(&m_core->ilc), mem(&m_core->rilc), 1);
+			break;
+		case LB_COND_RESET:
+			UML_MOV(block, mem(&m_core->drc_lb_hist), 0);
+			break;
+		case LB_COND_SHIFT:
+			UML_SHL(block, I0, mem(&m_core->drc_lb_hist), 1);
+			if (cond_now >= 0)
+				UML_OR(block, I0, I0, mem(&m_core->drc_pred[cond_now]));
+			else
+				UML_OR(block, I0, I0, 1);
+			UML_AND(block, mem(&m_core->drc_lb_hist), I0, 0xff);
+			break;
+		case LB_SPLX_SET:
+			UML_OR(block, mem(&m_core->tsr), mem(&m_core->tsr), TSR_SPLX);
+			break;
+		case LB_SPLX_CLEAR:
+			UML_AND(block, mem(&m_core->tsr), mem(&m_core->tsr), ~TSR_SPLX);
+			break;
+		}
+	}
+
+	// results and branches still in flight
+	next.pending = pending;
+	next.branches.clear();
+	for (u32 n = 0; n < c.branches.size(); n++)
+	{
+		if (std::find(landed.begin(), landed.end(), n) == landed.end())
+		{
+			drc_flight b = c.branches[n];
+			if (b.landing > 1)
+			{
+				b.landing--;
+				next.branches.push_back(b);
+			}
+		}
+	}
+
+	if (next.clean())
+	{
+		// out of the loop with no branch in flight: an ordinary block follows
+		drc_lb_state done = next;
+		done.pc_slot = -1;
+		drc_exit *const exit = drc_lb_exit(block, c, done, std::vector<drc_flight>());
+		exit->next_pc = next.pc;
+		UML_CALLC(block, &drc_funcs::leave, exit);
+		if (next.pc_slot >= 0)
+			UML_HASHJMP(block, 0, mem(&m_core->drc_btarget[next.pc_slot]), *m_nocode);
+		else
+			UML_HASHJMP(block, 0, next.pc, *m_nocode);
+		return true;
+	}
+
+	if (next.pc_slot >= 0)
+	{
+		// a branch to a register target: the interpreter carries on
+		std::vector<drc_flight> branches = next.branches;
+		branches.insert(branches.begin(), drc_flight{ true, -1, u8(next.pc_slot), 0, 0 });
+		drc_lb_state const at = next;
+		drc_exit *const exit = drc_lb_exit(block, c, at, branches);
+		UML_CALLC(block, &drc_funcs::leave, exit);
+		UML_EXIT(block, EXECUTE_CONTINUE);
+		return true;
+	}
+
+	std::string const key = next.key();
+	auto const it = g.index.find(key);
+	if (it == g.index.end())
+	{
+		// a new state; its values stay where they are
+		u32 const n = g.nodes.size();
+		g.nodes.push_back(drc_lb_graph::node{ c.label(), next });
+		g.index.emplace(key, n);
+		g.work.push_back(n);
+		UML_JMP(block, g.nodes[n].label);
+		return true;
+	}
+
+	// a state seen before: move the values to where its code expects them
+	drc_lb_state const &to = g.nodes[it->second].state;
+	std::vector<std::pair<u32 *, u32 *> > moves;
+	auto const move = [&moves] (u32 *src, u32 *dst)
+	{
+		if ((src != dst) && (std::find_if(moves.begin(), moves.end(), [dst] (auto const &m) { return m.second == dst; }) == moves.end()))
+			moves.emplace_back(src, dst);
+	};
+	for (u32 n = 0; n < next.pending.size(); n++)
+	{
+		move(&m_core->drc_tmp[next.pending[n].tmp], &m_core->drc_tmp[to.pending[n].tmp]);
+		if (next.pending[n].pred >= 0)
+			move(&m_core->drc_pred[next.pending[n].pred], &m_core->drc_pred[to.pending[n].pred]);
+	}
+	for (u32 n = 0; n < next.branches.size(); n++)
+	{
+		if (next.branches[n].pred >= 0)
+			move(&m_core->drc_pred[next.branches[n].pred], &m_core->drc_pred[to.branches[n].pred]);
+		if (next.branches[n].dynamic)
+			move(&m_core->drc_btarget[next.branches[n].slot], &m_core->drc_btarget[to.branches[n].slot]);
+	}
+	if (moves.size() > std::size(m_core->drc_shuffle))
+		return false;
+	bool const overlap = std::any_of(moves.begin(), moves.end(), [&moves] (auto const &m) { return std::find_if(moves.begin(), moves.end(), [&m] (auto const &o) { return o.first == m.second; }) != moves.end(); });
+	for (u32 n = 0; n < moves.size(); n++)
+		UML_MOV(block, mem(overlap ? &m_core->drc_shuffle[n] : moves[n].second), mem(moves[n].first));
+	if (overlap)
+	{
+		for (u32 n = 0; n < moves.size(); n++)
+			UML_MOV(block, mem(moves[n].second), mem(&m_core->drc_shuffle[n]));
+	}
+	UML_JMP(block, g.nodes[it->second].label);
+	return true;
 }
 
 
@@ -992,22 +1876,27 @@ uml::parameter tms320c674x_device::drc_dest(drcuml_block &block, drc_compiler &c
 
 void tms320c674x_device::drc_packet_body(drcuml_block &block, drc_compiler &c, ep_cache_entry const &e)
 {
-	// instructions in the packet read their sources before any of them write
-	u64 later[MAX_EP];
+	drc_packet_list(block, c, e.ep, e.pce1, e.count, e.next, e.pc);
+}
+
+void tms320c674x_device::drc_packet_list(drcuml_block &block, drc_compiler &c, insn const *ep, u32 const *pce1, u32 count, u32 next_pc, u32 pc)
+{
+	// instructions in the cycle read their sources before any of them write
+	std::vector<u64> later(count);
 	u64 reads = 0;
-	for (u32 n = e.count; n-- > 0; )
+	for (u32 n = count; n-- > 0; )
 	{
 		later[n] = reads;
-		reads |= drc_reads(e.ep[n]);
+		reads |= drc_reads(ep[n]);
 	}
 
 	drc_packet p;
-	for (u32 n = 0; n < e.count; n++)
+	for (u32 n = 0; n < count; n++)
 	{
 		p.later_reads = later[n];
 		p.pred = -1;
-		if (!drc_insn(block, c, p, e.ep[n], e.pce1[n], e.next))
-			drc_fallback(block, c, e.ep[n], e.pce1[n], e.next, e.pc);
+		if (!drc_insn(block, c, p, ep[n], pce1[n], next_pc))
+			drc_fallback(block, c, ep[n], pce1[n], next_pc, pc);
 	}
 
 	// stores happen after the loads in the same cycle
