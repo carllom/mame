@@ -88,6 +88,8 @@ private:
 
 		COMMAND_B9_DP = 0xb9,
 
+		COMMAND_D8_BE = 0xd8,
+
 		COMMAND_EB_4READ = 0xeb,
 
 		COMMAND_EC_UNKNOWN = 0xec,

@@ -45,9 +45,19 @@
     select.
     McASP0 runs the audio codecs, with EDMA3 moving the samples.
 
-    The flash dumps were read from the unit through CN5. They hold the
-    owner's presets (IC4) and a Bluetooth pairing record (IC9 PAIR.DAT),
-    so they aren't factory-fresh.
+    The flash images are factory state rebuilt from a used unit's dumps
+    (read through CN5), with the owner's data taken out:
+    - IC4: the preset store at 0x1b7000 and 0x1d4000-0x1dafff was erased
+      and the system program left to format it. It fills the store from
+      the factory preset bank at 0x1fd400, as "All Initialize" does. The
+      rest is the dump; the system program is the v1.30 update, so what
+      the unit shipped with is unknown.
+    - IC9: the 101 factory files (100 preloaded effects and CMN_DRV.ZDL)
+      and the first FLST_SEQ.ZDT, still in their original blocks, under a
+      new directory. The effects bought through StompShare, the Bluetooth
+      pairing file and LINESEL.ZDL 1.01 (from the v1.30 update) were
+      dropped; LINESEL.ZDL 1.00 was recovered from its old blocks. v1.30
+      converts FLST_SEQ.ZDT to its newer format on first boot.
 
     TODO:
     - the rest of the TMS320C6745 (core, peripherals)
@@ -435,13 +445,13 @@ INPUT_PORTS_END
 
 ROM_START(ms100bt)
 	// boot program 1.00 at 0x000000, system program 1.30 at 0x0a0000,
-	// presets and settings at 0x1b0000-0x1fffff
+	// preset store at 0x1b7000-0x1dafff, factory preset bank at 0x1fd400
 	ROM_REGION(0x400000, "ic4", 0)
-	ROM_LOAD("pm25lq032.ic4", 0x000000, 0x400000, CRC(04474314) SHA1(0f79f7522497da15602c099a4b8c72fbcb8250ba))
+	ROM_LOAD("pm25lq032.ic4", 0x000000, 0x400000, CRC(b0f21562) SHA1(3e91a634f45a3f760bb763f85f63edb7df2108ab))
 
-	// flash filesystem: effect modules, effect list, Bluetooth pairing
+	// flash filesystem: effect modules and the effect list
 	ROM_REGION(0x400000, "ic9", 0)
-	ROM_LOAD("pm25lq032.ic9", 0x000000, 0x400000, CRC(32a00b84) SHA1(3ea63e891f0cc86d1df8461690834bc85c919982))
+	ROM_LOAD("pm25lq032.ic9", 0x000000, 0x400000, CRC(23dbf587) SHA1(591b601533c374dcd8dcaa929f6ddca372f0e7c8))
 ROM_END
 
 } // anonymous namespace

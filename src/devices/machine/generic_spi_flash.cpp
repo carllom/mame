@@ -7,6 +7,8 @@
 #include "emu.h"
 #include "generic_spi_flash.h"
 
+#include <algorithm>
+
 #define LOG_SPI (1U << 1)
 
 #define VERBOSE     (0)
@@ -163,6 +165,11 @@ void generic_spi_flash_device::get_command(u8 data)
 	{
 		LOGMASKED(LOG_SPI, "Set SPI to DP (deep power down)\n");
 		m_spi_state = READY_FOR_COMMAND;
+	}
+	else if (data == COMMAND_D8_BE)
+	{
+		LOGMASKED(LOG_SPI, "Set SPI to BE (64K Block Erase)\n");
+		m_spi_state = COMMAND_D8_BE;
 	}
 	else if (data == COMMAND_EB_4READ)
 	{
@@ -360,8 +367,9 @@ void generic_spi_flash_device::process_write_command(u8 data)
 
 		if (m_spi_statusreg & 0x02)
 		{
+			// programming can only clear bits; erasing sets them again
 			LOGMASKED(LOG_SPI, "Write SPI data %02x at %08x\n", data, m_spi_addr);
-			m_spiptr[(m_spi_addr++) & (m_length - 1)] = data;
+			m_spiptr[(m_spi_addr++) & (m_length - 1)] &= data;
 		}
 		else
 		{
@@ -382,11 +390,25 @@ void generic_spi_flash_device::process_sector_erase_command(u8 data)
 		m_spi_addr = (m_spi_addr & 0xff00ff) | (data << 8); m_spi_state_step++;
 		break;
 	case 0x02:
+	{
 		m_spi_addr = (m_spi_addr & 0xffff00) | (data); m_spi_state_step++;
-		LOGMASKED(LOG_SPI, "SPI set to Erase Sector with address %08x\n", m_spi_addr);
+
+		// 4K sector or 64K block, erased as soon as the address is complete
+		u32 const size = std::min<u32>((m_spi_state == COMMAND_D8_BE) ? 0x10000 : 0x1000, m_length);
+		u32 const base = m_spi_addr & (m_length - 1) & ~(size - 1);
+		if (m_spi_statusreg & 0x02)
+		{
+			LOGMASKED(LOG_SPI, "SPI erase %05x bytes at %08x\n", size, base);
+			std::fill_n(&m_spiptr[base], size, 0xff);
+		}
+		else
+		{
+			LOGMASKED(LOG_SPI, "SPI erase %05x bytes at %08x (but write protect enabled)\n", size, base);
+		}
 		break;
+	}
 	default:
-		LOGMASKED(LOG_SPI, "unexpected byte %02x when writing sector erase address\n", data);
+		LOGMASKED(LOG_SPI, "unexpected byte %02x when writing erase address\n", data);
 		break;
 	}
 }
@@ -542,6 +564,7 @@ void generic_spi_flash_device::write(u8 data)
 		break;
 
 	case COMMAND_20_SE:
+	case COMMAND_D8_BE:
 		process_sector_erase_command(data);
 		break;
 
