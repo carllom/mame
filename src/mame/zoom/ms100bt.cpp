@@ -63,7 +63,8 @@
     - the rest of the TMS320C6745 (core, peripherals)
     - GP4[14] is polled with the switches; what drives it is unknown
     - the ON/OFF LED
-    - audio: WM8782S, PCM5101 and McASP0
+    - audio input: how the jack reaches the two ADCs
+    - the analog output stage and levels
     - battery ADC on SPI1
     - Bluetooth module
 
@@ -73,10 +74,13 @@
 
 #include "cpu/tms320c6x/tms320c6745.h"
 #include "machine/generic_spi_flash.h"
+#include "sound/pcm5101.h"
+#include "sound/wm8782.h"
 #include "video/st7565.h"
 
 #include "emupal.h"
 #include "screen.h"
+#include "speaker.h"
 
 #include <algorithm>
 
@@ -92,6 +96,8 @@ public:
 		m_flash(*this, { "ic4", "ic9" }),
 		m_flash_rom(*this, { "ic4", "ic9" }),
 		m_lcdc(*this, "lcdc"),
+		m_codec_adc(*this, { "ic8", "ic20" }),
+		m_dac(*this, "ic18"),
 		m_gp_in(*this, "GP%u", 0U),
 		m_encoder(*this, "ENC%u", 0U)
 	{
@@ -131,6 +137,8 @@ private:
 	required_device_array<generic_spi_flash_device, 2> m_flash;
 	required_memory_region_array<2> m_flash_rom;
 	required_device<st7565_device> m_lcdc;
+	required_device_array<wm8782_device, 2> m_codec_adc;
+	required_device<pcm5101_device> m_dac;
 	required_ioport_array<5> m_gp_in;
 	required_ioport_array<3> m_encoder;
 
@@ -403,6 +411,29 @@ void ms100bt_state::ms100bt(machine_config &config)
 	screen.screen_vblank().set(FUNC(ms100bt_state::vblank_w));
 
 	ST7565(config, m_lcdc);
+
+	// McASP0 runs the codecs as I2S at 44.1 kHz: AXR4 and AXR5 in, AXR6 out.
+	// With a moderate input level only the ADC on AXR5 makes a difference.
+	// TODO: which ADC is on which serializer, and how the input stage feeds
+	// them (gains, the firmware's use of the AXR4 ADC)
+	m_maincpu->mcasp_axr_r<4>(0).set(m_codec_adc[0], FUNC(wm8782_device::data_r));
+	m_maincpu->mcasp_axr_r<5>(0).set(m_codec_adc[1], FUNC(wm8782_device::data_r));
+	m_maincpu->mcasp_axr_w<6>(0).set(m_dac, FUNC(pcm5101_device::data_w));
+
+	// the mono input jack, to every ADC channel for now
+	microphone_device &input = MICROPHONE(config, "input", 1);
+	input.front_center();
+	for (auto &adc : m_codec_adc)
+	{
+		WM8782(config, adc, 11.2896_MHz_XTAL / 256);
+		input.add_route(0, adc, 1.0, 0);
+		input.add_route(0, adc, 1.0, 1);
+	}
+	PCM5101(config, m_dac, 11.2896_MHz_XTAL / 256);
+
+	SPEAKER(config, "speaker", 2).front();
+	m_dac->add_route(0, "speaker", 1.0, 0);
+	m_dac->add_route(1, "speaker", 1.0, 1);
 }
 
 
@@ -457,4 +488,4 @@ ROM_END
 } // anonymous namespace
 
 
-SYST(2013, ms100bt, 0, 0, ms100bt, ms100bt, ms100bt_state, empty_init, "Zoom", "MS-100BT MultiStomp", ROT180 | MACHINE_NOT_WORKING | MACHINE_NO_SOUND)
+SYST(2013, ms100bt, 0, 0, ms100bt, ms100bt, ms100bt_state, empty_init, "Zoom", "MS-100BT MultiStomp", ROT180 | MACHINE_NOT_WORKING)

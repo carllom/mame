@@ -2155,3 +2155,27 @@ if SOUNDS["GT913"] then
 		MAME_DIR .. "src/devices/sound/gt913.h",
 	}
 end
+
+---------------------------------------------------
+-- Texas Instruments PCM5101 stereo DAC
+--@src/devices/sound/pcm5101.h,SOUNDS["PCM5101"] = true
+---------------------------------------------------
+
+if SOUNDS["PCM5101"] then
+	files {
+		MAME_DIR .. "src/devices/sound/pcm5101.cpp",
+		MAME_DIR .. "src/devices/sound/pcm5101.h",
+	}
+end
+
+---------------------------------------------------
+-- Wolfson WM8782 stereo ADC
+--@src/devices/sound/wm8782.h,SOUNDS["WM8782"] = true
+---------------------------------------------------
+
+if SOUNDS["WM8782"] then
+	files {
+		MAME_DIR .. "src/devices/sound/wm8782.cpp",
+		MAME_DIR .. "src/devices/sound/wm8782.h",
+	}
+end
