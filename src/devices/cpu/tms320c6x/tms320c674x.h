@@ -170,6 +170,7 @@ private:
 		u32 drc_arg1 = 0;
 		u32 drc_tmp[DRC_TEMPS] = { };   // results waiting for the end of their delay slots
 		u32 drc_pred[DRC_TEMPS] = { };  // instruction conditions
+		alignas(8) u32 drc_late[2] = { }; // a register pair read after E1
 		u32 drc_lb_hist = 0;            // SPLOOP condition history in a compiled loop
 		u32 drc_shuffle[256] = { };     // for moving values between loop states
 	};
@@ -253,10 +254,13 @@ private:
 	u32 src_a(insn const &i) const { return (i.flags & dasm::F_A_CST) ? u32(i.cst) : m_core->r[i.a]; }
 	u32 src_b(insn const &i) const { return (i.flags & dasm::F_B_CST) ? u32(i.cst) : m_core->r[i.b]; }
 	u64 pair(u32 r) const { return (u64(m_core->r[r | 1]) << 32) | m_core->r[r & ~1]; }
+	u32 late_read(u32 r, u32 cycles) const;
+	u64 late_pair(u32 r, u32 lo_cycles, u32 hi_cycles) const { return (u64(late_read(r | 1, hi_cycles)) << 32) | late_read(r & ~1, lo_cycles); }
 	s64 long40(u32 r) const { return util::sext((u64(m_core->r[r | 1] & 0xff) << 32) | m_core->r[r & ~1], 40); }
 	u64 ulong40(u32 r) const { return (u64(m_core->r[r | 1] & 0xff) << 32) | m_core->r[r & ~1]; }
 	void write(u32 r, u32 value, u32 delay = 0);
 	void write_pair(u32 r, u64 value, u32 delay = 0);
+	void write_dp(u32 r, u64 value, u32 delay);
 	void write_long(u32 r, u64 value, u32 delay = 0) { write_pair(r, value & 0xff'ffff'ffffU, delay); }
 	void commit_writes(u32 slot);
 	void flush_writes();
@@ -304,6 +308,7 @@ private:
 	struct drc_call;
 	struct drc_address_call;
 	struct drc_drain;
+	struct drc_peek;
 	struct drc_pending_store;
 	struct drc_packet;
 	struct drc_compiler;
@@ -350,6 +355,9 @@ private:
 	void drc_sp_in(drcuml_block &block, uml::parameter dst, uml::parameter src);
 	void drc_sp_out(drcuml_block &block, uml::parameter value);
 	void drc_dp_in(drcuml_block &block, uml::parameter dst, u32 r);
+	void drc_dp_in_late(drcuml_block &block, drc_compiler &c, uml::parameter dst, u32 r, u32 lo_cycles, u32 hi_cycles);
+	void drc_late_read(drcuml_block &block, drc_compiler &c, u32 r, u32 cycles, u32 *dst);
+	void drc_dest_dp(drcuml_block &block, drc_compiler &c, drc_packet &p, u32 r, u32 delay, uml::parameter value);
 	void drc_dp_out(drcuml_block &block, uml::parameter value);
 	void drc_address(drcuml_block &block, drc_compiler &c, drc_packet &p, insn const &i, u32 shift);
 	void drc_load(drcuml_block &block, drc_compiler &c, drc_packet &p, insn const &i);

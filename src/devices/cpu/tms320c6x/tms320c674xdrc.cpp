@@ -138,6 +138,15 @@ struct tms320c674x_device::drc_drain
 	u32 to;
 };
 
+// a queued write to one register, due at one block cycle
+struct tms320c674x_device::drc_peek
+{
+	tms320c674x_device *cpu;
+	u32 reg;
+	u32 cycle;
+	u32 *dst;
+};
+
 // a store waiting for the end of its execute packet
 struct tms320c674x_device::drc_pending_store
 {
@@ -261,6 +270,16 @@ struct tms320c674x_device::drc_compiler
 		return std::any_of(pending.begin(), pending.end(), [reg, cycle] (drc_pending const &q) { return (q.reg == reg) && (q.cycle == cycle); });
 	}
 
+	// whether a register can change in the cycles after this one
+	bool late_write(u32 reg, u32 cycles) const
+	{
+		if (!cycles)
+			return false;
+		if (cycle + 1 <= queue_until)
+			return true;
+		return std::any_of(pending.begin(), pending.end(), [this, reg, cycles] (drc_pending const &q) { return (q.reg == reg) && (q.cycle <= cycle + cycles); });
+	}
+
 	void add_page(u32 const *gen, u32 value)
 	{
 		if (std::find_if(pages.begin(), pages.end(), [gen] (auto const &p) { return p.first == gen; }) == pages.end())
@@ -320,6 +339,17 @@ struct tms320c674x_device::drc_funcs
 		tms320c674x_device &cpu = *d.cpu;
 		for (u32 x = d.from; cpu.m_core->wb_total && (x <= d.to); x++)
 			cpu.commit_writes((cpu.m_core->drc_base + x) % WB_SLOTS);
+	}
+
+	static void peek(drc_peek &k)
+	{
+		internal_state const &core = *k.cpu->m_core;
+		u32 const slot = (core.drc_base + k.cycle) % WB_SLOTS;
+		for (u32 n = 0; n < core.wb_count[slot]; n++)
+		{
+			if (core.wb_reg[slot * WB_DEPTH + n] == k.reg)
+				*k.dst = core.wb_value[slot * WB_DEPTH + n];
+		}
 	}
 
 	static void leave(drc_exit &e)
@@ -1823,6 +1853,7 @@ u64 tms320c674x_device::drc_reads(insn const &i)
 		return r | reg_bit(i.b & ~1U) | reg_bit(i.b | 1U);
 
 	case dasm::OP_ADDDP: case dasm::OP_SUBDP: case dasm::OP_MPYDP:
+	case dasm::OP_CMPEQDP: case dasm::OP_CMPGTDP: case dasm::OP_CMPLTDP:
 		return r | reg_bit(i.a & ~1U) | reg_bit(i.a | 1U) | reg_bit(i.b & ~1U) | reg_bit(i.b | 1U);
 
 	case dasm::OP_MPYSPDP:
@@ -1981,6 +2012,7 @@ bool tms320c674x_device::drc_insn(drcuml_block &block, drc_compiler &c, drc_pack
 	case dasm::OP_CMPEQSP: case dasm::OP_CMPGTSP: case dasm::OP_CMPLTSP:
 	case dasm::OP_ABSSP: case dasm::OP_INTSP: case dasm::OP_SPINT: case dasm::OP_SPTRUNC:
 	case dasm::OP_SPDP: case dasm::OP_DPSP: case dasm::OP_ADDDP: case dasm::OP_SUBDP: case dasm::OP_MPYDP: case dasm::OP_MPYSPDP:
+	case dasm::OP_CMPEQDP: case dasm::OP_CMPGTDP: case dasm::OP_CMPLTDP:
 	case dasm::OP_SMPY32: case dasm::OP_SADD: case dasm::OP_MVD:
 		break;
 	case dasm::OP_EXT: case dasm::OP_EXTU: case dasm::OP_SET: case dasm::OP_CLR:
@@ -2246,7 +2278,7 @@ bool tms320c674x_device::drc_insn(drcuml_block &block, drc_compiler &c, drc_pack
 		UML_FDFRFLT(block, F1, F0, SIZE_SHORT);
 		UML_ICOPYFD(block, I0, F1);
 		drc_dp_out(block, I0);
-		drc_dest_pair(block, c, p, d, 1, I0);
+		drc_dest_dp(block, c, p, d, 1, I0);
 		break;
 
 	case dasm::OP_DPSP:
@@ -2259,8 +2291,9 @@ bool tms320c674x_device::drc_insn(drcuml_block &block, drc_compiler &c, drc_pack
 		break;
 
 	case dasm::OP_ADDDP: case dasm::OP_SUBDP: case dasm::OP_MPYDP:
-		drc_dp_in(block, I0, i.a);
-		drc_dp_in(block, I1, i.b);
+		// the high words are read on E2 (MPYDP: src1 on E3)
+		drc_dp_in_late(block, c, I0, i.a, 0, (i.op == dasm::OP_MPYDP) ? 2 : 1);
+		drc_dp_in_late(block, c, I1, i.b, 0, 1);
 		UML_FDCOPYI(block, F0, I0);
 		UML_FDCOPYI(block, F1, I1);
 		if (i.op == dasm::OP_ADDDP)
@@ -2271,19 +2304,35 @@ bool tms320c674x_device::drc_insn(drcuml_block &block, drc_compiler &c, drc_pack
 			UML_FDMUL(block, F0, F0, F1);
 		UML_ICOPYFD(block, I0, F0);
 		drc_dp_out(block, I0);
-		drc_dest_pair(block, c, p, d, (i.op == dasm::OP_MPYDP) ? 9 : 6, I0);
+		drc_dest_dp(block, c, p, d, (i.op == dasm::OP_MPYDP) ? 9 : 6, I0);
 		break;
 
 	case dasm::OP_MPYSPDP:
 		drc_sp_in(block, I0, drc_src_a(i));
 		UML_FSCOPYI(block, F2, I0);
 		UML_FDFRFLT(block, F0, F2, SIZE_SHORT);
-		drc_dp_in(block, I1, i.b);
+		drc_dp_in_late(block, c, I1, i.b, 0, 1);
 		UML_FDCOPYI(block, F1, I1);
 		UML_FDMUL(block, F0, F0, F1);
 		UML_ICOPYFD(block, I0, F0);
 		drc_dp_out(block, I0);
-		drc_dest_pair(block, c, p, d, 6, I0);
+		drc_dest_dp(block, c, p, d, 6, I0);
+		break;
+
+	case dasm::OP_CMPEQDP: case dasm::OP_CMPGTDP: case dasm::OP_CMPLTDP:
+		// the high words are read on E2
+		drc_dp_in_late(block, c, I0, i.a, 0, 1);
+		drc_dp_in_late(block, c, I1, i.b, 0, 1);
+		UML_FDCOPYI(block, F0, I0);
+		UML_FDCOPYI(block, F1, I1);
+		// comparisons with NaN are false; FCMP clears Z and C when unordered
+		if (i.op == dasm::OP_CMPLTDP)
+			UML_FDCMP(block, F1, F0);
+		else
+			UML_FDCMP(block, F0, F1);
+		UML_SETc(block, (i.op == dasm::OP_CMPEQDP) ? COND_E : COND_A, I0);
+		UML_SETc(block, COND_NU, I1);
+		UML_AND(block, drc_dest(block, c, p, d, 1), I0, I1);
 		break;
 
 	default:
@@ -2301,6 +2350,71 @@ void tms320c674x_device::drc_dest_pair(drcuml_block &block, drc_compiler &c, drc
 	UML_MOV(block, drc_dest(block, c, p, r & ~1U, delay), value);
 	UML_DSHR(block, uml::I3, value, 32);
 	UML_MOV(block, drc_dest(block, c, p, r | 1U, delay), uml::I3);
+}
+
+void tms320c674x_device::drc_dest_dp(drcuml_block &block, drc_compiler &c, drc_packet &p, u32 r, u32 delay, uml::parameter value)
+{
+	// a double-precision result: the low word is written a cycle before the high word
+	UML_MOV(block, drc_dest(block, c, p, r & ~1U, delay - 1), value);
+	UML_DSHR(block, uml::I3, value, 32);
+	UML_MOV(block, drc_dest(block, c, p, r | 1U, delay), uml::I3);
+}
+
+void tms320c674x_device::drc_late_read(drcuml_block &block, drc_compiler &c, u32 r, u32 cycles, u32 *dst)
+{
+	// a source read after E1 sees what each later cycle boundary commits,
+	// in the same order: queued writes, then results from this block
+	c.estimate += 1 + (cycles * (4 + (2 * c.pending.size())));
+	UML_MOV(block, uml::mem(dst), drc_reg(r));
+	for (u32 x = c.cycle + 1; x <= c.cycle + cycles; x++)
+	{
+		if ((x <= c.queue_until) && (x > c.last_drain))
+		{
+			drc_peek *const k = m_drcuml->cache_alloc_transient<drc_peek>();
+			if (!k)
+				block.abort();
+			k->cpu = this;
+			k->reg = r;
+			k->cycle = x;
+			k->dst = dst;
+
+			uml::code_label const skip = c.label();
+			UML_CMP(block, uml::mem(&m_core->wb_total), 0);
+			UML_JMPc(block, uml::COND_E, skip);
+			UML_CALLC(block, &drc_funcs::peek, k);
+			UML_LABEL(block, skip);
+		}
+		for (drc_pending const &q : c.pending)
+		{
+			if ((q.reg != r) || (q.cycle != x))
+				continue;
+			if (q.pred < 0)
+			{
+				UML_MOV(block, uml::mem(dst), uml::mem(&m_core->drc_tmp[q.tmp]));
+			}
+			else
+			{
+				UML_CMP(block, uml::mem(&m_core->drc_pred[q.pred]), 0);
+				UML_MOVc(block, uml::COND_NE, uml::mem(dst), uml::mem(&m_core->drc_tmp[q.tmp]));
+			}
+		}
+	}
+}
+
+void tms320c674x_device::drc_dp_in_late(drcuml_block &block, drc_compiler &c, uml::parameter dst, u32 r, u32 lo_cycles, u32 hi_cycles)
+{
+	// a double-precision source with words read after E1
+	if (!c.late_write(r & ~1U, lo_cycles) && !c.late_write(r | 1U, hi_cycles))
+	{
+		drc_dp_in(block, dst, r);
+		return;
+	}
+	drc_late_read(block, c, r & ~1U, lo_cycles, &m_core->drc_late[0]);
+	drc_late_read(block, c, r | 1U, hi_cycles, &m_core->drc_late[1]);
+	UML_DMOV(block, dst, uml::mem(&m_core->drc_late[0]));
+	UML_DAND(block, uml::I3, dst, 0x8000'0000'0000'0000U);
+	UML_DTEST(block, dst, 0x7ff0'0000'0000'0000U);
+	UML_DMOVc(block, uml::COND_Z, dst, uml::I3);
 }
 
 void tms320c674x_device::drc_sp_in(drcuml_block &block, uml::parameter dst, uml::parameter src)

@@ -453,6 +453,29 @@ void tms320c674x_device::write_pair(u32 r, u64 value, u32 delay)
 	write(r | 1U, u32(value >> 32), delay);
 }
 
+// a double-precision result: the low word is written a cycle before the high word
+void tms320c674x_device::write_dp(u32 r, u64 value, u32 delay)
+{
+	write(r & ~1U, u32(value), delay - 1);
+	write(r | 1U, u32(value >> 32), delay);
+}
+
+// a source read a number of cycles after E1 sees the results written by then
+u32 tms320c674x_device::late_read(u32 r, u32 cycles) const
+{
+	u32 value = m_core->r[r];
+	for (u32 d = 1; m_core->wb_total && (d <= cycles); d++)
+	{
+		u32 const slot = (m_core->cycle + d) % WB_SLOTS;
+		for (u32 n = 0; n < m_core->wb_count[slot]; n++)
+		{
+			if (m_core->wb_reg[slot * WB_DEPTH + n] == r)
+				value = m_core->wb_value[slot * WB_DEPTH + n];
+		}
+	}
+	return value;
+}
+
 void tms320c674x_device::commit_writes(u32 slot)
 {
 	u32 const count = m_core->wb_count[slot];
@@ -1531,7 +1554,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 		}
 		break;
 	case dasm::OP_MPYI: write(d, u32(s32(src_a(i)) * s32(src_b(i))), 8); break;
-	case dasm::OP_MPYID: write_pair(d, u64(s64(s32(src_a(i))) * s32(src_b(i))), 9); break;
+	case dasm::OP_MPYID: write_dp(d, u64(s64(s32(src_a(i))) * s32(src_b(i))), 9); break;
 	case dasm::OP_MPY32: write(d, u32(s32(src_a(i)) * s32(src_b(i))), 3); break;
 	case dasm::OP_MPY32_64: write_pair(d, u64(s64(s32(src_a(i))) * s32(src_b(i))), 3); break;
 	case dasm::OP_MPY32U: write_pair(d, u64(src_a(i)) * src_b(i), 3); break;
@@ -1608,29 +1631,29 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 	case dasm::OP_ADDSP: write(d, sp_result(sp_in(src_a(i)) + sp_in(src_b(i))), 3); break;
 	case dasm::OP_SUBSP: write(d, sp_result(sp_in(src_a(i)) - sp_in(src_b(i))), 3); break;
 	case dasm::OP_MPYSP: write(d, sp_result(sp_in(src_a(i)) * sp_in(src_b(i))), 3); break;
-	case dasm::OP_ADDDP: write_pair(d, dp_result(dp_in(pair(i.a)) + dp_in(pair(i.b))), 6); break;
-	case dasm::OP_SUBDP: write_pair(d, dp_result(dp_in(pair(i.a)) - dp_in(pair(i.b))), 6); break;
-	case dasm::OP_MPYDP: write_pair(d, dp_result(dp_in(pair(i.a)) * dp_in(pair(i.b))), 9); break;
-	case dasm::OP_MPYSPDP: write_pair(d, dp_result(double(sp_in(src_a(i))) * dp_in(pair(i.b))), 6); break;
-	case dasm::OP_MPYSP2DP: write_pair(d, dp_result(double(sp_in(src_a(i))) * double(sp_in(src_b(i)))), 4); break;
+	case dasm::OP_ADDDP: write_dp(d, dp_result(dp_in(late_pair(i.a, 0, 1)) + dp_in(late_pair(i.b, 0, 1))), 6); break;
+	case dasm::OP_SUBDP: write_dp(d, dp_result(dp_in(late_pair(i.a, 0, 1)) - dp_in(late_pair(i.b, 0, 1))), 6); break;
+	case dasm::OP_MPYDP: write_dp(d, dp_result(dp_in(late_pair(i.a, 0, 2)) * dp_in(late_pair(i.b, 0, 1))), 9); break;
+	case dasm::OP_MPYSPDP: write_dp(d, dp_result(double(sp_in(src_a(i))) * dp_in(late_pair(i.b, 0, 1))), 6); break;
+	case dasm::OP_MPYSP2DP: write_dp(d, dp_result(double(sp_in(src_a(i))) * double(sp_in(src_b(i)))), 4); break;
 	case dasm::OP_ABSSP: write(d, sp_result(std::fabs(sp_in(m_core->r[i.b])))); break;
-	case dasm::OP_ABSDP: write_pair(d, dp_result(std::fabs(dp_in(pair(i.b)))), 1); break;
+	case dasm::OP_ABSDP: write_dp(d, dp_result(std::fabs(dp_in(pair(i.b)))), 1); break;
 	case dasm::OP_CMPEQSP: write(d, sp_in(src_a(i)) == sp_in(src_b(i))); break;
 	case dasm::OP_CMPGTSP: write(d, sp_in(src_a(i)) > sp_in(src_b(i))); break;
 	case dasm::OP_CMPLTSP: write(d, sp_in(src_a(i)) < sp_in(src_b(i))); break;
-	case dasm::OP_CMPEQDP: write(d, dp_in(pair(i.a)) == dp_in(pair(i.b)), 1); break;
-	case dasm::OP_CMPGTDP: write(d, dp_in(pair(i.a)) > dp_in(pair(i.b)), 1); break;
-	case dasm::OP_CMPLTDP: write(d, dp_in(pair(i.a)) < dp_in(pair(i.b)), 1); break;
+	case dasm::OP_CMPEQDP: write(d, dp_in(late_pair(i.a, 0, 1)) == dp_in(late_pair(i.b, 0, 1)), 1); break;
+	case dasm::OP_CMPGTDP: write(d, dp_in(late_pair(i.a, 0, 1)) > dp_in(late_pair(i.b, 0, 1)), 1); break;
+	case dasm::OP_CMPLTDP: write(d, dp_in(late_pair(i.a, 0, 1)) < dp_in(late_pair(i.b, 0, 1)), 1); break;
 	case dasm::OP_INTSP: write(d, sp_result(float(s32(m_core->r[i.b]))), 3); break;
 	case dasm::OP_INTSPU: write(d, sp_result(float(m_core->r[i.b])), 3); break;
-	case dasm::OP_INTDP: write_pair(d, dp_result(double(s32(m_core->r[i.b]))), 4); break;
-	case dasm::OP_INTDPU: write_pair(d, dp_result(double(m_core->r[i.b])), 4); break;
+	case dasm::OP_INTDP: write_dp(d, dp_result(double(s32(m_core->r[i.b]))), 4); break;
+	case dasm::OP_INTDPU: write_dp(d, dp_result(double(m_core->r[i.b])), 4); break;
 	case dasm::OP_SPINT: write(d, float_to_int(sp_in(m_core->r[i.b]), false), 3); break;
 	case dasm::OP_SPTRUNC: write(d, float_to_int(sp_in(m_core->r[i.b]), true), 3); break;
 	case dasm::OP_DPINT: write(d, float_to_int(dp_in(pair(i.b)), false), 3); break;
 	case dasm::OP_DPTRUNC: write(d, float_to_int(dp_in(pair(i.b)), true), 3); break;
 	case dasm::OP_DPSP: write(d, sp_result(float(dp_in(pair(i.b)))), 3); break;
-	case dasm::OP_SPDP: write_pair(d, dp_result(double(sp_in(m_core->r[i.b]))), 1); break;
+	case dasm::OP_SPDP: write_dp(d, dp_result(double(sp_in(m_core->r[i.b]))), 1); break;
 	case dasm::OP_RCPSP: case dasm::OP_RSQRSP:
 		{
 			float const x = sp_in(m_core->r[i.b]);
@@ -1648,7 +1671,7 @@ void tms320c674x_device::execute(insn const &i, u32 pce1, u32 next_pc)
 			u64 v = dp_result(r);
 			if ((v & 0x7ff0'0000'0000'0000U) != 0x7ff0'0000'0000'0000U)
 				v &= 0xffff'f000'0000'0000U;
-			write_pair(d, v, 1);
+			write_dp(d, v, 1);
 		}
 		break;
 
