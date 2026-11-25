@@ -107,8 +107,8 @@ struct tms320c674x_device::drc_lb_snapshot
 {
 	loop_buffer_state state;
 	lb_entry const *entries;    // without the valid flags
-	u64 valid;
-	u64 old_valid;
+	std::bitset<LB_SIZE> valid;
+	std::bitset<LB_SIZE> old_valid;
 };
 
 // an instruction run by the interpreter
@@ -411,8 +411,8 @@ struct tms320c674x_device::drc_funcs
 			for (u32 n = 0; n < lb.count; n++)
 			{
 				lb.entry[n] = e.lb->entries[n];
-				lb.entry[n].valid = BIT(e.lb->valid, n);
-				lb.entry[n].old_valid = BIT(e.lb->old_valid, n);
+				lb.entry[n].valid = e.lb->valid[n];
+				lb.entry[n].old_valid = e.lb->old_valid[n];
 			}
 			cpu.lb_decode(lb);
 		}
@@ -1360,12 +1360,12 @@ tms320c674x_device::drc_exit *tms320c674x_device::drc_lb_exit(drcuml_block &bloc
 			block.abort();
 		snapshot->state = s.lb;
 		snapshot->entries = it->second;
-		snapshot->valid = 0;
-		snapshot->old_valid = 0;
+		snapshot->valid.reset();
+		snapshot->old_valid.reset();
 		for (u32 n = 0; n < s.lb.count; n++)
 		{
-			snapshot->valid |= u64(s.lb.entry[n].valid ? 1 : 0) << n;
-			snapshot->old_valid |= u64(s.lb.entry[n].old_valid ? 1 : 0) << n;
+			snapshot->valid[n] = s.lb.entry[n].valid;
+			snapshot->old_valid[n] = s.lb.entry[n].old_valid;
 		}
 		exit->lb = snapshot;
 	}
