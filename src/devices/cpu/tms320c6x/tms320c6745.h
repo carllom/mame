@@ -27,6 +27,8 @@ public:
 	auto spi_scs0(u32 n) { return m_spi[n].lookup()->scs0(); }
 	template <u32 Bank> auto gpio_out() { return m_gpio.lookup()->out<Bank>(); }
 	void set_mcasp_ahclk(u32 n, XTAL const &clock) { m_mcasp[n].lookup()->set_clock(clock); }
+	template <unsigned Serializer> auto mcasp_axr_w(u32 n) { return m_mcasp[n].lookup()->axr_w<Serializer>(); }
+	template <unsigned Serializer> auto mcasp_axr_r(u32 n) { return m_mcasp[n].lookup()->axr_r<Serializer>(); }
 	template <typename... T> void set_i2c_start_callback(u32 n, T &&... args) { m_i2c[n].lookup()->set_start_callback(std::forward<T>(args)...); }
 	template <typename... T> void set_i2c_write_callback(u32 n, T &&... args) { m_i2c[n].lookup()->set_write_callback(std::forward<T>(args)...); }
 	template <typename... T> void set_i2c_read_callback(u32 n, T &&... args) { m_i2c[n].lookup()->set_read_callback(std::forward<T>(args)...); }
