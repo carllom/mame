@@ -155,6 +155,7 @@ void tms320c674x_device::sploop_start(loop_buffer &lb, Env &env, insn const &i, 
 	lb.address = address;
 	lb.int_drain = false;
 	lb.kernelr = false;
+	lb.reload_test = false;
 	lb.reload_pending = false;
 	lb.reload_start = false;
 	lb.reload_branch = false;
@@ -218,12 +219,26 @@ bool tms320c674x_device::sploop_reload_condition(loop_buffer const &lb, Env &env
 }
 
 template <typename Env>
+void tms320c674x_device::sploop_reload_test(loop_buffer &lb, Env &env)
+{
+	if (sploop_reload_condition(lb, env))
+	{
+		// SPKERNELR reloads from the first epilog cycle, otherwise SPMASKR sets the point
+		env.log("SPLOOP at %08x will reload\n", lb.address);
+		lb.reload_pending = true;
+		lb.reload_branch = true;
+		if (lb.kernelr)
+			lb.reload_start = true;
+	}
+}
+
+template <typename Env>
 bool tms320c674x_device::sploop_interruptible(loop_buffer const &lb, Env &env)
 {
 	// SPRUFE8B 7.13.1, checked on a stage boundary where the loop doesn't terminate
 	if (!lb.kernel || lb.loading || lb.draining)
 		return false;
-	if (lb.reloading || lb.reload_pending || lb.reload_start || lb.old_active)
+	if (lb.reloading || lb.reload_test || lb.reload_pending || lb.reload_start || lb.old_active)
 		return false;
 	if ((lb.kind != dasm::OP_SPLOOP) && (lb.cycles <= 3))
 		return false;
@@ -309,6 +324,20 @@ void tms320c674x_device::sploop_end_cycle(loop_buffer &lb, Env &env)
 				return;
 			}
 		}
+		else if (lb.reload_test)
+		{
+			if (!lb.loading && !lb.reloading)
+			{
+				lb.reload_test = false;
+				sploop_reload_test(lb, env);
+				if (!lb.reload_pending && !lb.draining)
+				{
+					// the epilog drained while waiting for the test
+					sploop_stop(lb, env);
+					return;
+				}
+			}
+		}
 		else if (!lb.draining && !lb.reload_pending && !lb.reload_start)
 		{
 			if (sploop_terminate(lb, env))
@@ -325,15 +354,12 @@ void tms320c674x_device::sploop_end_cycle(loop_buffer &lb, Env &env)
 				}
 				lb.draining = true;
 				lb.drain = 0;
-				if (sploop_reload_condition(lb, env))
-				{
-					// SPKERNELR reloads from the first epilog cycle, otherwise SPMASKR sets the point
-					env.log("SPLOOP at %08x will reload\n", lb.address);
-					lb.reload_pending = true;
-					lb.reload_branch = true;
-					if (lb.kernelr)
-						lb.reload_start = true;
-				}
+				// SPRUFE8B 7.9.1, 7.9.5: an early exit (ILC reaches 0 while the body is still loading
+				// or reloading) tests the reload condition at the last loading stage boundary
+				if (lb.loading || lb.reloading)
+					lb.reload_test = true;
+				else
+					sploop_reload_test(lb, env);
 			}
 			else if (sploop_interruptible(lb, env))
 			{
@@ -354,9 +380,9 @@ void tms320c674x_device::sploop_end_cycle(loop_buffer &lb, Env &env)
 	{
 		if (lb.drain >= (lb.dynlen - lb.ii))
 		{
-			if (lb.reload_pending || lb.reload_start)
+			if (lb.reload_pending || lb.reload_start || lb.reload_test)
 			{
-				// drained before the reload point: stay active and wait for it
+				// drained before the reload point (or the reload test): stay active and wait for it
 				lb.draining = false;
 				for (u32 n = 0; n < lb.count; n++)
 					lb.entry[n].valid = false;
@@ -386,6 +412,7 @@ void tms320c674x_device::sploop_stop(loop_buffer &lb, Env &env)
 	lb.int_drain = false;
 	lb.restart = false;
 	lb.kernelr = false;
+	lb.reload_test = false;
 	lb.reload_pending = false;
 	lb.reload_start = false;
 	lb.reload_branch = false;

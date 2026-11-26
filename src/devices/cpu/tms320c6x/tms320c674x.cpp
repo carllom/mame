@@ -292,6 +292,7 @@ void tms320c674x_device::device_start()
 	save_item(NAME(m_lb.int_drain));
 	save_item(NAME(m_lb.restart));
 	save_item(NAME(m_lb.kernelr));
+	save_item(NAME(m_lb.reload_test));
 	save_item(NAME(m_lb.reload_pending));
 	save_item(NAME(m_lb.reload_start));
 	save_item(NAME(m_lb.reload_branch));

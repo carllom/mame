@@ -1169,7 +1169,7 @@ struct tms320c674x_device::drc_lb_state
 		s.cycles = std::min<u32>(s.cycles, 4); // only the first cycles matter
 		put(s.count); put(s.active); put(s.loading); put(s.draining); put(s.fetch); put(s.kind); put(s.ii); put(s.lbc);
 		put(s.loadcnt); put(s.dynlen); put(s.drain); put(s.delay); put(s.stgcyc); put(s.cycles); put(s.kernel); put(s.initial_term);
-		put(s.creg); put(s.z); put(s.address); put(s.int_drain); put(s.restart); put(s.kernelr); put(s.reload_pending);
+		put(s.creg); put(s.z); put(s.address); put(s.int_drain); put(s.restart); put(s.kernelr); put(s.reload_test); put(s.reload_pending);
 		put(s.reload_start); put(s.reload_branch); put(s.reloading); put(s.reloadcnt); put(s.old_active); put(s.old_lbc); put(s.old_drain);
 		for (u32 n = 0; n < lb.count; n++)
 		{

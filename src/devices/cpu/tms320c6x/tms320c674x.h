@@ -212,6 +212,7 @@ private:
 		bool int_drain = false; // draining to take an interrupt
 		bool restart = false;   // restarted after an interrupt (TSR.SPLX was set)
 		bool kernelr = false;   // loop body ended with SPKERNELR
+		bool reload_test = false;    // early exit: test the reload condition at the last (re)loading stage boundary
 		bool reload_pending = false; // reload condition true, waiting for the reload point
 		bool reload_start = false;   // reload begins next cycle
 		bool reload_branch = false;  // a taken branch disables fetch instead of idling the buffer
@@ -295,6 +296,7 @@ private:
 	template <typename Env> void sploop_reload(loop_buffer &lb, Env &env);
 	template <typename Env> bool sploop_terminate(loop_buffer const &lb, Env &env);
 	template <typename Env> bool sploop_reload_condition(loop_buffer const &lb, Env &env);
+	template <typename Env> void sploop_reload_test(loop_buffer &lb, Env &env);
 	template <typename Env> bool sploop_interruptible(loop_buffer const &lb, Env &env);
 	static u32 unit_mask(u8 unit);
 	static u32 insn_nops(insn const &i);
